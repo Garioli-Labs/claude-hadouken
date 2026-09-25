@@ -58,3 +58,37 @@ export function formatarTokens(n) {
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
   return String(n);
 }
+
+// Sequências de escape de terminal (ECMA-48), nas formas de 7 e de 8 bits, em
+// ordem de tentativa: CSI com parâmetros e byte final; cadeias OSC, DCS, SOS,
+// PM e APC até BEL ou ST; e, por fim, qualquer outro ESC mais um caractere
+// (pega também CSI/OSC sem terminador). As classes negadas mantêm a busca
+// linear mesmo em texto hostil com milhares de ESC.
+const ESCAPES = new RegExp([
+  '\\x1b\\[[0-?]*[ -/]*[@-~]',
+  '\\u009b[0-?]*[ -/]*[@-~]',
+  '\\x1b[\\]PX^_][^\\x07\\x1b\\u009c]*(?:\\x07|\\x1b\\\\|\\u009c)',
+  '[\\u0090\\u0098\\u009d\\u009e\\u009f][^\\x07\\x1b\\u009c]*(?:\\x07|\\x1b\\\\|\\u009c)',
+  '\\x1b[\\s\\S]?',
+].join('|'), 'gu');
+
+// O que sobra depois das sequências: controles C0, DEL e C1 (\p{Cc}, inclui
+// quebras de linha e tab), surrogates soltos (\p{Cs}), separadores de linha e
+// parágrafo, controles bidi (\p{Bidi_Control}: U+202A–U+202E, U+2066–U+2069,
+// U+200E, U+200F, U+061C) e os caracteres | e crase.
+const INVISIVEIS = /[\p{Cc}\p{Cs}\p{Bidi_Control}\u{2028}\u{2029}|`]/gu;
+const SANEAR_MAX_PADRAO = 64;
+
+// Texto externo pronto para exibir numa linha (spec 8.1, S2/S3): sem
+// sequências de terminal, sem controles, sem | nem crase, aparado e cortado em
+// `max` pontos de código sem partir par surrogate. Não-string, `max` inválido
+// (usa 64) e resultado vazio (vira null) nunca lançam.
+export function sanear(valor, max = SANEAR_MAX_PADRAO) {
+  if (typeof valor !== 'string') return null;
+  const limite = Number.isInteger(max) && max > 0 ? max : SANEAR_MAX_PADRAO;
+  const limpo = valor.replace(ESCAPES, '').replace(INVISIVEIS, '').trim();
+  // 2 unidades por ponto de código bastam para `limite` pontos inteiros e
+  // poupam o Array.from de percorrer um texto enorme.
+  const cortado = Array.from(limpo.slice(0, limite * 2)).slice(0, limite).join('').trimEnd();
+  return cortado.length > 0 ? cortado : null;
+}
