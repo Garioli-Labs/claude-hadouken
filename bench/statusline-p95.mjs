@@ -1,10 +1,12 @@
-// Wall time of `node src/statusline.js`, from spawn to exit, as Claude Code
-// runs it on every refresh. Zero dependencies. Usage:
+// Wall time of the status line, from spawn to exit, as Claude Code runs it on
+// every refresh. Zero dependencies. Usage:
 //
-//   node bench/statusline-p95.mjs [runs]     (default 100 runs after 5 warm-ups)
+//   node bench/statusline-p95.mjs [runs]     (default 100 runs after 5 warm-up rounds)
 //
-// Spec section 9 sets the target p95 <= 150 ms. This script only reports the
-// numbers; it asserts the outputs, not the target.
+// Spec section 9 sets the target: p95 <= 250 ms on Windows, <= 150 ms on
+// Linux and macOS. This script only reports the numbers (and whether each p95
+// is within the target of this platform); it asserts the outputs, not the
+// target.
 //
 // Worst-case disk state, built in a temporary HADOUKEN_HOME that is removed at
 // the end:
@@ -14,13 +16,16 @@
 // Scenarios: registered (gate, merge, atomic write, render), unregistered (gate
 // only, prints nothing), the same two through the stable shim
 // <home>/bin/statusline.mjs (what settings.json runs), and a bare `node -e ""`
-// as the floor of any Node script. On Node 22.1+ the registered path turns on
-// the compile cache in <home>/cache; the warm-ups fill it.
+// as the floor of any Node script.
+//
+// The scenarios are interleaved: every round runs each scenario once, in a
+// fresh random order (Fisher-Yates), so machine drift (thermal, antivirus,
+// background load) spreads over all rows instead of biasing whichever block
+// ran during it. The warm-up rounds are shared the same way and not measured.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import modulo from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const RUNS = Number.parseInt(process.argv[2] ?? '100', 10);
@@ -29,10 +34,21 @@ if (!Number.isInteger(RUNS) || RUNS < 1) {
   console.error('usage: node bench/statusline-p95.mjs [runs]');
   process.exit(2);
 }
+const ALVO_P95_MS = process.platform === 'win32' ? 250 : 150;
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(repo, 'src', 'statusline.js');
 const importar = (arq) => import(pathToFileURL(path.join(repo, 'src', arq)).href);
+
+// Fisher-Yates on a copy.
+function embaralhar(lista) {
+  const a = [...lista];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench '));
 try {
@@ -81,58 +97,59 @@ try {
   const estado = JSON.parse(fs.readFileSync(path.join(home, ARQ_ESTADO), 'utf8'));
   const nSessoes = Object.keys(estado.sessoes).length;
 
-  const env = { ...process.env, HADOUKEN_HOME: home };
-  const quantil = (ordenados, p) => ordenados[Math.min(ordenados.length - 1, Math.ceil(p * ordenados.length) - 1)];
-  function medir(argv, stdin, conferir) {
-    const tempos = [];
-    for (let i = 0; i < RUNS + WARMUPS; i++) {
-      const t0 = process.hrtime.bigint();
-      const r = spawnSync(process.execPath, argv, { input: stdin, env, encoding: 'utf8' });
-      const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-      if (r.status !== 0 || r.stderr !== '') throw new Error(`run ${i}: status ${r.status}, stderr ${JSON.stringify(r.stderr)}`);
-      conferir(r.stdout);
-      if (i >= WARMUPS) tempos.push(ms);
-    }
-    tempos.sort((a, b) => a - b);
-    return { n: tempos.length, min: tempos[0], p50: quantil(tempos, 0.5), p95: quantil(tempos, 0.95), max: tempos[tempos.length - 1] };
-  }
-
   // The caller's NO_COLOR decides whether the bar is coloured; the check strips
   // the only escapes the bar may carry (the fixed colour codes).
   const PREFIXO_BARRA = 'Opus 5.5\u00b7high \u2502 5h 42%';
   const CORES_FIXAS = /\x1b\[(?:3[123]|0)m/g;
   let barra = '';
-  const registrada = medir([script], JSON.stringify(entrada(uuid(0))), (out) => {
-    if (!out.replace(CORES_FIXAS, '').startsWith(PREFIXO_BARRA)) throw new Error(`registered: unexpected output ${JSON.stringify(out)}`);
+  const barraCerta = (nome) => (out) => {
+    if (!out.replace(CORES_FIXAS, '').startsWith(PREFIXO_BARRA)) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
     barra = out;
-  });
-  const naoRegistrada = medir([script], JSON.stringify(entrada('nao-registrada')), (out) => {
-    if (out !== '') throw new Error(`unregistered: expected no output, got ${JSON.stringify(out)}`);
-  });
+  };
+  const semSaida = (nome) => (out) => {
+    if (out !== '') throw new Error(`${nome}: expected no output, got ${JSON.stringify(out)}`);
+  };
   const shim = path.join(home, DIR_BIN, 'statusline.mjs');
-  const viaShim = medir([shim], JSON.stringify(entrada(uuid(0))), (out) => {
-    if (!out.replace(CORES_FIXAS, '').startsWith(PREFIXO_BARRA)) throw new Error(`registered via shim: unexpected output ${JSON.stringify(out)}`);
-  });
-  const naoRegistradaShim = medir([shim], JSON.stringify(entrada('nao-registrada')), (out) => {
-    if (out !== '') throw new Error(`unregistered via shim: expected no output, got ${JSON.stringify(out)}`);
-  });
-  const nodeVazio = medir(['-e', ''], '', () => {});
+  const registrada = JSON.stringify(entrada(uuid(0)));
+  const naoRegistrada = JSON.stringify(entrada('nao-registrada'));
+  const cenarios = [
+    { nome: 'registered (full path)', argv: [script], stdin: registrada, conferir: barraCerta('registered'), alvo: true },
+    { nome: 'unregistered (gate only)', argv: [script], stdin: naoRegistrada, conferir: semSaida('unregistered'), alvo: true },
+    { nome: 'registered via shim', argv: [shim], stdin: registrada, conferir: barraCerta('registered via shim'), alvo: true },
+    { nome: 'unregistered via shim', argv: [shim], stdin: naoRegistrada, conferir: semSaida('unregistered via shim'), alvo: true },
+    { nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
+  ];
 
+  const env = { ...process.env, HADOUKEN_HOME: home };
+  function rodar(c) {
+    const t0 = process.hrtime.bigint();
+    const r = spawnSync(process.execPath, c.argv, { input: c.stdin, env, encoding: 'utf8' });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    if (r.status !== 0 || r.stderr !== '') throw new Error(`${c.nome}: status ${r.status}, stderr ${JSON.stringify(r.stderr)}`);
+    c.conferir(r.stdout);
+    return ms;
+  }
+  for (let i = 0; i < WARMUPS; i++) for (const c of embaralhar(cenarios)) rodar(c);
+  const tempos = new Map(cenarios.map((c) => [c, []]));
+  for (let i = 0; i < RUNS; i++) for (const c of embaralhar(cenarios)) tempos.get(c).push(rodar(c));
+
+  const quantil = (ordenados, p) => ordenados[Math.min(ordenados.length - 1, Math.ceil(p * ordenados.length) - 1)];
+  const resumo = (lista) => {
+    const o = [...lista].sort((a, b) => a - b);
+    const media = o.reduce((soma, x) => soma + x, 0) / o.length;
+    return { n: o.length, min: o[0], p50: quantil(o, 0.5), media, p95: quantil(o, 0.95), max: o[o.length - 1] };
+  };
   const fmt = (x) => x.toFixed(1).padStart(6);
-  const linha = (nome, r) => `${nome.padEnd(30)} n=${r.n}  min=${fmt(r.min)}  p50=${fmt(r.p50)}  p95=${fmt(r.p95)}  max=${fmt(r.max)} ms`;
-  const cache = typeof modulo.enableCompileCache === 'function'
-    ? `on after the gate (${fs.existsSync(path.join(home, 'cache')) ? 'filled' : 'NOT created'})`
-    : 'unavailable on this Node';
   console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
   console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions in estado.json (${fs.statSync(path.join(home, ARQ_ESTADO)).size} B)`);
-  console.log(`runs: ${RUNS} measured after ${WARMUPS} warm-ups, spawn to exit; colour ${process.env.NO_COLOR ? 'off (NO_COLOR)' : 'on'}; compile cache ${cache}`);
-  console.log(linha('registered (full path)', registrada));
-  console.log(linha('unregistered (gate only)', naoRegistrada));
-  console.log(linha('registered via shim', viaShim));
-  console.log(linha('unregistered via shim', naoRegistradaShim));
-  console.log(linha('bare node -e ""', nodeVazio));
+  console.log(`runs: ${RUNS} interleaved rounds after ${WARMUPS} shared warm-up rounds, spawn to exit; colour ${process.env.NO_COLOR ? 'off (NO_COLOR)' : 'on'}`);
+  for (const c of cenarios) {
+    const r = resumo(tempos.get(c));
+    const veredito = c.alvo ? (r.p95 <= ALVO_P95_MS ? '  within target' : '  OVER target') : '';
+    console.log(`${c.nome.padEnd(26)} n=${r.n}  min=${fmt(r.min)}  p50=${fmt(r.p50)}  mean=${fmt(r.media)}  p95=${fmt(r.p95)}  max=${fmt(r.max)} ms${veredito}`);
+  }
   console.log(`bar: ${JSON.stringify(barra)}`);
-  console.log('target (spec 9): p95 <= 150 ms for the registered path; not asserted here');
+  console.log(`target (spec 9) on ${process.platform}: p95 <= ${ALVO_P95_MS} ms for the status line rows; reported, not asserted`);
 } finally {
   fs.rmSync(home, { recursive: true, force: true });
 }
