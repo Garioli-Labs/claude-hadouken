@@ -1,7 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { effortValido, sanear, TOLERANCIA_JANELA_S } from './util.js';
+import { dirDados, idValido, instante } from './base.js';
+
+// dirDados, idValido e instante moram em base.js (o caminho curto da barra
+// os usa sem carregar este arquivo) e continuam exportados daqui.
+export { dirDados, idValido, instante } from './base.js';
 
 // Camada de estado: a statusline grava `estado.json`; hooks e relatório só
 // leem. É a fronteira de confiança dos dados em disco (spec 8.1, S1–S3, S9):
@@ -16,14 +20,9 @@ export const SESSAO_MAX_MS = 24 * 3_600_000;
 const VERSAO = 1;
 const MAX_BYTES_PADRAO = 1_048_576;
 const MAX_SESSOES = 50;
-// Tolerância para relógio adiantado: um `at` até 5 min no futuro ainda vale.
-const FUTURO_MAX_MS = 5 * 60_000;
-// Um instante ISO tem 24 caracteres; texto maior que isto nem vai ao Date.parse.
-const MAX_AT_CHARS = 64;
 const MAX_MODEL = 40;
 // cwd serve para exibir; nunca vira caminho de arquivo.
 const MAX_CWD = 200;
-const ID_SESSAO = /^[A-Za-z0-9_-]{1,64}$/;
 const JANELAS = ['five_hour', 'seven_day'];
 // Duração de cada janela em segundos: uma guardada com reset além de agora +
 // duração + tolerância não pode ter vindo do servidor (relógio, arquivo mexido)
@@ -54,24 +53,6 @@ const apagar = (arquivo) => { try { fs.unlinkSync(arquivo); } catch { /* já nã
 const esperar = (ms) => {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* segue sem esperar */ }
 };
-
-// Diretório de dados, sempre absoluto: HADOUKEN_HOME (resolvido contra o cwd
-// no momento da chamada, para que caminhos derivados, como shims e o comando
-// da statusline, não dependam do cwd de quem os usa depois) ou
-// ~/.claude/hadouken. Sem home conhecida (os.homedir() lança ou não devolve
-// caminho absoluto) devolve null, nunca um diretório compartilhado: todo
-// chamador trata null como "sem leitura" e não faz I/O (contrato de T6, T7 e
-// T10). Nunca lança.
-export function dirDados() {
-  try {
-    const configurado = process.env.HADOUKEN_HOME;
-    if (configurado) return path.resolve(configurado);
-    const home = os.homedir();
-    return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'hadouken') : null;
-  } catch {
-    return null;
-  }
-}
 
 // Lê um JSON de estado com teto de tamanho. `maxBytes` inválido usa o padrão
 // (1 MB). Motivos: 'ausente' (não existe ou não dá para ler), 'invalido' (não é
@@ -182,17 +163,6 @@ function estadoVazio() {
   return { versao: VERSAO, at: null, five_hour: null, seven_day: null, sessoes: Object.create(null) };
 }
 
-// Instante gravado em texto: string de até 64 caracteres que o Date.parse
-// entende e que não está mais que 5 min à frente de `agoraMs`. Devolve o
-// instante em ms ou null. O passado não é recusado aqui: a idade máxima é
-// decisão de quem chama (LIMITE_VELHO_MS, SESSAO_MAX_MS). Nunca lança.
-export function instante(valor, agoraMs) {
-  if (!numeroFinito(agoraMs)) return null;
-  if (typeof valor !== 'string' || valor.length > MAX_AT_CHARS) return null;
-  const t = Date.parse(valor);
-  return Number.isFinite(t) && t <= agoraMs + FUTURO_MAX_MS ? t : null;
-}
-
 // Janela de limite da conta: percentual finito em 0–100 e reset em segundos
 // epoch finito, positivo e abaixo de 1e11. Devolve cópia só com os dois campos.
 function janela(j) {
@@ -202,13 +172,6 @@ function janela(j) {
   if (usado === null || !numeroFinito(reset) || reset <= 0 || reset >= 1e11) return null;
   return { used_percentage: usado, resets_at: reset };
 }
-
-// Id de sessão aceitável como chave: ^[A-Za-z0-9_-]{1,64}$ e, além do padrão,
-// nunca um membro de Object.prototype (__proto__, constructor, toString...),
-// que casa com a regex mas, num objeto comum, faria a busca devolver o membro
-// herdado. Mesmo validador para estado.json, o registro de ativação (ativas/)
-// e os hooks. Nunca lança.
-export const idValido = (id) => typeof id === 'string' && ID_SESSAO.test(id) && !(id in Object.prototype);
 
 // O mesmo validador serve à sessão nova (stdin) e às lidas do disco.
 function sessaoValida(bruta, agoraMs) {

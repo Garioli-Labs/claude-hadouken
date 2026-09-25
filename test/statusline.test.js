@@ -2,7 +2,6 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import modulo from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -358,24 +357,23 @@ test('sessão não registrada não escreve nada: árvore inteira igual e sem cac
   assert.equal(fs.existsSync(path.join(home, 'cache')), false);
 });
 
-// module.enableCompileCache existe a partir do Node 22.1; no Node 20 a barra
-// segue sem cache e nada é criado.
-test('cache de compilação: só depois do gate, em <home>/cache, e com entradas', () => {
+// A barra de uma sessão registrada grava só o estado.json: nenhuma pasta nova
+// (o cache de compilação do Node foi medido sem ganho e retirado; voltar com
+// ele, ou com qualquer outra escrita, tem de ser decisão explícita).
+test('sessão registrada muda só o estado.json: sem cache/ nem entrada nova', () => {
   const home = homePovoado();
   registrar(home, 's1');
+  const antes = arvore(home);
   const r = rodar(JSON.stringify(entradaValida()), home, { NODE_COMPILE_CACHE: undefined });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
   assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
-  const cache = path.join(home, 'cache');
-  if (typeof modulo.enableCompileCache === 'function') {
-    assert.ok(fs.lstatSync(cache).isDirectory());
-    // Ligado antes do import de formato.js: ao menos um módulo compilado depois.
-    const arquivos = fs.readdirSync(cache, { recursive: true, withFileTypes: true }).filter((e) => e.isFile());
-    assert.ok(arquivos.length >= 1, `cache vazio: ${JSON.stringify(fs.readdirSync(cache, { recursive: true }))}`);
-  } else {
-    assert.equal(fs.existsSync(cache), false);
-  }
+  const depois = arvore(home);
+  const ehEstado = (item) => item.startsWith('estado.json|');
+  assert.deepEqual(depois.filter((i) => !ehEstado(i)), antes.filter((i) => !ehEstado(i)));
+  assert.equal(depois.filter(ehEstado).length, 1);
+  assert.notDeepEqual(depois.filter(ehEstado), antes.filter(ehEstado));
+  assert.equal(fs.existsSync(path.join(home, 'cache')), false);
 });
 
 // Lista os módulos do plugin que o processo da barra carrega, por um gancho de
@@ -402,18 +400,18 @@ else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
   return { r, nomes: [...new Set(urls.map((u) => path.basename(fileURLToPath(u))))].sort() };
 }
 
-// estado.js entra no caminho curto porque ativas.js importa dele dirDados e
-// idValido; formato.js (e alerta.js e ritmo.js, que vêm com ele) só depois do gate.
-test('gate antes dos imports: sessão não registrada não carrega formato.js', () => {
+// O caminho curto só traz base.js (dirDados e idValido, via ativas.js);
+// estado.js e formato.js (com alerta.js e ritmo.js) só depois do gate.
+test('gate antes dos imports: sessão não registrada não carrega estado.js nem formato.js', () => {
   const home = novoHome();
   registrar(home, 'outra');
   const fora = modulosCarregados(home, JSON.stringify(entradaValida()));
   assert.equal(fora.r.status, 0, fora.r.stderr);
   assert.equal(fora.r.stdout, '');
-  assert.deepEqual(fora.nomes, ['ativas.js', 'estado.js', 'statusline.js', 'util.js']);
+  assert.deepEqual(fora.nomes, ['ativas.js', 'base.js', 'statusline.js', 'util.js']);
   registrar(home, 's1');
   const dentro = modulosCarregados(home, JSON.stringify(entradaValida()));
   assert.equal(dentro.r.status, 0, dentro.r.stderr);
   assert.match(dentro.r.stdout, /^Opus 5\.5 │ 5h 10%/);
-  assert.deepEqual(dentro.nomes, ['alerta.js', 'ativas.js', 'estado.js', 'formato.js', 'ritmo.js', 'statusline.js', 'util.js']);
+  assert.deepEqual(dentro.nomes, ['alerta.js', 'ativas.js', 'base.js', 'estado.js', 'formato.js', 'ritmo.js', 'statusline.js', 'util.js']);
 });

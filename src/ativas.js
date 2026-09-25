@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { dirDados, idValido } from './estado.js';
+import { dirDados, idValido } from './base.js';
 
 // Registro de ativação (spec 8.2). O Claude Code recarrega a `statusLine` em
 // sessões já abertas, então instalar o plugin mudaria a barra delas; só as

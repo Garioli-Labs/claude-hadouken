@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   registrarSessao, sessaoAtiva, renovarSessao, idadeSessao, DIR_ATIVAS, ATIVA_MAX_MS, RENOVAR_APOS_MS,
 } from '../src/ativas.js';
+import { dirDados } from '../src/base.js';
 
 // Registro de ativacao (spec 8.2): um arquivo vazio por sessao em
 // ativas/<hex(session_id)>; a data de modificacao e o unico dado.
@@ -485,6 +486,9 @@ test('sem home: registrar devolve sem_diretorio; gate e renovacao sao false', ()
   try {
     for (const falso of falsos) {
       os.homedir = falso;
+      // Falha antes de gravar: se a troca nao valesse, o registro iria para o
+      // ~/.claude/hadouken de verdade.
+      assert.equal(dirDados(), null);
       assert.deepEqual(registrarSessao('s1', agora), { ok: false, motivo: 'sem_diretorio' });
       assert.equal(sessaoAtiva('s1', agora), false);
       assert.equal(idadeSessao('s1', agora), null);
