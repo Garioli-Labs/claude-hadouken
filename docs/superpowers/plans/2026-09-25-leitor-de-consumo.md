@@ -33,7 +33,11 @@
 | V4 | Repo público: minutos grátis nos runners padrão. Pesos: Linux 1, Windows 2, macOS 10. Cada job arredondado para cima ao minuto. Cache: 10 GB por repo | docs.github.com/en/billing/concepts/product-billing/github-actions; docs.github.com/en/billing/reference/actions-runner-pricing; docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching |
 | V5 | Injeção de contexto: stdout `{"hookSpecificOutput":{"hookEventName":"<Evento>","additionalContext":"<texto>"}}` com código 0. Stdin dos hooks traz `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `source` (SessionStart) e `effort: {"level": "..."}`. Timeout padrão 30 s, configurável em segundos. Statusline em `settings.json`: `{"type":"command","command":"...","padding":0}`; stdin traz `model.display_name`, `context_window.used_percentage`, `cost.total_input_tokens`, `cost.total_output_tokens`, `rate_limits.five_hour|seven_day.{used_percentage,resets_at}`, `prompt_cache.hit_ratio` | code.claude.com/docs/en/hooks; code.claude.com/docs/en/statusline |
 
-`effort` pode chegar como string ou como `{ "level": "..." }`: todo leitor usa `normalizarEffort` (Task 2).
+| V1 | Executada em 2026-09-25 com OK do Sr. Garioli, `settings.json` restaurado. Chegam: `rate_limits.five_hour` e `.seven_day` (`used_percentage`, `resets_at`), `model.display_name`, `effort: {"level": "medium"}`, `context_window.used_percentage`, `prompt_cache.hit_ratio`. **Divergência:** `cost` NÃO traz `total_input_tokens`/`total_output_tokens` (só `total_cost_usd`, durações e linhas); `context_window.total_input_tokens` é o tamanho do contexto atual, não acumulado | Sonda local |
+
+`effort` pode chegar como string ou como `{ "level": "..." }`: todo leitor usa `normalizarEffort` (Task 1).
+
+**Ruling V1 (2026-09-25):** o último segmento da barra passa de `sessão N tok` para `cache NN%` (`prompt_cache.hit_ratio`), e `estado.sessoes[id].tokens` vira `cache_hit`. Tokens por sessão continuam no `/consumo`, vindos dos transcripts. Custo se errado: um segmento da barra a trocar.
 
 ## Review Focus
 
@@ -619,7 +623,7 @@ const agora = Date.UTC(2026, 8, 25, 18, 0);
 const agoraS = Math.floor(agora / 1000);
 const entrada = (extra = {}) => ({
   session_id: 's1', cwd: 'C:/tmp/proj x', model: { display_name: 'Opus 5.5' }, effort: { level: 'high' },
-  context_window: { used_percentage: 31 }, cost: { total_input_tokens: 1000, total_output_tokens: 200 },
+  context_window: { used_percentage: 31 }, prompt_cache: { hit_ratio: 0.975 },
   rate_limits: { five_hour: { used_percentage: 42, resets_at: agoraS + 3600 }, seven_day: { used_percentage: 48, resets_at: agoraS + 86400 } },
   ...extra,
 });
@@ -649,7 +653,7 @@ test('atualizarEstado grava limites da conta e sessão', () => {
   assert.equal(e.versao, 1);
   assert.equal(e.five_hour.used_percentage, 42);
   assert.equal(e.sessoes.s1.effort, 'high');
-  assert.equal(e.sessoes.s1.tokens, 1200);
+  assert.equal(e.sessoes.s1.cache_hit, 0.975);
 });
 
 test('entrada sem rate_limits preserva os limites anteriores', () => {
@@ -747,12 +751,11 @@ export function atualizarEstado(entrada, agoraMs) {
     if (agoraMs - Date.parse(s.at) <= SESSAO_MAX_MS) estado.sessoes[id] = s;
   }
   if (entrada?.session_id) {
-    const c = entrada.cost ?? {};
-    const tokens = typeof c.total_input_tokens === 'number' || typeof c.total_output_tokens === 'number'
-      ? (c.total_input_tokens ?? 0) + (c.total_output_tokens ?? 0) : null;
+    const hr = entrada.prompt_cache?.hit_ratio;
     estado.sessoes[entrada.session_id] = {
       at, model: entrada.model?.display_name ?? null, effort: normalizarEffort(entrada.effort),
-      cwd: entrada.cwd ?? null, context_pct: entrada.context_window?.used_percentage ?? null, tokens,
+      cwd: entrada.cwd ?? null, context_pct: entrada.context_window?.used_percentage ?? null,
+      cache_hit: typeof hr === 'number' ? hr : null,
     };
   }
   const r = gravarJsonAtomico(arq, estado);
@@ -807,12 +810,12 @@ const H = 3600_000;
 const reset7 = 1_800_000_000;
 const agora = reset7 * 1000 - 84 * H; // esperado 50%
 const agoraS = Math.floor(agora / 1000);
-const entrada = { model: { display_name: 'Opus 5.5' }, effort: { level: 'high' }, context_window: { used_percentage: 31 }, cost: { total_input_tokens: 1_000_000, total_output_tokens: 200_000 } };
+const entrada = { model: { display_name: 'Opus 5.5' }, effort: { level: 'high' }, context_window: { used_percentage: 31 }, prompt_cache: { hit_ratio: 0.9749 } };
 const limites = { five_hour: { used_percentage: 42, resets_at: agoraS + 3600 }, seven_day: { used_percentage: 61, resets_at: reset7 } };
 
 test('barra completa sem cor', () => {
   const s = formatarBarra({ entrada, limites, agoraMs: agora, cor: false });
-  assert.match(s, /^Opus 5\.5·high │ 5h 42% ↻\d\d:\d\d │ 7d 61%\/50% econ ↻\S+ \d\d:\d\d │ ctx 31% │ sessão 1\.2M tok$/);
+  assert.match(s, /^Opus 5\.5·high │ 5h 42% ↻\d\d:\d\d │ 7d 61%\/50% econ ↻\S+ \d\d:\d\d │ ctx 31% │ cache 97%$/);
 });
 
 test('sem limites mostra traços', () => {
@@ -821,7 +824,7 @@ test('sem limites mostra traços', () => {
 });
 
 test('entrada vazia não quebra', () => {
-  assert.equal(formatarBarra({ entrada: {}, limites: null, agoraMs: agora, cor: false }), '— │ 5h — │ 7d — │ ctx — │ sessão — tok');
+  assert.equal(formatarBarra({ entrada: {}, limites: null, agoraMs: agora, cor: false }), '— │ 5h — │ 7d — │ ctx — │ cache —');
 });
 
 test('cor vermelha em 5h ≥ 80', () => {
@@ -840,7 +843,7 @@ Expected: FAIL, módulo inexistente.
 `src/formato.js`:
 ```js
 import { faixa5h, faixa7d } from './alerta.js';
-import { horaLocal, diaHora, formatarTokens, normalizarEffort } from './util.js';
+import { horaLocal, diaHora, normalizarEffort } from './util.js';
 
 const COR = { verde: '\x1b[32m', amarelo: '\x1b[33m', vermelho: '\x1b[31m', fim: '\x1b[0m' };
 const COR_5H = { ok: 'verde', atencao: 'amarelo', serializar: 'vermelho', fechar: 'vermelho' };
@@ -869,9 +872,10 @@ export function formatarBarra({ entrada, limites, agoraMs, cor }) {
   const ctx = entrada?.context_window?.used_percentage;
   partes.push(typeof ctx === 'number' ? `ctx ${pct(ctx)}` : 'ctx —');
 
-  const c = entrada?.cost ?? {};
-  const tem = typeof c.total_input_tokens === 'number' || typeof c.total_output_tokens === 'number';
-  partes.push(`sessão ${tem ? formatarTokens((c.total_input_tokens ?? 0) + (c.total_output_tokens ?? 0)) : '—'} tok`);
+  // V1 (2026-09-25): a statusline não traz tokens acumulados da sessão; o acerto de cache
+  // (prompt_cache.hit_ratio) é o sinal de desperdício disponível ao vivo.
+  const hr = entrada?.prompt_cache?.hit_ratio;
+  partes.push(typeof hr === 'number' ? `cache ${Math.floor(hr * 100)}%` : 'cache —');
 
   return partes.join(' │ ');
 }
@@ -2156,7 +2160,7 @@ import path from 'node:path';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench '));
 const env = { ...process.env, HADOUKEN_HOME: home, NO_COLOR: '1' };
 const s = Math.floor(Date.now() / 1000);
-const entrada = JSON.stringify({ session_id: 'b', model: { display_name: 'Opus 5.5' }, effort: { level: 'high' }, context_window: { used_percentage: 30 }, cost: { total_input_tokens: 1e6, total_output_tokens: 2e5 }, rate_limits: { five_hour: { used_percentage: 40, resets_at: s + 3600 }, seven_day: { used_percentage: 50, resets_at: s + 86400 } } });
+const entrada = JSON.stringify({ session_id: 'b', model: { display_name: 'Opus 5.5' }, effort: { level: 'high' }, context_window: { used_percentage: 30 }, prompt_cache: { hit_ratio: 0.97 }, rate_limits: { five_hour: { used_percentage: 40, resets_at: s + 3600 }, seven_day: { used_percentage: 50, resets_at: s + 86400 } } });
 
 function p95(script, input, n = 100) {
   const t = [];

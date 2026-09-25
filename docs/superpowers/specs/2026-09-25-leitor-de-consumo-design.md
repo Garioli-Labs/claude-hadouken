@@ -25,7 +25,7 @@ O Leitor de consumo mede, mostra e anuncia o consumo real, em qualquer projeto, 
 
 Sucesso significa:
 
-1. A barra de status mostra, em toda sessão, modelo·effort, janela de 5 h, janela de 7 dias com ritmo esperado e modo, contexto e tokens da sessão.
+1. A barra de status mostra, em toda sessão, modelo·effort, janela de 5 h, janela de 7 dias com ritmo esperado e modo, contexto e acerto de cache da sessão.
 2. O Claude recebe automaticamente uma linha de aviso quando a faixa de 5 h ou o modo semanal mudam, e nunca a mesma linha duas vezes na mesma faixa.
 3. `/consumo` produz o relatório de limites, tokens por projeto e por modelo × effort, taxa de acerto de cache e números do GitHub por repo.
 4. Nenhuma falha do plugin trava ou atrasa o Claude; todo dado ausente aparece como "indisponível" ou "sem leitura", nunca como zero.
@@ -47,7 +47,7 @@ Sucesso significa:
 | Janela de 5 h (% usado, reset) | JSON da statusline: `rate_limits.five_hour.used_percentage`, `rate_limits.five_hour.resets_at` (epoch Unix) | Documentado em code.claude.com/docs/en/statusline; verificação V1 |
 | Janela de 7 dias | `rate_limits.seven_day.used_percentage`, `rate_limits.seven_day.resets_at` | Documentado; verificação V1 |
 | Modelo e effort da sessão | Statusline: `model.display_name`, `effort` | Documentado; verificação V1 |
-| Contexto e tokens da sessão | Statusline: `context_window.used_percentage`, `cost.total_input_tokens`, `cost.total_output_tokens` | Documentado; verificação V1 |
+| Contexto e acerto de cache da sessão | Statusline: `context_window.used_percentage`, `prompt_cache.hit_ratio` (V1: `cost` não traz tokens acumulados; tokens por sessão vêm dos transcripts) | Verificado (V1, 2026-09-25) |
 | Tokens por turno, modelo, effort | Transcripts `~/.claude/projects/<projeto>/*.jsonl`: `message.model`, `message.usage` (input, output, cache_read, cache_creation), `effort`, `perTurnEffort`, `cwd`, `sessionId`, `requestId`, `timestamp` | Verificado localmente em 2026-09-25 |
 | Execuções do GitHub Actions | `gh api repos/<repo>/actions/runs` e `.../runs/<id>/jobs` | Verificado com o token atual (escopos `repo`, `read:org`) |
 | Cache do Actions | `gh api repos/<repo>/actions/cache/usage` | Verificado |
@@ -104,7 +104,7 @@ Cada unidade é um módulo com um arquivo, uma responsabilidade e testes própri
     "five_hour": { "used_percentage": 42, "resets_at": 1790000000 },
     "seven_day": { "used_percentage": 48, "resets_at": 1790400000 },
     "sessoes": {
-      "<session_id>": { "at": "...", "model": "Opus 5.5", "effort": "high", "cwd": "...", "context_pct": 31, "tokens": 1200000 }
+      "<session_id>": { "at": "...", "model": "Opus 5.5", "effort": "high", "cwd": "...", "context_pct": 31, "cache_hit": 0.975 }
     }
   }
   ```
@@ -138,7 +138,7 @@ Entrada: estado lido, `alertas.json` anterior, `agora`. Saída: `{ linha | null,
 
 - Lê o JSON oficial da entrada padrão, chama `ritmo`, grava `estado` e imprime uma linha:
   ```
-  Opus 5.5·high │ 5h 42% ↻18:40 │ 7d 48%/41% econ ↻qui 22:00 │ ctx 31% │ sessão 1.2M tok
+  Opus 5.5·high │ 5h 42% ↻18:40 │ 7d 48%/41% econ ↻qui 22:00 │ ctx 31% │ cache 97%
   ```
 - Cores ANSI por faixa: verde (`ok`/`normal`), amarelo (`atencao`/`economico`), vermelho (`serializar`/`fechar`/`so-leitura`). `folga` em verde com o rótulo `folga`.
 - Campo ausente no JSON → o segmento mostra `—`; sem `rate_limits` → `5h —  7d —`.
