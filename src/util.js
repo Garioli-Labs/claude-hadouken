@@ -133,6 +133,11 @@ const ESCAPES = new RegExp([
 // de emoji unidas por ZWJ viram seus componentes, e um caractere atribuído
 // depois da versão do Unicode do Node em uso conta como Cn e sai.
 const INVISIVEIS = /[\p{C}\p{Zl}\p{Zp}|`]/gu;
+// Uma enxurrada de marcas combinantes (\p{M}) empilha num glifo só e vaza
+// para as linhas vizinhas em alguns terminais. Duas seguidas bastam para o
+// texto real (vietnamita, NFD, keycap de emoji); o resto sai. Roda depois de
+// INVISIVEIS, então marcas separadas por invisíveis também contam juntas.
+const MARCAS_EXCESSO = /(\p{M}{2})\p{M}+/gu;
 const SANEAR_MAX_PADRAO = 64;
 // Teto da entrada (unidades UTF-16) antes das expressões. O resultado é no
 // máximo `max` pontos de código do começo, e um corte no meio de uma sequência
@@ -149,7 +154,7 @@ export function sanear(valor, max = SANEAR_MAX_PADRAO) {
   try {
     const limite = Number.isInteger(max) && max > 0 ? max : SANEAR_MAX_PADRAO;
     const bruto = valor.length > SANEAR_MAX_ENTRADA ? valor.slice(0, SANEAR_MAX_ENTRADA) : valor;
-    const limpo = bruto.replace(ESCAPES, '').replace(INVISIVEIS, '').trim();
+    const limpo = bruto.replace(ESCAPES, '').replace(INVISIVEIS, '').replace(MARCAS_EXCESSO, '$1').trim();
     // 2 unidades por ponto de código bastam para `limite` pontos inteiros e
     // poupam o Array.from de percorrer um texto enorme.
     const cortado = Array.from(limpo.slice(0, limite * 2)).slice(0, limite).join('').trimEnd();

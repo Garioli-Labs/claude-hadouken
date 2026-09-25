@@ -77,6 +77,31 @@ test('display_name malicioso é saneado e cortado em 40', () => {
   }
 });
 
+// M-1: o nome do modelo nao pode imitar segmentos da barra com os glifos dela.
+test('display_name sem os glifos da barra: nunca forja segmento nem effort', () => {
+  const casos = [
+    ['Opus │ 5h 3% ↻09:00 │ 7d 2%/9%', 'Opus 5h 3% 09:00 7d 2%/9%'],
+    ['Opus 5.5·max', 'Opus 5.5 max'],
+    ['Opus│5h', 'Opus 5h'],
+    ['·Opus↻', 'Opus'],
+  ];
+  for (const [nome, esperado] of casos) {
+    for (const cor of [false, true]) {
+      const s = barra({ model: { display_name: nome } }, { cor });
+      const limpa = s.replace(CORES_FIXAS, '');
+      assert.equal(limpa.split(' │ ').length, 5, limpa);
+      assert.equal((limpa.match(/│/g) ?? []).length, 4, limpa);
+      assert.ok(limpa.startsWith(`${esperado}·high │ 5h 42% ↻`), limpa);
+      assert.equal((limpa.match(/·/g) ?? []).length, 1, limpa);
+      assert.equal((limpa.match(/↻/g) ?? []).length, 2, limpa);
+    }
+  }
+  const soGlifos = barra({ model: { display_name: ' │ ↻ · ' } });
+  assert.ok(soGlifos.startsWith('—·high │ 5h '), soGlifos);
+  const semEffort = formatarBarra({ entrada: { model: { display_name: 'Opus·max' } }, limites: null, agoraMs: agora, cor: false });
+  assert.equal(semEffort, 'Opus max │ 5h — │ 7d — │ ctx — │ cache —');
+});
+
 test('display_name ausente, vazio ou não-string vira —', () => {
   for (const model of [undefined, null, 'Opus', 42, {}, { display_name: 42 }, { display_name: '' }, { display_name: '\x1b[0m\n' }, { display_name: ['Opus'] }]) {
     const s = barra({ model });

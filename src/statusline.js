@@ -11,8 +11,14 @@ import { formatarBarra } from './formato.js';
 // erro no stdout; sem ouvinte ele derrubaria o processo com código 1.
 process.stdout.on('error', () => {});
 
+// O Claude Code fecha o stdin depois do JSON; o prazo é só a rede de segurança
+// se um dia não fechar. Fica abaixo do debounce de 300 ms da barra, senão
+// cada execução seria cancelada pela seguinte e a barra congelaria. Os hooks
+// seguem com o padrão de 1 s de lerStdin.
+const PRAZO_STDIN_MS = 250;
+
 async function principal() {
-  const texto = await lerStdin();
+  const texto = await lerStdin(PRAZO_STDIN_MS);
   let entrada = {};
   try {
     const v = JSON.parse(texto);

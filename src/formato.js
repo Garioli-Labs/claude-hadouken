@@ -13,6 +13,10 @@ const ROTULO_7D = { normal: '', folga: ' folga', economico: ' econ', 'so-leitura
 const MAX_MODELO = 40;
 const SEM_VALOR = '—';
 const SEPARADOR = ' │ ';
+// Glifos que a própria barra usa (separador, reset, effort). Um display_name
+// com eles forjaria segmentos ("Opus │ 5h 3% ↻09:00") ou um effort; viram
+// espaço antes de exibir.
+const GLIFOS_BARRA = /[│↻·]/gu;
 
 const noIntervalo = (n, min, max) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -47,7 +51,8 @@ export function formatarBarra(opcoes) {
     const l = ehObjeto(limites) ? limites : {};
     const ligado = cor === true;
 
-    const nome = sanear(ehObjeto(e.model) ? e.model.display_name : undefined, MAX_MODELO) ?? SEM_VALOR;
+    const saneado = sanear(ehObjeto(e.model) ? e.model.display_name : undefined, MAX_MODELO);
+    const nome = (saneado ?? '').replace(GLIFOS_BARRA, ' ').replace(/ {2,}/g, ' ').trim() || SEM_VALOR;
     // A mesma lista que estado.js usa ao gravar a sessão (util.EFFORTS_VALIDOS).
     const effort = effortValido(e.effort);
     const partes = [effort ? `${nome}·${effort}` : nome];

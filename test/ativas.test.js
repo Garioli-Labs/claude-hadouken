@@ -44,7 +44,7 @@ function link(t, alvo, caminho, tipo) {
   }
 }
 
-test('constantes: pasta ativas, 30 dias de vigencia, renovacao no maximo por hora', () => {
+test('contrato da spec 8.2 que T7 usa: pasta ativas, 30 dias de vigencia, renovacao por hora', () => {
   assert.equal(DIR_ATIVAS, 'ativas');
   assert.equal(ATIVA_MAX_MS, 30 * D);
   assert.equal(RENOVAR_APOS_MS, H);
@@ -299,7 +299,7 @@ test('ids invalidos: nada registrado, nada ativo, nada renovado, nada criado', (
   assert.deepEqual(fs.readdirSync(dir), []);
 });
 
-test('Object.prototype poluido nao ativa nada', () => {
+test('Object.prototype poluido: o gate consulta o disco, nunca um objeto (guarda de regressao)', () => {
   Object.prototype.s9 = true;
   try {
     assert.equal(sessaoAtiva('s9', agora), false);

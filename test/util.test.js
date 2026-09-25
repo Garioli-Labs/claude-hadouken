@@ -164,6 +164,23 @@ test('sanear preserva acentos, CJK, emoji, modificadores e seletores de variacao
   assert.equal(sanear('\u{1F468}\u{200D}\u{1F469}'), '\u{1F468}\u{1F469}');
 });
 
+test('sanear deixa no maximo 2 marcas combinantes seguidas', () => {
+  const agudo = String.fromCodePoint(0x301);
+  const ponto = String.fromCodePoint(0x323);
+  const circ = String.fromCodePoint(0x302);
+  const zwj = String.fromCodePoint(0x200d);
+  assert.equal(sanear('O' + agudo.repeat(39), 40), 'O' + agudo.repeat(2));
+  assert.equal(sanear('O' + agudo.repeat(3) + 'k'), 'O' + agudo.repeat(2) + 'k');
+  // Marcas separadas por invisiveis tambem se juntam e sao cortadas.
+  assert.equal(sanear('a' + (agudo + zwj).repeat(10)), 'a' + agudo.repeat(2));
+  // Ate duas marcas por base: vietnamita (e + ponto + circunflexo), NFD e keycap.
+  const legitimo = 'e' + ponto + circ + ' a' + String.fromCodePoint(0x303) + 'o 1' + String.fromCodePoint(0xfe0f, 0x20e3);
+  assert.equal(sanear(legitimo), legitimo);
+  // Cada base tem suas duas: a flood nao come a marca da letra seguinte.
+  assert.equal(sanear('a' + agudo.repeat(5) + 'e' + agudo), 'a' + agudo.repeat(2) + 'e' + agudo);
+  assert.equal(sanear(agudo.repeat(10)), agudo.repeat(2));
+});
+
 test('sanear corta a entrada em 1 MiB antes das expressoes', () => {
   // O terminador do OSC fica alem de 1 MiB: com o corte, a sequencia nao fecha
   // e sobra o payload como texto visivel; sem o corte, sobraria "visivel".

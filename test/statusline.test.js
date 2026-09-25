@@ -232,6 +232,44 @@ test('registro adulterado: sem barra, sem erro, sem gravar', () => {
   }
 });
 
+// M-5: o Claude Code fecha o stdin, mas se um dia deixar aberto a barra tem
+// de sair dentro do ciclo de 300 ms, e nao em 1 s (prazo dos hooks).
+function cronometrar(home, fecharStdin) {
+  return new Promise((resolve, reject) => {
+    const inicio = process.hrtime.bigint();
+    const filho = spawn(process.execPath, [script], { env: ambiente(home), stdio: ['pipe', 'pipe', 'pipe'] });
+    let saida = '';
+    let erro = '';
+    filho.stdout.setEncoding('utf8');
+    filho.stderr.setEncoding('utf8');
+    filho.stdout.on('data', (c) => { saida += c; });
+    filho.stderr.on('data', (c) => { erro += c; });
+    const guarda = setTimeout(() => { filho.kill(); reject(new Error('filho não terminou')); }, 15_000);
+    filho.on('error', (e) => { clearTimeout(guarda); reject(e); });
+    filho.on('close', (codigo) => {
+      clearTimeout(guarda);
+      filho.stdin.destroy();
+      resolve({ codigo, saida, erro, ms: Number(process.hrtime.bigint() - inicio) / 1e6 });
+    });
+    filho.stdin.on('error', () => {});
+    const texto = JSON.stringify(entradaValida());
+    if (fecharStdin) filho.stdin.end(texto);
+    else filho.stdin.write(texto);
+  });
+}
+
+test('stdin que nunca fecha: a barra sai no prazo curto e ainda imprime', async () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  await cronometrar(home, true);
+  const base = await cronometrar(home, true);
+  const aberto = await cronometrar(home, false);
+  assert.equal(aberto.codigo, 0, aberto.erro);
+  assert.equal(aberto.erro, '');
+  assert.match(aberto.saida, /^Opus 5\.5 │ 5h 10% ↻/);
+  assert.ok(aberto.ms - base.ms < 700, `aberto ${aberto.ms.toFixed(0)} ms vs base ${base.ms.toFixed(0)} ms`);
+});
+
 test('stdout fechado antes da escrita: sai com 0 e sem stack trace', async () => {
   const home = novoHome();
   registrar(home, 's1');
