@@ -1,0 +1,33 @@
+import { lerStdin } from './util.js';
+import { atualizarEstado, limitesValidos } from './estado.js';
+import { sessaoAtiva } from './ativas.js';
+import { formatarBarra } from './formato.js';
+
+// Script da statusline: o Claude Code o executa a cada atualização da barra,
+// com o JSON da sessão no stdin. Imprime uma linha (ou nada) e sai sempre com
+// código 0, sem stack trace.
+
+// Se o Claude Code fechar o pipe antes da escrita, o EPIPE vira evento de
+// erro no stdout; sem ouvinte ele derrubaria o processo com código 1.
+process.stdout.on('error', () => {});
+
+async function principal() {
+  const texto = await lerStdin();
+  let entrada = {};
+  try {
+    const v = JSON.parse(texto);
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) entrada = v;
+  } catch { /* entrada inválida: segue com {} */ }
+  const agoraMs = Date.now();
+  // Spec 8.2: sessão que não passou pelo SessionStart do plugin (aberta antes
+  // da instalação, ou sem session_id válido) fica como estava: nada impresso,
+  // nada gravado.
+  if (!sessaoAtiva(entrada.session_id, agoraMs)) return;
+  const { estado } = atualizarEstado(entrada, agoraMs);
+  const limites = limitesValidos(estado, agoraMs);
+  // no-color.org: NO_COLOR presente e não vazio desliga as cores.
+  const cor = !process.env.NO_COLOR;
+  process.stdout.write(formatarBarra({ entrada, limites, agoraMs, cor }));
+}
+
+principal().catch(() => {}).finally(() => { process.exitCode = 0; });

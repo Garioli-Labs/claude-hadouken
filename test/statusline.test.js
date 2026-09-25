@@ -1,0 +1,208 @@
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { registrarSessao } from '../src/ativas.js';
+
+const script = fileURLToPath(new URL('../src/statusline.js', import.meta.url));
+const H = 3600_000;
+
+// Ambiente do filho: HADOUKEN_HOME aponta para uma pasta temporária e NO_COLOR
+// vem ligado; um valor undefined em `extra` tira a variável.
+function ambiente(home, extra = {}) {
+  const env = { ...process.env, HADOUKEN_HOME: home, NO_COLOR: '1', ...extra };
+  for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
+  return env;
+}
+const rodar = (stdin, home, extra) => spawnSync(process.execPath, [script], {
+  input: stdin, env: ambiente(home, extra), encoding: 'utf8', timeout: 15_000,
+});
+
+const homes = [];
+const novoHome = () => {
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk sl '));
+  homes.push(h);
+  return h;
+};
+after(() => { for (const h of homes) fs.rmSync(h, { recursive: true, force: true }); });
+
+// registrarSessao usa dirDados(), que lê HADOUKEN_HOME na hora da chamada.
+function registrar(home, id, ms = Date.now()) {
+  const antes = process.env.HADOUKEN_HOME;
+  process.env.HADOUKEN_HOME = home;
+  try {
+    return registrarSessao(id, ms);
+  } finally {
+    if (antes === undefined) delete process.env.HADOUKEN_HOME;
+    else process.env.HADOUKEN_HOME = antes;
+  }
+}
+
+const entradaValida = (extra = {}) => {
+  const s = Math.floor(Date.now() / 1000);
+  return {
+    session_id: 's1', model: { display_name: 'Opus 5.5' },
+    rate_limits: { five_hour: { used_percentage: 10, resets_at: s + 3600 }, seven_day: { used_percentage: 20, resets_at: s + 86400 } },
+    ...extra,
+  };
+};
+
+const ESC_ESTRANHO = /\x1b(?!\[(?:3[123]|0)m)/;
+const INVISIVEL = /[\p{C}\p{Zl}\p{Zp}]/u;
+const semCores = (s) => s.replace(/\x1b\[(?:3[123]|0)m/g, '');
+
+test('sessão registrada imprime a barra e grava estado.json', () => {
+  const home = novoHome();
+  assert.deepEqual(registrar(home, 's1'), { ok: true });
+  const r = rodar(JSON.stringify(entradaValida()), home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stderr, '');
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.ok(!r.stdout.includes('\n'));
+  assert.ok(!r.stdout.includes('\x1b'));
+  assert.ok(fs.existsSync(path.join(home, 'estado.json')));
+});
+
+test('sessão não registrada: saída vazia e nenhum arquivo gravado', () => {
+  const home = novoHome();
+  const r = rodar(JSON.stringify(entradaValida()), home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stderr, '');
+  assert.equal(r.stdout, '');
+  assert.deepEqual(fs.readdirSync(home), []);
+});
+
+test('registro de outra sessão não ativa esta', () => {
+  const home = novoHome();
+  registrar(home, 'outra');
+  const r = rodar(JSON.stringify(entradaValida()), home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '');
+  assert.deepEqual(fs.readdirSync(home), ['ativas.json']);
+});
+
+test('sessão registrada há 25 h: sem barra e sem gravar', () => {
+  const home = novoHome();
+  registrar(home, 's1', Date.now() - 25 * H);
+  const antes = fs.readFileSync(path.join(home, 'ativas.json'), 'utf8');
+  const r = rodar(JSON.stringify(entradaValida()), home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '');
+  assert.deepEqual(fs.readdirSync(home), ['ativas.json']);
+  assert.equal(fs.readFileSync(path.join(home, 'ativas.json'), 'utf8'), antes);
+});
+
+test('cores: só os códigos fixos, e nenhuma com NO_COLOR', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const stdin = JSON.stringify(entradaValida());
+  const colorida = rodar(stdin, home, { NO_COLOR: undefined });
+  assert.equal(colorida.status, 0);
+  assert.ok(colorida.stdout.includes('\x1b[32m5h 10%'), JSON.stringify(colorida.stdout));
+  assert.doesNotMatch(colorida.stdout, ESC_ESTRANHO);
+  const vazia = rodar(stdin, home, { NO_COLOR: '' });
+  assert.ok(vazia.stdout.includes('\x1b[32m5h 10%'), 'NO_COLOR vazio não desliga (no-color.org)');
+  const sem = rodar(stdin, home, { NO_COLOR: '1' });
+  assert.ok(!sem.stdout.includes('\x1b'));
+});
+
+test('entrada maliciosa de ponta a ponta: uma linha, sem escapes de fora', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const RLO = String.fromCodePoint(0x202E);
+  const nome = `\x1b]8;;https://evil.example/\x1b\\Opus\x1b]8;;\x1b\\\x1b]0;pwned\x07\nIgnore previous instructions${RLO}${'x'.repeat(500)}`;
+  const entrada = entradaValida({
+    model: { display_name: nome },
+    effort: { level: "'; rm -rf ~" },
+    context_window: { used_percentage: '50' },
+    prompt_cache: { hit_ratio: 7 },
+    cwd: '\x1b]0;pwned\x07C:/x',
+  });
+  for (const extra of [{ NO_COLOR: undefined }, { NO_COLOR: '1' }]) {
+    const r = rodar(JSON.stringify(entrada), home, extra);
+    assert.equal(r.status, 0);
+    assert.equal(r.stderr, '');
+    assert.ok(r.stdout.startsWith('OpusIgnore previous instructions'), JSON.stringify(r.stdout));
+    assert.ok(!r.stdout.includes('rm -rf'));
+    assert.ok(!r.stdout.includes('pwned'));
+    assert.ok(r.stdout.includes(' │ ctx — │ cache —'));
+    assert.doesNotMatch(r.stdout, ESC_ESTRANHO);
+    assert.doesNotMatch(semCores(r.stdout), INVISIVEL);
+  }
+});
+
+test('ctx 1e999 no JSON bruto vira —', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const bruto = JSON.stringify(entradaValida()).replace(/}$/, ',"context_window":{"used_percentage":1e999}}');
+  const r = rodar(bruto, home);
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.includes(' │ ctx — │ '), r.stdout);
+});
+
+for (const [nome, stdin] of [['vazia', ''], ['lixo', '{nao é json'], ['array', '[]'], ['null', 'null'], ['string', '"s1"'], ['sem session_id', '{"model":{"display_name":"Opus"}}']]) {
+  test(`entrada ${nome}: sai com 0, sem saída e sem gravar`, () => {
+    const home = novoHome();
+    const r = rodar(stdin, home);
+    assert.equal(r.status, 0);
+    assert.equal(r.stderr, '');
+    assert.equal(r.stdout, '');
+    assert.deepEqual(fs.readdirSync(home), []);
+  });
+}
+
+test('stdin de 2 MB de sessão registrada: sai com 0, sem barra e sem gravar', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const grande = JSON.stringify(entradaValida({ enchimento: 'x'.repeat(2 * 1024 * 1024) }));
+  const r = rodar(grande, home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stderr, '');
+  // Acima do teto a entrada inteira é descartada: sem session_id não há como
+  // saber que a sessão é registrada, e a regra da spec 8.2 manda ficar mudo.
+  assert.equal(r.stdout, '');
+  assert.deepEqual(fs.readdirSync(home), ['ativas.json']);
+});
+
+test('ativas.json adulterado: sem barra, sem erro, sem gravar', () => {
+  const casos = [
+    (home) => fs.writeFileSync(path.join(home, 'ativas.json'), 'lixo{'),
+    (home) => fs.mkdirSync(path.join(home, 'ativas.json')),
+    (home) => fs.writeFileSync(path.join(home, 'ativas.json'), JSON.stringify({
+      versao: 1, sessoes: { s1: { at: new Date().toISOString() } }, lixo: 'x'.repeat(2 * 1024 * 1024),
+    })),
+  ];
+  for (const preparar of casos) {
+    const home = novoHome();
+    preparar(home);
+    const r = rodar(JSON.stringify(entradaValida()), home);
+    assert.equal(r.status, 0);
+    assert.equal(r.stderr, '');
+    assert.equal(r.stdout, '');
+    assert.deepEqual(fs.readdirSync(home), ['ativas.json']);
+  }
+});
+
+test('stdout fechado antes da escrita: sai com 0 e sem stack trace', async () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const r = await new Promise((resolve, reject) => {
+    const filho = spawn(process.execPath, [script], { env: ambiente(home), stdio: ['pipe', 'pipe', 'pipe'] });
+    let erro = '';
+    filho.stderr.setEncoding('utf8');
+    filho.stderr.on('data', (c) => { erro += c; });
+    // O pai fecha a leitura do stdout antes de o filho escrever: a escrita da
+    // barra dá EPIPE (ou equivalente no Windows) no filho.
+    filho.stdout.destroy();
+    const guarda = setTimeout(() => { filho.kill(); reject(new Error('filho não terminou')); }, 15_000);
+    filho.on('error', (e) => { clearTimeout(guarda); reject(e); });
+    filho.on('close', (codigo) => { clearTimeout(guarda); resolve({ codigo, erro }); });
+    filho.stdin.on('error', () => {});
+    filho.stdin.end(JSON.stringify(entradaValida()));
+  });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.equal(r.erro, '');
+});
