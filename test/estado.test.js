@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   dirDados, lerJson, gravarJsonAtomico, atualizarEstado, limitesValidos, validarEstado,
-  LIMITE_VELHO_MS, ARQ_ESTADO,
+  idValido, instante, LIMITE_VELHO_MS, SESSAO_MAX_MS, ARQ_ESTADO,
 } from '../src/estado.js';
 
 let dir;
@@ -415,4 +415,136 @@ test('atualizarEstado: agoraMs inválido não grava; entrada que não é objeto 
     assert.equal(r.ok, true);
     assert.deepEqual(Object.keys(r.estado.sessoes), []);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Rodada de correcao 1 (revisao Fable): I-1..I-3, M-1..M-6.
+
+test('sem home: dirDados devolve null e atualizarEstado nao faz I/O', () => {
+  delete process.env.HADOUKEN_HOME;
+  const original = os.homedir;
+  const falsos = [() => { throw new Error('sem home'); }, () => '', () => 'relativo/home', () => undefined];
+  try {
+    for (const falso of falsos) {
+      os.homedir = falso;
+      assert.equal(dirDados(), null);
+      const r = atualizarEstado(entrada(), agora);
+      assert.equal(r.ok, false);
+      assert.equal(r.motivo, 'sem_diretorio');
+      assert.equal(limitesValidos(r.estado, agora), null);
+    }
+  } finally {
+    os.homedir = original;
+  }
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
+
+test('HADOUKEN_HOME relativo vira caminho absoluto', () => {
+  process.env.HADOUKEN_HOME = 'rel-dir';
+  assert.equal(path.isAbsolute(dirDados()), true);
+  assert.equal(dirDados(), path.resolve('rel-dir'));
+});
+
+test('idValido: padrao, fronteira de 64, membros de Object.prototype e nao-string', () => {
+  assert.equal(idValido('x'.repeat(64)), true);
+  assert.equal(idValido('ab-9_Z'), true);
+  const invalidos = ['x'.repeat(65), '', 'a b', 'a/b', 'a.b', '..', 'sess\u{E3}o', '__proto__', 'constructor',
+    'hasOwnProperty', 'valueOf', 'toString', 42, null, undefined, ['a'], { id: 'a' }];
+  for (const id of invalidos) assert.equal(idValido(id), false, String(id));
+});
+
+test('instante: texto ate 64 chars, parseavel, no maximo 5 min no futuro', () => {
+  assert.equal(instante(iso(agora), agora), agora);
+  assert.equal(instante(iso(agora + 5 * 60_000), agora), agora + 5 * 60_000);
+  assert.equal(instante(iso(agora + 5 * 60_000 + 1), agora), null);
+  // Passado nao e recusado aqui: a idade maxima e decisao de quem chama.
+  assert.equal(instante(iso(agora - 30 * 86_400_000), agora), agora - 30 * 86_400_000);
+  // O parser do V8 aceita as duas formas longas; so o teto de 64 recusa a segunda.
+  const longo = (n) => `Fri Sep 25 2026 18:00:00 GMT+0000 (${'x'.repeat(n)})`;
+  assert.equal(longo(28).length, 64);
+  assert.equal(instante(longo(28), agora), agora);
+  assert.equal(instante(longo(29), agora), null);
+  for (const v of [agora, null, undefined, {}, ['2026'], 'ontem', '']) assert.equal(instante(v, agora), null, String(v));
+  for (const t of [NaN, undefined, '1', Infinity]) assert.equal(instante(iso(agora), t), null, String(t));
+  assert.equal(SESSAO_MAX_MS, 24 * 3_600_000);
+});
+
+test('gravarJsonAtomico: EPERM transitorio tenta de novo; persistente desiste; outro erro nao repete', () => {
+  const arq = path.join(dir, 'r.json');
+  assert.deepEqual(gravarJsonAtomico(arq, { v: 1 }), { ok: true });
+  const original = fs.renameSync;
+  let chamadas = 0;
+  const erro = (code) => Object.assign(new Error(code), { code });
+  const com = (falso, fn) => {
+    chamadas = 0;
+    fs.renameSync = falso;
+    try { return fn(); } finally { fs.renameSync = original; }
+  };
+  const r1 = com((...a) => { chamadas++; if (chamadas <= 2) throw erro('EPERM'); return original(...a); },
+    () => gravarJsonAtomico(arq, { v: 2 }));
+  assert.deepEqual(r1, { ok: true });
+  assert.equal(chamadas, 3);
+  assert.deepEqual(lerJson(arq), { ok: true, valor: { v: 2 } });
+  semTmp();
+  const r2 = com(() => { chamadas++; throw erro('EPERM'); }, () => gravarJsonAtomico(arq, { v: 3 }));
+  assert.deepEqual(r2, { ok: false, motivo: 'EPERM' });
+  assert.equal(chamadas, 3);
+  assert.deepEqual(lerJson(arq), { ok: true, valor: { v: 2 } });
+  semTmp();
+  const r3 = com(() => { chamadas++; throw erro('EXDEV'); }, () => gravarJsonAtomico(arq, { v: 4 }));
+  assert.deepEqual(r3, { ok: false, motivo: 'EXDEV' });
+  assert.equal(chamadas, 1);
+  semTmp();
+});
+
+test('gravarJsonAtomico varre os proprios .tmp com mais de 1 h, no maximo 20 por vez', () => {
+  const arq = path.join(dir, 'estado.json');
+  const duasHorasAtras = (Date.now() - 2 * 3600_000) / 1000;
+  const plantar = (nome, antigo) => {
+    const p = path.join(dir, nome);
+    fs.writeFileSync(p, 'x');
+    if (antigo) fs.utimesSync(p, duasHorasAtras, duasHorasAtras);
+    return p;
+  };
+  const velhoMeu = plantar('estado.json.99999.1.0.tmp', true);
+  const novoMeu = plantar('estado.json.99999.2.0.tmp', false);
+  const alheios = [
+    plantar('outro.json.1.1.1.tmp', true), plantar('estado.json.bak', true),
+    plantar('estado.json.x.1.1.tmp', true), plantar('estado.json.1.1.tmp', true), plantar('xestado.json.1.1.1.tmp', true),
+  ];
+  const pastaParecida = path.join(dir, 'estado.json.7.7.7.tmp');
+  fs.mkdirSync(pastaParecida);
+  fs.utimesSync(pastaParecida, duasHorasAtras, duasHorasAtras);
+  assert.deepEqual(gravarJsonAtomico(arq, { a: 1 }), { ok: true });
+  assert.equal(fs.existsSync(velhoMeu), false);
+  assert.equal(fs.existsSync(novoMeu), true);
+  for (const p of alheios) assert.equal(fs.existsSync(p), true, p);
+  assert.ok(fs.statSync(pastaParecida).isDirectory());
+  fs.rmSync(novoMeu);
+  fs.rmSync(pastaParecida, { recursive: true });
+  for (let i = 0; i < 25; i++) plantar(`estado.json.99999.${i}.0.tmp`, true);
+  const restantes = () => fs.readdirSync(dir).filter((f) => /^estado\.json\.\d+\.\d+\.\d+\.tmp$/.test(f)).length;
+  assert.deepEqual(gravarJsonAtomico(arq, { a: 2 }), { ok: true });
+  assert.equal(restantes(), 5);
+  assert.deepEqual(gravarJsonAtomico(arq, { a: 3 }), { ok: true });
+  assert.equal(restantes(), 0);
+});
+
+test('symlink no lugar de estado.json e substituido, nunca escrito atraves', (t) => {
+  const alvo = path.join(dir, 'alvo.txt');
+  fs.writeFileSync(alvo, 'intocado');
+  try {
+    fs.symlinkSync(alvo, arqEstado());
+  } catch (e) {
+    if (process.platform === 'win32' && (e.code === 'EPERM' || e.code === 'EACCES')) {
+      t.skip('sem privilegio para criar symlink neste Windows');
+      return;
+    }
+    throw e;
+  }
+  const r = atualizarEstado(entrada(), agora);
+  assert.equal(r.ok, true);
+  assert.equal(fs.lstatSync(arqEstado()).isSymbolicLink(), false);
+  assert.equal(fs.readFileSync(alvo, 'utf8'), 'intocado');
+  assert.equal(lerEstado().five_hour.used_percentage, 42);
 });

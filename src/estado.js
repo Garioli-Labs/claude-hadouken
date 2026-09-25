@@ -9,10 +9,11 @@ import { normalizarEffort, sanear } from './util.js';
 
 export const LIMITE_VELHO_MS = 3_600_000;
 export const ARQ_ESTADO = 'estado.json';
+// Idade máxima de uma sessão guardada (poda de 24 h), também para ativas.json.
+export const SESSAO_MAX_MS = 24 * 3_600_000;
 
 const VERSAO = 1;
 const MAX_BYTES_PADRAO = 1_048_576;
-const SESSAO_MAX_MS = 24 * 3_600_000;
 const MAX_SESSOES = 50;
 // Tolerância para relógio adiantado: um `at` até 5 min no futuro ainda vale.
 const FUTURO_MAX_MS = 5 * 60_000;
@@ -35,6 +36,11 @@ const RENOMEAR_ESPERA_MS = 20;
 // No Windows um antivírus, indexador ou leitor concorrente pode segurar o
 // destino por instantes; outros erros não melhoram tentando de novo.
 const RENOMEAR_TRANSITORIOS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+// Temporários `<arquivo>.<pid>.<ms>.<seq>.tmp` deixados por um processo morto
+// entre a escrita e o rename: varridos depois de 1 h, no máximo 20 por gravação.
+const TMP_VELHO_MS = 3_600_000;
+const TMP_VARRER_MAX = 20;
+const MEIO_TMP = /^\d+\.\d+\.\d+$/;
 
 const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -45,15 +51,21 @@ const esperar = (ms) => {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* segue sem esperar */ }
 };
 
+// Diretório de dados, sempre absoluto: HADOUKEN_HOME (resolvido contra o cwd
+// no momento da chamada, para que caminhos derivados, como shims e o comando
+// da statusline, não dependam do cwd de quem os usa depois) ou
+// ~/.claude/hadouken. Sem home conhecida (os.homedir() lança ou não devolve
+// caminho absoluto) devolve null, nunca um diretório compartilhado: todo
+// chamador trata null como "sem leitura" e não faz I/O (contrato de T6, T7 e
+// T10). Nunca lança.
 export function dirDados() {
-  if (process.env.HADOUKEN_HOME) return process.env.HADOUKEN_HOME;
   try {
-    return path.join(os.homedir(), '.claude', 'hadouken');
+    const configurado = process.env.HADOUKEN_HOME;
+    if (configurado) return path.resolve(configurado);
+    const home = os.homedir();
+    return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'hadouken') : null;
   } catch {
-    // os.homedir() só lança sem HOME e sem entrada do usuário no sistema; aí o
-    // próprio Claude Code não tem ~/.claude. Tudo o que se lê daqui passa pelo
-    // schema, então um diretório temporário não abre vetor novo.
-    return path.join(os.tmpdir(), 'claude-hadouken');
+    return null;
   }
 }
 
@@ -100,8 +112,14 @@ function lerLimitado(arquivo, limite) {
 
 let sequenciaTmp = 0;
 
-// Grava num temporário ao lado do destino e renomeia: um leitor concorrente vê
-// o arquivo antigo inteiro ou o novo inteiro, nunca pela metade. Nunca lança.
+// Grava num temporário ao lado do destino e renomeia. No POSIX o rename é
+// atômico: um leitor concorrente vê o arquivo antigo inteiro ou o novo inteiro.
+// No Windows é melhor esforço: o rename sobre um destino que outro processo
+// mantém aberto falha com EPERM (daí as 3 tentativas com 20 ms), e um leitor no
+// instante exato da troca pode não achar o arquivo e ver "sem leitura" por uma
+// atualização. Em nenhum sistema sai arquivo pela metade: se o rename falha, o
+// destino antigo fica intacto e o temporário é apagado. Depois de gravar, varre
+// os próprios temporários abandonados. Nunca lança.
 export function gravarJsonAtomico(arquivo, valor) {
   let texto;
   try { texto = JSON.stringify(valor, null, 2); } catch { return { ok: false, motivo: 'serializacao' }; }
@@ -120,6 +138,7 @@ export function gravarJsonAtomico(arquivo, valor) {
   for (let tentativa = 1; tentativa <= RENOMEAR_TENTATIVAS; tentativa++) {
     try {
       fs.renameSync(tmp, arquivo);
+      varrerTmpVelhos(arquivo);
       return { ok: true };
     } catch (e) {
       erro = e;
@@ -131,13 +150,40 @@ export function gravarJsonAtomico(arquivo, valor) {
   return { ok: false, motivo: codigoErro(erro, 'rename') };
 }
 
+// Remove até TMP_VARRER_MAX temporários deste destino com mais de TMP_VELHO_MS.
+// Só arquivos regulares com exatamente o nome que gravarJsonAtomico gera; nada
+// de outro destino, pasta ou link. Melhor esforço: nunca lança.
+function varrerTmpVelhos(arquivo) {
+  try {
+    const pasta = path.dirname(arquivo);
+    const prefixo = `${path.basename(arquivo)}.`;
+    const corte = Date.now() - TMP_VELHO_MS;
+    let removidos = 0;
+    for (const nome of fs.readdirSync(pasta)) {
+      if (removidos >= TMP_VARRER_MAX) break;
+      if (!nome.startsWith(prefixo) || !nome.endsWith('.tmp')) continue;
+      if (!MEIO_TMP.test(nome.slice(prefixo.length, -'.tmp'.length))) continue;
+      const caminho = path.join(pasta, nome);
+      try {
+        const info = fs.lstatSync(caminho);
+        if (!info.isFile() || info.mtimeMs >= corte) continue;
+        fs.unlinkSync(caminho);
+        removidos++;
+      } catch { /* sumiu ou sem permissão: segue */ }
+    }
+  } catch { /* pasta ilegível: fica para a próxima gravação */ }
+}
+
 function estadoVazio() {
   return { versao: VERSAO, at: null, five_hour: null, seven_day: null, sessoes: Object.create(null) };
 }
 
-// Texto curto que o Date.parse entende e que não está mais que FUTURO_MAX_MS à
-// frente de agora; devolve o instante em ms ou null.
-function instante(valor, agoraMs) {
+// Instante gravado em texto: string de até 64 caracteres que o Date.parse
+// entende e que não está mais que 5 min à frente de `agoraMs`. Devolve o
+// instante em ms ou null. O passado não é recusado aqui: a idade máxima é
+// decisão de quem chama (LIMITE_VELHO_MS, SESSAO_MAX_MS). Nunca lança.
+export function instante(valor, agoraMs) {
+  if (!numeroFinito(agoraMs)) return null;
   if (typeof valor !== 'string' || valor.length > MAX_AT_CHARS) return null;
   const t = Date.parse(valor);
   return Number.isFinite(t) && t <= agoraMs + FUTURO_MAX_MS ? t : null;
@@ -153,10 +199,11 @@ function janela(j) {
   return { used_percentage: usado, resets_at: reset };
 }
 
-// Além do padrão, nenhum id pode coincidir com membro de Object.prototype
-// (__proto__, constructor, toString...): casam com a regex, mas num objeto comum
-// uma busca por eles devolveria o membro herdado.
-const idValido = (id) => typeof id === 'string' && ID_SESSAO.test(id) && !(id in Object.prototype);
+// Id de sessão aceitável como chave: ^[A-Za-z0-9_-]{1,64}$ e, além do padrão,
+// nunca um membro de Object.prototype (__proto__, constructor, toString...),
+// que casa com a regex mas, num objeto comum, faria a busca devolver o membro
+// herdado. Mesmo validador para estado.json, ativas.json e hooks. Nunca lança.
+export const idValido = (id) => typeof id === 'string' && ID_SESSAO.test(id) && !(id in Object.prototype);
 
 // O mesmo validador serve à sessão nova (stdin) e às lidas do disco.
 function sessaoValida(bruta, agoraMs) {
@@ -236,12 +283,15 @@ export function validarEstado(valor, agoraMs) {
 // veio fica null): nenhum valor de leitura antiga ganha o `at` novo. Sem
 // leitura válida na entrada, o instantâneo anterior fica como está. Devolve o
 // estado mesmo quando a gravação falha, para a barra seguir mostrando a
-// leitura atual. Nunca lança.
+// leitura atual. Sem diretório de dados (dirDados() null) não faz I/O e
+// devolve motivo 'sem_diretorio'. Nunca lança.
 export function atualizarEstado(entrada, agoraMs) {
   try {
     const agoraIso = numeroFinito(agoraMs) && Math.abs(agoraMs) <= 8.64e15 ? new Date(agoraMs).toISOString() : null;
     if (agoraIso === null) return { ok: false, motivo: 'agora', estado: estadoVazio() };
-    const arq = path.join(dirDados(), ARQ_ESTADO);
+    const dir = dirDados();
+    if (dir === null) return { ok: false, motivo: 'sem_diretorio', estado: estadoVazio() };
+    const arq = path.join(dir, ARQ_ESTADO);
     const lido = lerJson(arq);
     const anterior = (lido.ok && validarEstado(lido.valor, agoraMs)) || estadoVazio();
     const e = ehObjeto(entrada) ? entrada : {};

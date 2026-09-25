@@ -72,23 +72,37 @@ const ESCAPES = new RegExp([
   '\\x1b[\\s\\S]?',
 ].join('|'), 'gu');
 
-// O que sobra depois das sequências: controles C0, DEL e C1 (\p{Cc}, inclui
-// quebras de linha e tab), surrogates soltos (\p{Cs}), separadores de linha e
-// parágrafo, controles bidi (\p{Bidi_Control}: U+202A–U+202E, U+2066–U+2069,
-// U+200E, U+200F, U+061C) e os caracteres | e crase.
-const INVISIVEIS = /[\p{Cc}\p{Cs}\p{Bidi_Control}\u{2028}\u{2029}|`]/gu;
+// O que sobra depois das sequências: toda a categoria C do Unicode (\p{C} =
+// controles Cc, inclusive quebras de linha e tab; formato Cf, que traz os
+// controles bidi, largura zero, ZWJ, soft hyphen, BOM e os caracteres de tag
+// U+E0000–U+E007F capazes de esconder uma frase inteira; surrogates soltos Cs;
+// uso privado Co; não atribuídos Cn), os separadores de linha e de parágrafo
+// (Zl, Zp) e os caracteres | e crase. Trade-offs, só de exibição: sequências
+// de emoji unidas por ZWJ viram seus componentes, e um caractere atribuído
+// depois da versão do Unicode do Node em uso conta como Cn e sai.
+const INVISIVEIS = /[\p{C}\p{Zl}\p{Zp}|`]/gu;
 const SANEAR_MAX_PADRAO = 64;
+// Teto da entrada (unidades UTF-16) antes das expressões. O resultado é no
+// máximo `max` pontos de código do começo, e um corte no meio de uma sequência
+// só deixa texto comum, porque a segunda passada remove o controle que sobrar.
+const SANEAR_MAX_ENTRADA = 1_048_576;
 
 // Texto externo pronto para exibir numa linha (spec 8.1, S2/S3): sem
-// sequências de terminal, sem controles, sem | nem crase, aparado e cortado em
-// `max` pontos de código sem partir par surrogate. Não-string, `max` inválido
-// (usa 64) e resultado vazio (vira null) nunca lançam.
+// sequências de terminal, sem controles nem caracteres invisíveis, sem | nem
+// crase, aparado e cortado em `max` pontos de código sem partir par surrogate.
+// Não-string, `max` inválido (usa 64), resultado vazio (vira null) e qualquer
+// falha interna (vira null) nunca lançam.
 export function sanear(valor, max = SANEAR_MAX_PADRAO) {
   if (typeof valor !== 'string') return null;
-  const limite = Number.isInteger(max) && max > 0 ? max : SANEAR_MAX_PADRAO;
-  const limpo = valor.replace(ESCAPES, '').replace(INVISIVEIS, '').trim();
-  // 2 unidades por ponto de código bastam para `limite` pontos inteiros e
-  // poupam o Array.from de percorrer um texto enorme.
-  const cortado = Array.from(limpo.slice(0, limite * 2)).slice(0, limite).join('').trimEnd();
-  return cortado.length > 0 ? cortado : null;
+  try {
+    const limite = Number.isInteger(max) && max > 0 ? max : SANEAR_MAX_PADRAO;
+    const bruto = valor.length > SANEAR_MAX_ENTRADA ? valor.slice(0, SANEAR_MAX_ENTRADA) : valor;
+    const limpo = bruto.replace(ESCAPES, '').replace(INVISIVEIS, '').trim();
+    // 2 unidades por ponto de código bastam para `limite` pontos inteiros e
+    // poupam o Array.from de percorrer um texto enorme.
+    const cortado = Array.from(limpo.slice(0, limite * 2)).slice(0, limite).join('').trimEnd();
+    return cortado.length > 0 ? cortado : null;
+  } catch {
+    return null;
+  }
 }
