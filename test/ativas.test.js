@@ -236,6 +236,18 @@ test('poda so apaga arquivo regular com nome que o registro geraria', () => {
   assert.deepEqual(ficou, [...new Set([...estranhos, hex('pasta'), hex('nova')])].sort());
 });
 
+test('poda nunca apaga link com nome de registro, nem o alvo', (t) => {
+  fs.mkdirSync(pasta());
+  const alvo = path.join(dir, 'alvo.txt');
+  fs.writeFileSync(alvo, 'x');
+  datar(alvo, agora - 40 * D);
+  if (!link(t, alvo, arqDe('link'), 'file')) return;
+  fs.lutimesSync(arqDe('link'), (agora - 40 * D) / 1000, (agora - 40 * D) / 1000);
+  registrarSessao('nova', agora);
+  assert.ok(fs.lstatSync(arqDe('link')).isSymbolicLink());
+  assert.equal(fs.readFileSync(alvo, 'utf8'), 'x');
+});
+
 test('poda apaga no maximo 50 por chamada', () => {
   fs.mkdirSync(pasta());
   for (let i = 0; i < 60; i++) {
