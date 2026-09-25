@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registrarSessao } from '../src/ativas.js';
+import { lerJson, limitesValidos, validarEstado } from '../src/estado.js';
+import { avaliarAlertas } from '../src/alerta.js';
 
 const script = fileURLToPath(new URL('../src/statusline.js', import.meta.url));
 const H = 3600_000;
@@ -205,4 +207,29 @@ test('stdout fechado antes da escrita: sai com 0 e sem stack trace', async () =>
   });
   assert.equal(r.codigo, 0, r.erro);
   assert.equal(r.erro, '');
+});
+
+// I-4 de ponta a ponta: a sessao B, ativa, esta em 85% e o hook dela ve
+// "serializar"; a sessao A, ociosa, redesenha com a leitura antiga de 60% da
+// mesma janela. estado.json fica em 85%, a barra de A mostra os 85% da conta
+// (o limite e da conta, nao da sessao) e o proximo hook de B nao diz nada.
+test('leitura velha de sessao ociosa nao baixa o snapshot da conta', () => {
+  const home = novoHome();
+  const s = Math.floor(Date.now() / 1000);
+  registrar(home, 'sessaoA');
+  registrar(home, 'sessaoB');
+  const limites = (p5, r5) => ({ five_hour: { used_percentage: p5, resets_at: r5 }, seven_day: { used_percentage: 1, resets_at: s + 6 * 86400 } });
+  const b = rodar(JSON.stringify(entradaValida({ session_id: 'sessaoB', rate_limits: limites(85, s + 3600) })), home);
+  assert.equal(b.status, 0, b.stderr);
+  assert.match(b.stdout, /5h 85%/);
+  const estadoDe = () => validarEstado(lerJson(path.join(home, 'estado.json')).valor, Date.now());
+  const vistoB = avaliarAlertas({ limites: limitesValidos(estadoDe(), Date.now()), anteriores: null, sessionId: 'sessaoB', agoraMs: Date.now() });
+  assert.ok(vistoB.linhas.some((l) => /serializar/.test(l)), JSON.stringify(vistoB.linhas));
+  const a = rodar(JSON.stringify(entradaValida({ session_id: 'sessaoA', rate_limits: limites(60, s + 3603) })), home);
+  assert.equal(a.status, 0, a.stderr);
+  assert.match(a.stdout, /5h 85%/, 'a barra de A mostra o snapshot da conta, nao a propria leitura velha');
+  const e = estadoDe();
+  assert.equal(e.five_hour.used_percentage, 85);
+  const depois = avaliarAlertas({ limites: limitesValidos(e, Date.now()), anteriores: vistoB.novos, sessionId: 'sessaoB', agoraMs: Date.now() });
+  assert.deepEqual(depois.linhas, []);
 });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { effortValido, sanear } from './util.js';
+import { effortValido, sanear, TOLERANCIA_JANELA_S } from './util.js';
 
 // Camada de estado: a statusline grava `estado.json`; hooks e relatório só
 // leem. É a fronteira de confiança dos dados em disco (spec 8.1, S1–S3, S9):
@@ -24,6 +24,10 @@ const MAX_MODEL = 40;
 const MAX_CWD = 200;
 const ID_SESSAO = /^[A-Za-z0-9_-]{1,64}$/;
 const JANELAS = ['five_hour', 'seven_day'];
+// Duração de cada janela em segundos: uma guardada com reset além de agora +
+// duração + tolerância não pode ter vindo do servidor (relógio, arquivo mexido)
+// e não segura leitura nenhuma na mescla.
+const DURACAO_S = { five_hour: 5 * 3600, seven_day: 7 * 86_400 };
 
 // O_NONBLOCK (onde existe) impede que um FIFO posto no lugar do arquivo entre o
 // stat e o open trave a barra; em arquivo regular não muda nada. No Windows a
@@ -276,10 +280,27 @@ export function validarEstado(valor, agoraMs) {
   }
 }
 
+// Mescla por janela (I-4, spec 7 #3/#4): a leitura nova de uma janela perde
+// para a guardada quando a guardada ainda vale (reset no futuro e plausível) e
+// a nova é da mesma janela com percentual menor, ou de uma janela mais velha.
+// Assim a leitura antiga de uma sessão ociosa nunca baixa o snapshot nem o
+// carimba como recente. Trade-off: se a janela de 5 h for de fato móvel, o
+// máximo pode exagerar o uso até a janela virar (o lado seguro).
+function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
+  if (!ehObjeto(guardada) || !numeroFinito(guardada.resets_at) || !numeroFinito(guardada.used_percentage)) return false;
+  const agoraS = agoraMs / 1000;
+  if (guardada.resets_at <= agoraS || guardada.resets_at > agoraS + duracaoS + TOLERANCIA_JANELA_S) return false;
+  const delta = nova.resets_at - guardada.resets_at;
+  if (Math.abs(delta) <= TOLERANCIA_JANELA_S) return nova.used_percentage < guardada.used_percentage;
+  return delta < 0;
+}
+
 // Junta a entrada da statusline ao estado gravado e regrava `estado.json`.
-// Uma leitura nova da conta substitui o instantâneo inteiro (janela que não
-// veio fica null): nenhum valor de leitura antiga ganha o `at` novo. Sem
-// leitura válida na entrada, o instantâneo anterior fica como está. Devolve o
+// Cada janela da leitura nova passa por mantemGuardada. Se ao menos uma entrou,
+// `at` vira agora e a janela que não veio na leitura fica null: nenhum valor
+// de leitura antiga ganha o `at` novo sem ter sido comparado. Se nenhuma
+// entrou (sem leitura válida, ou só leituras velhas), o instantâneo anterior
+// fica como está, com seu `at`. Devolve o
 // estado mesmo quando a gravação falha, para a barra seguir mostrando a
 // leitura atual. Sem diretório de dados (dirDados() null) não faz I/O e
 // devolve motivo 'sem_diretorio'. Nunca lança.
@@ -294,10 +315,18 @@ export function atualizarEstado(entrada, agoraMs) {
     const anterior = (lido.ok && validarEstado(lido.valor, agoraMs)) || estadoVazio();
     const e = ehObjeto(entrada) ? entrada : {};
     const rl = ehObjeto(e.rate_limits) ? e.rate_limits : {};
-    const f5 = janela(rl.five_hour);
-    const f7 = janela(rl.seven_day);
     const estado = estadoVazio();
-    if (f5 || f7) Object.assign(estado, { at: agoraIso, five_hour: f5, seven_day: f7 });
+    const novas = {};
+    let entrou = false;
+    for (const k of JANELAS) {
+      const nova = janela(rl[k]);
+      const fica = nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
+      novas[k] = fica ? anterior[k] : nova;
+      if (nova !== null && !fica) entrou = true;
+    }
+    // Janela ausente na leitura vira null só quando outra entrou (a leitura é
+    // de agora); se nada entrou, o snapshot guardado fica inteiro, com seu at.
+    if (entrou) Object.assign(estado, { at: agoraIso, ...novas });
     else Object.assign(estado, { at: anterior.at, five_hour: anterior.five_hour, seven_day: anterior.seven_day });
     estado.sessoes = juntarSessoes(Object.entries(anterior.sessoes), sessaoDaEntrada(e, agoraIso, agoraMs));
     const r = gravarJsonAtomico(arq, estado);

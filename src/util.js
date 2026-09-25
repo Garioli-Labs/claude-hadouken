@@ -9,6 +9,11 @@ export function normalizarEffort(e) {
   return null;
 }
 
+// Duas leituras de limite são da mesma janela se os resets_at diferem no máximo
+// isto (o servidor devolve o reset com alguns segundos de variação). Uma só
+// constante para alerta.js (transição de faixa) e estado.js (mescla por janela).
+export const TOLERANCIA_JANELA_S = 600;
+
 // Lista única dos níveis de effort aceitos (spec 8.1, S2): o estado.json e a
 // barra consultam a mesma lista, então nunca divergem sobre o que é válido.
 export const EFFORTS_VALIDOS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);

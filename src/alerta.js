@@ -1,11 +1,8 @@
 import { calcularRitmo } from './ritmo.js';
-import { horaLocal, diaHora } from './util.js';
+import { horaLocal, diaHora, TOLERANCIA_JANELA_S } from './util.js';
 
 const DIA_MS = 24 * 3600_000;
 const ORDEM_5H = ['ok', 'atencao', 'serializar', 'fechar'];
-// Duas leituras são da mesma janela se os resets_at diferem no máximo isto
-// (o servidor devolve o reset com alguns segundos de variação).
-const TOLERANCIA_JANELA_S = 600;
 const RESTRITIVAS_5H = new Set(['atencao', 'serializar', 'fechar']);
 const RESTRITIVAS_7D = new Set(['economico', 'so-leitura']);
 const SUSPENSAS = 'restrições anteriores suspensas';
