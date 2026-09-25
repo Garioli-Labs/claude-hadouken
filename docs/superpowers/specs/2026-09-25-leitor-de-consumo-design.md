@@ -2,7 +2,8 @@
 
 - **Data:** 2026-09-25
 - **Decisor:** Sr. Garioli (todas as decisões desta spec foram tomadas por ele na sessão de brainstorming de 2026-09-25)
-- **Status:** aguardando revisão do Sr. Garioli
+- **Status:** aprovada pelo Sr. Garioli em 2026-09-25
+- **Versão:** este subprojeto sai como v0.1.0; a v1.0.0 é o plugin completo (A + B + C + D), decisão do Sr. Garioli em 2026-09-25
 - **Repo:** `Garioli-Labs/claude-hadouken` (público no GitHub); local `E:\Projetos DEV\claude-hadouken`
 
 ## 1. Contexto
@@ -142,7 +143,7 @@ Entrada: estado lido, `alertas.json` anterior, `agora`. Saída: `{ linha | null,
 - Cores ANSI por faixa: verde (`ok`/`normal`), amarelo (`atencao`/`economico`), vermelho (`serializar`/`fechar`/`so-leitura`). `folga` em verde com o rótulo `folga`.
 - Campo ausente no JSON → o segmento mostra `—`; sem `rate_limits` → `5h —  7d —`.
 - Nunca imprime stack trace; em erro interno imprime só o modelo, ou uma linha vazia.
-- **Instalação:** a chave `statusLine` só pode ser definida no `settings.json` do usuário (o `settings.json` de plugin aceita apenas `agent` e `subagentStatusLine`). O caminho do plugin muda a cada versão, então a statusline aponta para o shim estável `~/.claude/hadouken/bin/statusline.js`, que o hook SessionStart mantém sincronizado com a versão instalada. A configuração de `statusLine` é feita pela skill `/hadouken:instalar`, que mostra a alteração e pede confirmação antes de gravar. Se já existir uma `statusLine` diferente, ela é preservada: a skill mostra a atual e pergunta se deve substituí-la.
+- **Instalação:** a chave `statusLine` só pode ser definida no `settings.json` do usuário (o `settings.json` de plugin aceita apenas `agent` e `subagentStatusLine`). O caminho do plugin muda a cada versão, então a statusline aponta para o shim estável `~/.claude/hadouken/bin/statusline.js`, que o hook SessionStart mantém sincronizado com a versão instalada. A configuração de `statusLine` é feita pela skill `/claude-hadouken:instalar`, que mostra a alteração e pede confirmação antes de gravar. Se já existir uma `statusLine` diferente, ela é preservada: a skill mostra a atual e pergunta se deve substituí-la.
 
 ### 6.5 Hooks
 
@@ -195,7 +196,7 @@ Nenhum hook bloqueia o prompt nem retorna erro ao Claude. Qualquer falha termina
 | 8 | Linhas duplicadas da mesma resposta | Deduplicação por `requestId` |
 | 9 | Transcript apagado desde a última indexação | Removido do índice |
 | 10 | `gh` ausente, deslogado, sem escopo ou com limite de API | Seção GitHub "indisponível: <motivo>"; o resto do relatório sai normal |
-| 11 | `statusLine` já configurada pelo usuário | `/hadouken:instalar` preserva e pergunta antes de substituir |
+| 11 | `statusLine` já configurada pelo usuário | `/claude-hadouken:instalar` preserva e pergunta antes de substituir |
 | 12 | Plugin atualizado (novo caminho) | SessionStart ressincroniza o shim |
 | 13 | Caminhos com espaços e acentos (`E:\Projetos DEV\...`, `Lucas Garioli`) | Coberto por teste em Windows |
 | 14 | Horário de verão ou fuso diferente | Cálculos em UTC; só a exibição usa o fuso local |
@@ -255,8 +256,8 @@ claude-hadouken/
   .claude-plugin/plugin.json        manifesto do plugin
   .claude-plugin/marketplace.json   marketplace de um plugin só
   hooks/hooks.json                  SessionStart, UserPromptSubmit, SessionEnd
-  skills/consumo/SKILL.md           /consumo
-  skills/instalar/SKILL.md          /hadouken:instalar
+  skills/consumo/SKILL.md           /claude-hadouken:consumo
+  skills/instalar/SKILL.md          /claude-hadouken:instalar
   src/ritmo.js  src/estado.js  src/alerta.js  src/statusline.js
   src/transcripts.js  src/github.js  src/relatorio.js
   src/hooks/session-start.js  src/hooks/prompt-submit.js  src/hooks/session-end.js
