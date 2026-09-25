@@ -2,9 +2,10 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import modulo from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registrarSessao, ATIVA_MAX_MS } from '../src/ativas.js';
 import { lerJson, limitesValidos, validarEstado } from '../src/estado.js';
 import { avaliarAlertas } from '../src/alerta.js';
@@ -314,4 +315,105 @@ test('leitura velha de sessao ociosa nao baixa o snapshot da conta', () => {
   assert.equal(e.five_hour.used_percentage, 85);
   const depois = avaliarAlertas({ limites: limitesValidos(e, Date.now()), anteriores: vistoB.novos, sessionId: 'sessaoB', agoraMs: Date.now() });
   assert.deepEqual(depois.linhas, []);
+});
+
+// Retrato da árvore: caminho, tipo, tamanho, data e conteúdo de cada entrada,
+// sem seguir links. A data das pastas muda se algo for criado e apagado nelas.
+function arvore(raiz) {
+  const itens = [];
+  const visitar = (dir) => {
+    for (const nome of fs.readdirSync(dir).sort()) {
+      const p = path.join(dir, nome);
+      const i = fs.lstatSync(p);
+      const tipo = i.isSymbolicLink() ? 'link' : i.isDirectory() ? 'dir' : i.isFile() ? 'arq' : 'outro';
+      const conteudo = tipo === 'arq' ? fs.readFileSync(p, 'utf8') : '';
+      itens.push(`${path.relative(raiz, p)}|${tipo}|${i.size}|${Math.round(i.mtimeMs)}|${conteudo}`);
+      if (tipo === 'dir') visitar(p);
+    }
+  };
+  visitar(raiz);
+  return itens;
+}
+
+// Home já em uso: registro de outra sessão, estado.json e shims.
+function homePovoado() {
+  const home = novoHome();
+  registrar(home, 'outra');
+  fs.writeFileSync(path.join(home, 'estado.json'), '{"versao":1}');
+  fs.mkdirSync(path.join(home, 'bin'));
+  fs.writeFileSync(path.join(home, 'bin', 'statusline.mjs'), 'await import("file:///x/src/statusline.js");\n');
+  return home;
+}
+
+test('sessão não registrada não escreve nada: árvore inteira igual e sem cache/', () => {
+  const home = homePovoado();
+  const antes = arvore(home);
+  for (const stdin of [JSON.stringify(entradaValida()), '{}', '']) {
+    const r = rodar(stdin, home, { NODE_COMPILE_CACHE: undefined });
+    assert.equal(r.status, 0);
+    assert.equal(r.stderr, '');
+    assert.equal(r.stdout, '');
+  }
+  assert.deepEqual(arvore(home), antes);
+  assert.equal(fs.existsSync(path.join(home, 'cache')), false);
+});
+
+// module.enableCompileCache existe a partir do Node 22.1; no Node 20 a barra
+// segue sem cache e nada é criado.
+test('cache de compilação: só depois do gate, em <home>/cache, e com entradas', () => {
+  const home = homePovoado();
+  registrar(home, 's1');
+  const r = rodar(JSON.stringify(entradaValida()), home, { NODE_COMPILE_CACHE: undefined });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, '');
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  const cache = path.join(home, 'cache');
+  if (typeof modulo.enableCompileCache === 'function') {
+    assert.ok(fs.lstatSync(cache).isDirectory());
+    // Ligado antes do import de formato.js: ao menos um módulo compilado depois.
+    const arquivos = fs.readdirSync(cache, { recursive: true, withFileTypes: true }).filter((e) => e.isFile());
+    assert.ok(arquivos.length >= 1, `cache vazio: ${JSON.stringify(fs.readdirSync(cache, { recursive: true }))}`);
+  } else {
+    assert.equal(fs.existsSync(cache), false);
+  }
+});
+
+// Lista os módulos do plugin que o processo da barra carrega, por um gancho de
+// carga posto com --import (registerHooks no Node 22.15+/23.5+, register antes).
+function modulosCarregados(home, stdin) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk carga '));
+  homes.push(dir);
+  const log = path.join(dir, 'carga.log');
+  const ganchos = path.join(dir, 'ganchos.mjs');
+  const anotar = "if (url.startsWith('file:')) fs.appendFileSync(process.env.HDK_LOG_CARGA, url + '\\n');";
+  fs.writeFileSync(ganchos, `import fs from 'node:fs';
+export async function load(url, context, next) { ${anotar} return next(url, context); }
+`);
+  const registrador = path.join(dir, 'registrar.mjs');
+  fs.writeFileSync(registrador, `import * as m from 'node:module';
+import fs from 'node:fs';
+if (typeof m.registerHooks === 'function') m.registerHooks({ load(url, context, next) { ${anotar} return next(url, context); } });
+else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
+`);
+  const r = spawnSync(process.execPath, ['--import', pathToFileURL(registrador).href, script], {
+    input: stdin, env: ambiente(home, { HDK_LOG_CARGA: log }), encoding: 'utf8', timeout: 15_000,
+  });
+  const urls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
+  return { r, nomes: [...new Set(urls.map((u) => path.basename(fileURLToPath(u))))].sort() };
+}
+
+// estado.js entra no caminho curto porque ativas.js importa dele dirDados e
+// idValido; formato.js (e alerta.js e ritmo.js, que vêm com ele) só depois do gate.
+test('gate antes dos imports: sessão não registrada não carrega formato.js', () => {
+  const home = novoHome();
+  registrar(home, 'outra');
+  const fora = modulosCarregados(home, JSON.stringify(entradaValida()));
+  assert.equal(fora.r.status, 0, fora.r.stderr);
+  assert.equal(fora.r.stdout, '');
+  assert.deepEqual(fora.nomes, ['ativas.js', 'estado.js', 'statusline.js', 'util.js']);
+  registrar(home, 's1');
+  const dentro = modulosCarregados(home, JSON.stringify(entradaValida()));
+  assert.equal(dentro.r.status, 0, dentro.r.stderr);
+  assert.match(dentro.r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.deepEqual(dentro.nomes, ['alerta.js', 'ativas.js', 'estado.js', 'formato.js', 'ritmo.js', 'statusline.js', 'util.js']);
 });
