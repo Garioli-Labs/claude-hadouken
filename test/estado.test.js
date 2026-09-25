@@ -762,6 +762,98 @@ test('I-4: guardada ja vencida nao segura a leitura nova', () => {
   assert.deepEqual(e.five_hour, { used_percentage: 10, resets_at: agoraS + 400 });
 });
 
+// Fix round 3 (decisao do coordenador): o maximo da mesma janela so protege
+// snapshot fresco. Com at a mais de LIMITE_VELHO_MS (a regua de limitesValidos,
+// que ja nao o exibe), uma leitura valida substitui as duas janelas e at anda.
+const plantado100 = (at = iso(agora)) => gravarBruto(estadoBase({
+  at,
+  five_hour: { used_percentage: 100, resets_at: agoraS + 3 * 3600 },
+  seven_day: { used_percentage: 100, resets_at: agoraS + 3 * 86400 },
+}));
+const genuina = (p5, p7) => entrada({ rate_limits: rl(p5, agoraS + 3 * 3600, p7, agoraS + 3 * 86400) });
+
+test('round 3: 100/100 plantado na mesma janela segura no maximo LIMITE_VELHO_MS', () => {
+  plantado100();
+  atualizarEstado(genuina(30, 40), agora + 60_000);
+  let e = lerEstado();
+  assert.equal(e.at, iso(agora), 'fresco: o maximo da mesma janela protege');
+  assert.equal(e.five_hour.used_percentage, 100);
+  // Passada a hora (com folga), a genuina entra inteira, com at novo.
+  const t = agora + LIMITE_VELHO_MS + 60_000;
+  atualizarEstado(genuina(30, 40), t);
+  e = lerEstado();
+  assert.equal(e.at, iso(t));
+  assert.deepEqual(limitesValidos(e, t), {
+    five_hour: { used_percentage: 30, resets_at: agoraS + 3 * 3600 },
+    seven_day: { used_percentage: 40, resets_at: agoraS + 3 * 86400 },
+  });
+  // Dai em diante o maximo volta a valer sobre o snapshot fresco e genuino.
+  atualizarEstado(genuina(29, 41), t + 60_000);
+  e = lerEstado();
+  assert.equal(e.at, iso(t + 60_000));
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage], [30, 41]);
+});
+
+test('round 3: fronteira exata de LIMITE_VELHO_MS (igual protege, 1 ms depois substitui)', () => {
+  plantado100();
+  atualizarEstado(genuina(30, 40), agora + LIMITE_VELHO_MS);
+  let e = lerEstado();
+  assert.equal(e.at, iso(agora));
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage], [100, 100]);
+  assert.notEqual(limitesValidos(e, agora + LIMITE_VELHO_MS), null, 'no limite o snapshot ainda e exibido');
+  atualizarEstado(genuina(30, 40), agora + LIMITE_VELHO_MS + 1);
+  e = lerEstado();
+  assert.equal(e.at, iso(agora + LIMITE_VELHO_MS + 1));
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage], [30, 40]);
+});
+
+test('round 3: snapshot velho e substituido por inteiro, inclusive janela ausente e janela anterior', () => {
+  // Leitura so com 5h: a 7d velha nao sobrevive.
+  plantado100(iso(agora - LIMITE_VELHO_MS - 1));
+  atualizarEstado(entrada({ rate_limits: rl(30, agoraS + 3 * 3600) }), agora);
+  let e = lerEstado();
+  assert.equal(e.at, iso(agora));
+  assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 30, resets_at: agoraS + 3 * 3600 }, null]);
+  // Leitura que N-1 seguraria (uma duracao antes da guardada): entra tambem.
+  gravarBruto(estadoBase({
+    at: iso(agora - LIMITE_VELHO_MS - 1),
+    five_hour: { used_percentage: 10, resets_at: agoraS + 5 * 3600 },
+    seven_day: { used_percentage: 10, resets_at: agoraS + 7 * 86400 },
+  }));
+  atualizarEstado(entrada({ rate_limits: rl(95, agoraS + 60, 99, agoraS + 60) }), agora);
+  e = lerEstado();
+  assert.equal(e.at, iso(agora));
+  assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 95, resets_at: agoraS + 60 }, { used_percentage: 99, resets_at: agoraS + 60 }]);
+  // Leitura sem janela valida nao conta como leitura: o snapshot fica.
+  plantado100(iso(agora - LIMITE_VELHO_MS - 1));
+  atualizarEstado(entrada({ rate_limits: {} }), agora);
+  e = lerEstado();
+  assert.equal(e.at, iso(agora - LIMITE_VELHO_MS - 1));
+  assert.equal(e.five_hour.used_percentage, 100);
+});
+
+test('round 3: a leitura velha de sessao ociosa so ganha depois de uma hora sem leitura fresca', () => {
+  // Janelas que viram depois do fim do teste (R5 vira ja em 1 h).
+  const r5 = agoraS + 3 * 3600;
+  const r7 = agoraS + 3 * 86400;
+  atualizarEstado(entrada({ session_id: 'B', rate_limits: rl(85, r5, 86, r7) }), agora);
+  // Dentro da hora, a leitura de 60% de A nao baixa o 85% fresco de B (I-4).
+  atualizarEstado(entrada({ session_id: 'A', rate_limits: rl(60, r5 + 3, 80, r7) }), agora + LIMITE_VELHO_MS);
+  let e = lerEstado();
+  assert.equal(e.five_hour.used_percentage, 85);
+  assert.equal(e.at, iso(agora));
+  // Uma hora sem leitura fresca: a de A e o melhor dado que ha, e entra.
+  const t = agora + LIMITE_VELHO_MS + 1;
+  atualizarEstado(entrada({ session_id: 'A', rate_limits: rl(60, r5 + 3, 80, r7) }), t);
+  e = lerEstado();
+  assert.equal(e.at, iso(t));
+  assert.equal(e.five_hour.used_percentage, 60);
+  // B volta: fresca e maior na mesma janela, entra.
+  atualizarEstado(entrada({ session_id: 'B', rate_limits: rl(87, r5, 88, r7) }), t + 1000);
+  e = lerEstado();
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage, e.at], [87, 88, iso(t + 1000)]);
+});
+
 test('I-4: guardada com reset alem da duracao da janela e implausivel e nao trava leituras', () => {
   const MAX5 = agoraS + 5 * 3600 + TOLERANCIA_JANELA_S;
   const MAX7 = agoraS + 7 * 86400 + TOLERANCIA_JANELA_S;

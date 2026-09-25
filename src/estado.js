@@ -296,6 +296,8 @@ export function validarEstado(valor, agoraMs) {
 // conta, ou outro CLAUDE_CONFIG_DIR) e entra: vale a leitura mais recente.
 // Limite conhecido: duas sessões simultâneas em duas contas alternam o
 // snapshot (a última leitura ganha) até o estado ser separado por conta.
+// Só é consultada com snapshot fresco; o velho é substituído inteiro
+// (atualizarEstado, fix round 3).
 function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
   if (!ehObjeto(guardada) || !numeroFinito(guardada.resets_at) || !numeroFinito(guardada.used_percentage)) return false;
   const agoraS = agoraMs / 1000;
@@ -329,9 +331,17 @@ export function atualizarEstado(entrada, agoraMs) {
     const estado = estadoVazio();
     const novas = {};
     let entrou = false;
+    // A mescla por janela só protege snapshot fresco (fix round 3). Com `at`
+    // a mais de LIMITE_VELHO_MS (a mesma régua de limitesValidos, que já não
+    // o exibe), qualquer leitura válida substitui as duas janelas e `at` anda:
+    // um valor plantado ou de outra conta segura no máximo 1 h, e a leitura
+    // velha de uma sessão ociosa só ganha quando ninguém leu nada na última
+    // hora, e aí é o melhor dado que há.
+    const tAnterior = instante(anterior.at, agoraMs);
+    const fresco = tAnterior !== null && agoraMs - tAnterior <= LIMITE_VELHO_MS;
     for (const k of JANELAS) {
       const nova = janela(rl[k]);
-      const fica = nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
+      const fica = fresco && nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
       novas[k] = fica ? anterior[k] : nova;
       if (nova !== null && !fica) entrou = true;
     }
