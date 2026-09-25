@@ -279,6 +279,7 @@ Resultado divergente em qualquer uma → esta spec é atualizada antes do plano.
 - Guardas de push/CI e sugestões de melhoria (D).
 - Minutos faturados da org via API de billing (exige `admin:org`).
 - Qualquer troca automática de modelo ou effort (impossível no meio da sessão, segundo a documentação oficial).
+- **v1.1 (pedido do Sr. Garioli, 2026-09-25): notificações no WhatsApp do usuário** — o Claude envia ao WhatsApp atualizações de push e de tarefas finalizadas. Ganha spec própria depois da v1.0; a spec decide o canal (API oficial WhatsApp Cloud da Meta, Twilio ou outro), a guarda da credencial (fora do repo, nunca em arquivo legível por skills sem necessidade), a opção de ativar por projeto e o conteúdo mínimo das mensagens (sem código, caminhos pessoais ou segredos: sai do computador).
 
 ## 13. Estrutura do repo
 
