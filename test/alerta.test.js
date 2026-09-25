@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO } from '../src/alerta.js';
+import { horaLocal, diaHora } from '../src/util.js';
 
 const H = 3600_000;
 const reset7 = 1_800_000_000;
@@ -28,6 +29,9 @@ const limites = (p5, p7) => ({
   five_hour: { used_percentage: p5, resets_at: reset5 },
   seven_day: { used_percentage: p7, resets_at: reset7 },
 });
+
+const avaliar = (lim, anteriores = ALERTAS_VAZIO, sessionId = 's1', agoraMs = agora) =>
+  avaliarAlertas({ limites: lim, anteriores, sessionId, agoraMs });
 
 test('primeira leitura normal não gera linha', () => {
   const r = avaliarAlertas({ limites: limites(10, 50), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora });
@@ -78,4 +82,118 @@ test('janela individual ausente é ignorada sem erro', () => {
   const r = avaliarAlertas({ limites: { five_hour: { used_percentage: 91, resets_at: reset5 } }, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora });
   assert.equal(r.linhas.length, 1);
   assert.match(r.linhas[0], /^5h em 91%: fechar a tarefa em curso/);
+});
+
+// --- Rodada de correção 1 -------------------------------------------------
+
+// (a) descida em pt-BR, nunca o id interno
+test('descida para atenção usa texto pt-BR com o reset', () => {
+  const r1 = avaliar(limites(91, 50));
+  const r2 = avaliar(limites(75, 50), r1.novos);
+  assert.deepEqual(r2.linhas, [`5h voltou a 75%: faixa atenção (reset ${horaLocal(reset5)}).`]);
+});
+
+test('descida para serializar diz que ainda é para serializar', () => {
+  const r1 = avaliar(limites(91, 50));
+  const r2 = avaliar(limites(85, 50), r1.novos);
+  assert.deepEqual(r2.linhas, ['5h voltou a 85%: ainda serializar — sem Workflow nem subagentes em paralelo.']);
+});
+
+// (b) janela nova suspende as restrições anteriores, uma vez
+test('5h: janela nova neutra depois de faixa restritiva anuncia a suspensão', () => {
+  const r1 = avaliar(limites(82, 50));
+  const nova = { five_hour: { used_percentage: 10, resets_at: reset5 + 5 * 3600 } };
+  const r2 = avaliar(nova, r1.novos);
+  assert.deepEqual(r2.linhas, ['5h: janela nova em 10%, faixa normal — restrições anteriores suspensas.']);
+  const r3 = avaliar(nova, r2.novos);
+  assert.deepEqual(r3.linhas, []);
+});
+
+test('5h: janela nova neutra depois de faixa ok não gera linha', () => {
+  const r1 = avaliar(limites(10, 50));
+  const r2 = avaliar({ five_hour: { used_percentage: 5, resets_at: reset5 + 5 * 3600 } }, r1.novos);
+  assert.deepEqual(r2.linhas, []);
+});
+
+test('7d: janela nova neutra depois de econômico anuncia a suspensão', () => {
+  const r1 = avaliar(limites(10, 61));
+  const reset7b = reset7 + 168 * 3600;
+  const agoraB = reset7 * 1000 + 84 * H; // esperado 50% na janela nova
+  const nova = { seven_day: { used_percentage: 50, resets_at: reset7b } };
+  const r2 = avaliar(nova, r1.novos, 's1', agoraB);
+  assert.deepEqual(r2.linhas, ['7d: janela nova, 50% vs 50% esperado → modo normal — restrições anteriores suspensas.']);
+  const r3 = avaliar(nova, r2.novos, 's1', agoraB);
+  assert.deepEqual(r3.linhas, []);
+});
+
+test('7d: janela nova neutra depois de só leitura anuncia a suspensão', () => {
+  const r1 = avaliar(limites(10, 92));
+  assert.equal(r1.novos.seven_day.faixa, 'so-leitura');
+  const agoraB = reset7 * 1000 + 84 * H;
+  const r2 = avaliar({ seven_day: { used_percentage: 45, resets_at: reset7 + 168 * 3600 } }, r1.novos, 's1', agoraB);
+  assert.deepEqual(r2.linhas, ['7d: janela nova, 45% vs 50% esperado → modo normal — restrições anteriores suspensas.']);
+});
+
+test('7d: janela nova neutra depois de folga não gera linha', () => {
+  const r1 = avaliar(limites(10, 30));
+  const agoraB = reset7 * 1000 + 84 * H;
+  const r2 = avaliar({ seven_day: { used_percentage: 50, resets_at: reset7 + 168 * 3600 } }, r1.novos, 's1', agoraB);
+  assert.deepEqual(r2.linhas, []);
+});
+
+// (c) porcentagem exibida com piso
+test('89.6% aparece como 89% na linha de serializar, nunca 90%', () => {
+  const r = avaliar(limites(89.6, 50));
+  assert.deepEqual(r.linhas, ['5h em 89%: serializar — sem Workflow nem subagentes em paralelo.']);
+});
+
+// (d) mesma janela com tolerância de 600 s
+test('variação de 30 s no resets_at não reanuncia a faixa', () => {
+  const r1 = avaliar(limites(82, 50));
+  const jitter = { ...limites(82, 50), five_hour: { used_percentage: 82, resets_at: reset5 + 30 } };
+  assert.deepEqual(avaliar(jitter, r1.novos).linhas, []);
+  const jitter7 = { ...limites(10, 61), seven_day: { used_percentage: 61, resets_at: reset7 - 30 } };
+  const e1 = avaliar(limites(10, 61));
+  assert.deepEqual(avaliar(jitter7, e1.novos).linhas, []);
+});
+
+test('reset 5 h adiante é janela nova e reanuncia a faixa', () => {
+  const r1 = avaliar(limites(82, 50));
+  const nova = { ...limites(82, 50), five_hour: { used_percentage: 82, resets_at: reset5 + 5 * 3600 } };
+  assert.deepEqual(avaliar(nova, r1.novos).linhas, ['5h em 82%: serializar — sem Workflow nem subagentes em paralelo.']);
+});
+
+// testes que faltavam
+test('subida para atenção traz o horário do reset', () => {
+  const r = avaliar(limites(72, 50));
+  assert.deepEqual(r.linhas, [`5h em 72% (reset ${horaLocal(reset5)}): atenção ao ritmo.`]);
+});
+
+test('linha de só leitura traz dia e hora do reset', () => {
+  const r = avaliar(limites(10, 92));
+  assert.deepEqual(r.linhas, [`7d em 92% com reset em ${diaHora(reset7)}: só leitura; recomendar parar.`]);
+});
+
+test('7d: descida de econômico para normal na mesma janela', () => {
+  const r1 = avaliar(limites(10, 61));
+  const r2 = avaliar(limites(10, 55), r1.novos);
+  assert.deepEqual(r2.linhas, ['7d 55% vs 50% esperado → modo normal.']);
+});
+
+test('anteriores null é aceito como estado vazio', () => {
+  const r = avaliar(limites(82, 50), null);
+  assert.deepEqual(r.linhas, ['5h em 82%: serializar — sem Workflow nem subagentes em paralelo.']);
+  const s = avaliar(null, null);
+  assert.deepEqual(s.linhas, ['Consumo sem leitura: rode /usage.']);
+});
+
+test('anteriores nunca é mutado', () => {
+  const semLeitura = avaliar(null);
+  const anteriores = { ...semLeitura.novos, five_hour: { resets_at: reset5, faixa: 'serializar' } };
+  const copia = structuredClone(anteriores);
+  avaliar(limites(40, 61), anteriores);
+  avaliar(null, anteriores, 's2');
+  avaliar({ five_hour: { used_percentage: 10, resets_at: reset5 + 5 * 3600 } }, anteriores);
+  assert.deepEqual(anteriores, copia);
+  assert.deepEqual(ALERTAS_VAZIO, { five_hour: null, seven_day: null, sem_leitura: {} });
 });

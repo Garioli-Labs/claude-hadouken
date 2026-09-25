@@ -3,6 +3,21 @@ import { horaLocal, diaHora } from './util.js';
 
 const DIA_MS = 24 * 3600_000;
 const ORDEM_5H = ['ok', 'atencao', 'serializar', 'fechar'];
+// Duas leituras são da mesma janela se os resets_at diferem no máximo isto
+// (o servidor devolve o reset com alguns segundos de variação).
+const TOLERANCIA_JANELA_S = 600;
+const RESTRITIVAS_5H = new Set(['atencao', 'serializar', 'fechar']);
+const RESTRITIVAS_7D = new Set(['economico', 'so-leitura']);
+const SUSPENSAS = 'restrições anteriores suspensas';
+
+const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
+
+function mesmaJanela(guardada, resetsAt) {
+  return Boolean(guardada)
+    && numeroFinito(guardada.resets_at)
+    && numeroFinito(resetsAt)
+    && Math.abs(guardada.resets_at - resetsAt) <= TOLERANCIA_JANELA_S;
+}
 
 export const ALERTAS_VAZIO = Object.freeze({ five_hour: null, seven_day: null, sem_leitura: {} });
 
@@ -19,11 +34,19 @@ export function faixa7d({ usado, resetsAt, agoraMs }) {
   return { faixa, esperado: r.esperado, desvio: r.desvio };
 }
 
-const pct = (x) => `${Math.round(x)}%`;
+// Piso, nunca arredondamento: 89.6 não pode aparecer como "90%" numa linha
+// que ainda está na faixa abaixo de 90.
+const pct = (x) => `${Math.floor(x)}%`;
 
 function linha5h(faixa, anterior, usado, resetsAt) {
   const subiu = anterior === null || ORDEM_5H.indexOf(faixa) > ORDEM_5H.indexOf(anterior);
-  if (!subiu) return `5h voltou a ${pct(usado)}: faixa ${faixa === 'ok' ? 'normal' : faixa}.`;
+  if (!subiu) {
+    switch (faixa) {
+      case 'atencao': return `5h voltou a ${pct(usado)}: faixa atenção (reset ${horaLocal(resetsAt)}).`;
+      case 'serializar': return `5h voltou a ${pct(usado)}: ainda serializar — sem Workflow nem subagentes em paralelo.`;
+      default: return `5h voltou a ${pct(usado)}: faixa normal.`;
+    }
+  }
   switch (faixa) {
     case 'atencao': return `5h em ${pct(usado)} (reset ${horaLocal(resetsAt)}): atenção ao ritmo.`;
     case 'serializar': return `5h em ${pct(usado)}: serializar — sem Workflow nem subagentes em paralelo.`;
@@ -59,9 +82,12 @@ export function avaliarAlertas({ limites, anteriores, sessionId, agoraMs }) {
   const f5 = limites.five_hour;
   if (f5) {
     const faixa = faixa5h(f5.used_percentage);
-    const mesmaJanela = ant.five_hour && ant.five_hour.resets_at === f5.resets_at;
-    const anterior = mesmaJanela ? ant.five_hour.faixa : null;
-    if (anterior !== faixa && !(anterior === null && faixa === 'ok')) {
+    const guardada = ant.five_hour;
+    const mesma = mesmaJanela(guardada, f5.resets_at);
+    const anterior = mesma ? guardada.faixa : null;
+    if (!mesma && guardada && RESTRITIVAS_5H.has(guardada.faixa) && faixa === 'ok') {
+      linhas.push(`5h: janela nova em ${pct(f5.used_percentage)}, faixa normal — ${SUSPENSAS}.`);
+    } else if (anterior !== faixa && !(anterior === null && faixa === 'ok')) {
       const l = linha5h(faixa, anterior, f5.used_percentage, f5.resets_at);
       if (l) linhas.push(l);
     }
@@ -71,9 +97,12 @@ export function avaliarAlertas({ limites, anteriores, sessionId, agoraMs }) {
   const f7 = limites.seven_day;
   if (f7) {
     const { faixa, esperado } = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs });
-    const mesmaJanela = ant.seven_day && ant.seven_day.resets_at === f7.resets_at;
-    const anterior = mesmaJanela ? ant.seven_day.faixa : null;
-    if (anterior !== faixa && !(anterior === null && faixa === 'normal')) {
+    const guardada = ant.seven_day;
+    const mesma = mesmaJanela(guardada, f7.resets_at);
+    const anterior = mesma ? guardada.faixa : null;
+    if (!mesma && guardada && RESTRITIVAS_7D.has(guardada.faixa) && faixa === 'normal') {
+      linhas.push(`7d: janela nova, ${pct(f7.used_percentage)} vs ${pct(esperado)} esperado → modo normal — ${SUSPENSAS}.`);
+    } else if (anterior !== faixa && !(anterior === null && faixa === 'normal')) {
       linhas.push(linha7d(faixa, f7.used_percentage, esperado, f7.resets_at));
     }
     novos.seven_day = { resets_at: f7.resets_at, faixa };
