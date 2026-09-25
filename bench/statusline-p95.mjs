@@ -12,11 +12,15 @@
 // - estado.json holds 50 sessions (its cap) and both rate-limit windows;
 // - stdin is a realistic, complete statusline payload.
 // Scenarios: registered (gate, merge, atomic write, render), unregistered (gate
-// only, prints nothing), and a bare `node -e ""` as the floor of any Node script.
+// only, prints nothing), the same two through the stable shim
+// <home>/bin/statusline.mjs (what settings.json runs), and a bare `node -e ""`
+// as the floor of any Node script. On Node 22.1+ the registered path turns on
+// the compile cache in <home>/cache; the warm-ups fill it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import modulo from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const RUNS = Number.parseInt(process.argv[2] ?? '100', 10);
@@ -34,6 +38,7 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench '));
 try {
   const { registrarSessao, DIR_ATIVAS } = await importar('ativas.js');
   const { atualizarEstado, ARQ_ESTADO } = await importar('estado.js');
+  const { sincronizarShims, DIR_BIN } = await importar('shim.js');
 
   const agora = Date.now();
   const s = Math.floor(agora / 1000);
@@ -66,6 +71,8 @@ try {
     }
     if (!registrarSessao(uuid(0), agora).ok) throw new Error('fixture: register target failed');
     for (let i = 49; i >= 0; i--) atualizarEstado(entrada(uuid(i)), agora - i * 1000);
+    const r = sincronizarShims(repo);
+    if (!r.ok) throw new Error(`fixture: shim sync failed: ${r.motivo}`);
   } finally {
     if (homeAntes === undefined) delete process.env.HADOUKEN_HOME;
     else process.env.HADOUKEN_HOME = homeAntes;
@@ -102,15 +109,27 @@ try {
   const naoRegistrada = medir([script], JSON.stringify(entrada('nao-registrada')), (out) => {
     if (out !== '') throw new Error(`unregistered: expected no output, got ${JSON.stringify(out)}`);
   });
+  const shim = path.join(home, DIR_BIN, 'statusline.mjs');
+  const viaShim = medir([shim], JSON.stringify(entrada(uuid(0))), (out) => {
+    if (!out.replace(CORES_FIXAS, '').startsWith(PREFIXO_BARRA)) throw new Error(`registered via shim: unexpected output ${JSON.stringify(out)}`);
+  });
+  const naoRegistradaShim = medir([shim], JSON.stringify(entrada('nao-registrada')), (out) => {
+    if (out !== '') throw new Error(`unregistered via shim: expected no output, got ${JSON.stringify(out)}`);
+  });
   const nodeVazio = medir(['-e', ''], '', () => {});
 
   const fmt = (x) => x.toFixed(1).padStart(6);
-  const linha = (nome, r) => `${nome.padEnd(26)} n=${r.n}  min=${fmt(r.min)}  p50=${fmt(r.p50)}  p95=${fmt(r.p95)}  max=${fmt(r.max)} ms`;
+  const linha = (nome, r) => `${nome.padEnd(30)} n=${r.n}  min=${fmt(r.min)}  p50=${fmt(r.p50)}  p95=${fmt(r.p95)}  max=${fmt(r.max)} ms`;
+  const cache = typeof modulo.enableCompileCache === 'function'
+    ? `on after the gate (${fs.existsSync(path.join(home, 'cache')) ? 'filled' : 'NOT created'})`
+    : 'unavailable on this Node';
   console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
   console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions in estado.json (${fs.statSync(path.join(home, ARQ_ESTADO)).size} B)`);
-  console.log(`runs: ${RUNS} measured after ${WARMUPS} warm-ups, spawn to exit; colour ${process.env.NO_COLOR ? 'off (NO_COLOR)' : 'on'}`);
+  console.log(`runs: ${RUNS} measured after ${WARMUPS} warm-ups, spawn to exit; colour ${process.env.NO_COLOR ? 'off (NO_COLOR)' : 'on'}; compile cache ${cache}`);
   console.log(linha('registered (full path)', registrada));
   console.log(linha('unregistered (gate only)', naoRegistrada));
+  console.log(linha('registered via shim', viaShim));
+  console.log(linha('unregistered via shim', naoRegistradaShim));
   console.log(linha('bare node -e ""', nodeVazio));
   console.log(`bar: ${JSON.stringify(barra)}`);
   console.log('target (spec 9): p95 <= 150 ms for the registered path; not asserted here');
