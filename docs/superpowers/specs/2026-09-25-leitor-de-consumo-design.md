@@ -208,6 +208,26 @@ Nenhum hook bloqueia o prompt nem retorna erro ao Claude. Qualquer falha termina
 - O plugin só lê arquivos locais e o GitHub via `gh`; não envia nada a nenhum serviço.
 - `~/.claude/hadouken/` fica fora de qualquer repo.
 
+## 8.1 Segurança contra skills, plugins e conteúdo maliciosos (ordem do Sr. Garioli, 2026-09-25)
+
+**Garantia:** o `claude-hadouken` nunca serve de vetor. Nenhum dado lido por ele (arquivos em `~/.claude/hadouken/`, transcripts, JSON da statusline, stdin dos hooks, respostas do GitHub, argumentos de skill) vira código executado, comando de shell, caminho de API arbitrário, sequência de terminal ou instrução com a autoridade do plugin no contexto do Claude.
+
+**Limite honesto:** uma skill maliciosa que já executa código como o mesmo usuário do sistema pode alterar qualquer arquivo do usuário, inclusive o `settings.json` e o próprio plugin. Nenhum plugin impede isso. O que o plugin garante é não ampliar esse poder e desfazer adulterações dos seus próprios arquivos a cada sessão.
+
+| # | Ameaça | Defesa |
+|---|---|---|
+| S1 | Arquivo de dados adulterado (`estado.json`, `alertas.json`, `config.json`, `historico.jsonl`, índices) para injetar texto no contexto do Claude via hook | Todo texto injetado é montado só com números finitos validados e rótulos de listas fixas do código; nenhum campo de texto lido de arquivo entra em linha injetada. Arquivo fora do schema = "sem leitura" |
+| S2 | Texto malicioso em transcripts, nomes de projeto, modelo, effort, repos ou campos do GitHub exibidos no `/consumo` | Saneamento único (`sanear`): remove caracteres de controle e sequências ANSI/OSC, remove `|`, crases e quebras de linha, limita a 64 caracteres; effort aceito só de lista fixa; o relatório declara que é dado, não instrução |
+| S3 | Sequências de terminal (ANSI/OSC, ex.: links ou títulos falsos) chegando à barra por `model.display_name` ou outros campos | `sanear` em todo texto externo antes de imprimir; as únicas sequências ANSI na barra são as cores fixas do próprio código |
+| S4 | Injeção de shell pelos argumentos da skill `/claude-hadouken:consumo` | A skill não repassa `$ARGUMENTS`: roda o comando com `--json` somente se o argumento for exatamente `--json`; a CLI ignora qualquer outro argumento |
+| S5 | Repo malicioso em `config.json` (ex.: `../../user`, argumentos extras) | Só aceita `dono/repo` casando `^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$`, sem `..`; `gh` chamado por `execFile`, nunca por shell |
+| S6 | Shim em `~/.claude/hadouken/bin/` adulterado para executar outro código | O hook SessionStart reescreve os shims a cada sessão a partir do conteúdo esperado; os shims não leem nada de fora |
+| S7 | Instalador acionado por outra skill ou pelo modelo sem o usuário saber | `/claude-hadouken:instalar` tem `disable-model-invocation: true` e sempre pede confirmação explícita antes de gravar; só grava a chave `statusLine`, com backup |
+| S8 | Cadeia de suprimentos | Zero dependências; CI com `permissions: contents: read` e actions fixadas por SHA |
+| S9 | Arquivo gigante ou malformado para travar hook/barra | Leitura com limites de tamanho (arquivos de estado ≤ 1 MB, linha de transcript ≤ 5 MB ignorada acima disso), prazos nos hooks e saída sempre com código 0 |
+
+Cada linha tem teste com entrada maliciosa sintética. A revisão final do branch inclui uma revisão de segurança dedicada.
+
 ## 9. Performance (metas medidas, não assumidas)
 
 | Operação | Meta | Como medir |
