@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizarEffort, horaLocal, diaHora, formatarTokens, sanear } from '../src/util.js';
+import { normalizarEffort, horaLocal, diaHora, formatarTokens, sanear, EFFORTS_VALIDOS, effortValido } from '../src/util.js';
 
 test('normalizarEffort aceita string, objeto e ausência', () => {
   assert.equal(normalizarEffort('high'), 'high');
@@ -12,6 +12,27 @@ test('normalizarEffort aceita string, objeto e ausência', () => {
   assert.equal(normalizarEffort(undefined), null);
   assert.equal(normalizarEffort({}), null);
   assert.equal(normalizarEffort(42), null);
+});
+
+// Lista única de effort (revisão T5, I-3): estado.js e formato.js usam a mesma.
+test('EFFORTS_VALIDOS: as cinco, congelada', () => {
+  assert.deepEqual(EFFORTS_VALIDOS, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.ok(Object.isFrozen(EFFORTS_VALIDOS));
+  assert.throws(() => { EFFORTS_VALIDOS.push('ultra'); }, TypeError);
+  assert.throws(() => { EFFORTS_VALIDOS[0] = 'x'; }, TypeError);
+  assert.equal(effortValido('ultra'), null);
+  assert.equal(effortValido('x'), null);
+});
+
+test('effortValido aceita só as cinco, em string ou { level }', () => {
+  for (const e of EFFORTS_VALIDOS) {
+    assert.equal(effortValido(e), e);
+    assert.equal(effortValido({ level: e }), e);
+  }
+  const armadilha = { get level() { throw new Error('getter'); } };
+  for (const e of ['HIGH', 'high\n', ' high', { level: "'; rm -rf ~" }, "'; rm -rf ~", '', 42, null, undefined, {}, ['high'], { level: 42 }, armadilha]) {
+    assert.equal(effortValido(e), null, String(e));
+  }
 });
 
 test('horaLocal e diaHora usam o fuso local', () => {

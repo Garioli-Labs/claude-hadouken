@@ -1,5 +1,5 @@
 import { faixa5h, faixa7d } from './alerta.js';
-import { horaLocal, diaHora, normalizarEffort, sanear } from './util.js';
+import { horaLocal, diaHora, effortValido, sanear } from './util.js';
 
 // Linha da barra de status. Todo dado externo passa por aqui antes do terminal
 // (spec 8.1, S2/S3): o nome do modelo passa por `sanear`; o effort vem de lista
@@ -10,8 +10,6 @@ const COR = { verde: '\x1b[32m', amarelo: '\x1b[33m', vermelho: '\x1b[31m', fim:
 const COR_5H = { ok: 'verde', atencao: 'amarelo', serializar: 'vermelho', fechar: 'vermelho' };
 const COR_7D = { normal: 'verde', folga: 'verde', economico: 'amarelo', 'so-leitura': 'vermelho' };
 const ROTULO_7D = { normal: '', folga: ' folga', economico: ' econ', 'so-leitura': ' só leitura' };
-// Mesma lista que estado.js aceita ao gravar a sessão.
-const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 const MAX_MODELO = 40;
 const SEM_VALOR = '—';
 const SEPARADOR = ' │ ';
@@ -50,8 +48,9 @@ export function formatarBarra(opcoes) {
     const ligado = cor === true;
 
     const nome = sanear(ehObjeto(e.model) ? e.model.display_name : undefined, MAX_MODELO) ?? SEM_VALOR;
-    const effort = normalizarEffort(e.effort);
-    const partes = [EFFORTS.has(effort) ? `${nome}·${effort}` : nome];
+    // A mesma lista que estado.js usa ao gravar a sessão (util.EFFORTS_VALIDOS).
+    const effort = effortValido(e.effort);
+    const partes = [effort ? `${nome}·${effort}` : nome];
 
     const f5 = janela(l.five_hour);
     partes.push(f5

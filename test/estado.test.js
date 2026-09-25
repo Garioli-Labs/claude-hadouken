@@ -8,6 +8,8 @@ import {
   dirDados, lerJson, gravarJsonAtomico, atualizarEstado, limitesValidos, validarEstado,
   idValido, instante, LIMITE_VELHO_MS, SESSAO_MAX_MS, ARQ_ESTADO,
 } from '../src/estado.js';
+import { EFFORTS_VALIDOS } from '../src/util.js';
+import { formatarBarra } from '../src/formato.js';
 
 let dir;
 const homeOriginal = process.env.HADOUKEN_HOME;
@@ -547,4 +549,22 @@ test('symlink no lugar de estado.json e substituido, nunca escrito atraves', (t)
   assert.equal(fs.lstatSync(arqEstado()).isSymbolicLink(), false);
   assert.equal(fs.readFileSync(alvo, 'utf8'), 'intocado');
   assert.equal(lerEstado().five_hour.used_percentage, 42);
+});
+
+// ---------------------------------------------------------------------------
+// Revisao da Task 5: I-3 (lista unica de effort) e I-4 (mescla por janela).
+
+test('effort: estado.json e a barra aceitam e recusam os mesmos valores', () => {
+  const barra = (effort) => formatarBarra({ entrada: entrada({ effort }), limites: null, agoraMs: agora, cor: false });
+  for (const e of EFFORTS_VALIDOS) {
+    for (const forma of [e, { level: e }]) {
+      assert.equal(atualizarEstado(entrada({ effort: forma }), agora).estado.sessoes.s1.effort, e);
+      assert.ok(barra(forma).startsWith(`Opus 5.5·${e} `), barra(forma));
+    }
+  }
+  for (const e of ['HIGH', 'ultra', { level: "'; rm -rf ~" }, '', 42, null]) {
+    assert.equal(atualizarEstado(entrada({ effort: e }), agora).estado.sessoes.s1.effort, null);
+    assert.ok(barra(e).startsWith('Opus 5.5 '), barra(e));
+    assert.ok(!barra(e).startsWith('Opus 5.5·'));
+  }
 });

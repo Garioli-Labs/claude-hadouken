@@ -9,6 +9,22 @@ export function normalizarEffort(e) {
   return null;
 }
 
+// Lista única dos níveis de effort aceitos (spec 8.1, S2): o estado.json e a
+// barra consultam a mesma lista, então nunca divergem sobre o que é válido.
+export const EFFORTS_VALIDOS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+const EFFORTS = new Set(EFFORTS_VALIDOS);
+
+// O nível de effort se for um dos cinco, em string ou em { level }; senão null.
+// Nunca lança, nem com um getter hostil.
+export function effortValido(e) {
+  try {
+    const nivel = normalizarEffort(e);
+    return EFFORTS.has(nivel) ? nivel : null;
+  } catch {
+    return null;
+  }
+}
+
 const STDIN_MAX_BYTES = 1_048_576;
 // Fica no stdin depois da leitura: um erro tardio (pipe quebrado depois do
 // 'end' ou do prazo) sem ouvinte viraria exceção e mataria o processo, que

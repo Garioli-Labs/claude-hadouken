@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { normalizarEffort, sanear } from './util.js';
+import { effortValido, sanear } from './util.js';
 
 // Camada de estado: a statusline grava `estado.json`; hooks e relatório só
 // leem. É a fronteira de confiança dos dados em disco (spec 8.1, S1–S3, S9):
@@ -23,7 +23,6 @@ const MAX_MODEL = 40;
 // cwd serve para exibir; nunca vira caminho de arquivo.
 const MAX_CWD = 200;
 const ID_SESSAO = /^[A-Za-z0-9_-]{1,64}$/;
-const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 const JANELAS = ['five_hour', 'seven_day'];
 
 // O_NONBLOCK (onde existe) impede que um FIFO posto no lugar do arquivo entre o
@@ -210,11 +209,10 @@ function sessaoValida(bruta, agoraMs) {
   if (!ehObjeto(bruta)) return null;
   const t = instante(bruta.at, agoraMs);
   if (t === null || agoraMs - t > SESSAO_MAX_MS) return null;
-  const effort = normalizarEffort(bruta.effort);
   return {
     at: new Date(t).toISOString(),
     model: sanear(bruta.model, MAX_MODEL),
-    effort: EFFORTS.has(effort) ? effort : null,
+    effort: effortValido(bruta.effort),
     cwd: sanear(bruta.cwd, MAX_CWD),
     context_pct: noIntervalo(bruta.context_pct, 0, 100),
     cache_hit: noIntervalo(bruta.cache_hit, 0, 1),
