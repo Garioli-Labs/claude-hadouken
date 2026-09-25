@@ -138,7 +138,7 @@ Entrada: estado lido, `alertas.json` anterior, `agora`. Saída: `{ linha | null,
 
 - Lê o JSON oficial da entrada padrão, chama `ritmo`, grava `estado` e imprime uma linha:
   ```
-  Opus 5.5·high │ 5h 42% ↻18:40 │ 7d 48%/41% econ ↻qui 22:00 │ ctx 31% │ cache 97%
+  Opus 5.5·high │ 5h 42% ↻18:40 │ 7d 58%/41% econ ↻qui 22:00 │ ctx 31% │ cache 97%
   ```
 - Cores ANSI por faixa: verde (`ok`/`normal`), amarelo (`atencao`/`economico`), vermelho (`serializar`/`fechar`/`so-leitura`). `folga` em verde com o rótulo `folga`.
 - Campo ausente no JSON → o segmento mostra `—`; sem `rate_limits` → `5h —  7d —`.
