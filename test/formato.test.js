@@ -140,6 +140,13 @@ test('percentuais em piso: o número nunca contradiz a faixa', () => {
   assert.ok(com5h(90).includes('\x1b[31m5h 90% ↻'));
   const com7d = (used) => formatarBarra({ entrada, limites: { ...limites, seven_day: { used_percentage: used, resets_at: reset7 } }, agoraMs: agora, cor: false });
   assert.match(com7d(61.7), /│ 7d 61%\/50% econ ↻/);
+  // M-2: a mesma tela "60%/50%" nunca e econ; "40%/50%" nunca e folga.
+  const agora504 = reset7 * 1000 - 168 * H + 0.504 * 168 * H;
+  const em504 = (used) => formatarBarra({ entrada, limites: { ...limites, seven_day: { used_percentage: used, resets_at: reset7 } }, agoraMs: agora504, cor: false });
+  for (const u of [60, 60.4, 60.5, 60.99]) assert.match(em504(u), /│ 7d 60%\/50% ↻/, String(u));
+  for (const u of [40, 40.3, 40.99]) assert.match(em504(u), /│ 7d 40%\/50% ↻/, String(u));
+  assert.match(em504(61), /│ 7d 61%\/50% econ ↻/);
+  assert.match(em504(39.9), /│ 7d 39%\/50% folga ↻/);
 });
 
 test('7d: rótulo e cor por faixa', () => {

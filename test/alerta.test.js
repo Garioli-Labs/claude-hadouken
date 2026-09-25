@@ -197,3 +197,42 @@ test('anteriores nunca é mutado', () => {
   assert.deepEqual(anteriores, copia);
   assert.deepEqual(ALERTAS_VAZIO, { five_hour: null, seven_day: null, sem_leitura: {} });
 });
+
+// M-2 (revisao da Task 5): a faixa de 7d sai dos inteiros exibidos,
+// floor(usado) - floor(esperado) contra +-10. Os mesmos numeros na tela nunca
+// carregam faixas diferentes, e a distancia exibida nunca contradiz a faixa.
+test('faixa7d: a faixa e funcao dos numeros exibidos (grade de 0,1 ponto)', () => {
+  const vista = new Map();
+  let casos = 0;
+  for (let q = 0; q <= 168 * 4; q += 1) {
+    const agoraMs = inicio7 + q * (H / 4);
+    for (let d = 0; d <= 1000; d += 1) {
+      const usado = d / 10;
+      const r = faixa7d({ usado, resetsAt: reset7, agoraMs });
+      const U = Math.floor(usado);
+      const E = Math.floor(r.esperado);
+      const distancia = U - E;
+      const faixaNumeros = r.faixa === 'so-leitura' ? null : r.faixa;
+      if (faixaNumeros !== null) {
+        const esperada = distancia > 10 ? 'economico' : distancia < -10 ? 'folga' : 'normal';
+        if (faixaNumeros !== esperada) assert.fail(`usado ${usado}, esperado ${r.esperado}: ${U}%/${E}% (distancia ${distancia}) virou ${faixaNumeros}`);
+        const chave = `${U}/${E}`;
+        const antes = vista.get(chave);
+        if (antes !== undefined && antes !== faixaNumeros) assert.fail(`${chave} com duas faixas: ${antes} e ${faixaNumeros}`);
+        vista.set(chave, faixaNumeros);
+      }
+      assert.equal(r.desvio, distancia);
+      casos += 1;
+    }
+  }
+  assert.equal(casos, 673 * 1001);
+});
+
+test('faixa7d: os casos da revisao (esperado 50,4)', () => {
+  const agoraMs = inicio7 + 0.504 * 168 * H;
+  assert.equal(faixa7d({ usado: 0, resetsAt: reset7, agoraMs }).esperado, 50.4);
+  const f = (usado) => faixa7d({ usado, resetsAt: reset7, agoraMs });
+  assert.deepEqual([f(60.5).faixa, f(60.4).faixa, f(60.99).faixa], ['normal', 'normal', 'normal']);
+  assert.deepEqual([f(61).faixa, f(61).desvio], ['economico', 11]);
+  assert.deepEqual([f(40.3).faixa, f(40).faixa, f(39.99).faixa], ['normal', 'normal', 'folga']);
+});
