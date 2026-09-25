@@ -228,6 +228,17 @@ Nenhum hook bloqueia o prompt nem retorna erro ao Claude. Qualquer falha termina
 
 Cada linha tem teste com entrada maliciosa sintética. A revisão final do branch inclui uma revisão de segurança dedicada.
 
+## 8.2 Ativação só em sessões novas (ordem do Sr. Garioli, 2026-09-25)
+
+Instalar o plugin não interfere em sessões já abertas nem nos agentes que rodam nelas. Sessões e agentes iniciados depois da instalação usam o plugin.
+
+- **Registro de ativação:** o hook `SessionStart` do plugin grava o `session_id` em `~/.claude/hadouken/ativas.json` (id validado, `at`, poda após 24 h). Só sessões que carregaram o plugin ao iniciar passam por esse hook.
+- **Barra:** se o `session_id` do stdin não está no registro, o script da statusline imprime vazio, não grava nada e termina com código 0. Uma sessão antiga que recarregue o `settings.json` fica visualmente como estava (sem barra).
+- **Hooks:** `UserPromptSubmit` e os demais só injetam contexto para sessões registradas. Se o Claude Code carregar hooks do plugin no meio de uma sessão antiga, eles ficam mudos.
+- **Subagentes:** herdam o `session_id` da sessão-mãe, portanto seguem a regra dela: agentes lançados em sessão nova usam o plugin; agentes em sessão antiga, não.
+- **Instalador:** grava só a chave `statusLine` (backup antes) e avisa que as sessões abertas não mudam; nada de reiniciar, matar processos ou editar arquivos de sessão.
+- **Teste:** statusline e hook com `session_id` não registrado → saída vazia, nenhum arquivo gravado.
+
 ## 9. Performance (metas medidas, não assumidas)
 
 | Operação | Meta | Como medir |
