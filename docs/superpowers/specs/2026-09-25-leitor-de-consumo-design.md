@@ -243,7 +243,7 @@ Instalar o plugin não interfere em sessões já abertas nem nos agentes que rod
 
 | Operação | Meta | Como medir |
 |---|---|---|
-| statusline (início ao fim do processo) | p95 ≤ 150 ms no Windows desta máquina | 100 execuções com fixture sintética do tamanho real |
+| statusline (início ao fim do processo) | p95 ≤ 250 ms no Windows e ≤ 150 ms no Linux/macOS (decisão do Sr. Garioli, 2026-09-25: só a partida do Node no Windows desta máquina leva 100–136 ms; a barra roda em segundo plano, sem travar nada) | 100 execuções com fixture sintética do tamanho real (`bench/statusline-p95.mjs`) |
 | hook UserPromptSubmit | p95 ≤ 100 ms | idem |
 | `/consumo` com 7 dias de transcripts, índice quente | ≤ 2 s | tempo de parede, volume desta máquina |
 | `/consumo` com índice frio | ≤ 15 s | idem |
