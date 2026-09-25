@@ -284,17 +284,26 @@ export function validarEstado(valor, agoraMs) {
 
 // Mescla por janela (I-4, spec 7 #3/#4): a leitura nova de uma janela perde
 // para a guardada quando a guardada ainda vale (reset no futuro e plausível) e
-// a nova é da mesma janela com percentual menor, ou de uma janela mais velha.
+// a nova é da mesma janela com percentual menor, ou de fato de uma janela
+// anterior: já vencida, ou com reset uma duração inteira (menos a tolerância)
+// antes do da guardada, isto é, a janela que acabou quando a guardada começou.
 // Assim a leitura antiga de uma sessão ociosa nunca baixa o snapshot nem o
 // carimba como recente. Trade-off: se a janela de 5 h for de fato móvel, o
 // máximo pode exagerar o uso até a janela virar (o lado seguro).
+// N-1: uma leitura com reset mais cedo mas ainda no futuro e a menos de uma
+// duração da guardada não é janela anterior da mesma conta (essa venceu antes
+// de a guardada começar); é a janela atual de outra conta (/login em outra
+// conta, ou outro CLAUDE_CONFIG_DIR) e entra: vale a leitura mais recente.
+// Limite conhecido: duas sessões simultâneas em duas contas alternam o
+// snapshot (a última leitura ganha) até o estado ser separado por conta.
 function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
   if (!ehObjeto(guardada) || !numeroFinito(guardada.resets_at) || !numeroFinito(guardada.used_percentage)) return false;
   const agoraS = agoraMs / 1000;
   if (guardada.resets_at <= agoraS || guardada.resets_at > agoraS + duracaoS + TOLERANCIA_JANELA_S) return false;
+  if (nova.resets_at <= agoraS) return true;
   const delta = nova.resets_at - guardada.resets_at;
   if (Math.abs(delta) <= TOLERANCIA_JANELA_S) return nova.used_percentage < guardada.used_percentage;
-  return delta < 0;
+  return delta <= -(duracaoS - TOLERANCIA_JANELA_S);
 }
 
 // Junta a entrada da statusline ao estado gravado e regrava `estado.json`.

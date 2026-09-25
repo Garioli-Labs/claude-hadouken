@@ -571,8 +571,9 @@ test('effort: estado.json e a barra aceitam e recusam os mesmos valores', () => 
 });
 
 // I-4: cada janela se mescla com a guardada. Na mesma janela (resets_at a ate
-// TOLERANCIA_JANELA_S) fica o maior percentual; janela mais velha que a guardada
-// ainda valida e ignorada; at so anda quando alguma janela veio da leitura nova.
+// TOLERANCIA_JANELA_S) fica o maior percentual; so a janela de fato anterior
+// (vencida, ou uma duracao antes da guardada ainda valida) e ignorada; qualquer
+// outra entra (N-1); at so anda quando alguma janela veio da leitura nova.
 const rl = (p5, r5, p7, r7) => ({
   ...(p5 === undefined ? {} : { five_hour: { used_percentage: p5, resets_at: r5 } }),
   ...(p7 === undefined ? {} : { seven_day: { used_percentage: p7, resets_at: r7 } }),
@@ -619,21 +620,115 @@ test('I-4: variacao de reset ate 600 s e a mesma janela; 601 s ja e outra', () =
     assert.equal(e.at, iso(agora), String(d));
     assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 42, resets_at: R5 }, { used_percentage: 48, resets_at: R7 }], String(d));
   }
-  // Janela nova (reset mais tarde por mais de 600 s): entra mesmo menor.
-  fs.rmSync(arqEstado(), { force: true });
-  atualizarEstado(entrada(), agora);
-  atualizarEstado(entrada({ rate_limits: rl(3, R5 + 601, 5, R7 + 601) }), agora + 1000);
-  let e = lerEstado();
-  assert.equal(e.at, iso(agora + 1000));
-  assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 3, resets_at: R5 + 601 }, { used_percentage: 5, resets_at: R7 + 601 }]);
-  // Janela mais velha (reset mais cedo por mais de 600 s, guardada ainda no
-  // futuro): ignorada mesmo maior.
-  fs.rmSync(arqEstado(), { force: true });
-  atualizarEstado(entrada(), agora);
-  atualizarEstado(entrada({ rate_limits: rl(95, R5 - 601, 99, R7 - 601) }), agora + 1000);
-  e = lerEstado();
+  // Outra janela com reset mais tarde por mais de 600 s: entra mesmo menor.
+  // Outra janela com reset mais cedo por 601 s e ainda no futuro: nao e janela
+  // anterior da mesma conta (N-1, outra conta), entra tambem, mesmo menor.
+  for (const d of [601, -601]) {
+    fs.rmSync(arqEstado(), { force: true });
+    atualizarEstado(entrada(), agora);
+    atualizarEstado(entrada({ rate_limits: rl(3, R5 + d, 5, R7 + d) }), agora + 1000);
+    const e = lerEstado();
+    assert.equal(e.at, iso(agora + 1000), String(d));
+    assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 3, resets_at: R5 + d }, { used_percentage: 5, resets_at: R7 + d }], String(d));
+  }
+});
+
+test('N-1: so a janela de fato anterior fica de fora (vencida ou uma duracao antes)', () => {
+  // Guardada: janelas que acabaram de comecar (reset agora + duracao).
+  const G5 = agoraS + 5 * 3600;
+  const G7 = agoraS + 7 * 86400;
+  const guardada = () => gravarBruto(estadoBase({ at: iso(agora - 1000), five_hour: { used_percentage: 10, resets_at: G5 }, seven_day: { used_percentage: 10, resets_at: G7 } }));
+  const manteve = (msg) => {
+    const e = lerEstado();
+    assert.equal(e.at, iso(agora - 1000), msg);
+    assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 10, resets_at: G5 }, { used_percentage: 10, resets_at: G7 }], msg);
+  };
+  // Reset ja passado: a janela acabou, fica de fora mesmo maior.
+  for (const r of [agoraS, agoraS - 1, agoraS - 3600]) {
+    guardada();
+    atualizarEstado(entrada({ rate_limits: rl(95, r, 99, r) }), agora);
+    manteve(`vencida ${r - agoraS}`);
+  }
+  // Reset no futuro, mas uma duracao (menos a tolerancia) antes da guardada:
+  // a janela que terminou quando a guardada comecou. Fica de fora.
+  for (const r of [agoraS + 1, agoraS + TOLERANCIA_JANELA_S]) {
+    guardada();
+    atualizarEstado(entrada({ rate_limits: rl(95, r, 99, r) }), agora);
+    manteve(`anterior ${r - agoraS}`);
+  }
+  // Guardada perto de virar e leitura ja vencida (a 101 s ou a 1001 s dela):
+  // a vencida fica de fora mesmo maior, dentro ou fora da tolerancia.
+  for (const g of [agoraS + 100, agoraS + 1000]) {
+    gravarBruto(estadoBase({ at: iso(agora - 1000), five_hour: { used_percentage: 10, resets_at: g }, seven_day: { used_percentage: 10, resets_at: g } }));
+    atualizarEstado(entrada({ rate_limits: rl(95, agoraS - 1, 99, agoraS - 1) }), agora);
+    const e = lerEstado();
+    assert.equal(e.at, iso(agora - 1000), String(g - agoraS));
+    assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 10, resets_at: g }, { used_percentage: 10, resets_at: g }], String(g - agoraS));
+  }
+  // Um segundo depois ja nao e a janela anterior: entra.
+  guardada();
+  atualizarEstado(entrada({ rate_limits: rl(95, agoraS + TOLERANCIA_JANELA_S + 1, 99, agoraS + TOLERANCIA_JANELA_S + 1) }), agora);
+  const e = lerEstado();
   assert.equal(e.at, iso(agora));
-  assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 42, resets_at: R5 }, { used_percentage: 48, resets_at: R7 }]);
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage], [95, 99]);
+});
+
+test('N-1: troca de conta mostra a conta nova na hora, com at novo', () => {
+  // Conta X, depois /login na conta Y, cujas janelas viram mais cedo.
+  atualizarEstado(entrada({ rate_limits: rl(20, agoraS + 4 * 3600, 10, agoraS + 5 * 86400) }), agora);
+  const t1 = agora + 60_000;
+  atualizarEstado(entrada({ rate_limits: rl(95, agoraS + 2 * 3600, 85, agoraS + 2 * 86400) }), t1);
+  let e = lerEstado();
+  assert.equal(e.at, iso(t1));
+  assert.deepEqual(limitesValidos(e, t1), {
+    five_hour: { used_percentage: 95, resets_at: agoraS + 2 * 3600 },
+    seven_day: { used_percentage: 85, resets_at: agoraS + 2 * 86400 },
+  });
+  const alerta = avaliarAlertas({ limites: limitesValidos(e, t1), anteriores: null, sessionId: 's1', agoraMs: t1 });
+  assert.ok(alerta.linhas.length > 0, 'Y em 95 % alerta');
+  // Uma hora depois, Y segue fresca (nada de "sem leitura").
+  const t2 = agora + 61 * 60_000;
+  atualizarEstado(entrada({ rate_limits: rl(96, agoraS + 2 * 3600, 85, agoraS + 2 * 86400) }), t2);
+  e = lerEstado();
+  assert.equal(e.at, iso(t2));
+  assert.deepEqual(limitesValidos(e, t2), {
+    five_hour: { used_percentage: 96, resets_at: agoraS + 2 * 3600 },
+    seven_day: { used_percentage: 85, resets_at: agoraS + 2 * 86400 },
+  });
+  assert.match(formatarBarra({ limites: limitesValidos(e, t2), agoraMs: t2, cor: false }), /96/);
+});
+
+test('N-1: estado plantado com reset deslocado nao congela a barra', () => {
+  // 100 %/100 % plantados com reset plausivel (dentro de duracao + 600 s).
+  gravarBruto(estadoBase({
+    five_hour: { used_percentage: 100, resets_at: agoraS + 5 * 3600 + 500 },
+    seven_day: { used_percentage: 100, resets_at: agoraS + 7 * 86400 + 500 },
+  }));
+  atualizarEstado(entrada({ rate_limits: rl(30, agoraS + 3 * 3600, 40, agoraS + 3 * 86400) }), agora);
+  let e = lerEstado();
+  assert.equal(e.at, iso(agora));
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage], [30, 40]);
+  const t = agora + 2 * 3_600_000;
+  atualizarEstado(entrada({ rate_limits: rl(31, agoraS + 3 * 3600, 40, agoraS + 3 * 86400) }), t);
+  e = lerEstado();
+  assert.equal(e.at, iso(t));
+  assert.deepEqual(limitesValidos(e, t), {
+    five_hour: { used_percentage: 31, resets_at: agoraS + 3 * 3600 },
+    seven_day: { used_percentage: 40, resets_at: agoraS + 3 * 86400 },
+  });
+  // Pior caso: plantado no limite plausivel segura so a leitura cuja janela
+  // vira em ate 20 min; a janela seguinte ja entra.
+  gravarBruto(estadoBase({
+    five_hour: { used_percentage: 100, resets_at: agoraS + 5 * 3600 + TOLERANCIA_JANELA_S },
+    seven_day: { used_percentage: 100, resets_at: agoraS + 7 * 86400 + TOLERANCIA_JANELA_S },
+  }));
+  atualizarEstado(entrada({ rate_limits: rl(30, agoraS + 1200, 40, agoraS + 1200) }), agora);
+  assert.equal(lerEstado().five_hour.used_percentage, 100);
+  const virou = agora + 1201 * 1000;
+  atualizarEstado(entrada({ rate_limits: rl(1, agoraS + 1201 + 5 * 3600, 41, agoraS + 1201 + 7 * 86400) }), virou);
+  e = lerEstado();
+  assert.equal(e.at, iso(virou));
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage], [1, 41]);
 });
 
 test('I-4: janelas mistas; at anda se ao menos uma entrou', () => {
@@ -666,15 +761,20 @@ test('I-4: guardada ja vencida nao segura a leitura nova', () => {
 test('I-4: guardada com reset alem da duracao da janela e implausivel e nao trava leituras', () => {
   const MAX5 = agoraS + 5 * 3600 + TOLERANCIA_JANELA_S;
   const MAX7 = agoraS + 7 * 86400 + TOLERANCIA_JANELA_S;
-  gravarBruto(estadoBase({ five_hour: { used_percentage: 99, resets_at: MAX5 + 1 }, seven_day: { used_percentage: 99, resets_at: 9e10 } }));
-  atualizarEstado(entrada(), agora);
-  let e = lerEstado();
-  assert.equal(e.at, iso(agora));
-  assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 42, resets_at: R5 }, { used_percentage: 48, resets_at: R7 }]);
-  // No limite ainda e plausivel: a leitura mais velha e ignorada.
+  // Leitura uma duracao (menos a tolerancia) antes de MAX5/MAX7: seria a
+  // janela anterior se a guardada fosse plausivel.
+  const velha = rl(10, agoraS + 2 * TOLERANCIA_JANELA_S, 10, agoraS + 2 * TOLERANCIA_JANELA_S);
+  for (const [g5, g7] of [[MAX5 + 1, MAX7 + 1], [MAX5 + 1, 9e10]]) {
+    gravarBruto(estadoBase({ at: iso(agora - 1000), five_hour: { used_percentage: 99, resets_at: g5 }, seven_day: { used_percentage: 99, resets_at: g7 } }));
+    atualizarEstado(entrada({ rate_limits: velha }), agora);
+    const e = lerEstado();
+    assert.equal(e.at, iso(agora), String(g7));
+    assert.deepEqual([e.five_hour, e.seven_day], [velha.five_hour, velha.seven_day], String(g7));
+  }
+  // No limite ainda e plausivel: a mesma leitura e a janela anterior, fica de fora.
   gravarBruto(estadoBase({ at: iso(agora - 1000), five_hour: { used_percentage: 99, resets_at: MAX5 }, seven_day: { used_percentage: 99, resets_at: MAX7 } }));
-  atualizarEstado(entrada(), agora);
-  e = lerEstado();
+  atualizarEstado(entrada({ rate_limits: velha }), agora);
+  const e = lerEstado();
   assert.equal(e.at, iso(agora - 1000));
   assert.deepEqual([e.five_hour.resets_at, e.seven_day.resets_at], [MAX5, MAX7]);
 });
