@@ -2,9 +2,6 @@ import { calcularRitmo } from './ritmo.js';
 import { horaLocal, diaHora, TOLERANCIA_JANELA_S } from './util.js';
 
 const DIA_MS = 24 * 3600_000;
-// Pontos de distância entre usado e esperado (inteiros exibidos) que mudam a
-// faixa de 7d; o mesmo limiar de ritmo.js.
-const LIMIAR_7D = 10;
 const ORDEM_5H = ['ok', 'atencao', 'serializar', 'fechar'];
 const RESTRITIVAS_5H = new Set(['atencao', 'serializar', 'fechar']);
 const RESTRITIVAS_7D = new Set(['economico', 'so-leitura']);
@@ -28,18 +25,13 @@ export function faixa5h(pct) {
   return 'ok';
 }
 
-// A faixa de 7d sai dos inteiros que a barra e as linhas exibem (piso de
-// usado e de esperado, revisão da Task 5, M-2): distância acima de +10 é
-// econômico, abaixo de -10 é folga. Assim os mesmos números na tela nunca
-// carregam faixas diferentes e "60%/50%" nunca aparece como econômico. Os
-// limiares de 90% e de ±10 são inteiros, então o piso só atrasa a troca de
-// faixa em menos de 1 ponto de usado ou de esperado. `desvio` é essa distância.
+// A faixa de 7d é o modo de calcularRitmo (ritmo.js guarda a regra única e o
+// limiar, revisão da Task 5, M-2 e N-5: inteiros exibidos, piso de usado e de
+// esperado contra ±10), com uma faixa a mais: só leitura quando o uso chega a
+// 90% e o reset está a mais de 24 h. O limiar de 90% é inteiro e compara o uso
+// cru, o que concorda com o piso exibido. `desvio` é a distância de ritmo.js.
 export function faixa7d({ usado, resetsAt, agoraMs }) {
-  const { esperado } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs });
-  const desvio = Math.floor(usado) - Math.floor(esperado);
-  let modo = 'normal';
-  if (desvio > LIMIAR_7D) modo = 'economico';
-  else if (desvio < -LIMIAR_7D) modo = 'folga';
+  const { esperado, desvio, modo } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs });
   const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS ? 'so-leitura' : modo;
   return { faixa, esperado, desvio };
 }

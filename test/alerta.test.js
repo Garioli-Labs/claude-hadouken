@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO } from '../src/alerta.js';
 import { horaLocal, diaHora } from '../src/util.js';
+import { calcularRitmo, LIMIAR_PONTOS } from '../src/ritmo.js';
 
 const H = 3600_000;
 const reset7 = 1_800_000_000;
@@ -226,6 +227,32 @@ test('faixa7d: a faixa e funcao dos numeros exibidos (grade de 0,1 ponto)', () =
     }
   }
   assert.equal(casos, 673 * 1001);
+});
+
+// N-5: uma regra so. calcularRitmo e faixa7d concordam em esperado, desvio e
+// modo em toda a grade (fora da janela tambem); so-leitura e a unica faixa que
+// faixa7d acrescenta ao modo.
+test('N-5: calcularRitmo e faixa7d concordam em toda a grade', () => {
+  let casos = 0;
+  let soLeitura = 0;
+  for (let q = -8; q <= 168 * 4 + 8; q += 1) {
+    const agoraMs = inicio7 + q * (H / 4);
+    for (let d = 0; d <= 1000; d += 1) {
+      const usado = d / 10;
+      const r = calcularRitmo({ usado7d: usado, resetsAt7d: reset7, agoraMs });
+      const f = faixa7d({ usado, resetsAt: reset7, agoraMs });
+      if (r.esperado !== f.esperado || r.desvio !== f.desvio || (f.faixa !== 'so-leitura' && f.faixa !== r.modo)) {
+        assert.fail(`usado ${usado}, q ${q}: ritmo ${JSON.stringify(r)} x faixa7d ${JSON.stringify(f)}`);
+      }
+      if (r.desvio !== Math.floor(usado) - Math.floor(r.esperado)) assert.fail(`desvio fora da regra: usado ${usado}, q ${q}`);
+      const modo = r.desvio > LIMIAR_PONTOS ? 'economico' : r.desvio < -LIMIAR_PONTOS ? 'folga' : 'normal';
+      if (r.modo !== modo) assert.fail(`modo fora da regra: usado ${usado}, q ${q}`);
+      if (f.faixa === 'so-leitura') soLeitura += 1;
+      casos += 1;
+    }
+  }
+  assert.equal(casos, 689 * 1001);
+  assert.ok(soLeitura > 0, 'a grade passa por so-leitura');
 });
 
 test('faixa7d: os casos da revisao (esperado 50,4)', () => {
