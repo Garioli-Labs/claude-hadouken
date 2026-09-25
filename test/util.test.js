@@ -193,7 +193,7 @@ test('fontes em src/ e test/ nao tem caracteres invisiveis crus', () => {
 // lerStdin lê o process.stdin global, então roda num processo filho.
 const UTIL_URL = new URL('../src/util.js', import.meta.url).href;
 
-function rodarFilho(corpo, { stdio = 'pipe', entrada, timeoutMs = 5000 } = {}) {
+function rodarFilho(corpo, { stdio = 'pipe', entrada, semFim = false, timeoutMs = 5000 } = {}) {
   const script = `import { lerStdin } from ${JSON.stringify(UTIL_URL)};\n${corpo}`;
   return new Promise((resolve, reject) => {
     const filho = spawn(process.execPath, ['--input-type=module', '-e', script], {
@@ -215,8 +215,13 @@ function rodarFilho(corpo, { stdio = 'pipe', entrada, timeoutMs = 5000 } = {}) {
       clearTimeout(guarda);
       resolve({ codigo, saida, erro, filho });
     });
-    if (stdio === 'pipe' && entrada !== undefined) filho.stdin.end(entrada);
-    // stdio 'pipe' sem entrada: o stdin fica aberto de propósito.
+    if (stdio === 'pipe' && entrada !== undefined) {
+      // O filho pode sair sem ler tudo (teto de bytes): o EPIPE daqui é esperado.
+      filho.stdin.on('error', () => {});
+      if (semFim) filho.stdin.write(entrada);
+      else filho.stdin.end(entrada);
+    }
+    // stdio 'pipe' sem entrada, ou semFim: o stdin fica aberto de propósito.
   });
 }
 
@@ -262,4 +267,60 @@ test('lerStdin desiste após o prazo se o stdin nunca fecha', async () => {
   const { t, ms } = JSON.parse(r.saida);
   assert.equal(t, '');
   assert.ok(ms >= 40 && ms < 1000, `demorou ${ms} ms`);
+});
+
+// Teto de bytes do stdin (spec 8.1, S9): acima dele a entrada inteira vale
+// como inválida ('') e o processo segue para o código 0.
+test('lerStdin conta bytes: aceita até maxBytes e devolve vazio acima', async () => {
+  const corpo = 'const t = await lerStdin(1000, 4); process.stdout.write(JSON.stringify(t));';
+  const dentro = await rodarFilho(corpo, { entrada: 'sáb' }); // 4 bytes em UTF-8
+  assert.equal(dentro.codigo, 0, dentro.erro);
+  assert.equal(JSON.parse(dentro.saida), 'sáb');
+  const acima = await rodarFilho(corpo, { entrada: 'sába' }); // 5 bytes
+  assert.equal(acima.codigo, 0, acima.erro);
+  assert.equal(JSON.parse(acima.saida), '');
+});
+
+test('lerStdin corta em 1 MiB por padrão', async () => {
+  const corpo = 'const t = await lerStdin(); process.stdout.write(String(t.length));';
+  const limite = await rodarFilho(corpo, { entrada: 'x'.repeat(1_048_576) });
+  assert.equal(limite.codigo, 0, limite.erro);
+  assert.equal(limite.saida, '1048576');
+  const acima = await rodarFilho(corpo, { entrada: 'x'.repeat(1_048_577) });
+  assert.equal(acima.codigo, 0, acima.erro);
+  assert.equal(acima.saida, '0');
+});
+
+test('lerStdin desiste na hora ao passar de maxBytes, sem esperar o prazo', async () => {
+  const r = await rodarFilho(
+    'const t0 = Date.now(); const t = await lerStdin(10000, 16);\n' +
+      'process.stdout.write(JSON.stringify({ t, ms: Date.now() - t0 }));',
+    { entrada: 'x'.repeat(64), semFim: true, timeoutMs: 8000 },
+  );
+  // O stdin nunca fecha e o prazo é 10 s: só o teto faz o filho terminar a tempo.
+  assert.equal(r.codigo, 0, r.erro);
+  const { t, ms } = JSON.parse(r.saida);
+  assert.equal(t, '');
+  assert.ok(ms < 2000, `demorou ${ms} ms`);
+});
+
+test('lerStdin: erro tardio no stdin não derruba o processo', async () => {
+  const r = await rodarFilho(
+    "const t = await lerStdin(); process.stdin.emit('error', new Error('tarde'));\n" +
+      'process.stdout.write(JSON.stringify(t));',
+    { entrada: 'ok' },
+  );
+  assert.equal(r.codigo, 0, r.erro);
+  assert.equal(r.erro, '');
+  assert.equal(JSON.parse(r.saida), 'ok');
+});
+
+test('lerStdin chamado de novo não acumula ouvintes de erro', async () => {
+  const r = await rodarFilho(
+    'await lerStdin(); await lerStdin(50); await lerStdin(50);\n' +
+      "process.stdout.write(String(process.stdin.listenerCount('error')));",
+    { entrada: 'ok' },
+  );
+  assert.equal(r.codigo, 0, r.erro);
+  assert.equal(r.saida, '1');
 });
