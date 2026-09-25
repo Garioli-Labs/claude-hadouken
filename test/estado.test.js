@@ -656,14 +656,18 @@ test('N-1: so a janela de fato anterior fica de fora (vencida ou uma duracao ant
     atualizarEstado(entrada({ rate_limits: rl(95, r, 99, r) }), agora);
     manteve(`anterior ${r - agoraS}`);
   }
-  // Guardada perto de virar e leitura ja vencida (a 101 s ou a 1001 s dela):
-  // a vencida fica de fora mesmo maior, dentro ou fora da tolerancia.
+  // Guardada perto de virar e leitura ja vencida (reset agora ou 1 s atras,
+  // como em limitesValidos): fica de fora mesmo maior, dentro ou fora da
+  // tolerancia.
   for (const g of [agoraS + 100, agoraS + 1000]) {
-    gravarBruto(estadoBase({ at: iso(agora - 1000), five_hour: { used_percentage: 10, resets_at: g }, seven_day: { used_percentage: 10, resets_at: g } }));
-    atualizarEstado(entrada({ rate_limits: rl(95, agoraS - 1, 99, agoraS - 1) }), agora);
-    const e = lerEstado();
-    assert.equal(e.at, iso(agora - 1000), String(g - agoraS));
-    assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 10, resets_at: g }, { used_percentage: 10, resets_at: g }], String(g - agoraS));
+    for (const r of [agoraS, agoraS - 1]) {
+      const msg = `${g - agoraS}/${r - agoraS}`;
+      gravarBruto(estadoBase({ at: iso(agora - 1000), five_hour: { used_percentage: 10, resets_at: g }, seven_day: { used_percentage: 10, resets_at: g } }));
+      atualizarEstado(entrada({ rate_limits: rl(95, r, 99, r) }), agora);
+      const e = lerEstado();
+      assert.equal(e.at, iso(agora - 1000), msg);
+      assert.deepEqual([e.five_hour, e.seven_day], [{ used_percentage: 10, resets_at: g }, { used_percentage: 10, resets_at: g }], msg);
+    }
   }
   // Um segundo depois ja nao e a janela anterior: entra.
   guardada();
