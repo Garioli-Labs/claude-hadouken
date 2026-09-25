@@ -27,9 +27,15 @@ export const RENOVAR_APOS_MS = 3_600_000;
 const DATA_MAX_MS = 8.64e15;
 // Poda limitada para caber no orçamento do SessionStart (spec 6.5). Medido
 // nesta máquina: listar 2 000 nomes ~6 ms, um lstat ~23 µs, um unlink ~0,2 ms.
-// Lê até PODA_LISTAR_MAX nomes, começa as checagens num ponto sorteado da
-// lista (nenhum arquivo fica sempre fora da janela) e faz no máximo
-// PODA_CHECAR_MAX lstat e PODA_APAGAR_MAX unlink por chamada.
+// Lê até PODA_LISTAR_MAX entradas da pasta (toda entrada conta, case ou não
+// com o nome de registro, então uma pasta inundada de nomes alheios não é lida
+// inteira), começa as checagens num ponto sorteado entre os nomes de registro
+// lidos e faz no máximo PODA_CHECAR_MAX lstat e PODA_APAGAR_MAX unlink por
+// chamada. O sorteio só gira dentro das entradas lidas: o NTFS lista em ordem
+// de nome, então com mais de PODA_LISTAR_MAX entradas as últimas nunca são
+// checadas. Fora de escopo: mais de 5 000 registros vivos em 30 dias (um por
+// sessão iniciada); abaixo disso toda entrada é lida e o sorteio alcança
+// qualquer registro.
 const PODA_LISTAR_MAX = 5000;
 const PODA_CHECAR_MAX = 1000;
 const PODA_APAGAR_MAX = 50;
@@ -57,14 +63,62 @@ function infoDaSessao(sessionId, agoraMs) {
   return info && info.isFile() ? { arq, info } : null;
 }
 
+// Uma tentativa de gravar a data `s` (segundos) no registro `arq`. lstat
+// primeiro: arquivo regular → lutimes (não segue link); diretório, link,
+// junção ou FIFO → 'invalido', intocado; ausente → cria com 'wx' e confere com
+// fstat que o aberto é arquivo regular antes de datar. Devolve 'ok',
+// 'invalido', 'criar' ou 'corrida' (o registro sumiu ou apareceu entre o lstat
+// e a escrita). Erro inesperado sobe para quem chama.
+//
+// O lstat antes do open é o que barra a junção pendente: no Windows o 'wx'
+// (CREATE_NEW) atravessa um reparse point e criaria o alvo, uma pasta fora de
+// ativas/ (N-2). Um link plantado entre o lstat e o open continua possível
+// (TOCTOU): no POSIX o 'wx' falha com EEXIST e a nova tentativa vê o link; no
+// Windows o alvo já nasceu quando o fstat recusa. Só o próprio usuário escreve
+// em ativas/ (a mesma fronteira de confiança do estado.json), e o resultado
+// continua 'invalido', nunca um sucesso falso; por isso o resto fica aceito.
+function gravarRegistro(arq, s) {
+  const info = fs.lstatSync(arq, { throwIfNoEntry: false });
+  if (info) {
+    if (!info.isFile()) return 'invalido';
+    try {
+      fs.lutimesSync(arq, s, s);
+    } catch (e) {
+      if (e?.code === 'ENOENT') return 'corrida';
+      throw e;
+    }
+    return 'ok';
+  }
+  let fd;
+  try {
+    fd = fs.openSync(arq, 'wx');
+  } catch (e) {
+    return e?.code === 'EEXIST' ? 'corrida' : 'criar';
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) return 'invalido';
+    fs.futimesSync(fd, s, s);
+    return 'ok';
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 // Grava (ou renova) o registro da sessão. Chamado pelo hook SessionStart em
 // toda origem (startup, resume, clear, compact). Cria o arquivo com 'wx'
-// (O_CREAT|O_EXCL: nunca segue link, nunca trunca nada) e data igual a agora;
-// se já existe, renova a data só se for arquivo regular (lutimes, sem seguir
-// link). Diretório, link ou FIFO no lugar → 'invalido', intocado. Depois poda
-// registros parados há mais de 30 dias. Motivos de falha: 'id_invalido',
-// 'agora', 'sem_diretorio', 'invalido', 'pasta', 'criar' ou 'inesperado'.
-// Nunca lança.
+// (O_CREAT|O_EXCL: nunca trunca nada) e data igual a agora; se já existe,
+// renova a data só se for arquivo regular (gravarRegistro). Se o registro
+// some ou aparece no meio (poda ou SessionStart de outro processo), tenta uma
+// vez mais (N-4). Depois poda registros parados há mais de 30 dias. Motivos de
+// falha: 'id_invalido', 'agora', 'sem_diretorio', 'invalido', 'pasta',
+// 'criar' ou 'inesperado'. Nunca lança.
+//
+// Casos aceitos (N-4), os dois silenciosos (sem barra até o próximo
+// SessionStart, nunca dado errado): (a) a poda de outro processo lê a data
+// velha de um registro com mais de 30 dias, este registro renova a data e a
+// poda apaga em seguida; devolve ok e o arquivo sumiu. (b) Um SessionStart com
+// o relógio mais de 30 dias adiantado poda até PODA_APAGAR_MAX registros
+// vivos; com esse relógio o gate já os trataria como vencidos.
 export function registrarSessao(sessionId, agoraMs) {
   try {
     if (!idValido(sessionId)) return { ok: false, motivo: 'id_invalido' };
@@ -80,23 +134,10 @@ export function registrarSessao(sessionId, agoraMs) {
     const infoPasta = fs.lstatSync(dir, { throwIfNoEntry: false });
     if (!infoPasta || !infoPasta.isDirectory()) return { ok: false, motivo: 'invalido' };
     const arq = path.join(dir, nomeDe(sessionId));
-    const s = agoraMs / 1000;
-    let fd = null;
-    try {
-      fd = fs.openSync(arq, 'wx');
-    } catch (e) {
-      const info = fs.lstatSync(arq, { throwIfNoEntry: false });
-      if (!info) return { ok: false, motivo: 'criar' };
-      if (!info.isFile()) return { ok: false, motivo: 'invalido' };
-      fs.lutimesSync(arq, s, s);
-    }
-    if (fd !== null) {
-      try {
-        fs.futimesSync(fd, s, s);
-      } finally {
-        fs.closeSync(fd);
-      }
-    }
+    let r = gravarRegistro(arq, agoraMs / 1000);
+    if (r === 'corrida') r = gravarRegistro(arq, agoraMs / 1000);
+    if (r === 'corrida') r = 'criar';
+    if (r !== 'ok') return { ok: false, motivo: r };
     podar(dir, agoraMs);
     return { ok: true };
   } catch {
@@ -113,7 +154,9 @@ function podar(dir, agoraMs) {
   try {
     const nomes = [];
     d = fs.opendirSync(dir);
-    for (let e = d.readSync(); e !== null && nomes.length < PODA_LISTAR_MAX; e = d.readSync()) {
+    for (let lidas = 0; lidas < PODA_LISTAR_MAX; lidas++) {
+      const e = d.readSync();
+      if (e === null) break;
       if (NOME_ATIVA.test(e.name)) nomes.push(e.name);
     }
     const inicio = Math.floor(Math.random() * nomes.length);

@@ -171,11 +171,126 @@ test('symlink no lugar de ativas/<hex>: inativo, e ninguem escreve nem data atra
   assert.equal(fs.readFileSync(alvo, 'utf8'), 'conteudo do usuario');
   assert.equal(mtime(alvo), agora - 5 * D);
   assert.ok(fs.lstatSync(arqDe('s1')).isSymbolicLink());
-  // Link quebrado: o 'wx' nao cria o alvo.
+  // Link quebrado: o 'wx' nao cria o alvo. (No Windows symlink de arquivo pede
+  // privilegio; a juncao pendente abaixo cobre o mesmo caso sem privilegio.)
   const sumido = path.join(dir, 'sumido.txt');
   if (!link(t, sumido, arqDe('s2'), 'file')) return;
   assert.deepEqual(registrarSessao('s2', agora), { ok: false, motivo: 'invalido' });
   assert.equal(fs.existsSync(sumido), false);
+});
+
+// N-2: juncao nao pede privilegio no Windows; no POSIX o tipo e ignorado e
+// vira um symlink comum. Nos dois casos nada pode nascer fora de ativas/.
+test('N-2: juncao pendente no lugar de ativas/<hex>: recusa e nada nasce fora de ativas/', (t) => {
+  fs.mkdirSync(pasta());
+  const alvo = path.join(dir, 'fora');
+  if (!link(t, alvo, arqDe('s1'), 'junction')) return;
+  assert.deepEqual(registrarSessao('s1', agora), { ok: false, motivo: 'invalido' });
+  assert.equal(fs.existsSync(alvo), false, 'o alvo nao pode ser criado');
+  assert.deepEqual(fs.readdirSync(dir), ['ativas']);
+  assert.ok(fs.lstatSync(arqDe('s1')).isSymbolicLink());
+  assert.equal(sessaoAtiva('s1', agora), false);
+  assert.equal(renovarSessao('s1', agora), false);
+});
+
+test('N-2: juncao para pasta existente no lugar de ativas/<hex>: recusa e o alvo fica intocado', (t) => {
+  fs.mkdirSync(pasta());
+  const alvo = path.join(dir, 'fora');
+  fs.mkdirSync(alvo);
+  fs.writeFileSync(path.join(alvo, 'dentro'), 'x');
+  datar(alvo, agora - 5 * D);
+  if (!link(t, alvo, arqDe('s1'), 'junction')) return;
+  assert.deepEqual(registrarSessao('s1', agora), { ok: false, motivo: 'invalido' });
+  assert.deepEqual(fs.readdirSync(alvo), ['dentro']);
+  assert.equal(mtime(alvo), agora - 5 * D);
+  assert.equal(sessaoAtiva('s1', agora), false);
+});
+
+// Corridas simuladas no processo: troca uma funcao do export padrao de node:fs
+// (o mesmo objeto que src/ativas.js usa) so para o caminho do registro.
+function trocar(nome, arq, fn) {
+  const original = fs[nome];
+  fs[nome] = function (p, ...resto) {
+    return String(p) === arq ? fn(original, p, ...resto) : original.call(fs, p, ...resto);
+  };
+  return () => { fs[nome] = original; };
+}
+
+test('N-2: link plantado entre o lstat e o open: o fstat (ou o EEXIST) recusa', (t) => {
+  fs.mkdirSync(pasta());
+  const arq = arqDe('s1');
+  const alvo = path.join(dir, 'fora');
+  if (!link(t, alvo, arq, 'junction')) return;
+  // O primeiro lstat do registro "nao ve" o link, como se ele nascesse logo depois.
+  let vezes = 0;
+  const desfazer = trocar('lstatSync', arq, (orig, p, ...r) => (vezes++ === 0 ? undefined : orig.call(fs, p, ...r)));
+  let r;
+  try {
+    r = registrarSessao('s1', agora);
+  } finally {
+    desfazer();
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'invalido' });
+  assert.ok(vezes >= 1);
+  assert.equal(sessaoAtiva('s1', agora), false);
+  assert.ok(fs.lstatSync(arq).isSymbolicLink());
+  // No Windows o CREATE_NEW atravessa a juncao e cria o alvo antes do fstat
+  // recusar: TOCTOU do proprio usuario, aceito e documentado em ativas.js.
+  // No POSIX o 'wx' nunca segue link, entao o alvo nao nasce.
+  if (process.platform !== 'win32') assert.equal(fs.existsSync(alvo), false);
+});
+
+test('N-4: registro apagado entre o lstat e o lutimes (poda alheia): tenta de novo e cria', () => {
+  registrarSessao('s1', agora - 31 * D);
+  const arq = arqDe('s1');
+  let vezes = 0;
+  const desfazer = trocar('lutimesSync', arq, (orig, p, ...r) => {
+    if (vezes++ === 0) fs.unlinkSync(p);
+    return orig.call(fs, p, ...r);
+  });
+  let r;
+  try {
+    r = registrarSessao('s1', agora);
+  } finally {
+    desfazer();
+  }
+  assert.deepEqual(r, { ok: true });
+  assert.equal(vezes, 1, 'a segunda tentativa cria com wx, sem lutimes');
+  assert.ok(fs.lstatSync(arq).isFile());
+  assert.equal(mtime(arq), agora);
+  assert.equal(sessaoAtiva('s1', agora), true);
+});
+
+test('N-4: registro criado entre o lstat e o wx (SessionStart alheio): tenta de novo e renova', () => {
+  registrarSessao('s1', agora - 2 * H);
+  const arq = arqDe('s1');
+  let vezes = 0;
+  const desfazer = trocar('lstatSync', arq, (orig, p, ...r) => (vezes++ === 0 ? undefined : orig.call(fs, p, ...r)));
+  let r;
+  try {
+    r = registrarSessao('s1', agora);
+  } finally {
+    desfazer();
+  }
+  assert.deepEqual(r, { ok: true });
+  assert.equal(mtime(arq), agora);
+  assert.equal(sessaoAtiva('s1', agora), true);
+});
+
+test('N-4: corrida que nao para: uma nova tentativa so, depois criar, e nada muda', () => {
+  registrarSessao('s1', agora - 2 * H);
+  const arq = arqDe('s1');
+  let vezes = 0;
+  const desfazer = trocar('lstatSync', arq, () => { vezes++; return undefined; });
+  let r;
+  try {
+    r = registrarSessao('s1', agora);
+  } finally {
+    desfazer();
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'criar' });
+  assert.equal(vezes, 2);
+  assert.equal(mtime(arq), agora - 2 * H);
 });
 
 // Um registro ingenuo com open('w') travaria num FIFO sem leitor; roda num
@@ -259,6 +374,35 @@ test('poda apaga no maximo 50 por chamada', () => {
   assert.equal(fs.readdirSync(pasta()).length, 11);
   registrarSessao('outra', agora);
   assert.deepEqual(fs.readdirSync(pasta()).sort(), [hex('nova'), hex('outra')].sort());
+});
+
+// N-3: o teto da listagem conta toda entrada lida, nao so os nomes de
+// registro; uma pasta inundada de nomes alheios nao e lida inteira.
+test('N-3: a poda le no maximo 5000 entradas, casem ou nao com o nome de registro', () => {
+  fs.mkdirSync(pasta());
+  const original = fs.opendirSync;
+  let lidas = 0;
+  let aberta = false;
+  fs.opendirSync = function (p, ...r) {
+    if (String(p) !== pasta()) return original.call(fs, p, ...r);
+    aberta = true;
+    return {
+      readSync() {
+        lidas++;
+        return lidas > 20_000 ? null : { name: `alheio-${lidas}` };
+      },
+      closeSync() {},
+    };
+  };
+  let r;
+  try {
+    r = registrarSessao('nova', agora);
+  } finally {
+    fs.opendirSync = original;
+  }
+  assert.deepEqual(r, { ok: true });
+  assert.ok(aberta);
+  assert.ok(lidas <= 5000, `leu ${lidas}`);
 });
 
 test('renovarSessao: so apos 1 h, nunca revive vencida, nunca cria', () => {
