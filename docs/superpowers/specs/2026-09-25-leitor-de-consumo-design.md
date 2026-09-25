@@ -80,7 +80,7 @@ Todos os arquivos de estado ficam em `~/.claude/hadouken/`:
 | `config.json` | Repos do GitHub a observar, limiares (opcional) | Sr. Garioli |
 | `indice-transcripts.json` | Cache incremental do parser (ver 7.4) | transcripts |
 | `github-cache.json` | Execuções já concluídas (imutáveis) | github |
-| `bin/statusline.js` | Shim estável chamado pela statusline | hook SessionStart |
+| `bin/statusline.mjs` | Shim estável chamado pela statusline | hook SessionStart |
 
 ## 6. Unidades
 
@@ -143,7 +143,7 @@ Entrada: estado lido, `alertas.json` anterior, `agora`. Saída: `{ linha | null,
 - Cores ANSI por faixa: verde (`ok`/`normal`), amarelo (`atencao`/`economico`), vermelho (`serializar`/`fechar`/`so-leitura`). `folga` em verde com o rótulo `folga`.
 - Campo ausente no JSON → o segmento mostra `—`; sem `rate_limits` → `5h —  7d —`.
 - Nunca imprime stack trace; em erro interno imprime só o modelo, ou uma linha vazia.
-- **Instalação:** a chave `statusLine` só pode ser definida no `settings.json` do usuário (o `settings.json` de plugin aceita apenas `agent` e `subagentStatusLine`). O caminho do plugin muda a cada versão, então a statusline aponta para o shim estável `~/.claude/hadouken/bin/statusline.js`, que o hook SessionStart mantém sincronizado com a versão instalada. A configuração de `statusLine` é feita pela skill `/claude-hadouken:instalar`, que mostra a alteração e pede confirmação antes de gravar. Se já existir uma `statusLine` diferente, ela é preservada: a skill mostra a atual e pergunta se deve substituí-la.
+- **Instalação:** a chave `statusLine` só pode ser definida no `settings.json` do usuário (o `settings.json` de plugin aceita apenas `agent` e `subagentStatusLine`). O caminho do plugin muda a cada versão, então a statusline aponta para o shim estável `~/.claude/hadouken/bin/statusline.mjs`, que o hook SessionStart mantém sincronizado com a versão instalada. A configuração de `statusLine` é feita pela skill `/claude-hadouken:instalar`, que mostra a alteração e pede confirmação antes de gravar. Se já existir uma `statusLine` diferente, ela é preservada: a skill mostra a atual e pergunta se deve substituí-la.
 
 ### 6.5 Hooks
 
