@@ -1,6 +1,6 @@
 import { lerStdin } from './util.js';
 import { atualizarEstado, limitesValidos } from './estado.js';
-import { sessaoAtiva } from './ativas.js';
+import { sessaoAtiva, renovarSessao } from './ativas.js';
 import { formatarBarra } from './formato.js';
 
 // Script da statusline: o Claude Code o executa a cada atualização da barra,
@@ -23,6 +23,9 @@ async function principal() {
   // da instalação, ou sem session_id válido) fica como estava: nada impresso,
   // nada gravado.
   if (!sessaoAtiva(entrada.session_id, agoraMs)) return;
+  // Só depois do gate: sessão vencida ou desconhecida nunca é revivida. Grava
+  // no máximo uma vez por hora (RENOVAR_APOS_MS), não a cada redesenho.
+  renovarSessao(entrada.session_id, agoraMs);
   const { estado } = atualizarEstado(entrada, agoraMs);
   const limites = limitesValidos(estado, agoraMs);
   // no-color.org: NO_COLOR presente e não vazio desliga as cores.

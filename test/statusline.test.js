@@ -5,12 +5,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { registrarSessao } from '../src/ativas.js';
+import { registrarSessao, ATIVA_MAX_MS } from '../src/ativas.js';
 import { lerJson, limitesValidos, validarEstado } from '../src/estado.js';
 import { avaliarAlertas } from '../src/alerta.js';
 
 const script = fileURLToPath(new URL('../src/statusline.js', import.meta.url));
 const H = 3600_000;
+const hex = (id) => Buffer.from(id, 'utf8').toString('hex');
+const arqAtiva = (home, id) => path.join(home, 'ativas', hex(id));
+const mtime = (p) => Math.round(fs.lstatSync(p).mtimeMs);
+const datar = (p, ms) => fs.utimesSync(p, ms / 1000, ms / 1000);
 
 // Ambiente do filho: HADOUKEN_HOME aponta para uma pasta temporária e NO_COLOR
 // vem ligado; um valor undefined em `extra` tira a variável.
@@ -83,18 +87,45 @@ test('registro de outra sessão não ativa esta', () => {
   const r = rodar(JSON.stringify(entradaValida()), home);
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
-  assert.deepEqual(fs.readdirSync(home), ['ativas.json']);
+  assert.deepEqual(fs.readdirSync(home), ['ativas']);
+  assert.deepEqual(fs.readdirSync(path.join(home, 'ativas')), [hex('outra')]);
 });
 
-test('sessão registrada há 25 h: sem barra e sem gravar', () => {
+test('registro parado há 30 dias e 1 s: sem barra, sem gravar e sem reviver', () => {
   const home = novoHome();
-  registrar(home, 's1', Date.now() - 25 * H);
-  const antes = fs.readFileSync(path.join(home, 'ativas.json'), 'utf8');
+  const velho = Date.now() - ATIVA_MAX_MS - 1000;
+  registrar(home, 's1', velho);
   const r = rodar(JSON.stringify(entradaValida()), home);
   assert.equal(r.status, 0);
+  assert.equal(r.stderr, '');
   assert.equal(r.stdout, '');
-  assert.deepEqual(fs.readdirSync(home), ['ativas.json']);
-  assert.equal(fs.readFileSync(path.join(home, 'ativas.json'), 'utf8'), antes);
+  assert.deepEqual(fs.readdirSync(home), ['ativas']);
+  assert.equal(mtime(arqAtiva(home, 's1')), velho);
+});
+
+test('renovação: a barra renova registro de mais de 1 h e deixa o recente', () => {
+  const home = novoHome();
+  registrar(home, 's1', Date.now() - 2 * H);
+  const antes = Date.now();
+  let r = rodar(JSON.stringify(entradaValida()), home);
+  const depois = Date.now();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  const renovado = mtime(arqAtiva(home, 's1'));
+  assert.ok(renovado >= antes - 1000 && renovado <= depois + 1000, `${renovado} fora de [${antes}, ${depois}]`);
+  // Registro de 10 min: a data não muda (sem escrita a cada redesenho).
+  const recente = Date.now() - 10 * 60_000;
+  datar(arqAtiva(home, 's1'), recente);
+  r = rodar(JSON.stringify(entradaValida()), home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.equal(mtime(arqAtiva(home, 's1')), recente);
+  // Quase 30 dias: ainda ativa, e a barra renova.
+  datar(arqAtiva(home, 's1'), Date.now() - ATIVA_MAX_MS + 60_000);
+  r = rodar(JSON.stringify(entradaValida()), home);
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.ok(mtime(arqAtiva(home, 's1')) >= antes);
+  assert.deepEqual(fs.readdirSync(path.join(home, 'ativas')), [hex('s1')]);
 });
 
 test('cores: só os códigos fixos, e nenhuma com NO_COLOR', () => {
@@ -106,8 +137,14 @@ test('cores: só os códigos fixos, e nenhuma com NO_COLOR', () => {
   assert.ok(colorida.stdout.includes('\x1b[32m5h 10%'), JSON.stringify(colorida.stdout));
   assert.doesNotMatch(colorida.stdout, ESC_ESTRANHO);
   const vazia = rodar(stdin, home, { NO_COLOR: '' });
+  assert.equal(vazia.status, 0);
+  assert.equal(vazia.stderr, '');
   assert.ok(vazia.stdout.includes('\x1b[32m5h 10%'), 'NO_COLOR vazio não desliga (no-color.org)');
+  assert.doesNotMatch(vazia.stdout, ESC_ESTRANHO);
   const sem = rodar(stdin, home, { NO_COLOR: '1' });
+  assert.equal(sem.status, 0);
+  assert.equal(sem.stderr, '');
+  assert.match(sem.stdout, /^Opus 5\.5 │ 5h 10% ↻/);
   assert.ok(!sem.stdout.includes('\x1b'));
 });
 
@@ -166,25 +203,32 @@ test('stdin de 2 MB de sessão registrada: sai com 0, sem barra e sem gravar', (
   // Acima do teto a entrada inteira é descartada: sem session_id não há como
   // saber que a sessão é registrada, e a regra da spec 8.2 manda ficar mudo.
   assert.equal(r.stdout, '');
-  assert.deepEqual(fs.readdirSync(home), ['ativas.json']);
+  assert.deepEqual(fs.readdirSync(home), ['ativas']);
+  assert.deepEqual(fs.readdirSync(path.join(home, 'ativas')), [hex('s1')]);
 });
 
-test('ativas.json adulterado: sem barra, sem erro, sem gravar', () => {
-  const casos = [
-    (home) => fs.writeFileSync(path.join(home, 'ativas.json'), 'lixo{'),
-    (home) => fs.mkdirSync(path.join(home, 'ativas.json')),
-    (home) => fs.writeFileSync(path.join(home, 'ativas.json'), JSON.stringify({
-      versao: 1, sessoes: { s1: { at: new Date().toISOString() } }, lixo: 'x'.repeat(2 * 1024 * 1024),
+test('registro adulterado: sem barra, sem erro, sem gravar', () => {
+  const casos = {
+    'pasta no lugar do registro': (home) => {
+      fs.mkdirSync(arqAtiva(home, 's1'), { recursive: true });
+      datar(arqAtiva(home, 's1'), Date.now() - 2 * H);
+    },
+    'ativas é arquivo': (home) => fs.writeFileSync(path.join(home, 'ativas'), 'lixo{'),
+    'ativas.json legado com s1': (home) => fs.writeFileSync(path.join(home, 'ativas.json'), JSON.stringify({
+      versao: 1, sessoes: { s1: { at: new Date().toISOString() } },
     })),
-  ];
-  for (const preparar of casos) {
+    'registro de S1, não de s1': (home) => registrar(home, 'S1', Date.now() - 2 * H),
+  };
+  for (const [nome, preparar] of Object.entries(casos)) {
     const home = novoHome();
     preparar(home);
+    const listar = () => fs.readdirSync(home, { recursive: true }).map(String).sort();
+    const antes = listar();
     const r = rodar(JSON.stringify(entradaValida()), home);
-    assert.equal(r.status, 0);
-    assert.equal(r.stderr, '');
-    assert.equal(r.stdout, '');
-    assert.deepEqual(fs.readdirSync(home), ['ativas.json']);
+    assert.equal(r.status, 0, nome);
+    assert.equal(r.stderr, '', nome);
+    assert.equal(r.stdout, '', nome);
+    assert.deepEqual(listar(), antes, nome);
   }
 });
 

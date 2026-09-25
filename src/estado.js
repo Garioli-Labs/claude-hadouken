@@ -9,7 +9,8 @@ import { effortValido, sanear, TOLERANCIA_JANELA_S } from './util.js';
 
 export const LIMITE_VELHO_MS = 3_600_000;
 export const ARQ_ESTADO = 'estado.json';
-// Idade máxima de uma sessão guardada (poda de 24 h), também para ativas.json.
+// Idade máxima de uma sessão guardada em estado.sessoes (poda de 24 h). O
+// registro de ativação tem vigência própria (ativas.js, ATIVA_MAX_MS).
 export const SESSAO_MAX_MS = 24 * 3_600_000;
 
 const VERSAO = 1;
@@ -205,7 +206,8 @@ function janela(j) {
 // Id de sessão aceitável como chave: ^[A-Za-z0-9_-]{1,64}$ e, além do padrão,
 // nunca um membro de Object.prototype (__proto__, constructor, toString...),
 // que casa com a regex mas, num objeto comum, faria a busca devolver o membro
-// herdado. Mesmo validador para estado.json, ativas.json e hooks. Nunca lança.
+// herdado. Mesmo validador para estado.json, o registro de ativação (ativas/)
+// e os hooks. Nunca lança.
 export const idValido = (id) => typeof id === 'string' && ID_SESSAO.test(id) && !(id in Object.prototype);
 
 // O mesmo validador serve à sessão nova (stdin) e às lidas do disco.
