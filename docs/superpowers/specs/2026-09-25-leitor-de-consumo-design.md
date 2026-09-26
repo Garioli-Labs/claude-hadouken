@@ -150,7 +150,7 @@ Entrada: estado lido, `alertas.json` anterior, `agora`. Saída: `{ linha | null,
 | Hook | Faz | Tempo máximo |
 |---|---|---|
 | SessionStart | Sincroniza o shim; injeta a linha de estado atual (ou "sem leitura") | 200 ms |
-| UserPromptSubmit | Roda `alerta`; injeta a linha só se houver mudança | 100 ms |
+| UserPromptSubmit | Roda `alerta`; injeta a linha só se houver mudança | 250 ms Windows / 150 ms Linux-macOS |
 | SessionEnd | Anexa `{ at, session_id, cwd, model, effort, five_hour, seven_day }` a `historico.jsonl` | 200 ms |
 
 Nenhum hook bloqueia o prompt nem retorna erro ao Claude. Qualquer falha termina com código 0 e saída vazia.
@@ -244,7 +244,7 @@ Instalar o plugin não interfere em sessões já abertas nem nos agentes que rod
 | Operação | Meta | Como medir |
 |---|---|---|
 | statusline (início ao fim do processo) | p95 ≤ 250 ms no Windows e ≤ 150 ms no Linux/macOS (decisão do Sr. Garioli, 2026-09-25: só a partida do Node no Windows desta máquina leva 100–136 ms; a barra roda em segundo plano, sem travar nada) | 100 execuções com fixture sintética do tamanho real (`bench/statusline-p95.mjs`) |
-| hook UserPromptSubmit | p95 ≤ 100 ms | idem |
+| hook UserPromptSubmit | p95 ≤ 250 ms no Windows e ≤ 150 ms no Linux/macOS (decisão do Sr. Garioli, 2026-09-25) | idem |
 | `/consumo` com 7 dias de transcripts, índice quente | ≤ 2 s | tempo de parede, volume desta máquina |
 | `/consumo` com índice frio | ≤ 15 s | idem |
 | GitHub, 3 repos, cache quente | ≤ 3 s | idem |
