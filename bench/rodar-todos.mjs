@@ -1,4 +1,4 @@
-// Runs the three benches in sequence and prints one Markdown report: the
+// Runs the four benches in sequence and prints one Markdown report: the
 // machine first, then one table with p50, p95, n, the spec section 9 target
 // and whether each row is within it. Zero dependencies. Usage:
 //
@@ -24,9 +24,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// n = 100 for the p95 benches; 500 MB is the transcripts bench default volume.
+// n = 100 for the p95 benches; 500 MB is the transcripts bench default volume,
+// and the /consumo bench runs over the same volume with 5 cold and 20 warm
+// runs per scenario.
 const RODADAS = 100;
 const TRANSCRIPTS_MB = 500;
+const CONSUMO_FRIO = 5;
+const CONSUMO_QUENTE = 20;
 // Per bench; the CI job has its own limit on top.
 const PRAZO_BENCH_MS = 10 * 60_000;
 const SAIDA_MAX = 16 * 1024 * 1024;
@@ -116,10 +120,18 @@ const LINHAS_TRANSCRIPTS = [
   ['quente-sem-mudanca', 'índice de transcripts, quente sem mudança', ALVO_QUENTE_MS],
   ['quente-1pct', 'índice de transcripts, quente com +1 %', ALVO_QUENTE_MS],
 ];
+// The whole /consumo, by the `id` of bench/consumo.mjs (the scenario with a
+// repo in config.json and the fake gh).
+const LINHAS_CONSUMO = [
+  ['quente', '`/consumo` quente (índice e cache do GitHub prontos, dados sem mudança)', ALVO_QUENTE_MS],
+  ['frio', '`/consumo` frio (primeira execução: sem índice nem cache do GitHub)', ALVO_FRIO_MS],
+];
 
 const plataformaAlvo = WINDOWS ? 'Windows' : 'Linux/macOS';
 const linhaTabela = (celulas) => `| ${celulas.join(' | ')} |`;
 const dentro = (valor, alvo) => (finito(valor) ? (valor <= alvo ? 'sim' : 'não') : '—');
+const linhaValida = (l) => l !== undefined && finito(l.p50) && finito(l.p95) && Number.isSafeInteger(l.n);
+const segundos = (alvoMs) => `${alvoMs / 1000} s`;
 
 function tabela(resultados, falhas) {
   const saida = [
@@ -129,7 +141,7 @@ function tabela(resultados, falhas) {
   for (const [bench, id, medida, alvo] of LINHAS_P95) {
     const dados = resultados[bench]?.dados;
     const linha = Array.isArray(dados?.linhas) ? dados.linhas.find((l) => l?.id === id) : undefined;
-    const ok = linha !== undefined && finito(linha.p50) && finito(linha.p95) && Number.isSafeInteger(linha.n);
+    const ok = linhaValida(linha);
     if (!ok && resultados[bench]?.ok) falhas.push({ bench, motivo: `linha ${id} ausente ou inválida no JSON` });
     const p50 = ok ? linha.p50 : null;
     const p95 = ok ? linha.p95 : null;
@@ -151,12 +163,16 @@ function tabela(resultados, falhas) {
     if (!ok && resultados.transcripts?.ok) falhas.push({ bench: 'transcripts', motivo: `medida ${id} ausente ou inválida no JSON` });
     const ms = ok ? m.ms : null;
     const rotulo = alvo === ALVO_FRIO_MS ? '/consumo frio' : '/consumo quente';
-    saida.push(linhaTabela([medida, fmtMs(ms), fmtMs(ms), ok ? '1' : '—', `≤ ${alvo / 1000} s (meta do ${rotulo})`, dentro(ms, alvo)]));
+    saida.push(linhaTabela([medida, fmtMs(ms), fmtMs(ms), ok ? '1' : '—', `≤ ${segundos(alvo)} (meta do ${rotulo})`, dentro(ms, alvo)]));
   }
-  // TODO(Task 12): measure /consumo itself (warm and cold index) once Task 10
-  // is merged, and replace these two rows with real ones.
-  saida.push(linhaTabela(['**TODO (Task 12)**: `/consumo`, índice quente (entra quando a Task 10 for integrada)', '—', '—', '—', `≤ ${ALVO_QUENTE_MS / 1000} s`, '—']));
-  saida.push(linhaTabela(['**TODO (Task 12)**: `/consumo`, índice frio (entra quando a Task 10 for integrada)', '—', '—', '—', `≤ ${ALVO_FRIO_MS / 1000} s`, '—']));
+  const dadosC = resultados.consumo?.dados;
+  for (const [id, medida, alvo] of LINHAS_CONSUMO) {
+    const linha = Array.isArray(dadosC?.linhas) ? dadosC.linhas.find((l) => l?.id === id) : undefined;
+    const ok = linhaValida(linha);
+    if (!ok && resultados.consumo?.ok) falhas.push({ bench: 'consumo', motivo: `linha ${id} ausente ou inválida no JSON` });
+    const p95 = ok ? linha.p95 : null;
+    saida.push(linhaTabela([medida, fmtMs(ok ? linha.p50 : null), fmtMs(p95), ok ? String(linha.n) : '—', `p95 ≤ ${segundos(alvo)}`, dentro(p95, alvo)]));
+  }
   return saida;
 }
 
@@ -164,6 +180,7 @@ function notas(resultados) {
   const s = resultados.statusline?.dados;
   const h = resultados.hooks?.dados;
   const t = resultados.transcripts?.dados;
+  const c = resultados.consumo?.dados;
   const saida = [
     `- n: rodadas medidas, com os cenários de cada bench intercalados em ordem aleatória, depois de ${finito(s?.aquecimento) ? s.aquecimento : 5} rodadas de aquecimento descartadas; tempo do spawn à saída do processo, como o Claude Code roda a barra e os hooks.`,
   ];
@@ -173,6 +190,10 @@ function notas(resultados) {
   if (t) {
     const iguais = t.incrementalIgualCheio === true ? 'sim' : 'não';
     saida.push(`- Índice de transcripts: uma medida por linha (n = 1), no processo, sobre ${fmtMB(t.bytesGerados)} MB sintéticos em ${t.arquivos} arquivos (+${fmtMB(t.bytesAnexados)} MB na linha +1 %). A meta mostrada é a do \`/consumo\` inteiro: o índice é só uma parte dele, então ficar dentro dela aqui é necessário, não suficiente. Incremental igual à releitura completa: ${iguais}.`);
+  }
+  if (c) {
+    const semRepo = (id) => (Array.isArray(c.linhas) ? c.linhas.find((l) => l?.id === id)?.p95 : undefined);
+    saida.push(`- \`/consumo\`: cada rodada é um processo (spawn à saída, como o CLI) sobre os mesmos ${fmtMB(c.bytesGerados)} MB sintéticos em ${c.arquivos} arquivos, estado.json com ${c.fixture?.sessoes} sessões e 1 repo no config.json; frio = HADOUKEN_HOME novo a cada rodada, quente = a mesma pasta da segunda execução em diante; aquecimento: ${c.aquecimento} rodada fria por cenário, descartada (no lugar das 5 acima). GitHub: executor falso do gh, sem rede (${c.github?.chamadasFrio} chamadas no frio, nenhuma no quente). Sem repo (git num cwd sem origin): p95 frio ${fmtMs(semRepo('frio-sem-repo'))} ms, quente ${fmtMs(semRepo('quente-sem-repo'))} ms.`);
   }
   saida.push(`- Carga média de 1 min no fim: ${carga1min()}.`);
   const duracoes = Object.entries(resultados).map(([nome, r]) => `${nome} ${r.segundos.toFixed(0)} s`);
@@ -191,6 +212,7 @@ const BENCHES = [
   ['statusline', 'statusline-p95.mjs', [String(RODADAS)], `${RODADAS} rodadas`],
   ['hooks', 'hooks-p95.mjs', [String(RODADAS)], `${RODADAS} rodadas`],
   ['transcripts', 'transcripts.mjs', [String(TRANSCRIPTS_MB)], `${TRANSCRIPTS_MB} MB sintéticos`],
+  ['consumo', 'consumo.mjs', [String(TRANSCRIPTS_MB), String(CONSUMO_FRIO), String(CONSUMO_QUENTE)], `${TRANSCRIPTS_MB} MB sintéticos, ${CONSUMO_FRIO} frios e ${CONSUMO_QUENTE} quentes por cenário`],
 ];
 
 let homeTemp = null;
