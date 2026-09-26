@@ -964,6 +964,122 @@ test('linha que não começa com { e não tem "usage" conta como inválida; JSON
   }
 });
 
+// ---------------------------------------------------------------------------
+// Linhas curtas: validador sem exceção antes do JSON.parse
+
+const tsCurto = () => new Date(agora - 60_000).toISOString();
+// Válidas e curtas (< 1 KiB), com as partes menos comuns da gramática.
+const curtasValidas = () => {
+  const ts = tsCurto();
+  return [
+    String.raw`{"requestId":"v1","timestamp":"${ts}","message":{"usage":{"output_tokens":1e0}}}`,
+    String.raw` { "requestId" : "v2" , "timestamp" : "${ts}" ,	"message" : { "usage" : { "output_tokens" : 2 } } } `,
+    String.raw`{"requestId":"v3","cwd":"C:\\Proj\u00e9\"q\/x\b\f\n\r\t","timestamp":"${ts}","message":{"usage":{"output_tokens":3}}}`,
+    String.raw`{"requestId":"v4","x":[[],[{}],[1,-0.5e-3,true,false,null,"ção",{"a":[]}]],"timestamp":"${ts}","message":{"usage":{"output_tokens":4}}}`,
+    String.raw`{"requestId":"dup-a","requestId":"v5","timestamp":"${ts}","message":{"usage":{"output_tokens":5}}}`,
+    String.raw`{"requestId":"v6","timestamp":"${ts}","message":{"usage":{"output_tokens":6,"x":"\ud800","y":-0,"z":1E+2}}}`,
+    String.raw`{"requestId":"v7","timestamp":"${ts}","message":{"usage":{"output_tokens":7E-0}},"z":"\u0000","w":{}}`,
+  ];
+};
+// Inválidas e curtas, todas começando com { e terminando com }: só o validador as separa.
+const curtasInvalidas = [
+  '{"usage":{"output_tokens":1},}', `{'usage':1,"usage":1}`, '{"usage":01}', '{"usage":.5}', '{"usage":+1}',
+  '{"usage":1.}', '{"usage":tru}', '{"usage":"a\tb"}', '{"usage":"\\x"}', '{"usage":"\\u12"}', '{"usage":"abc}',
+  '{"usage":1}}', '{"usage":1} {}', '{"usage":NaN}', '{"usage":Infinity}', '{"usage":1 /* c */}', '{"usage":[1,2}',
+  '{"usage" 1}', '{"usage":1,"a"}', '{"usage":-}', '{"usage":1e}', '{,"usage":1}', '{"usage":1,,"a":2}', '{"usage":[,1]}',
+  '{"usage":nul}', '{"usage":truex}', '{"usage":"\\"}', '{"usage":1]', '{"usage":{"a":1]}', '{"usage":1,}',
+  '{"usage":"\\u12zz"}', '{"usage":"\\uGGGG"}', '{"usage":[}}', '{"usage":{]}', '{"usage":{"a" : }}',
+];
+
+test('linhas curtas: gramática JSON inteira aceita, e o inválido conta sem chegar ao JSON.parse', async () => {
+  for (const l of curtasInvalidas) assert.throws(() => JSON.parse(l), SyntaxError, l);
+  const validas = curtasValidas();
+  for (const l of validas) assert.doesNotThrow(() => JSON.parse(l), l);
+  const ts = tsCurto();
+  // UTF-8 inválido dentro de string vale (vira U+FFFD); fora de string, não.
+  const v8 = Buffer.concat([Buffer.from('{"requestId":"v8","t":"'), Buffer.from([0xc0, 0xff, 0xe2, 0x82]), Buffer.from(`","timestamp":"${ts}","message":{"usage":{"output_tokens":8}}}`)]);
+  const i8 = Buffer.concat([Buffer.from(`{"requestId":"i8","timestamp":"${ts}",`), Buffer.from([0xc0]), Buffer.from('"message":{"usage":{"output_tokens":8}}}')]);
+  const corpo = Buffer.concat([
+    Buffer.from(`${[...curtasInvalidas, ...Array(1000).fill('{"usage"}'), ...validas].join('\n')}\n`),
+    v8, Buffer.from('\n'), i8, Buffer.from('\n'),
+  ]);
+  const arq = escreverBruto('proj-a/s.jsonl', corpo);
+  const parseOriginal = JSON.parse;
+  let chamadas = 0;
+  JSON.parse = function (...args) {
+    chamadas++;
+    return parseOriginal.apply(this, args);
+  };
+  let r;
+  try { r = await lerTranscript(arq); } finally { JSON.parse = parseOriginal; }
+  assert.deepEqual(ids(r), ['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']);
+  assert.deepEqual(r.registros.map((x) => x.output), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(r.linhasInvalidas, curtasInvalidas.length + 1000 + 1);
+  assert.equal(chamadas, 8, 'só as linhas válidas chegam ao JSON.parse');
+});
+
+test('linha longa que não começa com { ou não termina com } conta sem chegar ao JSON.parse', async () => {
+  const miolo = 'x'.repeat(2000);
+  const arq = escrever('proj-a/s.jsonl', [
+    ...Array(50).fill(`{"usage":"${miolo}`),
+    ...Array(50).fill(`["usage","${miolo}"]`),
+    ...Array(50).fill(`  {"usage":"${miolo}"} x  `),
+    linha('r1', 0),
+  ]);
+  const parseOriginal = JSON.parse;
+  let chamadas = 0;
+  JSON.parse = function (...args) {
+    chamadas++;
+    return parseOriginal.apply(this, args);
+  };
+  let r;
+  try { r = await lerTranscript(arq); } finally { JSON.parse = parseOriginal; }
+  assert.deepEqual([ids(r), r.linhasInvalidas, chamadas], [['r1'], 150, 1]);
+});
+
+// Diferencial: a mesma linha curta (validador) e com 1 100 espaços no fim
+// (longa: vai direto ao JSON.parse) dão o mesmo resultado, para milhares de
+// mutações aleatórias das linhas válidas. Um falso negativo do validador
+// (recusar o que JSON.parse aceita) apareceria como diferença.
+test('validador das linhas curtas concorda com JSON.parse em mutações aleatórias', async () => {
+  const rnd = prng(424242);
+  const ALFABETO = '{}[]",:\\/0123456789.eE+-tfnrulas \tu';
+  const sementes = curtasValidas();
+  const curtas = [];
+  let validasNoFuzz = 0;
+  for (let k = 0; k < 3000; k++) {
+    let s = sementes[Math.floor(rnd() * sementes.length)];
+    const passos = 1 + Math.floor(rnd() * 3);
+    for (let p = 0; p < passos; p++) {
+      const i = Math.floor(rnd() * (s.length + 1));
+      const c = ALFABETO[Math.floor(rnd() * ALFABETO.length)];
+      const op = Math.floor(rnd() * 4);
+      if (op === 0) s = s.slice(0, i) + s.slice(i + 1);
+      else if (op === 1) s = s.slice(0, i) + c + s.slice(i);
+      else if (op === 2) s = s.slice(0, i) + c + s.slice(i + 1);
+      else s = s.slice(0, i) + s.slice(i, i + 1 + Math.floor(rnd() * 8)) + s.slice(i);
+    }
+    try { JSON.parse(s); validasNoFuzz++; } catch { /* inválida */ }
+    curtas.push(s);
+  }
+  assert.ok(validasNoFuzz > 300 && validasNoFuzz < 2700, `mistura de válidas e inválidas: ${validasNoFuzz}`);
+  assert.ok(curtas.every((s) => Buffer.byteLength(s) < 1000));
+  const arqCurto = escreverBruto('proj-a/curtas.jsonl', `${curtas.join('\n')}\n`);
+  const arqLongo = escreverBruto('proj-a/longas.jsonl', `${curtas.map((s) => s + ' '.repeat(1100)).join('\n')}\n`);
+  const a = await lerTranscript(arqCurto);
+  const b = await lerTranscript(arqLongo);
+  if (a.linhasInvalidas !== b.linhasInvalidas || JSON.stringify(a.registros) !== JSON.stringify(b.registros)) {
+    for (const s of curtas) {
+      const x = await lerTranscript(escreverBruto('proj-a/um.jsonl', `${s}\n`));
+      const y = await lerTranscript(escreverBruto('proj-a/um.jsonl', `${s}${' '.repeat(1100)}\n`));
+      assert.deepEqual([x.linhasInvalidas, x.registros], [y.linhasInvalidas, y.registros], `linha: ${JSON.stringify(s)}`);
+    }
+  }
+  assert.equal(a.linhasInvalidas, b.linhasInvalidas);
+  assert.deepEqual(a.registros, b.registros);
+  assert.ok(a.registros.length > 3 && a.linhasInvalidas > 300, `${a.registros.length} registros, ${a.linhasInvalidas} inválidas`);
+});
+
 test('saída é cópia: mexer num registro devolvido não altera a próxima leitura', async () => {
   escrever('proj-a/s.jsonl', [linha('r1', 0)]);
   const a = await indexar();

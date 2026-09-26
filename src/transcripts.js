@@ -198,6 +198,132 @@ function vaziaOuObjeto(b) {
   return true;
 }
 
+// Um JSON.parse que falha custa 10 a 25 µs (a exceção e a mensagem), contra
+// 1 a 2 µs de um que passa: um arquivo de linhas curtas inválidas levaria 22 s
+// a cada 10 MB (medido em 2026-09-25). Duas checagens sem exceção vêm antes,
+// e nenhuma recusa um texto que JSON.parse aceitaria: toda linha precisa
+// começar com { e terminar com } (sem contar espaços), e a linha curta, onde
+// o custo da exceção pesaria por byte, passa inteira pelo validador abaixo.
+const VALIDAR_ATE = 1024;
+const ehEspaco = (c) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
+
+function pareceObjeto(b) {
+  let i = 0;
+  let f = b.length - 1;
+  while (i <= f && ehEspaco(b[i])) i++;
+  while (f >= i && ehEspaco(b[f])) f--;
+  return f > i && b[i] === 0x7b && b[f] === 0x7d;
+}
+
+const ehDigito = (c) => c >= 0x30 && c <= 0x39;
+const ehHex = (c) => ehDigito(c) || (c >= 0x41 && c <= 0x46) || (c >= 0x61 && c <= 0x66);
+const pularEspacos = (b, i) => {
+  while (i < b.length && ehEspaco(b[i])) i++;
+  return i;
+};
+
+// Índice logo depois da string que abre em b[i] (aspas), ou -1. Byte >= 0x80
+// vale dentro da string (UTF-8 inválido vira U+FFFD, que JSON.parse aceita).
+function fimDaString(b, i) {
+  i++;
+  while (i < b.length) {
+    const c = b[i];
+    if (c === 0x22) return i + 1;
+    if (c < 0x20) return -1;
+    if (c !== 0x5c) {
+      i++;
+      continue;
+    }
+    const e = b[i + 1];
+    if (e === 0x75) {
+      if (!(ehHex(b[i + 2]) && ehHex(b[i + 3]) && ehHex(b[i + 4]) && ehHex(b[i + 5]))) return -1;
+      i += 6;
+    } else if (e === 0x22 || e === 0x5c || e === 0x2f || e === 0x62 || e === 0x66 || e === 0x6e || e === 0x72 || e === 0x74) {
+      i += 2;
+    } else {
+      return -1;
+    }
+  }
+  return -1;
+}
+
+// -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?  →  índice depois, ou -1.
+function fimDoNumero(b, i) {
+  if (b[i] === 0x2d) i++;
+  if (b[i] === 0x30) i++;
+  else if (b[i] >= 0x31 && b[i] <= 0x39) while (ehDigito(b[i])) i++;
+  else return -1;
+  if (b[i] === 0x2e) {
+    i++;
+    if (!ehDigito(b[i])) return -1;
+    while (ehDigito(b[i])) i++;
+  }
+  if (b[i] === 0x65 || b[i] === 0x45) {
+    i++;
+    if (b[i] === 0x2b || b[i] === 0x2d) i++;
+    if (!ehDigito(b[i])) return -1;
+    while (ehDigito(b[i])) i++;
+  }
+  return i;
+}
+
+const LITERAIS = [Buffer.from('true'), Buffer.from('false'), Buffer.from('null')];
+function fimDoLiteral(b, i) {
+  for (const l of LITERAIS) {
+    if (b[i] === l[0] && b.length - i >= l.length && b.compare(l, 0, l.length, i, i + l.length) === 0) return i + l.length;
+  }
+  return -1;
+}
+
+// true se os bytes formam um texto JSON (RFC 8259) que JSON.parse aceitaria
+// depois de decodificar o UTF-8. Iterativo, sem exceção, O(n).
+function jsonValido(b) {
+  const pilha = [];
+  let i = pularEspacos(b, 0);
+  let estado = 0; // 0 = espera valor, 1 = espera chave, 2 = depois de um valor
+  for (;;) {
+    if (estado === 0) {
+      const c = b[i];
+      if (c === 0x7b || c === 0x5b) {
+        i = pularEspacos(b, i + 1);
+        if (b[i] === (c === 0x7b ? 0x7d : 0x5d)) {
+          i++;
+          estado = 2;
+        } else {
+          pilha.push(c);
+          estado = c === 0x7b ? 1 : 0;
+        }
+        continue;
+      }
+      if (c === 0x22) i = fimDaString(b, i);
+      else if (c === 0x2d || ehDigito(c)) i = fimDoNumero(b, i);
+      else i = fimDoLiteral(b, i);
+      if (i < 0) return false;
+      estado = 2;
+    } else if (estado === 1) {
+      if (b[i] !== 0x22) return false;
+      i = pularEspacos(b, fimDaString(b, i));
+      if (i < 0 || b[i] !== 0x3a) return false;
+      i = pularEspacos(b, i + 1);
+      estado = 0;
+    } else {
+      i = pularEspacos(b, i);
+      if (pilha.length === 0) return i === b.length;
+      const topo = pilha[pilha.length - 1];
+      const c = b[i];
+      if (c === 0x2c) {
+        i = pularEspacos(b, i + 1);
+        estado = topo === 0x7b ? 1 : 0;
+      } else if (c === (topo === 0x7b ? 0x7d : 0x5d)) {
+        pilha.pop();
+        i++;
+      } else {
+        return false;
+      }
+    }
+  }
+}
+
 // `completa` = terminada por \n. A última linha sem \n pode estar sendo
 // escrita agora: se já for JSON válido, seus registros entram só na saída
 // desta leitura (ctx.cauda, nunca no índice); se não, é ignorada sem contar.
@@ -206,6 +332,10 @@ function tratarLinha(linha, ctx, completa) {
   const corpo = fim === linha.length ? linha : linha.subarray(0, fim);
   if (corpo.indexOf(AGULHA) === -1) {
     if (completa && !vaziaOuObjeto(corpo)) ctx.invalidas++;
+    return;
+  }
+  if (!pareceObjeto(corpo) || (corpo.length < VALIDAR_ATE && !jsonValido(corpo))) {
+    if (completa) ctx.invalidas++;
     return;
   }
   let d;
