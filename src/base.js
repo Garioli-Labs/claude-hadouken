@@ -94,7 +94,8 @@ export function varrerTmpVelhos(pasta, ehTmp) {
       const caminho = path.join(pasta, entrada.name);
       try {
         const info = fs.lstatSync(caminho);
-        if (!info.isFile() || info.mtimeMs >= corte) continue;
+        // Hard link: o unlink no Windows (libuv 1.46) mexe no outro nome; nunca remove.
+        if (!info.isFile() || info.nlink !== 1 || info.mtimeMs >= corte) continue;
         fs.unlinkSync(caminho);
         removidos++;
       } catch { /* sumiu ou sem permissão: segue */ }

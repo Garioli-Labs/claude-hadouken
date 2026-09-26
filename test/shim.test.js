@@ -1018,6 +1018,8 @@ test('arquivo trocado entre o lstat e o fstat: recusado, e o arquivo de fora nã
       fs.linkSync(fora, shim);
       const fd = originais.openSync(p, ...resto);
       fs.unlinkSync(shim);
+      // libuv 1.46 (Node 20) limpa o somente-leitura do outro nome do hard link no unlink.
+      fs.chmodSync(fora, 0o444);
       return fd;
     };
     r = sincronizarShims(raiz);
