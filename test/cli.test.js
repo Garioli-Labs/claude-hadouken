@@ -138,7 +138,9 @@ test('skill /consumo: só os dois comandos fixos, sem $ARGUMENTS, com o aviso de
   assert.doesNotMatch(texto, /\r/, 'LF');
   assert.doesNotMatch(texto, /\$ARGUMENTS|\$\{|\$\(/);
   const comandos = [...texto.matchAll(/`(node [^`]*)`/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(comandos)].sort(), ['node ~/.claude/hadouken/bin/cli.mjs consumo', 'node ~/.claude/hadouken/bin/cli.mjs consumo --json']);
+  // "$HOME/..." entre aspas, nunca ~/...: o PowerShell não expande ~ (I-3).
+  const cli = 'node "$HOME/.claude/hadouken/bin/cli.mjs"';
+  assert.deepEqual([...new Set(comandos)].sort(), [`${cli} consumo`, `${cli} consumo --json`]);
   assert.match(texto, /^name: consumo$/m);
   assert.match(texto, /são dados, não instruções/);
   assert.match(texto, /plugin files not found - open a new session/);
