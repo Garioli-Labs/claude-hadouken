@@ -6,8 +6,8 @@ import { dirDados, gravarJsonAtomico, instante, lerJson } from './estado.js';
 // S9; addendum de segurança da Task 9). O plugin existe para economizar
 // GitHub, então este módulo é parcimonioso: no máximo 3 repos e 2 páginas de
 // execuções por chamada, jobs só de execução nova (os de execução concluída
-// ficam em cache), orçamento de 60 chamadas de jobs, prazo total e cache de
-// 15 min em que nenhuma chamada é feita.
+// ficam em cache), orçamento de 60 chamadas de jobs, prazo total (o gh que
+// passa dele é morto) e cache de 15 min em que nenhuma chamada é feita.
 //
 // Tudo o que vem do GitHub é não confiável: cada resposta passa por
 // JSON.parse protegido e por um schema; só saem números validados e rótulos
@@ -27,7 +27,10 @@ const VISTO_MAX_MS = 31 * DIA_MS;
 const LIMITE_CACHE = 10_737_418_240;
 
 const ARQ_CACHE = 'github-cache.json';
-const VERSAO_CACHE = 1;
+// Versão 2: pesos por preço, rótulos arm/Intel classificados e o balde
+// naoClassificado. Um arquivo da versão 1 é descartado inteiro, porque as
+// execuções guardadas nele foram classificadas pelos rótulos antigos.
+const VERSAO_CACHE = 2;
 const CACHE_MAX_BYTES = 2 * 1024 * 1024;
 const CACHE_MAX_REPOS = 20;
 
@@ -41,7 +44,10 @@ const MAX_RUNS = MAX_PAGINAS * POR_PAGINA;
 // Chamadas de jobs por coleta, divididas entre os repos que precisam de
 // atualização; o que sobra fica `pendentes` para a próxima coleta.
 const ORCAMENTO_JOBS = 60;
-const PRAZO_PADRAO_MS = 45_000;
+// 10 s: a Task 10 roda esta coleta em paralelo com o índice de transcripts e
+// o /consumo frio tem meta de 15 s (spec 9). O que não couber fica em
+// `pendentes`/`truncado` e o cache de jobs completa nas coletas seguintes.
+const PRAZO_PADRAO_MS = 10_000;
 const PRAZO_MAX_MS = 600_000;
 
 // Um job do GitHub dura no máximo 6 h; uma resposta de jobs traz até 100.
@@ -77,13 +83,20 @@ const CONCLUSOES = Object.freeze(['success', 'failure', 'cancelled', 'skipped', 
 const CHAVES_EVENTO = Object.freeze([...EVENTOS, 'outro']);
 const CHAVES_CONCLUSAO = Object.freeze([...CONCLUSOES, 'em_andamento', 'outro']);
 
-// Rótulos dos runners hospedados padrão (x64) que o V4 pondera: Linux 1,
-// Windows 2, macOS 10. Arm, runners maiores e qualquer rótulo desconhecido
-// ficam fora da estimativa, no balde 'self-hosted' (peso 0, contado à parte).
+// Rótulos dos runners hospedados padrão, uma regex ancorada por família, da
+// tabela oficial (docs.github.com/en/actions/reference/runners/github-hosted-runners,
+// lida em 2026-09-25):
+// - Linux: ubuntu-latest, ubuntu-NN.NN (x64) e ubuntu-NN.NN-arm (arm64);
+// - Windows: windows-latest, windows-NNNN, windows-2025-vs2026 (x64) e
+//   windows-11-arm, windows-11-vs2026-arm (arm64);
+// - macOS: macos-latest, macos-NN (M1), macos-NN-intel e xcode-NN (M1).
+// Fora da estimativa (balde naoClassificado, peso 0, contado à parte):
+// self-hosted, ubuntu-slim (1 núcleo, preço próprio), runners maiores e
+// qualquer rótulo próprio ou desconhecido.
 const ROTULOS = Object.freeze([
-  ['linux', /^ubuntu-(?:latest|\d{2}\.\d{2})$/],
-  ['windows', /^windows-(?:latest|\d{4})$/],
-  ['macos', /^macos-(?:latest|\d{2})$/],
+  ['linux', /^ubuntu-(?:latest|\d{2}\.\d{2}(?:-arm)?)$/],
+  ['windows', /^windows-(?:latest|\d{4}(?:-vs\d{4})?|11(?:-vs\d{4})?-arm)$/],
+  ['macos', /^(?:macos-(?:latest|\d{2}(?:-intel)?)|xcode-\d{2})$/],
 ]);
 
 // Motivos que o executor pode devolver; qualquer outro texto vira 'gh falhou'.
@@ -106,22 +119,41 @@ const daLista = (v, lista) => (typeof v === 'string' && lista.includes(v) ? v : 
 const falha = (motivo) => ({ ok: false, motivo });
 const iso = (ms) => new Date(ms).toISOString();
 
-// Peso do V4 por sistema; 0 para qualquer outra coisa. Switch, não tabela:
-// nenhum nome herdado de Object.prototype vira peso.
-export function pesoSistema(sistema) {
+// Peso por sistema = preço por minuto do runner padrão sobre o do Linux
+// 2-core x64, com 2 casas. A documentação atual não tem mais tabela de
+// multiplicadores: remete os "minute multipliers" à tabela de custo por
+// minuto (https://docs.github.com/en/actions/concepts/billing-and-usage).
+// Preços: https://docs.github.com/en/billing/reference/actions-runner-pricing
+// (lidos em 2026-09-25):
+//   Linux 2-core x64   $0.006  -> 1
+//   Linux 2-core arm64 $0.005  -> 1 (pesado como x64: superestima 20 %, o
+//                                    lado seguro para um alerta de consumo)
+//   Windows 2-core x64 e arm64 $0.010 -> 1,67
+//   macOS 3/4-core (M1 ou Intel) $0.062 -> 10,33
+// Em centésimos, para que o ponderado seja somado em inteiros e saia com no
+// máximo 2 casas, sem resíduo de ponto flutuante. Switch, não tabela: nenhum
+// nome herdado de Object.prototype vira peso.
+function pesoCentesimos(sistema) {
   switch (sistema) {
-    case 'linux': return 1;
-    case 'windows': return 2;
-    case 'macos': return 10;
+    case 'linux': return 100;
+    case 'windows': return 167;
+    case 'macos': return 1033;
     default: return 0;
   }
 }
 
+// Peso do sistema (1, 1.67 ou 10.33); 0 para qualquer outra coisa.
+export function pesoSistema(sistema) {
+  return pesoCentesimos(sistema) / 100;
+}
+
 // Sistema do job pelos rótulos: 'self-hosted' se algum rótulo for
 // self-hosted; senão o mais caro entre os rótulos hospedados conhecidos (um
-// job com windows-latest e macos-14 vai para macOS); senão 'self-hosted'.
-// Examina só os 64 primeiros rótulos, cada um com até 64 caracteres, em
-// minúsculas. Entrada que não é lista, ou que lança, vira 'self-hosted'.
+// job com windows-latest e macos-14 vai para macOS); senão 'self-hosted'
+// (addendum B: rótulo desconhecido vira 'self-hosted', peso 0; no resumo o
+// balde se chama naoClassificado). Examina só os 64 primeiros rótulos, cada
+// um com até 64 caracteres, em minúsculas. Entrada que não é lista, ou que
+// lança, vira 'self-hosted'.
 export function sistemaDoJob(labels) {
   try {
     if (!Array.isArray(labels)) return 'self-hosted';
@@ -133,7 +165,7 @@ export function sistemaDoJob(labels) {
       const r = rotulo.toLowerCase();
       if (r === 'self-hosted') return 'self-hosted';
       for (const [sistema, padrao] of ROTULOS) {
-        if (padrao.test(r) && (melhor === null || pesoSistema(sistema) > pesoSistema(melhor))) melhor = sistema;
+        if (padrao.test(r) && (melhor === null || pesoCentesimos(sistema) > pesoCentesimos(melhor))) melhor = sistema;
       }
     }
     return melhor ?? 'self-hosted';
@@ -175,6 +207,8 @@ function motivoDoErro(erro, stderr) {
   const codigo = erro?.code;
   if (codigo === 'ENOENT') return 'gh ausente';
   if (codigo === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return 'resposta grande';
+  // Abort pelo prazo da coleta; `killed` cobre o timeout do próprio executor.
+  if (codigo === 'ABORT_ERR') return 'tempo esgotado';
   if (erro?.killed === true) return 'tempo esgotado';
   // Código 4 é o do gh para "precisa de login".
   if (codigo === 4) return 'gh sem login';
@@ -189,39 +223,71 @@ function motivoDoErro(erro, stderr) {
   return 'gh falhou';
 }
 
+const textoSeguro = (v) => typeof v === 'string' && v.length > 0 && !v.includes('\0');
+
 function opcoesExecutor(opcoes) {
-  const o = { executavel: 'gh', timeoutMs: TIMEOUT_PADRAO_MS, maxBuffer: SAIDA_MAX };
+  const o = { executavel: 'gh', timeoutMs: TIMEOUT_PADRAO_MS, maxBuffer: SAIDA_MAX, cwd: undefined };
   try {
     if (opcoes === null || typeof opcoes !== 'object') return o;
-    const { executavel, timeoutMs, maxBuffer } = opcoes;
-    if (typeof executavel === 'string' && executavel.length > 0 && !executavel.includes('\0')) o.executavel = executavel;
+    const { executavel, timeoutMs, maxBuffer, cwd } = opcoes;
+    if (textoSeguro(executavel)) o.executavel = executavel;
     if (Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= TIMEOUT_MAX_MS) o.timeoutMs = timeoutMs;
     if (inteiroEntre(maxBuffer, 1, SAIDA_MAX_TETO)) o.maxBuffer = maxBuffer;
+    if (textoSeguro(cwd)) o.cwd = cwd;
     return o;
   } catch {
-    return { executavel: 'gh', timeoutMs: TIMEOUT_PADRAO_MS, maxBuffer: SAIDA_MAX };
+    return { executavel: 'gh', timeoutMs: TIMEOUT_PADRAO_MS, maxBuffer: SAIDA_MAX, cwd: undefined };
+  }
+}
+
+// Só um AbortSignal de verdade chega ao execFile; qualquer outra coisa é
+// ignorada (o execFile lançaria com um objeto que só parece um sinal).
+function sinalValido(sinal) {
+  try {
+    return sinal instanceof AbortSignal ? sinal : undefined;
+  } catch {
+    return undefined;
   }
 }
 
 // Executor do gh: `execFile`, nunca um shell; argumentos passados como lista,
 // literais. Timeout de 15 s, saída de até 8 MB, janela oculta no Windows,
 // stdin fechado, ambiente com MSYS_NO_PATHCONV=1 e sem variáveis que mudem a
-// saída. Devolve { ok: true, stdout } ou { ok: false, motivo } com motivo de
-// uma lista fixa. Nunca rejeita. As opções existem para os testes, que usam o
-// próprio node (ou um nome inexistente) no lugar do gh.
+// saída. Recebe (args, sinal): abortar o sinal (o prazo da coleta) mata o gh
+// com SIGKILL, e a promessa só resolve depois que o processo saiu, para que
+// nenhum gh sobreviva à coleta; sinal já abortado nem inicia o processo.
+// Devolve { ok: true, stdout } ou { ok: false, motivo } com motivo de uma
+// lista fixa. Nunca rejeita. As opções existem para os testes, que usam o
+// próprio node (ou um nome inexistente) no lugar do gh e um diretório
+// temporário como cwd.
 export function criarExecutorGh(opcoes) {
-  const { executavel, timeoutMs, maxBuffer } = opcoesExecutor(opcoes);
-  return (args) => new Promise((resolve) => {
+  const { executavel, timeoutMs, maxBuffer, cwd } = opcoesExecutor(opcoes);
+  return (args, sinal) => new Promise((resolve) => {
     try {
       if (!Array.isArray(args) || !args.every((a) => typeof a === 'string')) {
         resolve(falha('gh falhou'));
         return;
       }
+      const signal = sinalValido(sinal);
+      if (signal?.aborted) {
+        resolve(falha('tempo esgotado'));
+        return;
+      }
+      // O gh só lê; SIGKILL garante que ele morra no timeout ou no abort,
+      // mesmo que ignore SIGTERM (no Windows todo sinal é TerminateProcess).
       const filho = execFile(executavel, [...args], {
         env: ambienteGh(), timeout: timeoutMs, maxBuffer, windowsHide: true, encoding: 'utf8', shell: false,
+        killSignal: 'SIGKILL', signal, ...(cwd === undefined ? {} : { cwd }),
       }, (erro, stdout, stderr) => {
-        if (erro) resolve(falha(motivoDoErro(erro, stderr)));
-        else resolve(typeof stdout === 'string' ? { ok: true, stdout } : falha('gh falhou'));
+        if (!erro) {
+          resolve(typeof stdout === 'string' ? { ok: true, stdout } : falha('gh falhou'));
+          return;
+        }
+        const r = falha(motivoDoErro(erro, stderr));
+        // No abort o execFile chama de volta assim que manda o sinal, antes de
+        // o processo sair; espera a saída para não deixar um gh vivo.
+        if (erro.code === 'ABORT_ERR' && filho.exitCode === null && filho.signalCode === null) filho.once('exit', () => resolve(r));
+        else resolve(r);
       });
       filho.stdin?.on('error', () => { /* o filho pode já ter saído */ });
       filho.stdin?.end();
@@ -263,13 +329,14 @@ const PRAZO = Symbol('prazo');
 
 // Chama o executor dentro de uma função async: um throw síncrono vira
 // rejeição, que o race abaixo captura.
-const invocar = async (gh, endpoint) => gh(['api', endpoint]);
+const invocar = async (gh, endpoint, sinal) => gh(['api', endpoint], sinal);
 
 // Uma chamada: sempre ['api', endpoint], endpoint relativo montado só com o
 // repo validado, segmentos fixos e números. Depois de um motivo fatal ou do
-// prazo, não chama mais nada; uma chamada que passa do prazo é abandonada
-// (o executor padrão mata o gh no próprio timeout), para que a coleta nunca
-// dure mais que o prazo.
+// prazo, não chama mais nada. Cada chamada leva o próprio AbortSignal; a que
+// passa do prazo é abandonada e o sinal é abortado, o que faz o executor
+// padrão matar o gh. Assim a coleta nunca dura mais que o prazo e nenhum gh
+// fica vivo depois dela. Um executor injetado pode ignorar o sinal.
 async function chamar(ctx, endpoint) {
   if (ctx.fatal !== null) return falha(ctx.fatal);
   const resta = ctx.fim - performance.now();
@@ -278,12 +345,18 @@ async function chamar(ctx, endpoint) {
     return falha(ctx.fatal);
   }
   ctx.chamou = true;
+  const abortador = new AbortController();
   let relogio;
   const prazo = new Promise((resolve) => { relogio = setTimeout(resolve, resta, PRAZO); });
   let r;
   try {
-    const res = await Promise.race([invocar(ctx.gh, endpoint), prazo]);
-    r = res === PRAZO ? falha('tempo esgotado') : normalizar(res);
+    const res = await Promise.race([invocar(ctx.gh, endpoint, abortador.signal), prazo]);
+    if (res === PRAZO) {
+      abortador.abort();
+      r = falha('tempo esgotado');
+    } else {
+      r = normalizar(res);
+    }
   } catch {
     r = falha('gh falhou');
   } finally {
@@ -293,6 +366,10 @@ async function chamar(ctx, endpoint) {
   return r;
 }
 
+// `desde` não é literal fixo, mas é derivado: sai só de um agoraMs validado
+// (agoraValido) e é conferido por DATA (^\d{4}-\d{2}-\d{2}$) antes de uso, o
+// que cabe no "números e literais fixos" do addendum A (revisão da Task 9,
+// item 9).
 const epRuns = (repo, pagina, desde) => `repos/${repo}/actions/runs?per_page=${POR_PAGINA}&page=${pagina}&exclude_pull_requests=true&created=%3E%3D${desde}`;
 const epJobs = (repo, id) => `repos/${repo}/actions/runs/${id}/jobs?filter=all&per_page=${POR_PAGINA}`;
 const epUso = (repo) => `repos/${repo}/actions/cache/usage`;
@@ -386,14 +463,17 @@ function montar({ publico, runs7, runs30, conclusoes30, minutos, bytes, totalApi
       : { linux: minutos.l, windows: minutos.w, macos: minutos.m, ponderado: ponderar(minutos.l, minutos.w, minutos.m) },
     cache: { bytes, limiteBytes: LIMITE_CACHE },
     conclusoes30,
-    selfHosted: minutos === null ? { jobs: null, minutos: null } : { jobs: minutos.s, minutos: minutos.sm },
+    naoClassificado: minutos === null ? { jobs: null, minutos: null } : { jobs: minutos.s, minutos: minutos.sm },
     totalApi30,
     truncado,
     pendentes,
   };
 }
 
-const ponderar = (l, w, m) => l * pesoSistema('linux') + w * pesoSistema('windows') + m * pesoSistema('macos');
+// Minutos ponderados, somados em centésimos inteiros (exatos: o teto de
+// minutos por repo vezes 1033 fica muito abaixo de 2^53) e divididos uma vez,
+// para sair com no máximo 2 casas.
+const ponderar = (l, w, m) => (l * pesoCentesimos('linux') + w * pesoCentesimos('windows') + m * pesoCentesimos('macos')) / 100;
 
 // Atualiza um repo. Ordem: execuções (página 1, e a 2 só se o total passar
 // de 100), visibilidade (só se nenhuma execução a trouxer), uso de cache e
@@ -446,8 +526,9 @@ async function atualizarRepo(ctx, nome, anterior, orcamento) {
     }
     contar(conclusoes30, run.conclusao);
   }
-  const base = { publico, runs7, runs30, conclusoes30, totalApi30, truncado };
-  if (!comCache) return { saida: montar({ ...base, minutos: null, bytes: null, pendentes: runs.length }), entrada: null, gastos: 0 };
+  const base = { publico, runs7, runs30, conclusoes30, totalApi30 };
+  // Sem diretório de dados os minutos não são lidos: o resumo é parcial.
+  if (!comCache) return { saida: montar({ ...base, truncado: truncado || runs.length > 0, minutos: null, bytes: null, pendentes: runs.length }), entrada: null, gastos: 0 };
 
   if (publico === null) {
     const v = await chamar(ctx, epRepo(nome));
@@ -482,11 +563,13 @@ async function atualizarRepo(ctx, nome, anterior, orcamento) {
     if (e.x === 1) truncado = true;
   }
 
-  const resumo = montar({ ...base, publico, truncado, minutos, bytes, pendentes });
-  // Só resumo completo (toda chamada deu certo, nenhum job pendente) vale
-  // como TTL; o parcial fica só com o cache de jobs.
-  const valeTtl = completo && pendentes === 0;
-  const entrada = { visto: agoraMs, at: valeTtl ? agoraMs : null, resumo: valeTtl ? resumo : null, runs: cacheRuns };
+  // Resumo parcial (chamada que falhou, prazo, jobs além do orçamento) sai e
+  // vai para o cache marcado `truncado`, com TTL como qualquer outro: um repo
+  // mais movimentado que o orçamento não é recoletado a cada /consumo. Depois
+  // do TTL a coleta segue de onde parou, pelo cache de jobs.
+  const parcial = truncado || !completo || pendentes > 0;
+  const resumo = montar({ ...base, publico, truncado: parcial, minutos, bytes, pendentes });
+  const entrada = { visto: agoraMs, at: agoraMs, resumo, runs: cacheRuns };
   return { saida: resumo, entrada, gastos };
 }
 
@@ -517,7 +600,8 @@ function lerContagem(c) {
 }
 
 // Resumo guardado, reconstruído campo a campo a partir das chaves conhecidas;
-// qualquer campo fora da regra (ou pendentes diferente de 0) invalida o TTL.
+// qualquer campo fora da regra invalida o TTL. `pendentes` vai de 0 a
+// runs30.total, e resumo com pendentes precisa estar marcado `truncado`.
 function lerResumo(r) {
   if (!ehObjeto(r)) return null;
   const publico = proprio(r, 'publico');
@@ -528,9 +612,9 @@ function lerResumo(r) {
   const conclusoes30 = lerMapa(proprio(r, 'conclusoes30'), CHAVES_CONCLUSAO, runs30.total);
   const m = proprio(r, 'minutos30');
   const c = proprio(r, 'cache');
-  const sh = proprio(r, 'selfHosted');
-  if (conclusoes30 === null || !ehObjeto(m) || !ehObjeto(c) || !ehObjeto(sh)) return null;
-  const minutos = { l: proprio(m, 'linux'), w: proprio(m, 'windows'), m: proprio(m, 'macos'), s: proprio(sh, 'jobs'), sm: proprio(sh, 'minutos') };
+  const nc = proprio(r, 'naoClassificado');
+  if (conclusoes30 === null || !ehObjeto(m) || !ehObjeto(c) || !ehObjeto(nc)) return null;
+  const minutos = { l: proprio(m, 'linux'), w: proprio(m, 'windows'), m: proprio(m, 'macos'), s: proprio(nc, 'jobs'), sm: proprio(nc, 'minutos') };
   if (![minutos.l, minutos.w, minutos.m, minutos.sm].every((n) => inteiroEntre(n, 0, MAX_MIN_REPO))) return null;
   if (!inteiroEntre(minutos.s, 0, MAX_JOBS_REPO)) return null;
   if (proprio(m, 'ponderado') !== ponderar(minutos.l, minutos.w, minutos.m)) return null;
@@ -540,8 +624,9 @@ function lerResumo(r) {
   const totalApi30 = proprio(r, 'totalApi30');
   const truncado = proprio(r, 'truncado');
   if (!inteiroEntre(totalApi30, 0, Number.MAX_SAFE_INTEGER) || typeof truncado !== 'boolean') return null;
-  if (proprio(r, 'pendentes') !== 0) return null;
-  return montar({ publico, runs7, runs30, conclusoes30, minutos, bytes, totalApi30, truncado, pendentes: 0 });
+  const pendentes = proprio(r, 'pendentes');
+  if (!inteiroEntre(pendentes, 0, runs30.total) || (pendentes > 0 && !truncado)) return null;
+  return montar({ publico, runs7, runs30, conclusoes30, minutos, bytes, totalApi30, truncado, pendentes });
 }
 
 function lerRunCache(e, desde30, agoraMs) {
@@ -621,6 +706,7 @@ function gravarCache(arquivo, repos, agoraMs) {
 
 // owner/repo do GitHub: regex da spec, sem '..' e sem parte começando com
 // '.' ou '-'. Só um repo que passa aqui chega a um endpoint.
+// Recusar owner/.github (repo legítimo) é limitação deliberada da v0.1.
 function repoValido(r) {
   if (typeof r !== 'string' || !REPO.test(r) || r.includes('..')) return false;
   const [dono, nome] = r.split('/');
@@ -712,12 +798,18 @@ async function coletar(opcoes, inicio) {
 
 // Resumo de GitHub Actions por repo: { [repo]: ResumoRepo | { indisponivel } }.
 // ResumoRepo = { publico, runs7, runs30, minutos30, cache } do brief, mais
-// conclusoes30, selfHosted (jobs e minutos fora da estimativa), totalApi30
-// (total_count da API), truncado e pendentes (execuções da janela sem jobs
-// lidos). Sem diretório de dados: minutos, selfHosted e cache.bytes são null.
+// conclusoes30, naoClassificado (jobs e minutos fora da estimativa:
+// self-hosted, runner maior ou próprio, rótulo desconhecido; peso 0),
+// totalApi30 (total_count da API), truncado (o resumo não cobre tudo: mais
+// de 200 execuções ou de 100 jobs numa execução, chamada que falhou, prazo
+// ou jobs pendentes) e pendentes (execuções da janela sem jobs lidos).
+// minutos30.ponderado usa os pesos de pesoSistema e tem até 2 casas. Sem
+// diretório de dados: minutos, naoClassificado e cache.bytes são null.
 // Motivos de indisponível vêm de uma lista fixa (ver MOTIVOS_EXECUTOR,
 // 'invalido', 'truncado', 'agora inválido' e 'HTTP nnn'). Entrada que não é
-// objeto com `repos` em lista devolve {}. Nunca lança nem rejeita.
+// objeto com `repos` em lista devolve {}. Prazo padrão de 10 s (`prazoMs`);
+// o executor (`gh`) recebe (args, sinal) e o sinal é abortado quando a
+// chamada passa do prazo. Nunca lança nem rejeita.
 export async function coletarGithub(opcoes) {
   try {
     return await coletar(opcoes, performance.now());

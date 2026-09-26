@@ -1,5 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import childProcess, { spawnSync } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,10 +20,13 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+// Pesos da fix round 1 (I-4): razão do preço por minuto de cada sistema sobre
+// o do Linux 2-core x64, com 2 casas (docs.github.com, 2026-09-25: Linux
+// $0.006, Windows $0.010, macOS $0.062). Antes eram 1/2/10.
 test('pesos e sistemas', () => {
   assert.equal(pesoSistema('linux'), 1);
-  assert.equal(pesoSistema('windows'), 2);
-  assert.equal(pesoSistema('macos'), 10);
+  assert.equal(pesoSistema('windows'), 1.67);
+  assert.equal(pesoSistema('macos'), 10.33);
   assert.equal(sistemaDoJob(['windows-latest']), 'windows');
   assert.equal(sistemaDoJob(['macos-14']), 'macos');
   assert.equal(sistemaDoJob(['ubuntu-latest']), 'linux');
@@ -64,7 +69,8 @@ test('coletarGithub resume runs, minutos ponderados e cache, e usa cache de jobs
   const r = await coletarGithub({ repos: ['o/r'], agoraMs: agora, gh: ghFalso(chamadas) });
   assert.deepEqual(r['o/r'].runs7, { total: 1, porEvento: { push: 1 } });
   assert.deepEqual(r['o/r'].runs30, { total: 2, porEvento: { push: 1, schedule: 1 } });
-  assert.deepEqual(r['o/r'].minutos30, { linux: 4, windows: 5, macos: 1, ponderado: 4 + 10 + 10 });
+  // 4 × 1 + 5 × 1,67 + 1 × 10,33
+  assert.deepEqual(r['o/r'].minutos30, { linux: 4, windows: 5, macos: 1, ponderado: 22.68 });
   assert.equal(r['o/r'].publico, false);
   assert.equal(r['o/r'].cache.bytes, 664824301);
   const antes = chamadas.filter((c) => c.includes('/jobs')).length;
@@ -142,17 +148,53 @@ test('pesoSistema devolve 0 fora dos três sistemas, inclusive membros de Object
 });
 
 test('sistemaDoJob usa conjuntos fixos de rótulos hospedados; desconhecido vira self-hosted', () => {
+  // Todos os rótulos da tabela de runners padrão do GitHub (docs.github.com,
+  // github-hosted-runners, lida em 2026-09-25), x64 e arm64, Intel e M1.
+  const oficiais = {
+    linux: ['ubuntu-latest', 'ubuntu-24.04', 'ubuntu-22.04', 'ubuntu-26.04', 'ubuntu-24.04-arm', 'ubuntu-22.04-arm', 'ubuntu-26.04-arm'],
+    windows: ['windows-latest', 'windows-2025', 'windows-2025-vs2026', 'windows-2022', 'windows-11-arm', 'windows-11-vs2026-arm'],
+    macos: ['macos-latest', 'macos-14', 'macos-15', 'macos-26', 'macos-15-intel', 'macos-26-intel', 'xcode-27'],
+  };
+  for (const [sistema, rotulos] of Object.entries(oficiais)) {
+    for (const r of rotulos) {
+      assert.equal(sistemaDoJob([r]), sistema, r);
+      assert.equal(sistemaDoJob([r.toUpperCase()]), sistema, r.toUpperCase());
+    }
+  }
   const casos = [
-    [['ubuntu-latest'], 'linux'], [['ubuntu-24.04'], 'linux'], [['ubuntu-22.04'], 'linux'], [['UBUNTU-LATEST'], 'linux'],
-    [['windows-latest'], 'windows'], [['windows-2025'], 'windows'], [['windows-2022'], 'windows'],
-    [['macos-latest'], 'macos'], [['macos-15'], 'macos'], [['macos-13'], 'macos'],
-    // Fora dos conjuntos verificados (V4 cobre Linux 1, Windows 2, macOS 10 nos
-    // runners padrão x64): arm, runners maiores e rótulos próprios.
-    [['ubuntu-24.04-arm'], 'self-hosted'], [['windows-11-arm'], 'self-hosted'], [['macos-15-xlarge'], 'self-hosted'],
-    [['ubuntu-latest-8-cores'], 'self-hosted'], [['linux'], 'self-hosted'], [['gpu'], 'self-hosted'], [[], 'self-hosted'],
+    [['macos-13'], 'macos'], [['windows-2019'], 'windows'], [['ubuntu-20.04'], 'linux'],
+    // Fora da estimativa: ubuntu-slim (1 núcleo, preço próprio), runners
+    // maiores e rótulos próprios da organização, variações que não existem
+    // na tabela oficial e rótulos com qualquer sobra de texto.
+    [['ubuntu-slim'], 'self-hosted'], [['macos-15-xlarge'], 'self-hosted'], [['macos-15-large'], 'self-hosted'],
+    [['macos-latest-xlarge'], 'self-hosted'], [['ubuntu-latest-8-cores'], 'self-hosted'], [['windows-latest-8-cores'], 'self-hosted'],
+    [['ubuntu-latest-arm'], 'self-hosted'], [['ubuntu-24.04-arm64'], 'self-hosted'], [['ubuntu-arm'], 'self-hosted'],
+    [['windows-11'], 'self-hosted'], [['windows-2022-arm'], 'self-hosted'], [['windows-11-arm64'], 'self-hosted'], [['windows-latest-arm'], 'self-hosted'],
+    [['macos-latest-intel'], 'self-hosted'], [['macos-15-arm64'], 'self-hosted'], [['macos-15-intel-xlarge'], 'self-hosted'],
+    [['xcode'], 'self-hosted'], [['xcode-latest'], 'self-hosted'], [['xcode-27-intel'], 'self-hosted'],
+    [['linux'], 'self-hosted'], [['gpu'], 'self-hosted'], [[], 'self-hosted'],
     [['ubuntu-latest; rm -rf ~'], 'self-hosted'], [[' ubuntu-latest'], 'self-hosted'], [['ubuntu-latest\n'], 'self-hosted'],
+    [['ubuntu-24.04-arm\n'], 'self-hosted'], [['macos-15-intel '], 'self-hosted'],
   ];
   for (const [labels, esperado] of casos) assert.equal(sistemaDoJob(labels), esperado, JSON.stringify(labels));
+});
+
+test('pesos com 2 casas: ponderado é exato em centésimos, sem resíduo de ponto flutuante', async () => {
+  const m = (min) => ({ started_at: iso(agora - DIA), completed_at: iso(agora - DIA + min * MIN) });
+  const casos = [
+    // [jobs, ponderado esperado]
+    [[job({ labels: ['windows-latest'], ...m(3) })], 5.01],
+    [[job({ labels: ['macos-14'], ...m(3) })], 30.99],
+    [[job({ labels: ['ubuntu-latest'], ...m(1) }), job({ labels: ['windows-2022'], ...m(1) }), job({ labels: ['macos-15-intel'], ...m(1) })], 13],
+    [[job({ labels: ['windows-11-arm'], ...m(7) }), job({ labels: ['ubuntu-24.04-arm'], ...m(2) })], 13.69],
+  ];
+  for (const [i, [jobs, esperado]] of casos.entries()) {
+    const nome = `o/p${i}`;
+    const { gh } = roteador({ [nome]: { runs: [run(1)], jobs: { 1: jobs } } });
+    const r = (await coletarGithub({ repos: [nome], agoraMs: agora, gh }))[nome];
+    assert.equal(r.minutos30.ponderado, esperado, String(i));
+    assert.equal(String(r.minutos30.ponderado), String(esperado));
+  }
 });
 
 test('sistemaDoJob com vários rótulos fica com o mais caro; self-hosted sempre vence', () => {
@@ -210,10 +252,10 @@ test('forma completa do ResumoRepo', async () => {
     publico: false,
     runs7: { total: 1, porEvento: { push: 1 } },
     runs30: { total: 2, porEvento: { push: 1, schedule: 1 } },
-    minutos30: { linux: 4, windows: 5, macos: 1, ponderado: 24 },
+    minutos30: { linux: 4, windows: 5, macos: 1, ponderado: 22.68 },
     cache: { bytes: 664824301, limiteBytes: LIMITE_CACHE },
     conclusoes30: { success: 2 },
-    selfHosted: { jobs: 0, minutos: 0 },
+    naoClassificado: { jobs: 0, minutos: 0 },
     totalApi30: 2,
     truncado: false,
     pendentes: 0,
@@ -235,15 +277,18 @@ test('cada chamada é api + endpoint relativo, sem --jq, com parâmetros numéri
   }
 });
 
-test('self-hosted e rótulo desconhecido ficam fora da estimativa, contados à parte', async () => {
+test('self-hosted, runner maior e rótulo desconhecido ficam fora da estimativa, em naoClassificado', async () => {
   const jobs = [
-    job({ labels: ['self-hosted', 'linux'] }), job({ labels: ['gpu-runner'] }), job({ labels: ['ubuntu-24.04-arm'] }),
-    job({ labels: ['windows-latest', 'macos-14'] }), job({ labels: null }),
+    job({ labels: ['self-hosted', 'linux'] }), job({ labels: ['gpu-runner'] }), job({ labels: ['ubuntu-slim'] }),
+    job({ labels: ['macos-15-xlarge'] }), job({ labels: ['windows-latest', 'macos-14'] }), job({ labels: null }),
+    job({ labels: ['ubuntu-24.04-arm'] }),
   ];
   const { gh } = roteador({ 'o/r': { runs: [run(1)], jobs: { 1: jobs } } });
   const r = (await coletarGithub({ repos: ['o/r'], agoraMs: agora, gh }))['o/r'];
-  assert.deepEqual(r.selfHosted, { jobs: 4, minutos: 8 });
-  assert.deepEqual(r.minutos30, { linux: 0, windows: 0, macos: 2, ponderado: 20 });
+  assert.deepEqual(r.naoClassificado, { jobs: 5, minutos: 10 });
+  assert.ok(!Object.hasOwn(r, 'selfHosted'));
+  // 2 × 1 (Linux arm, pesado como Linux x64) + 2 × 10,33
+  assert.deepEqual(r.minutos30, { linux: 2, windows: 0, macos: 2, ponderado: 22.66 });
 });
 
 test('execução com mais jobs que a página marca truncado', async () => {
@@ -311,8 +356,8 @@ test('cache corrompido, gigante, de outra versão ou fora do schema é tratado c
   await coletarGithub({ repos: ['o/r'], agoraMs: agora, gh: roteador({ 'o/r': { runs: [run(1)] } }).gh });
   const gigante = JSON.stringify({ ...lerCache(), x: 'a'.repeat(3 * MB) });
   const conteudos = [
-    '{"versao":1,"repos":{', 'null', '[]', '"x"', '{"versao":2,"repos":{}}', JSON.stringify({ versao: 1, repos: [] }),
-    JSON.stringify({ versao: 1, repos: { 'o/r': 'x' } }), gigante,
+    '{"versao":2,"repos":{', 'null', '[]', '"x"', '{"versao":3,"repos":{}}', JSON.stringify({ versao: 2, repos: [] }),
+    JSON.stringify({ versao: 2, repos: { 'o/r': 'x' } }), gigante,
   ];
   for (const c of conteudos) {
     fs.writeFileSync(arqCache(), c);
@@ -320,9 +365,32 @@ test('cache corrompido, gigante, de outra versão ou fora do schema é tratado c
     const r = await coletarGithub({ repos: ['o/r'], agoraMs: agora, gh });
     assert.equal(r['o/r'].runs30.total, 1, c.slice(0, 30));
     assert.ok(eps().length > 0);
-    assert.equal(lerCache().versao, 1);
+    assert.equal(lerCache().versao, 2);
     assert.ok(fs.statSync(arqCache()).size < 2 * MB);
   }
+});
+
+test('cache da versão 1 (pesos 1/2/10, selfHosted, arm fora da estimativa) é descartado inteiro', async () => {
+  // Arquivo no formato exato da versão 1, com TTL em dia e uma execução em
+  // cache cujo job ubuntu-24.04-arm ficou no balde de fora: nada disso vale.
+  const v1 = { versao: 1, repos: { 'o/r': {
+    visto: iso(agora), at: iso(agora),
+    resumo: {
+      publico: false, runs7: { total: 1, porEvento: { push: 1 } }, runs30: { total: 1, porEvento: { push: 1 } },
+      minutos30: { linux: 0, windows: 0, macos: 0, ponderado: 0 }, cache: { bytes: 1000, limiteBytes: LIMITE_CACHE },
+      conclusoes30: { success: 1 }, selfHosted: { jobs: 1, minutos: 2 }, totalApi30: 1, truncado: false, pendentes: 0,
+    },
+    runs: { 1: { t: agora - DIA, a: 1, l: 0, w: 0, m: 0, s: 1, sm: 2, x: 0 } },
+  } } };
+  fs.writeFileSync(arqCache(), JSON.stringify(v1));
+  const { gh, eps } = roteador({ 'o/r': { runs: [run(1)], jobs: { 1: [job({ labels: ['ubuntu-24.04-arm'] })] } } });
+  const r = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + MIN, gh }))['o/r'];
+  assert.deepEqual(idsDeJobs(eps()), ['1']);
+  assert.deepEqual(r.minutos30, { linux: 2, windows: 0, macos: 0, ponderado: 2 });
+  assert.deepEqual(r.naoClassificado, { jobs: 0, minutos: 0 });
+  const c = lerCache();
+  assert.equal(c.versao, 2);
+  assert.ok(!JSON.stringify(c).includes('selfHosted'));
 });
 
 test('__proto__ plantado em todos os níveis do cache não polui nada nem vaza', async () => {
@@ -383,8 +451,15 @@ test('cache com at no futuro, adulterado ou fora do schema não vale como TTL', 
     (e) => { e.resumo.runs7.porEvento.push = 1.5; },
     (e) => { e.resumo.conclusoes30.success = 0; },
     (e) => { e.resumo.pendentes = 3; },
+    (e) => { e.resumo.pendentes = -1; },
+    (e) => { e.resumo.pendentes = 0.5; e.resumo.truncado = true; },
+    // Resumo parcial precisa dizer que é parcial.
+    (e) => { e.resumo.pendentes = 1; e.resumo.truncado = false; },
+    (e) => { e.resumo.minutos30.ponderado = 2.001; },
+    (e) => { e.resumo.minutos30.windows = 1; e.resumo.minutos30.ponderado = 4; },
     (e) => { e.resumo.truncado = 'nao'; },
-    (e) => { delete e.resumo.selfHosted; },
+    (e) => { delete e.resumo.naoClassificado; },
+    (e) => { e.resumo.selfHosted = e.resumo.naoClassificado; delete e.resumo.naoClassificado; },
     (e) => { e.resumo = null; },
     (e) => { e.visto = 'x'; },
     (e) => { e.resumo.runs7 = { total: 2, porEvento: { push: 2 } }; },
@@ -392,7 +467,7 @@ test('cache com at no futuro, adulterado ou fora do schema não vale como TTL', 
     (e) => { e.resumo.conclusoes30 = { success: 1, failure: 1 }; },
     (e) => { e.resumo.cache.limiteBytes = 1; },
     (e) => { e.resumo.totalApi30 = -1; },
-    (e) => { e.resumo.selfHosted.jobs = 'x'; },
+    (e) => { e.resumo.naoClassificado.jobs = 'x'; },
     (e) => { e.resumo.minutos30.windows = 2 ** 60; e.resumo.minutos30.ponderado = 2 + 2 * 2 ** 60; },
   ];
   for (const [i, editar] of edicoes.entries()) {
@@ -458,7 +533,7 @@ test('cache no tamanho máximo (20 repos × 200 execuções) fica abaixo de 2 MB
     }
     repos[`${'o'.repeat(39)}/${String(i).padStart(3, '0')}${'r'.repeat(97)}`] = { ...base, runs };
   }
-  gravarJsonAtomico(arqCache(), { versao: 1, repos });
+  gravarJsonAtomico(arqCache(), { versao: 2, repos });
   const tamanho = fs.statSync(arqCache()).size;
   assert.ok(tamanho < 2 * MB, String(tamanho));
   const chamadas = [];
@@ -516,10 +591,12 @@ test('sem diretório de dados: uma chamada por repo, sem minutos e sem I/O', asy
   assert.deepEqual(r['o/r'].runs30, { total: 2, porEvento: { push: 1, schedule: 1 } });
   assert.equal(r['o/r'].publico, false);
   assert.deepEqual(r['o/r'].minutos30, { linux: null, windows: null, macos: null, ponderado: null });
-  assert.deepEqual(r['o/r'].selfHosted, { jobs: null, minutos: null });
+  assert.deepEqual(r['o/r'].naoClassificado, { jobs: null, minutos: null });
   assert.deepEqual(r['o/r'].cache, { bytes: null, limiteBytes: LIMITE_CACHE });
   assert.equal(r['o/r'].pendentes, 2);
+  assert.equal(r['o/r'].truncado, true, 'sem minutos lidos o resumo é parcial');
   assert.equal(r['p/q'].publico, null);
+  assert.equal(r['p/q'].truncado, false);
 });
 
 // ------------------------------------------------- repos e limites de chamada
@@ -527,7 +604,8 @@ test('sem diretório de dados: uma chamada por repo, sem minutos e sem I/O', asy
 test('repos maliciosos são recusados sem chamar o gh e sem ecoar o texto (S5)', async () => {
   const ruins = [
     'a/b; rm -rf ~', '../x', '-o/x', 'a/.git', 'a/b\nc', `o/${'x'.repeat(300)}`, '', 'o', 'o/r/x', 'o/..', 'o/r..x',
-    '.o/r', 'o/-r', 'o /r', 'o/r ', ' o/r', '{owner}/{repo}', 'o/r?page=9', 'o/r#x', 'o\\r', 'o/r%2F..', `${'o'.repeat(40)}/r`,
+    // o/.github é um repo legítimo, recusado de propósito na v0.1 (addendum A).
+    '.o/r', 'o/-r', 'o/.github', 'o /r', 'o/r ', ' o/r', '{owner}/{repo}', 'o/r?page=9', 'o/r#x', 'o\\r', 'o/r%2F..', `${'o'.repeat(40)}/r`,
     `o/${'r'.repeat(101)}`, '__proto__', 'constructor', `o/r${ESC}[31m`, `o/r${RLO}`, `o/r${NUL}`, 'o_x/r', 'o/r\r',
     null, 42, {}, ['o/r'], undefined, true,
   ];
@@ -592,7 +670,9 @@ test('a página 2 só é pedida quando o total passa de 100', async () => {
     const r = (await coletarGithub({ repos: [nome], agoraMs: agora, gh }))[nome];
     const paginas = eps().filter((e) => e.startsWith(`repos/${nome}/actions/runs?`)).map((e) => new URLSearchParams(e.split('?')[1]).get('page'));
     assert.deepEqual(paginas, esperado, String(total));
-    assert.equal(r.truncado, false);
+    // Nenhuma truncagem de páginas; só os jobs além do orçamento marcam.
+    assert.equal(r.pendentes, Math.max(0, total - 60));
+    assert.equal(r.truncado, r.pendentes > 0);
     assert.equal(r.runs30.total, total);
   }
 });
@@ -607,38 +687,52 @@ test('execução repetida entre as páginas (a lista andou entre os pedidos) con
   assert.equal(r.pendentes, 199 - 60);
 });
 
-test('página 2 que falha deixa a 1 valendo, marcada como truncada, sem entrar no TTL', async () => {
+test('página 2 que falha deixa a 1 valendo, marcada como truncada, e o parcial entra no TTL', async () => {
   const runs = Array.from({ length: 150 }, (_, i) => run(3000 - i));
   const d = { 'o/r': { lista: (p) => (p === 1 ? ok({ total_count: 150, workflow_runs: runs.slice(0, 100) }) : { ok: false, motivo: 'HTTP 502' }) } };
   const { gh, eps } = roteador(d);
   const r = (await coletarGithub({ repos: ['o/r'], agoraMs: agora, gh }))['o/r'];
   assert.equal(r.runs30.total, 100);
   assert.equal(r.truncado, true);
-  // Segunda coleta lê os 40 jobs que faltavam: nada pendente, mas a página 2
-  // segue falhando, então o resumo continua fora do TTL.
+  assert.equal(r.pendentes, 40);
+  assert.equal(lerCache().repos['o/r'].at, iso(agora));
+  assert.equal(lerCache().repos['o/r'].resumo.truncado, true);
+  // Dentro do TTL o parcial é servido como está, sem chamada nenhuma.
+  let n = eps().length;
   const r2 = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + MIN, gh }))['o/r'];
-  assert.equal(r2.pendentes, 0);
-  assert.equal(r2.truncado, true);
-  assert.equal(lerCache().repos['o/r'].at, null);
-  const n = eps().length;
-  await coletarGithub({ repos: ['o/r'], agoraMs: agora + 2 * MIN, gh });
-  assert.ok(eps().length > n);
+  assert.equal(eps().length, n);
+  assert.deepEqual(r2, r);
+  // Depois do TTL a página 2 é tentada de novo e os 40 jobs que faltavam são
+  // lidos; a página 2 segue falhando, então o resumo segue truncado.
+  n = eps().length;
+  const r3 = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + 15 * MIN, gh }))['o/r'];
+  assert.ok(eps().slice(n).some((e) => e.includes('page=2')));
+  assert.equal(idsDeJobs(eps().slice(n)).length, 40);
+  assert.equal(r3.pendentes, 0);
+  assert.equal(r3.truncado, true);
 });
 
-test('orçamento de jobs: 60 por chamada divididos entre os repos; o resto fica pendente e só resumo completo entra no TTL', async () => {
+test('orçamento de jobs: 60 por chamada divididos entre os repos; o parcial entra no TTL marcado truncado', async () => {
   const runs = Array.from({ length: 80 }, (_, i) => run(500 - i));
   const { gh, eps } = roteador({ 'o/r': { runs } });
   let r = (await coletarGithub({ repos: ['o/r'], agoraMs: agora, gh }))['o/r'];
   assert.equal(idsDeJobs(eps()).length, 60);
   assert.equal(r.pendentes, 20);
+  assert.equal(r.truncado, true);
   assert.equal(r.minutos30.linux, 120);
+  // Repo mais movimentado que o orçamento: o TTL começa mesmo assim, e a
+  // coleta seguinte, segundos depois, não refaz nada.
   let n = eps().length;
-  r = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + MIN, gh }))['o/r'];
+  const r1 = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + MIN, gh }))['o/r'];
+  assert.equal(eps().length, n);
+  assert.deepEqual(r1, r);
+  r = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + 15 * MIN, gh }))['o/r'];
   assert.equal(idsDeJobs(eps().slice(n)).length, 20);
   assert.equal(r.pendentes, 0);
+  assert.equal(r.truncado, false);
   assert.equal(r.minutos30.linux, 160);
   n = eps().length;
-  await coletarGithub({ repos: ['o/r'], agoraMs: agora + 2 * MIN, gh });
+  await coletarGithub({ repos: ['o/r'], agoraMs: agora + 16 * MIN, gh });
   assert.equal(eps().length, n);
   const tres = roteador(Object.fromEntries(['a/1', 'b/2', 'c/3'].map((k) => [k, { runs: Array.from({ length: 30 }, (_, i) => run(900 - i)) }])));
   const rr = await coletarGithub({ repos: ['a/1', 'b/2', 'c/3'], agoraMs: agora, gh: tres.gh });
@@ -648,11 +742,13 @@ test('orçamento de jobs: 60 por chamada divididos entre os repos; o resto fica 
   }
 });
 
-test('prazo total: a chamada que passa do prazo é abandonada, jobs ficam pendentes e os repos seguintes indisponíveis', async () => {
+test('prazo total: a chamada que passa do prazo é abandonada e abortada, jobs ficam pendentes e os repos seguintes indisponíveis', async () => {
   const base = roteador({ 'o/r': { runs: [run(1), run(2), run(3)] }, 'p/q': { runs: [run(1)] } });
   let n = 0;
-  const gh = async (a) => {
+  const sinais = [];
+  const gh = async (a, sinal) => {
     n++;
+    sinais.push(sinal);
     if (n === 3) await new Promise((res) => { setTimeout(res, 1500); });
     return base.gh(a);
   };
@@ -661,13 +757,56 @@ test('prazo total: a chamada que passa do prazo é abandonada, jobs ficam penden
   assert.ok(Date.now() - inicio < 1400, 'não espera a chamada lenta');
   assert.equal(base.eps().length, 2, 'a terceira chamada não chegou a responder');
   assert.equal(n, 3);
+  // Cada chamada recebe o próprio AbortSignal; só a abandonada é abortada.
+  assert.equal(sinais.length, 3);
+  for (const s of sinais) assert.ok(s instanceof AbortSignal);
+  assert.equal(new Set(sinais).size, 3);
+  assert.deepEqual(sinais.map((s) => s.aborted), [false, false, true]);
   assert.equal(r['o/r'].runs30.total, 3);
   assert.equal(r['o/r'].pendentes, 3);
+  assert.equal(r['o/r'].truncado, true);
   assert.equal(r['o/r'].minutos30.linux, 0);
   assert.deepEqual(r['p/q'], { indisponivel: 'tempo esgotado' });
-  const antes = base.eps().length;
+  // O parcial entra no TTL, marcado truncado; o repo sem resumo, não.
+  let antes = base.eps().length;
   await coletarGithub({ repos: ['o/r'], agoraMs: agora + MIN, gh: base.gh });
-  assert.ok(base.eps().length > antes, 'resumo parcial por prazo não entra no TTL');
+  assert.equal(base.eps().length, antes, 'parcial por prazo vale como TTL');
+  await coletarGithub({ repos: ['p/q'], agoraMs: agora + MIN, gh: base.gh });
+  assert.ok(base.eps().length > antes, 'repo sem resumo não tem TTL');
+  antes = base.eps().length;
+  const r2 = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + 15 * MIN, gh: base.gh }))['o/r'];
+  assert.deepEqual(idsDeJobs(base.eps().slice(antes)).sort(), ['1', '2', '3']);
+  assert.equal(r2.pendentes, 0);
+  assert.equal(r2.truncado, false);
+});
+
+test('prazo padrão de 10 s quando prazoMs falta ou é inválido', async () => {
+  // O relógio do prazo de cada chamada é o setTimeout cujo valor é o símbolo
+  // PRAZO; o atraso dele é o tempo que resta da coleta.
+  const setTimeoutOriginal = globalThis.setTimeout;
+  const porColeta = [];
+  let atual = null;
+  try {
+    globalThis.setTimeout = (fn, ms, ...resto) => {
+      if (atual !== null && typeof resto[0] === 'symbol') atual.push(ms);
+      return setTimeoutOriginal(fn, ms, ...resto);
+    };
+    // Um "agora" diferente por coleta, fora do TTL da anterior.
+    const prazosMs = [undefined, 'x', -1, Number.NaN, Number.POSITIVE_INFINITY, 600_001, 2500];
+    for (const [i, prazoMs] of prazosMs.entries()) {
+      atual = [];
+      porColeta.push(atual);
+      const { gh } = roteador({ 'o/r': { runs: [] } });
+      await coletarGithub({ repos: ['o/r'], agoraMs: agora + i * 20 * MIN, gh, prazoMs });
+    }
+  } finally {
+    globalThis.setTimeout = setTimeoutOriginal;
+  }
+  const explicito = porColeta.pop();
+  assert.ok(explicito.length > 0 && explicito.every((ms) => ms > 2000 && ms <= 2500), String(explicito));
+  for (const prazos of porColeta) {
+    assert.ok(prazos.length > 0 && prazos.every((ms) => ms > 9000 && ms <= 10_000), String(prazos));
+  }
 });
 
 test('prazo zero: nenhuma chamada, todos com tempo esgotado', async () => {
@@ -728,13 +867,16 @@ test('jobs com resposta inválida deixam só aquela execução pendente e são b
   const { gh, eps } = roteador(d);
   const r = (await coletarGithub({ repos: ['o/r'], agoraMs: agora, gh }))['o/r'];
   assert.equal(r.pendentes, 1);
+  assert.equal(r.truncado, true);
   assert.equal(r.minutos30.linux, 2);
-  for (const invalido of [ok('{}'), ok({ total_count: 1, jobs: {} }), ok({ total_count: -1, jobs: [] }), ok({ total_count: 101, jobs: Array(101).fill(job()) })]) {
+  // O parcial entra no TTL; cada coleta abaixo vem depois do TTL da anterior.
+  for (const [i, invalido] of [ok('{}'), ok({ total_count: 1, jobs: {} }), ok({ total_count: -1, jobs: [] }), ok({ total_count: 101, jobs: Array(101).fill(job()) })].entries()) {
     d['o/r'].jobs[1] = invalido;
     const antes = eps().length;
-    const rr = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + MIN, gh }))['o/r'];
+    const rr = (await coletarGithub({ repos: ['o/r'], agoraMs: agora + (i + 1) * 15 * MIN, gh }))['o/r'];
     assert.deepEqual(idsDeJobs(eps().slice(antes)), ['1']);
     assert.equal(rr.pendentes, 1);
+    assert.equal(rr.truncado, true);
   }
 });
 
@@ -884,22 +1026,24 @@ test('executor real: saída acima do teto vira resposta grande', async () => {
 test('executor real: argumentos chegam literais (sem shell) e o ambiente fixo é aplicado', async () => {
   const salvos = Object.fromEntries(['GH_FORCE_TTY', 'CLICOLOR_FORCE', 'GH_DEBUG', 'MSYS_NO_PATHCONV'].map((k) => [k, process.env[k]]));
   // Um shell trataria '>hdk-nao-crie-7f3a' como redirecionamento e criaria
-  // este arquivo; sobra de uma execução anterior quebrada não conta.
-  const alvo = path.join(process.cwd(), 'hdk-nao-crie-7f3a');
-  fs.rmSync(alvo, { force: true });
+  // este arquivo no diretório do filho, que aqui é o temporário do teste:
+  // nada é escrito na árvore do repositório.
+  const alvo = path.join(home, 'hdk-nao-crie-7f3a');
   try {
     process.env.GH_FORCE_TTY = '1';
     process.env.CLICOLOR_FORCE = '1';
     process.env.GH_DEBUG = 'api';
     process.env.MSYS_NO_PATHCONV = '0';
-    const script = 'const e = process.env; process.stdout.write(JSON.stringify({ argv: process.argv.slice(1), env: [e.MSYS_NO_PATHCONV, e.GH_NO_UPDATE_NOTIFIER, e.GH_PROMPT_DISABLED, e.NO_COLOR, e.GH_FORCE_TTY ?? null, e.CLICOLOR_FORCE ?? null, e.GH_DEBUG ?? null] }))';
+    const script = 'const e = process.env; process.stdout.write(JSON.stringify({ argv: process.argv.slice(1), cwd: process.cwd(), env: [e.MSYS_NO_PATHCONV, e.GH_NO_UPDATE_NOTIFIER, e.GH_PROMPT_DISABLED, e.NO_COLOR, e.GH_FORCE_TTY ?? null, e.CLICOLOR_FORCE ?? null, e.GH_DEBUG ?? null] }))';
     const literais = ['a b; echo pwned', '$(whoami)', '`id`', '%PATH%', '"q" & calc', "'s'", '|', '>hdk-nao-crie-7f3a', '\\\\x\\'];
-    const r = await criarExecutorGh({ executavel: node })(['-e', script, ...literais]);
+    const r = await criarExecutorGh({ executavel: node, cwd: home })(['-e', script, ...literais]);
     assert.equal(r.ok, true);
-    assert.deepEqual(JSON.parse(r.stdout), { argv: literais, env: ['1', '1', '1', '1', null, null, null] });
+    const saida = JSON.parse(r.stdout);
+    assert.deepEqual({ argv: saida.argv, env: saida.env }, { argv: literais, env: ['1', '1', '1', '1', null, null, null] });
+    assert.equal(fs.realpathSync.native(saida.cwd), fs.realpathSync.native(home));
     assert.ok(!fs.existsSync(alvo));
+    assert.ok(!fs.existsSync(path.join(process.cwd(), 'hdk-nao-crie-7f3a')));
   } finally {
-    fs.rmSync(alvo, { force: true });
     for (const [k, v] of Object.entries(salvos)) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
@@ -918,9 +1062,113 @@ test('executor real: nunca rejeita, nem com argumento inválido', async () => {
   assert.deepEqual(await gh('api'), { ok: false, motivo: 'gh falhou' });
   assert.deepEqual(await gh([1, 2]), { ok: false, motivo: 'gh falhou' });
   assert.deepEqual(await gh(), { ok: false, motivo: 'gh falhou' });
-  for (const opcoes of [undefined, null, { executavel: '', timeoutMs: -1, maxBuffer: 'x' }, new Proxy({}, { get() { throw new Error('x'); } })]) {
+  for (const opcoes of [undefined, null, { executavel: '', timeoutMs: -1, maxBuffer: 'x', cwd: 42 }, { cwd: `a${NUL}b` }, { cwd: '' }, new Proxy({}, { get() { throw new Error('x'); } })]) {
     assert.equal(typeof criarExecutorGh(opcoes), 'function');
   }
+  // cwd inválido é ignorado: o filho roda no diretório herdado.
+  const r = await criarExecutorGh({ executavel: node, cwd: `a${NUL}b` })(['-e', "process.stdout.write('ok')"]);
+  assert.deepEqual(r, { ok: true, stdout: 'ok' });
+});
+
+// Um filho node que grava o próprio pid e dorme 60 s: faz o papel de um gh
+// travado. O pid permite provar que o processo não sobrevive à chamada.
+const dorminhoco = (arqPid) => ['-e', `require('fs').writeFileSync(${JSON.stringify(arqPid)}, String(process.pid)); setTimeout(() => {}, 60000)`];
+const vivo = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+};
+async function esperarPid(arqPid, limiteMs = 15_000) {
+  const fim = Date.now() + limiteMs;
+  while (Date.now() < fim) {
+    let texto = '';
+    try { texto = fs.readFileSync(arqPid, 'utf8'); } catch { /* ainda não existe */ }
+    if (/^[1-9]\d*$/.test(texto)) return Number(texto);
+    await new Promise((res) => { setTimeout(res, 20); });
+  }
+  throw new Error('o filho não gravou o pid a tempo');
+}
+
+// Espia o execFile que o github.js importa: o import nomeado de um módulo
+// nativo acompanha o objeto do módulo depois de syncBuiltinESMExports. Dá
+// acesso ao ChildProcess de cada chamada, para ver se um processo foi criado
+// e se já tinha saído quando a promessa do executor resolveu.
+async function comExecFileEspiado(corpo) {
+  const original = childProcess.execFile;
+  const filhos = [];
+  childProcess.execFile = (...a) => {
+    const filho = original(...a);
+    filhos.push(filho);
+    return filho;
+  };
+  syncBuiltinESMExports();
+  try {
+    return await corpo(filhos);
+  } finally {
+    childProcess.execFile = original;
+    syncBuiltinESMExports();
+  }
+}
+const saiu = (filho) => filho.exitCode !== null || filho.signalCode !== null;
+
+test('executor real: abortar o sinal mata o filho, e só resolve depois que ele saiu', async () => {
+  await comExecFileEspiado(async (filhos) => {
+    const arqPid = path.join(home, 'pid-abort');
+    const ac = new AbortController();
+    const chamada = criarExecutorGh({ executavel: node, timeoutMs: 120_000 })(dorminhoco(arqPid), ac.signal);
+    const pid = await esperarPid(arqPid);
+    assert.equal(vivo(pid), true);
+    assert.equal(filhos.length, 1);
+    assert.equal(saiu(filhos[0]), false);
+    const inicio = Date.now();
+    ac.abort();
+    const r = await chamada;
+    // Conferido no mesmo microtask em que a promessa resolveu: o evento
+    // 'exit' do filho já tinha acontecido.
+    assert.equal(saiu(filhos[0]), true, 'resolveu antes de o filho sair');
+    assert.deepEqual(r, { ok: false, motivo: 'tempo esgotado' });
+    assert.ok(Date.now() - inicio < 5000, String(Date.now() - inicio));
+    assert.equal(vivo(pid), false, 'o filho sobreviveu ao abort');
+  });
+});
+
+test('executor real: sinal já abortado não chega a iniciar o processo; sinal que não é AbortSignal é ignorado', async () => {
+  const marca = path.join(home, 'nao-rodou');
+  const script = ['-e', `require('fs').writeFileSync(${JSON.stringify(marca)}, 'x'); process.stdout.write('rodou')`];
+  const gh = criarExecutorGh({ executavel: node });
+  await comExecFileEspiado(async (filhos) => {
+    assert.deepEqual(await gh(script, AbortSignal.abort()), { ok: false, motivo: 'tempo esgotado' });
+    assert.equal(filhos.length, 0, 'nenhum processo criado com sinal já abortado');
+  });
+  await new Promise((res) => { setTimeout(res, 300); });
+  assert.ok(!fs.existsSync(marca));
+  const falsos = [{ aborted: true }, 'x', 42, null, new Proxy({}, { get() { throw new Error('x'); } })];
+  for (const sinal of falsos) assert.deepEqual(await gh(script, sinal), { ok: true, stdout: 'rodou' });
+});
+
+test('coleta com o executor real: o prazo mata o filho travado e nenhum processo sobrevive à coleta', async () => {
+  // A coleta roda num node à parte: se o filho travado sobrevivesse, aquele
+  // node só terminaria junto com ele (60 s), não logo depois do prazo.
+  const arqPid = path.join(home, 'pid-coleta');
+  const modulo = new URL('../src/github.js', import.meta.url).href;
+  const script = [
+    `import { coletarGithub, criarExecutorGh } from ${JSON.stringify(modulo)};`,
+    `const real = criarExecutorGh({ executavel: process.execPath, timeoutMs: 120000 });`,
+    `let visto = null;`,
+    `const gh = (args, sinal) => { visto = sinal; return real(${JSON.stringify(dorminhoco(arqPid))}, sinal); };`,
+    `const r = await coletarGithub({ repos: ['o/r', 'p/q'], agoraMs: ${agora}, gh, prazoMs: 3000 });`,
+    `process.stdout.write(JSON.stringify({ r, abortado: visto instanceof AbortSignal && visto.aborted }));`,
+  ].join('\n');
+  const inicio = Date.now();
+  const filho = spawnSync(node, ['--input-type=module', '-e', script], { env: { ...process.env, HADOUKEN_HOME: home }, encoding: 'utf8', timeout: 45_000, windowsHide: true });
+  const duracao = Date.now() - inicio;
+  assert.equal(filho.status, 0, filho.stderr);
+  assert.deepEqual(JSON.parse(filho.stdout), { r: { 'o/r': { indisponivel: 'tempo esgotado' }, 'p/q': { indisponivel: 'tempo esgotado' } }, abortado: true });
+  assert.ok(duracao < 15_000, `o node da coleta durou ${duracao} ms`);
+  assert.equal(vivo(Number(fs.readFileSync(arqPid, 'utf8'))), false, 'o filho travado sobreviveu à coleta');
 });
 
 test('coletarGithub com o executor real e gh ausente: uma tentativa, todos indisponíveis', async () => {
