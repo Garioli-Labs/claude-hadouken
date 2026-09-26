@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   arquivoSettings,
   comandoStatusline,
@@ -216,26 +217,77 @@ test('comando: node "<dirDados>/bin/statusline.mjs", aspas e barras normais', ()
   assert.deepEqual(statusLineProposta(), { ok: true, valor: nossa() });
 });
 
-test('comando: espaços, acentos e o que as aspas duplas neutralizam são aceitos', () => {
-  process.env.HADOUKEN_HOME = path.join(dir, "Lucas Garioli ç ~x (1) & 'a' ; # ^ é");
-  const alvo = path.join(process.env.HADOUKEN_HOME, 'bin', 'statusline.mjs').split(path.sep).join('/');
-  assert.deepEqual(comandoStatusline(), { ok: true, comando: `node "${alvo}"` });
-});
-
-// O Claude Code roda o comando por um sh no POSIX e, no Windows, pelo Git
-// Bash ou, sem ele, pelo PowerShell: dentro de aspas duplas, " ` $ \ fecham ou
-// expandem no sh, $ ` " no PowerShell, % e ! expandem no cmd (conservador), e
-// controles (inclusive os invisíveis de formato e os separadores de linha)
-// quebram ou disfarçam a linha.
-const PROIBIDOS = [
-  ['aspas', '"'], ['crase', '`'], ['cifrão', '$'], ['porcento', '%'], ['exclamação', '!'],
-  ['LF', '\n'], ['CR', '\r'], ['TAB', '\t'], ['SOH', String.fromCodePoint(0x01)], ['ESC', String.fromCodePoint(0x1b)],
-  ['DEL', String.fromCodePoint(0x7f)], ['NEL', String.fromCodePoint(0x85)], ['CSI de 8 bits', String.fromCodePoint(0x9b)],
-  ['RLO bidi', String.fromCodePoint(0x202e)], ['LS', String.fromCodePoint(0x2028)], ['PS', String.fromCodePoint(0x2029)],
-  ['ZWSP', String.fromCodePoint(0x200b)], ['BOM', String.fromCodePoint(0xfeff)], ['tag', String.fromCodePoint(0xe0041)],
+// O comando só leva o caminho quando cada caractere dele, depois da troca de
+// separador por /, está na lista do que pode entrar: letras e algarismos
+// ASCII, espaço, / : . _ - ( ) + , @ ~ e as letras latinas de U+00C0 a
+// U+024F, fora U+00D7 (vezes) e U+00F7 (dividido). Todo caractere não ASCII
+// destes vetores é montado com String.fromCodePoint.
+const cp = (n) => String.fromCodePoint(n);
+const alvoDe = (home) => path.join(path.resolve(home), 'bin', 'statusline.mjs').split(path.sep).join('/');
+const ACEITOS = [
+  `C:/Users/Jos${cp(0xe9)} ${cp(0xd1)}and${cp(0xfa)}/.claude/hadouken`,
+  '/home/ana-maria/.claude/hadouken',
+  'C:/Users/Lucas Garioli/.claude/hadouken',
+  `C:/Users/${cp(0xc7)}a${cp(0x11f)}r${cp(0x131)}/.claude/hadouken`,
+  'C:/Users/LUCASG~1/AppData/Local/Temp/x (1) + a,b @c_d-e.f',
 ];
 
-test('comando: cada caractere que um shell interpretaria recusa com caminho-inseguro', () => {
+test('comando: pastas pessoais comuns, acentos latinos e ( ) + , @ ~ são aceitos', () => {
+  // Nada é lido nem gravado. No POSIX, "C:/..." é relativo e resolve contra o
+  // cwd, posto na pasta temporária (só caracteres aceitos).
+  const cwd = process.cwd();
+  process.chdir(dir);
+  try {
+    for (const home of ACEITOS) {
+      process.env.HADOUKEN_HOME = home;
+      const alvo = alvoDe(home);
+      assert.ok(alvo.endsWith(`${home}/bin/statusline.mjs`), alvo);
+      assert.deepEqual(comandoStatusline(), { ok: true, comando: `node "${alvo}"` }, home);
+    }
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('comando: as bordas da faixa latina U+00C0 a U+024F são aceitas', () => {
+  for (const n of [0xc0, 0xd6, 0xd8, 0xf6, 0xf8, 0xff, 0x100, 0x17f, 0x180, 0x24f]) {
+    process.env.HADOUKEN_HOME = path.join(dir, `pasta${cp(n)}dados`);
+    assert.deepEqual(comandoStatusline(), { ok: true, comando: `node "${alvoDe(process.env.HADOUKEN_HOME)}"` }, n.toString(16));
+  }
+});
+
+// Todo o resto recusa com caminho-inseguro. É uma lista do que pode entrar,
+// não do que não pode: a lista antiga de proibidos esquecia as aspas
+// tipográficas, que o PowerShell trata como aspas (U+2018 a U+201B simples,
+// U+201C a U+201E duplas) e que fechavam a string do comando. Também recusam,
+// de propósito, o ASCII que as aspas duplas neutralizariam (& ' ; # ^...) e
+// as letras de outros alfabetos (cirílico, CJK...): quem tem uma pasta
+// pessoal assim instala à mão pela chave em "manual".
+const PROIBIDOS = [
+  ['aspas', '"'], ['crase', '`'], ['cifrão', '$'], ['porcento', '%'], ['exclamação', '!'],
+  ['e comercial', '&'], ['apóstrofo', "'"], ['ponto e vírgula', ';'], ['cerquilha', '#'], ['circunflexo', '^'],
+  ['asterisco', '*'], ['interrogação', '?'], ['colchete', '['], ['chave', '{'], ['menor', '<'], ['barra vertical', '|'], ['igual', '='],
+  ['LF', '\n'], ['CR', '\r'], ['TAB', '\t'], ['SOH', cp(0x01)], ['ESC', cp(0x1b)],
+  ['DEL', cp(0x7f)], ['NEL', cp(0x85)], ['CSI de 8 bits', cp(0x9b)], ['NBSP', cp(0xa0)],
+  ['RLO bidi', cp(0x202e)], ['LS', cp(0x2028)], ['PS', cp(0x2029)],
+  ['ZWSP', cp(0x200b)], ['BOM', cp(0xfeff)], ['tag', cp(0xe0041)],
+  ['U+2018', cp(0x2018)], ['U+2019', cp(0x2019)], ['U+201A', cp(0x201a)], ['U+201B', cp(0x201b)],
+  ['U+201C', cp(0x201c)], ['U+201D', cp(0x201d)], ['U+201E', cp(0x201e)],
+  ['meia-risca U+2013', cp(0x2013)], ['travessão U+2014', cp(0x2014)],
+  ['aspas de largura total U+FF02', cp(0xff02)], ['cifrão de largura total U+FF04', cp(0xff04)],
+  ['vezes U+00D7', cp(0xd7)], ['dividido U+00F7', cp(0xf7)], ['antes da faixa U+00BF', cp(0xbf)], ['depois da faixa U+0250', cp(0x250)],
+  ['cirílico U+0418', cp(0x418)], ['CJK U+4E2D', cp(0x4e2d)], ['letra fora do BMP U+1D400', cp(0x1d400)],
+  ['marca combinante U+0301 (acento em NFD)', cp(0x301)],
+];
+
+test('comando: a sonda do revisor (aspas tipográficas + comando do PowerShell) recusa', () => {
+  for (const n of [0x201c, 0x201d, 0x201e]) {
+    process.env.HADOUKEN_HOME = path.join(dir, `rr11 x${cp(n)}; Write-Output INJETADO; ${cp(n)}`);
+    assert.deepEqual(comandoStatusline(), { ok: false, motivo: 'caminho-inseguro' }, n.toString(16));
+  }
+});
+
+test('comando: todo caractere fora da lista recusa com caminho-inseguro', () => {
   for (const [nome, c] of PROIBIDOS) {
     process.env.HADOUKEN_HOME = path.join(dir, `pasta${c}dados`);
     assert.deepEqual(comandoStatusline(), { ok: false, motivo: 'caminho-inseguro' }, nome);
@@ -430,29 +482,59 @@ test('aplicar: UTF-8 malformado (surrogate codificado, forma longa, byte solto, 
   assert.deepEqual(nomes(), ['settings.json']);
 });
 
-test('sem ICU (TextDecoder indisponível): o módulo carrega e ainda valida UTF-8', () => {
-  // Um Node compilado sem ICU lança no new TextDecoder('utf-8', { fatal: true }).
-  const url = new URL('../src/configuracao.js', import.meta.url).href;
+// Um Node compilado sem ICU (tabela de https://nodejs.org/api/intl.html,
+// coluna none) lança no new TextDecoder('utf-8', { fatal: true }) e acusa
+// toda regex com escape de propriedade (\p{...} ou \P{...}) como erro
+// antecipado: o módulo nem carregaria. A simulação importa, num filho em que
+// o TextDecoder lança, uma cópia de src/ em que cada \p{X} virou
+// \p{SemICU_X}: nome inválido, o mesmo SyntaxError na carga. O controle prova
+// que a troca morde: um módulo com uma regex \p, copiado junto, não carrega.
+test('sem ICU (sem TextDecoder e sem escapes \\p): o módulo carrega, valida UTF-8 e confere o caminho', () => {
+  const semIcu = (texto) => texto.replace(/\\([pP])\{/g, (_, p) => `\\${p}{SemICU_`);
+  const copia = path.join(dir, 'src sem icu');
+  const copiar = (de, para) => {
+    fs.mkdirSync(para, { recursive: true });
+    for (const e of fs.readdirSync(de, { withFileTypes: true })) {
+      if (e.isDirectory()) copiar(path.join(de, e.name), path.join(para, e.name));
+      else if (e.name.endsWith('.js')) fs.writeFileSync(path.join(para, e.name), semIcu(fs.readFileSync(path.join(de, e.name), 'utf8')));
+    }
+  };
+  copiar(fileURLToPath(new URL('../src/', import.meta.url)), copia);
+  fs.writeFileSync(path.join(copia, 'package.json'), '{ "type": "module" }\n');
+  fs.writeFileSync(path.join(copia, 'controle.js'), semIcu('export const r = /\\p{L}/u;\n'));
+  assert.ok(fs.readFileSync(path.join(copia, 'controle.js'), 'utf8').includes('SemICU_L'));
+  const url = (nome) => pathToFileURL(path.join(copia, nome)).href;
   const latin1 = path.join(dir, 'latin1.json');
   fs.writeFileSync(latin1, Buffer.concat([Buffer.from('{"nome":"Jos'), Buffer.from([0xe9]), Buffer.from('"}\n')]));
-  fs.writeFileSync(arq, bonito({ nome: 'José' }));
+  fs.writeFileSync(arq, bonito({ nome: `Jos${cp(0xe9)}` }));
+  const aceito = path.join(dir, `Jos${cp(0xe9)} ${cp(0xd1)}and${cp(0xfa)}`);
+  const recusado = path.join(dir, `x${cp(0x201d)}; Write-Output INJETADO; ${cp(0x201d)}`);
   const script = [
     "globalThis.TextDecoder = class { constructor() { throw Object.assign(new Error('sem ICU'), { code: 'ERR_NO_ICU' }); } };",
-    `const m = await import(${JSON.stringify(url)});`,
+    "let controle = 'carregou';",
+    `try { await import(${JSON.stringify(url('controle.js'))}); } catch (e) { controle = e?.name ?? 'erro'; }`,
+    `const m = await import(${JSON.stringify(url('configuracao.js'))});`,
     `const a = m.aplicarStatusline({ arquivo: ${JSON.stringify(latin1)}, substituir: false, agoraMs: 1 });`,
     `const b = m.aplicarStatusline({ arquivo: ${JSON.stringify(arq)}, substituir: false, agoraMs: 2 });`,
-    'process.stdout.write(JSON.stringify([a, b]));',
+    `process.env.HADOUKEN_HOME = ${JSON.stringify(aceito)};`,
+    'const c = m.comandoStatusline();',
+    `process.env.HADOUKEN_HOME = ${JSON.stringify(recusado)};`,
+    'const d = m.comandoStatusline();',
+    'process.stdout.write(JSON.stringify({ controle, a, b, c, d }));',
   ].join('\n');
   const p = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     env: { ...process.env, HADOUKEN_HOME: homeDados, HADOUKEN_SETTINGS: arq }, encoding: 'utf8', timeout: 15_000,
   });
   assert.equal(p.error, undefined, String(p.error));
   assert.equal(p.status, 0, p.stderr);
-  assert.deepEqual(JSON.parse(p.stdout), [
-    { ok: false, motivo: 'settings-invalido' },
-    { ok: true, acao: 'instalar', backup: `${arq}.bak-hadouken-2` },
-  ]);
-  assert.deepEqual(JSON.parse(lerTexto()), { nome: 'José', statusLine: nossa() });
+  assert.deepEqual(JSON.parse(p.stdout), {
+    controle: 'SyntaxError',
+    a: { ok: false, motivo: 'settings-invalido' },
+    b: { ok: true, acao: 'instalar', backup: `${arq}.bak-hadouken-2` },
+    c: { ok: true, comando: `node "${alvoDe(aceito)}"` },
+    d: { ok: false, motivo: 'caminho-inseguro' },
+  });
+  assert.deepEqual(JSON.parse(lerTexto()), { nome: `Jos${cp(0xe9)}`, statusLine: nossa() });
 });
 
 // ---------------------------------------------------------------- fidelidade dos números

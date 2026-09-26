@@ -32,12 +32,21 @@ import { DIR_BIN } from './shim.js';
 //   (1.0 vira 1, 1E3 vira 1000, mesmo valor).
 // - Números que o JSON.parse + JSON.stringify não devolvem com o mesmo valor
 //   perdem fidelidade: inteiros acima de 2^53 perdem algarismos
-//   (12345678901234567890 sairia 12345678901234567000), -0 sai 0, 1e400
+//   (12345678901234567890 sairia 12345678901234567000), decimais com mais
+//   algarismos do que um double guarda são arredondados
+//   (3.14159265358979323846 sairia 3.141592653589793), -0 sai 0, 1e400
 //   sairia null e 1e-400 sairia 0. Esses arquivos não são regravados:
 //   numeroImpreciso compara o valor decimal exato de cada número do texto
 //   com o que o JSON.stringify escreveria e, havendo diferença, recusa com
 //   'settings-numero-impreciso'. A conferência cobre o texto inteiro, também
 //   a statusLine que sai: recusa a mais, nunca a menos.
+// - O comando da barra só é montado com um caminho feito de caracteres de
+//   uma lista fixa (caminhoAceito); qualquer outro: 'caminho-inseguro'.
+//
+// Sem ICU: nenhuma regex daqui usa escape de propriedade (\p), que um
+// Node compilado sem ICU acusa como erro já na carga do módulo, e o UTF-8 é
+// conferido por isUtf8, não pelo TextDecoder. O teste "sem ICU" carrega o
+// módulo nessas condições.
 //
 // fs, os e crypto são usados pelos objetos padrão (nunca desestruturados): os
 // testes trocam fs.openSync, fs.renameSync e os.homedir nesses objetos.
@@ -69,14 +78,6 @@ const POSIX = process.platform !== 'win32';
 // o open não é seguido (ELOOP) e um FIFO não trava. No Windows o lstat antes
 // já recusou link e junção, e a checagem de dev/ino pega a troca.
 const ABRIR_LEITURA = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
-// Caminho que o shell leria diferente dentro de aspas duplas. O Claude Code
-// roda o comando da barra por um sh no POSIX e, no Windows, pelo Git Bash ou,
-// quando o Git Bash não está instalado, pelo PowerShell. Dentro de aspas
-// duplas, " ` $ \ fecham ou expandem no sh e $ ` " no PowerShell; % e !
-// expandem no cmd (conservador: fica recusado também). Controles, formato
-// invisível (bidi, largura zero, tags), surrogates soltos e separadores de
-// linha quebram ou disfarçam a linha.
-const INSEGURO = /["`$\\%!\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
 const BOM = String.fromCodePoint(0xfeff);
 const FORMATO_NOVO = Object.freeze({ bom: false, eol: '\n', indent: 2 });
 // Um número do JSON: sinal, parte inteira, fração e expoente. NUMERO (fixo na
@@ -88,6 +89,55 @@ const BARRA_INVERTIDA = 0x5c;
 const MENOS = 0x2d;
 const ZERO = 0x30;
 const NOVE = 0x39;
+
+// Caminho que pode entrar no comando da barra: uma lista do que PODE, não do
+// que não pode. O Claude Code roda o comando por um sh no POSIX e, no
+// Windows, pelo Git Bash ou, quando o Git Bash não está instalado, pelo
+// PowerShell, e uma lista de proibidos sempre esquece algum caractere que um
+// desses shells lê de outro jeito (a primeira esqueceu as aspas tipográficas:
+// o PowerShell trata U+2018 a U+201B como aspas simples e U+201C a U+201E
+// como duplas, e uma delas fechava a string do comando). Depois da troca de
+// separador por /, só passam:
+// - letras e algarismos ASCII, espaço e / : . _ - ( ) + , @ ~;
+// - letras latinas de U+00C0 a U+024F, fora U+00D7 (vezes) e U+00F7
+//   (dividido), para pastas pessoais como "José" ou "Çağrı".
+// Todo o resto recusa: aspas de qualquer tipo, $ ` \ % ! & ' ; # ^ e o resto
+// da pontuação ASCII, controles, invisíveis, travessões, formas de largura
+// total, marcas combinantes (um acento em NFD), letras de outros alfabetos
+// (cirílico, CJK...) e tudo fora do BMP. Os outros alfabetos ficam de fora de
+// propósito: a lista fica pequena o bastante para conferir, um a um, que
+// nenhum desses shells lê algum dos caracteres de outro jeito entre aspas
+// duplas. Quem tem uma pasta pessoal assim instala à mão (statusLineManual).
+// A comparação é por unidade UTF-16, sem regex de propriedade: um surrogate
+// (U+D800 a U+DFFF) cai fora das faixas.
+const PONTUACAO_ACEITA = new Set(Array.from(' /:._-()+,@~', (ch) => ch.charCodeAt(0)));
+const MINUSCULA_A = 0x61;
+const MINUSCULA_Z = 0x7a;
+const MAIUSCULA_A = 0x41;
+const MAIUSCULA_Z = 0x5a;
+const LATINA_INICIO = 0xc0;
+const LATINA_FIM = 0x24f;
+const VEZES = 0xd7;
+const DIVIDIDO = 0xf7;
+
+const caractereAceito = (c) => (c >= MINUSCULA_A && c <= MINUSCULA_Z)
+  || (c >= MAIUSCULA_A && c <= MAIUSCULA_Z)
+  || (c >= ZERO && c <= NOVE)
+  || PONTUACAO_ACEITA.has(c)
+  || (c >= LATINA_INICIO && c <= LATINA_FIM && c !== VEZES && c !== DIVIDIDO);
+
+function caminhoAceito(caminho) {
+  if (caminho.length === 0) return false;
+  for (let i = 0; i < caminho.length; i++) {
+    if (!caractereAceito(caminho.charCodeAt(i))) return false;
+  }
+  return true;
+}
+
+// Marcador da pasta de dados na chave para instalar à mão (statusLineManual).
+export const MARCADOR_PASTA = '<pasta de dados>';
+const comandoPara = (alvo) => `node "${alvo}"`;
+const valorStatusLine = (comando) => ({ type: 'command', command: comando, padding: 0 });
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const falha = (motivo, codigo = null) => (codigo === null ? { ok: false, motivo } : { ok: false, motivo, codigo });
@@ -134,15 +184,17 @@ export function arquivoSettings() {
 }
 
 // Comando da barra: node "<dirDados>/bin/statusline.mjs" com barras normais.
-// Motivos: 'sem-diretorio' (sem home) e 'caminho-inseguro' (INSEGURO, depois
-// da troca de separador: no POSIX um \ num nome de pasta continua \).
+// Motivos: 'sem-diretorio' (sem home) e 'caminho-inseguro' (algum caractere
+// fora da lista de caminhoAceito, conferida depois da troca de separador: no
+// POSIX um \ num nome de pasta continua \ e recusa). O comando só é montado
+// depois da conferência.
 export function comandoStatusline() {
   try {
     const dir = dirDados();
     if (dir === null) return falha('sem-diretorio');
     const alvo = path.join(dir, DIR_BIN, SHIM_BARRA).split(path.sep).join('/');
-    if (INSEGURO.test(alvo)) return falha('caminho-inseguro');
-    return { ok: true, comando: `node "${alvo}"` };
+    if (!caminhoAceito(alvo)) return falha('caminho-inseguro');
+    return { ok: true, comando: comandoPara(alvo) };
   } catch {
     return falha('sem-diretorio');
   }
@@ -151,7 +203,15 @@ export function comandoStatusline() {
 // O valor da chave statusLine que o instalador grava (objeto novo a cada chamada).
 export function statusLineProposta() {
   const c = comandoStatusline();
-  return c.ok ? { ok: true, valor: { type: 'command', command: c.comando, padding: 0 } } : c;
+  return c.ok ? { ok: true, valor: valorStatusLine(c.comando) } : c;
+}
+
+// A chave statusLine para o usuário acrescentar à mão quando o caminho é
+// recusado ('caminho-inseguro'): o mesmo valor de statusLineProposta, com
+// MARCADOR_PASTA no lugar da pasta de dados. O caminho recusado nunca entra
+// nela: ele é justamente o que o shell poderia ler de outro jeito.
+export function statusLineManual() {
+  return valorStatusLine(comandoPara(`${MARCADOR_PASTA}/${DIR_BIN}/${SHIM_BARRA}`));
 }
 
 // A nossa é a de comando exatamente igual (tipo 'command'); o resto da

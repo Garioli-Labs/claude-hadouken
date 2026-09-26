@@ -124,20 +124,24 @@ test('sem flags: statusLine atual enorme não é despejada no contexto', () => {
   assert.ok(p.stdout.length < 4096, String(p.stdout.length));
 });
 
-test('--aplicar: instala, código 0, mensagem sobre sessões abertas', () => {
+test('--aplicar: instala, código 0, mensagem exata sobre as sessões abertas', () => {
   const p = rodar(['--aplicar']);
   assert.equal(p.status, 0, p.stderr);
   const s = json(p);
   assert.equal(s.ok, true);
   assert.equal(s.acao, 'instalar');
   assert.equal(s.backup, null);
-  assert.match(s.mensagem, /sessões já abertas/);
-  // Elas rodam o comando novo na hora (a troca de comando pula o debounce),
-  // mas o gate as deixa vazias: não "continuam como estão".
+  // O gate (spec 8.2) só deixa vazia a sessão que não passou pelo SessionStart
+  // do plugin. As abertas depois da instalação do plugin, inclusive as que já
+  // estão abertas agora, mostram a barra; as abertas antes rodam o comando
+  // novo na hora (a troca de comando pula o debounce), mas ficam vazias: não
+  // "continuam como estão", e "as sessões já abertas" diria demais.
+  assert.match(s.mensagem, /abertas depois da instalação do plugin/);
+  assert.match(s.mensagem, /abertas antes da instalação do plugin/);
   assert.match(s.mensagem, /não ganham a barra/);
   assert.match(s.mensagem, /na hora/);
   assert.match(s.mensagem, /dicas de teclado do rodapé/);
-  assert.doesNotMatch(s.mensagem, /não mudam|como estão/);
+  assert.doesNotMatch(s.mensagem, /não mudam|como estão|sessões já abertas/);
   assert.deepEqual(JSON.parse(lerTexto()).statusLine, nossa());
 });
 
@@ -193,6 +197,8 @@ test('número que não regravaria igual: settings-numero-impreciso com mensagem 
     const s = json(p);
     assert.equal(s.motivo, 'settings-numero-impreciso');
     assert.match(s.mensagem, /nada foi alterado/);
+    // As causas que a guarda recusa, também o decimal com algarismos demais.
+    for (const causa of [/2\^53/, /decimal com mais algarismos/, /-0/, /1e400/]) assert.match(s.mensagem, causa);
     assert.equal(s.arquivo, arq);
   }
   assert.equal(lerTexto(), texto);
@@ -285,15 +291,27 @@ test('settings.json como junção: código 1, instrução manual com a statusLin
   assert.deepEqual(fs.readdirSync(alvo), []);
 });
 
-test('HADOUKEN_HOME com caractere de shell: caminho-inseguro, código 1, nada gravado', () => {
-  for (const c of ['$', '`', '"', '%', '!']) {
-    const p = rodar(['--aplicar'], { env: { HADOUKEN_HOME: path.join(dir, `a${c}b`) } });
-    assert.equal(p.status, 1, c);
-    const s = json(p);
-    assert.equal(s.motivo, 'caminho-inseguro', c);
-    assert.equal(s.manual, undefined);
-    // A mensagem nomeia os executores reais e as classes invisíveis recusadas.
-    for (const termo of [/Git Bash/, /PowerShell/, /invisíve/]) assert.match(s.mensagem, termo, c);
+// O modelo da chave para instalar à mão: o caminho recusado nunca entra nele.
+const MANUAL_MODELO = { statusLine: { type: 'command', command: 'node "<pasta de dados>/bin/statusline.mjs"', padding: 0 } };
+
+test('HADOUKEN_HOME fora da lista de caracteres: caminho-inseguro, código 1, instrução manual, caminho nunca ecoado', () => {
+  const cp = (n) => String.fromCodePoint(n);
+  const recusados = ['$', '`', '"', '%', '!', "'", '&', cp(0x2018), cp(0x201b), cp(0x201c), cp(0x201d), cp(0x201e), cp(0x2014), cp(0xff02), cp(0x418)];
+  for (const c of recusados) {
+    const rotulo = `U+${c.codePointAt(0).toString(16)}`;
+    const home = path.join(dir, `MARCA x${c}; Write-Output INJETADO; ${c}`);
+    const conjuntos = c === cp(0x201d) ? [[], ['--aplicar'], ['--aplicar', '--substituir'], ['--remover']] : [[], ['--aplicar']];
+    for (const args of conjuntos) {
+      const p = rodar(args, { env: { HADOUKEN_HOME: home } });
+      assert.equal(p.status, 1, `${rotulo} ${args.join(' ')}`);
+      const s = json(p);
+      assert.equal(s.ok, false, rotulo);
+      assert.equal(s.motivo, 'caminho-inseguro', rotulo);
+      assert.deepEqual(s.manual, MANUAL_MODELO, rotulo);
+      for (const termo of [/não aceita/, /"manual"/, /<pasta de dados>/, /nada foi alterado/]) assert.match(s.mensagem, termo, rotulo);
+      // Nem o caminho nem o trecho injetado aparecem, crus ou escapados.
+      for (const eco of ['MARCA', 'INJETADO', 'Write-Output']) assert.ok(!p.stdout.includes(eco), `${rotulo} ${eco}`);
+    }
   }
   assert.deepEqual(nomes(), []);
 });
@@ -386,10 +404,24 @@ test('skill instalar: as duas perguntas citam o arquivo alvo e avisam do CLAUDE_
   assert.ok(texto.includes('CLAUDE_CONFIG_DIR'));
 });
 
-test('skill instalar: sessões abertas descritas como a documentação diz, nunca "como estão"', () => {
+test('skill instalar: sessões abertas descritas como o gate faz, nunca "como estão"', () => {
   const texto = fs.readFileSync(SKILL, 'utf8');
   for (const errado of ['continuam como estão', 'seguem como estão', 'não mudam']) assert.ok(!texto.includes(errado), errado);
   assert.ok(texto.includes('não ganham a barra'));
   assert.ok(texto.includes('na hora'));
   assert.ok(texto.includes('dicas de teclado do rodapé'));
+  // A pergunta de instalar: só as abertas antes da instalação do plugin ficam
+  // vazias; as abertas depois mostram a barra. (A frase fixa do conflito, do
+  // ruling D, continua dizendo "sessões já abertas".)
+  const [instalar] = [...texto.matchAll(/pergunta "([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(!instalar.includes('sessões já abertas'), instalar);
+  assert.ok(instalar.includes('abertas antes da instalação do plugin'), instalar);
+  assert.ok(instalar.includes('abertas depois da instalação do plugin'), instalar);
+  assert.ok(instalar.includes('não ganham a barra'), instalar);
+});
+
+test('skill instalar: a chave manual aparece no settings-link e no caminho-inseguro', () => {
+  const texto = fs.readFileSync(SKILL, 'utf8');
+  const passo2 = texto.split('\n').find((l) => l.startsWith('2. '));
+  for (const parte of ['`manual`', '`settings-link`', '`caminho-inseguro`', '`<pasta de dados>`']) assert.ok(passo2.includes(parte), `${parte}: ${passo2}`);
 });
