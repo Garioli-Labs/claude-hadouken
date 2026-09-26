@@ -5,6 +5,7 @@ import {
   CLAUDE_SEM_RECENTES, CLAUDE_RAIZ_RECUSADA,
 } from '../src/relatorio.js';
 import { faixa7d } from '../src/alerta.js';
+import { limitesValidos, validarEstado } from '../src/estado.js';
 import { MAX_SESSOES } from '../src/agregacao.js';
 import { jsonSeguro } from '../src/comandos.js';
 import { motivoValido, repoValido } from '../src/github.js';
@@ -165,7 +166,7 @@ test('só uma janela válida: a outra aparece como —', () => {
 // Cada janela com o próprio `at` (I-2 da revisão final): o `at` do topo virou
 // o da janela mais antiga, e a idade do relatório passou a ser por janela. Os
 // testes valem com o estado.js que só conhece o `at` do topo e com o que conhece
-// o de cada janela: a idade sai do `at` da janela no estado.json como lido.
+// o de cada janela: a idade sai do `at` da janela no estado validado.
 const MIN = 60_000;
 const atras = (ms) => new Date(agora - ms).toISOString();
 const porJanela = (a5, a7, topo) => ({
@@ -288,6 +289,65 @@ test('idade por janela: entradas hostis nunca lançam nem imprimem idade inváli
   const semLinha = mao({ used_percentage: Number.NaN, idade_min: 9 }, { ...t7, idade_min: 2 }, 9);
   assert.match(semLinha, /^5h —$/m);
   assert.match(semLinha, /^Leitura de 2 min atrás\.$/m, 'a idade da janela sem linha não aparece');
+});
+
+// M-1 da revisão do fix I-1: a idade de cada janela sai do estado validado,
+// o mesmo instante que limitesValidos usou para julgá-la, e nunca do
+// estado.json como lido.
+test('idade por janela: sai do estado validado, a mesma que a validação usou, até em arquivo de formato misto', () => {
+  // Formato misto que o gravador nunca produz: topo de 1 min, 5 h com o
+  // próprio `at` de 30 min, 7d sem `at`. validarEstado refaz o topo como a
+  // leitura mais antiga (30 min), e é por ele que a 7d é julgada: o relatório
+  // mostra essa idade, nunca a do topo bruto (1 min).
+  const misto = {
+    versao: 1, at: atras(MIN),
+    five_hour: { used_percentage: 42, resets_at: s + 3600, at: atras(30 * MIN) },
+    seven_day: { used_percentage: 48, resets_at: s + 86400 },
+    sessoes: {},
+  };
+  const v = validarEstado(misto, agora);
+  assert.equal(v.at, atras(30 * MIN), 'o topo validado é a leitura mais antiga');
+  assert.equal(v.seven_day.at, null);
+  const r = limitesDe(misto);
+  assert.equal(r.limites.five_hour.idade_min, 30);
+  assert.equal(r.limites.seven_day.idade_min, 30, 'a do topo validado, não a do topo bruto');
+  assert.equal(r.limites.idade_min, 30);
+  assert.match(formatarMarkdown(r), /^Leitura de 30 min atrás\.$/m);
+  // Em toda combinação de `at` (ausente, null, fresco, no limite, velho,
+  // ilegível, adiantado), as janelas mostradas são as de limitesValidos e
+  // cada uma tem a idade do instante que a validação usou.
+  const ats = [undefined, null, atras(MIN), atras(30 * MIN), atras(60 * MIN), atras(61 * MIN), 'ontem', atras(-4 * MIN)];
+  let comparadas = 0;
+  for (const topo of ats) {
+    for (const a5 of ats) {
+      for (const a7 of ats) {
+        const e = {
+          versao: 1,
+          five_hour: { used_percentage: 42, resets_at: s + 3600 },
+          seven_day: { used_percentage: 48, resets_at: s + 86400 },
+          sessoes: {},
+        };
+        if (topo !== undefined) e.at = topo;
+        if (a5 !== undefined) e.five_hour.at = a5;
+        if (a7 !== undefined) e.seven_day.at = a7;
+        const caso = JSON.stringify([topo, a5, a7]);
+        const val = validarEstado(e, agora);
+        const lim = val === null ? null : limitesValidos(val, agora);
+        const rel = limitesDe(e);
+        for (const k of ['five_hour', 'seven_day']) {
+          if (!lim?.[k]) {
+            assert.ok(rel.limites === null || rel.limites[k] === null, `${caso} ${k}`);
+            continue;
+          }
+          const usada = Math.max(0, Math.floor((agora - Date.parse(val[k].at ?? val.at)) / MIN));
+          assert.equal(rel.limites[k].idade_min, usada, `${caso} ${k}`);
+          assert.ok(usada <= 60, `${caso} ${k}`);
+          comparadas++;
+        }
+      }
+    }
+  }
+  assert.ok(comparadas > 100, String(comparadas));
 });
 
 test('nulos do GitHub e acerto de cache null aparecem como —, nunca 0', () => {

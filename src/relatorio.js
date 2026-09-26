@@ -237,26 +237,21 @@ function montarClaude(c) {
 
 // ------------------------------------------------------------------ limites
 
-// Instante (ms) da leitura de uma janela, no estado.json como lido: o `at`
-// da própria janela (cada janela tem o seu desde o I-2 da revisão final) ou,
-// ausente ou null (formato de antes), o `at` do topo. `at` próprio presente e
-// inválido não tem leitura (null), como em estado.js, que descarta a janela.
-function leituraDaJanela(estado, k, tTopo, agoraMs) {
-  const at = ler(ler(estado, k), 'at');
-  return at === undefined || at === null ? tTopo : instante(at, agoraMs);
-}
-
 // Cada janela sai com a idade da própria leitura (idade_min) e só se ela tiver
-// até LIMITE_VELHO_MS, a mesma régua de limitesValidos: o `at` do topo é o da
-// janela mais antiga, e uma janela que envelheceu nunca empresta a idade dela
-// à outra nem aparece como atual. `idade_min` do topo é a da leitura mais
-// antiga entre as mostradas.
+// até LIMITE_VELHO_MS, a mesma régua de limitesValidos. A idade vem do estado
+// validado (M-1 da revisão do fix I-1), nunca do estado.json como lido: o
+// `at` da janela, que validarEstado deixa em ISO ou null, ou, com null
+// (formato de antes), o `at` do topo, que validarEstado refaz como a leitura
+// mais antiga entre as janelas. É o mesmo instante que limitesValidos usou
+// para julgar a janela, então a idade mostrada é a que a validação usou, até
+// num arquivo de formato misto que o gravador nunca produz. Uma janela que
+// envelheceu nunca empresta a idade dela à outra nem aparece como atual.
+// `idade_min` do topo é a da leitura mais antiga entre as mostradas.
 function montarLimites(estado, agoraMs) {
   const e = validarEstado(estado, agoraMs);
   const lim = e === null ? null : limitesValidos(e, agoraMs);
-  const tTopo = instante(ler(estado, 'at'), agoraMs);
   const idade = (k) => {
-    const t = lim?.[k] ? leituraDaJanela(estado, k, tTopo, agoraMs) : null;
+    const t = lim?.[k] ? instante(e[k]?.at ?? e.at, agoraMs) : null;
     return t === null || agoraMs - t > LIMITE_VELHO_MS ? null : Math.max(0, Math.floor((agoraMs - t) / 60_000));
   };
   const i5 = idade('five_hour');
@@ -377,9 +372,10 @@ function montarAvisos(a) {
 // coletarGithub; `avisos` só entra da lista fixa. Nunca lança.
 //
 // `limites` é null (com limites_motivo) ou { idade_min, five_hour, seven_day }:
-// cada janela é null ou traz a própria idade_min, a da sua leitura (o `at` da
-// janela, ou o do topo quando ela não tem), sempre até 60 min; idade_min do
-// topo é a da leitura mais antiga entre as janelas mostradas.
+// cada janela é null ou traz a própria idade_min, a da sua leitura no estado
+// validado (o `at` da janela, ou o do topo validado quando ela não tem),
+// sempre até 60 min; idade_min do topo é a da leitura mais antiga entre as
+// janelas mostradas.
 //
 // `claude` é { indisponivel } ou, com os instantes em ISO (entram em ms ou
 // ISO):
