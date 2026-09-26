@@ -521,6 +521,67 @@ test('session-end de sessão não registrada: nada escrito, árvore idêntica', 
   assert.deepEqual(arvore(home), antes);
 });
 
+// Revisão final de segurança: os três hooks conferem o session_id com
+// idValido antes de qualquer outra coisa, sem depender da checagem interna de
+// ativas.js (o session-end, desde essa revisão). Prova: com id inválido,
+// nenhum deles lê HADOUKEN_HOME. Um pré-carregamento troca process.env por um
+// Proxy que anota cada leitura dela no arquivo de HDK_LOG_ENV. Os filhos de
+// um mesmo hook rodam juntos.
+const ESPIAO_ENV = `import fs from 'node:fs';
+const log = process.env.HDK_LOG_ENV;
+const anotar = (chave) => { if (chave === 'HADOUKEN_HOME') fs.appendFileSync(log, 'x'); };
+process.env = new Proxy(process.env, {
+  get(alvo, chave) { anotar(chave); return Reflect.get(alvo, chave); },
+  has(alvo, chave) { anotar(chave); return Reflect.has(alvo, chave); },
+  getOwnPropertyDescriptor(alvo, chave) { anotar(chave); return Reflect.getOwnPropertyDescriptor(alvo, chave); },
+});
+`;
+
+function rodarEspiado(espiao, script, entrada, home, log) {
+  return new Promise((resolve) => {
+    const filho = spawn(process.execPath, ['--import', pathToFileURL(espiao).href, scriptDe(script)], {
+      env: ambiente(home, { HDK_LOG_ENV: log }), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, timeout: 15_000,
+    });
+    let stdout = '';
+    let stderr = '';
+    filho.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });
+    filho.stderr.setEncoding('utf8').on('data', (d) => { stderr += d; });
+    filho.stdin.on('error', () => {});
+    filho.on('error', (e) => resolve({ status: null, stdout, stderr: `${stderr}${e}`, leituras: -1 }));
+    filho.on('close', (status) => resolve({ status, stdout, stderr, leituras: fs.existsSync(log) ? fs.readFileSync(log, 'utf8').length : 0 }));
+    filho.stdin.end(JSON.stringify(entrada));
+  });
+}
+
+test('os três hooks recusam session_id inválido antes de ler HADOUKEN_HOME', async () => {
+  const home = homePovoado();
+  const pasta = novoTmp('hdk espiao ');
+  const espiao = path.join(pasta, 'espiao.mjs');
+  fs.writeFileSync(espiao, ESPIAO_ENV);
+  const hooks = [['session-start.js', inicio], ['prompt-submit.js', prompt], ['session-end.js', fim]];
+  let n = 0;
+  const log = () => path.join(pasta, `leituras-${n++}.log`);
+  const antes = arvore(home);
+  for (const [script, entrada] of hooks) {
+    const rs = await Promise.all(IDS_INVALIDOS.map((id) => rodarEspiado(espiao, script, entrada(id), home, log())));
+    for (const [i, id] of IDS_INVALIDOS.entries()) {
+      const rotulo = `${script} ${JSON.stringify(id)}`;
+      mudo(rs[i], rotulo);
+      assert.equal(rs[i].leituras, 0, rotulo);
+    }
+  }
+  assert.deepEqual(arvore(home), antes);
+  // Controle: com um id válido (não registrado) o mesmo espião vê a leitura.
+  // Em outro home, porque o session-start registra a sessão.
+  const outro = novoHome();
+  for (const [script, entrada] of hooks) {
+    const r = await rodarEspiado(espiao, script, entrada('nao-registrada'), outro, log());
+    assert.equal(r.status, 0, `${script} ${r.stderr}`);
+    assert.equal(r.stderr, '', script);
+    assert.ok(r.leituras > 0, `${script}: o espião viu a leitura`);
+  }
+});
+
 test('session-end malicioso: cwd com OSC e instrução, modelo adulterado, motivo hostil', () => {
   const home = novoHome();
   registrar(home, 's1');
