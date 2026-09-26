@@ -20,15 +20,24 @@ const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SHIMS = ['statusline.mjs', 'cli.mjs'];
 const ALVO = { 'statusline.mjs': 'statusline.js', 'cli.mjs': 'cli.js' };
 const LINHA_CLI = 'claude-hadouken: plugin files not found - open a new session';
+const linhaInterna = (token) => `claude-hadouken: internal error (${token})\n`;
+// Handler do cli.mjs, copiado à mão (não importado de shim.js). String.raw:
+// o \n fica como os dois caracteres \ e n, e o shim continua uma linha só.
+// "plugin files not found" só quando o módulo que falta é o próprio alvo:
+// e.url === u (Node >= 20.10) ou, sem e.url (Node 20.0 a 20.9), a mensagem
+// começa pelo caminho do alvo. Qualquer outro erro: "internal error (<code
+// ou name>)", só letras, dígitos e _, no máximo 40, sem stack. Sai 1 sempre.
+const CATCH_CLI = String.raw`(e) => { let m = "internal error (unknown)"; try { const s = (v) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : ""); if (e?.code === "ERR_MODULE_NOT_FOUND" && (e.url === u || (e.url === undefined && typeof e.message === "string" && e.message.startsWith("Cannot find module '" + fileURLToPath(u) + "'")))) m = "plugin files not found - open a new session"; else m = "internal error (" + (s(e?.code) || s(e?.name) || "unknown") + ")"; } catch {} process.exitCode = 1; try { process.stderr.write("claude-hadouken: " + m + "\n"); } catch {} }`;
+const PREFIXO_CLI = 'import { fileURLToPath } from "node:url"; const u = ';
 const MODELO = {
   'statusline.mjs': (url) => `await import(${JSON.stringify(url)}).catch(() => {});\n`,
-  // `\\n` aqui vira os dois caracteres \n dentro do shim: continua uma linha só.
-  'cli.mjs': (url) => `await import(${JSON.stringify(url)}).catch(() => { process.stderr.write("${LINHA_CLI}\\n"); process.exitCode = 1; });\n`,
+  'cli.mjs': (url) => `${PREFIXO_CLI}${JSON.stringify(url)}; await import(u).catch(${CATCH_CLI});\n`,
 };
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 // Uma linha só, ASCII imprimível, e nenhuma aspa dentro da URL.
 const FORMATO = {
   'statusline.mjs': /^await import\("file:\/\/[\x21\x23-\x7e]+"\)\.catch\(\(\) => \{\}\);\n$/,
-  'cli.mjs': /^await import\("file:\/\/[\x21\x23-\x7e]+"\)\.catch\(\(\) => \{ process\.stderr\.write\("claude-hadouken: plugin files not found - open a new session\\n"\); process\.exitCode = 1; \}\);\n$/,
+  'cli.mjs': new RegExp(`^${escRe(PREFIXO_CLI)}"file://[\\x21\\x23-\\x7e]+"${escRe(`; await import(u).catch(${CATCH_CLI});`)}\\n$`),
 };
 // Nome do temporário da escrita atômica: .<shim>.<12 hex de crypto.randomBytes(6)>.tmp
 const NOME_TMP = /^\.(?:statusline|cli)\.mjs\.[0-9a-f]{12}\.tmp$/;
@@ -112,8 +121,11 @@ test('cria shims apontando para a raiz do plugin e é idempotente', () => {
   // O texto exato de cada shim, escrito à mão (não via MODELO).
   const url = (alvo) => JSON.stringify(pathToFileURL(path.join(raiz, 'src', alvo)).href);
   assert.equal(ler(arqShim('statusline.mjs')), `await import(${url('statusline.js')}).catch(() => {});\n`);
-  assert.equal(ler(arqShim('cli.mjs')), `await import(${url('cli.js')}).catch(() => { process.stderr.write("claude-hadouken: plugin files not found - open a new session\\n"); process.exitCode = 1; });\n`);
-  for (const nome of SHIMS) assert.equal(ler(arqShim(nome)).split('\n').length, 2, `${nome}: uma linha só`);
+  assert.equal(ler(arqShim('cli.mjs')), `import { fileURLToPath } from "node:url"; const u = ${url('cli.js')}; await import(u).catch(${CATCH_CLI});\n`);
+  for (const nome of SHIMS) {
+    assert.equal(ler(arqShim(nome)).split('\n').length, 2, `${nome}: uma linha só`);
+    assert.match(ler(arqShim(nome)), /^[\x20-\x7e]+\n$/, `${nome}: ASCII imprimível`);
+  }
   assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: [] });
   const v2 = criarRaiz(path.join(home, 'v2'));
   assert.deepEqual(sincronizarShims(v2).alterados, ['statusline.mjs', 'cli.mjs']);
@@ -477,6 +489,86 @@ test('raiz apagada: statusline.mjs sai 0 calada; cli.mjs sai 1 com uma linha ASC
   assert.equal(cli.stderr, `${LINHA_CLI}\n`);
 });
 
+// Roda cli.mjs com src/cli.js trocado por `fonte` (texto, ou função que recebe
+// o caminho do alvo exatamente como o shim o vê, sem realpath).
+function rodarCliCom(fonte) {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  const alvo = path.join(raiz, 'src', 'cli.js');
+  fs.writeFileSync(alvo, typeof fonte === 'function' ? fonte(alvo) : fonte);
+  assert.equal(sincronizarShims(raiz).ok, true);
+  return rodarShim('cli.mjs');
+}
+
+function confereLinha(r, esperada, rotulo) {
+  assert.equal(r.error, undefined, `${rotulo}: ${String(r.error)}`);
+  assert.equal(r.status, 1, `${rotulo}: ${r.stderr}`);
+  assert.equal(r.stdout, '', rotulo);
+  assert.match(r.stderr, /^[\x20-\x7e]+\n$/, rotulo);
+  assert.equal(r.stderr, esperada, rotulo);
+}
+
+// Só o alvo sumido é "plugin files not found"; um erro dentro do alvo (inclusive
+// um import dele que falta) é "internal error", senão o usuário abriria uma
+// sessão nova à toa e o defeito ficaria escondido.
+test('cli.mjs: erro dentro do alvo sai 1 com "internal error (<code ou name>)", sem stack', () => {
+  const casos = [
+    ['TypeError do alvo', 'null.x;\n', 'TypeError'],
+    ['import estático do alvo que falta', "import './nao-existe.js';\n", 'ERR_MODULE_NOT_FOUND'],
+    ['import dinâmico do alvo que falta', "await import('./tambem-nao.js');\n", 'ERR_MODULE_NOT_FOUND'],
+    ['pacote que falta', "import 'pacote-que-nao-existe-hdk';\n", 'ERR_MODULE_NOT_FOUND'],
+  ];
+  for (const [rotulo, fonte, token] of casos) {
+    const r = rodarCliCom(fonte);
+    confereLinha(r, linhaInterna(token), rotulo);
+    assert.ok(!r.stderr.includes('plugin files not found'), rotulo);
+    fs.rmSync(path.join(home, 'p'), { recursive: true, force: true });
+  }
+});
+
+test('cli.mjs: o token do erro interno é saneado (letras, dígitos e _, no máximo 40)', () => {
+  const hostil = `ab-c dç\n\u001b[1m;"'(e)${'Z'.repeat(60)}`;
+  const casos = [
+    ['code hostil e longo', `throw Object.assign(new Error('x'), { code: ${JSON.stringify(hostil)} });\n`, `abcd1me${'Z'.repeat(33)}`],
+    ['code que não é string: vale o name', "throw { code: 42, name: 'Meu Erro!' };\n", 'MeuErro'],
+    ['code que saneado fica vazio: vale o name', `throw Object.assign(new TypeError('x'), { code: ${JSON.stringify('çã -')} });\n`, 'TypeError'],
+    ['name longo', `throw { name: ${JSON.stringify('N'.repeat(100))} };\n`, 'N'.repeat(40)],
+    ['throw null', 'throw null;\n', 'unknown'],
+    ['throw de string', "throw 'texto com espaco';\n", 'unknown'],
+    // Só `code` lança: um Proxy que lança em todo get é lido pelo próprio loader,
+    // e o que chega ao .catch já é o Error da armadilha. Aqui quem lê é o handler.
+    ['Proxy que lança ao ler code', "throw new Proxy({}, { get(t, k) { if (k === 'code') throw new Error('armadilha'); return undefined; } });\n", 'unknown'],
+    // Código certo, mas o módulo que falta é outro (e.url diferente).
+    ['ERR_MODULE_NOT_FOUND de outra URL', "throw { code: 'ERR_MODULE_NOT_FOUND', url: 'file:///outro.js', message: 'x' };\n", 'ERR_MODULE_NOT_FOUND'],
+    // URL certa, mas o código é outro.
+    ['e.url do alvo com outro code', (alvo) => `throw { code: 'ERR_OUTRO', url: ${JSON.stringify(pathToFileURL(alvo).href)} };\n`, 'ERR_OUTRO'],
+  ];
+  for (const [rotulo, fonte, token] of casos) {
+    assert.ok(token.length <= 40 && /^[A-Za-z0-9_]+$/.test(token), rotulo);
+    confereLinha(rodarCliCom(fonte), linhaInterna(token), rotulo);
+    fs.rmSync(path.join(home, 'p'), { recursive: true, force: true });
+  }
+});
+
+// Node 20.0 a 20.9 não põem `url` no ERR_MODULE_NOT_FOUND; aí vale a mensagem,
+// que traz caminhos (nunca a URL): "Cannot find module '<o que falta>'
+// imported from <quem importou>". Só o caminho do alvo no primeiro lugar conta;
+// no import que falta dentro do alvo, o caminho do alvo vem depois.
+test('cli.mjs sem e.url (Node 20.0 a 20.9): decide pelo caminho do alvo no início da mensagem', () => {
+  const lancar = (sufixo) => (alvo) => `const p = ${JSON.stringify(alvo)};\nthrow { code: 'ERR_MODULE_NOT_FOUND', ${sufixo} };\n`;
+  const casos = [
+    ['o alvo é o que falta', lancar(`message: "Cannot find module '" + p + "' imported from x"`), `${LINHA_CLI}\n`],
+    ['o alvo só importou o que falta', lancar(`message: "Cannot find module '" + p + ".nao' imported from " + p`), linhaInterna('ERR_MODULE_NOT_FOUND')],
+    ['caminho do alvo só no "imported from"', lancar(`message: "Cannot find module '/x/nao-existe.js' imported from " + p`), linhaInterna('ERR_MODULE_NOT_FOUND')],
+    ['mensagem que não é string', lancar('message: 42'), linhaInterna('ERR_MODULE_NOT_FOUND')],
+    // Com e.url presente e diferente, a mensagem não é consultada.
+    ['e.url de outro módulo', lancar(`url: 'file:///outro.js', message: "Cannot find module '" + p + "' imported from x"`), linhaInterna('ERR_MODULE_NOT_FOUND')],
+  ];
+  for (const [rotulo, fonte, esperada] of casos) {
+    confereLinha(rodarCliCom(fonte), esperada, rotulo);
+    fs.rmSync(path.join(home, 'p'), { recursive: true, force: true });
+  }
+});
+
 // I-4: um processo morto entre a escrita do temporário e o rename deixa
 // .<shim>.<hex>.tmp em bin/. Toda sincronização varre (não só a que grava).
 test('varredura de bin/: só temporário velho, arquivo regular e com o nome exato sai', (t) => {
@@ -657,4 +749,48 @@ test('raiz UNC (\\\\servidor\\compartilhamento) continua aceita (Windows)', { sk
   const p = rodarShim('statusline.mjs');
   assert.equal(p.status, 0, p.stderr);
   assert.ok(p.stdout.startsWith('alvo-statusline file://127.0.0.1/'), p.stdout);
+});
+
+// Ida e volta: a raiz só é aceita se fileURLToPath(pathToFileURL(raiz)) der o
+// mesmo caminho (sem diferenciar maiúsculas no Windows). \\localhost\C$\... é
+// lido pelo sistema, mas a URL perde o host (file:///C$/...) e o import do
+// shim falharia a cada redesenho.
+// Título sem barra invertida: o parser de TAP do Node 20.0 o truncava e perdia o SKIP.
+test('raiz UNC em localhost é recusada: a URL perde o host (Windows)', { skip: process.platform !== 'win32' && 'UNC é do Windows' }, (t) => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  const unc = `\\\\localhost\\${raiz[0]}$${raiz.slice(2)}`;
+  try {
+    fs.lstatSync(path.join(unc, 'src', 'statusline.js'));
+  } catch (e) {
+    t.skip(`compartilhamento administrativo indisponivel (${e.code})`);
+    return;
+  }
+  assert.equal(pathToFileURL(unc).host, '');
+  for (const caso of [unc, `\\\\LOCALHOST\\${raiz[0]}$${raiz.slice(2)}`, `//localhost/${raiz[0]}$${raiz.slice(2).replaceAll('\\', '/')}`]) {
+    assert.deepEqual(sincronizarShims(caso), { ok: false, motivo: 'raiz_invalida' }, caso);
+  }
+  assert.equal(fs.existsSync(bin()), false);
+});
+
+// A URL põe o host em minúsculas; no Windows nome de máquina não diferencia
+// maiúsculas, então \\NOME-DA-MAQUINA\... segue aceito.
+test('raiz UNC com o nome da máquina em maiúsculas continua aceita (Windows)', { skip: process.platform !== 'win32' && 'UNC é do Windows' }, (t) => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  const unc = `\\\\${os.hostname().toUpperCase()}\\${raiz[0]}$${raiz.slice(2)}`;
+  try {
+    fs.lstatSync(path.join(unc, 'src', 'statusline.js'));
+  } catch (e) {
+    t.skip(`compartilhamento administrativo indisponivel (${e.code})`);
+    return;
+  }
+  let volta;
+  try { volta = fileURLToPath(pathToFileURL(unc)); } catch (e) { volta = `erro ${e.code}`; }
+  if (volta === unc || volta.toLowerCase() !== unc.toLowerCase()) {
+    t.skip(`ida e volta nao difere so na caixa aqui (${volta})`);
+    return;
+  }
+  assert.deepEqual(sincronizarShims(unc), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  const p = rodarShim('statusline.mjs');
+  assert.equal(p.status, 0, p.stderr);
+  assert.ok(p.stdout.startsWith(`alvo-statusline file://${os.hostname().toLowerCase()}/`), p.stdout);
 });

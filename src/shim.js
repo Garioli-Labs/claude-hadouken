@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirDados } from './base.js';
 
 // Shims estáveis (spec 8.1, S6). O settings.json do usuário aponta a
@@ -17,17 +17,28 @@ import { dirDados } from './base.js';
 // trocam ali para plantar um link no nome sorteado do temporário).
 
 export const DIR_BIN = 'bin';
-// O .catch cobre o alvo sumido: o plugin foi atualizado e a versão velha
-// apagada antes do próximo SessionStart. A barra sai 0 sem imprimir nada
-// (spec 6.4: nunca código 1 nem stack trace); o CLI avisa numa linha ASCII e
-// sai 1. O JSON.stringify da linha escreve \n como os dois caracteres \ e n,
-// então o shim continua uma linha só.
-const LINHA_SEM_ARQUIVOS = 'claude-hadouken: plugin files not found - open a new session';
+// O .catch da barra engole tudo: sai 0 sem imprimir nada (spec 6.4: nunca
+// código 1 nem stack trace), seja o alvo sumido (plugin atualizado e versão
+// velha apagada antes do próximo SessionStart), seja erro dentro dele.
+//
+// O do CLI sai 1 sempre, com uma linha ASCII e sem stack:
+// - "plugin files not found - open a new session" só quando o módulo que falta
+//   é o próprio alvo. O ERR_MODULE_NOT_FOUND traz caminhos na mensagem, nunca a
+//   URL, e um import que falta dentro do alvo também cita o caminho do alvo (no
+//   "imported from"); por isso vale e.url === u (Node >= 20.10) e, sem e.url
+//   (Node 20.0 a 20.9), a mensagem começar por "Cannot find module '<caminho
+//   do alvo>'", que é o formato daquelas versões.
+// - qualquer outro erro: "internal error (<code, senão name>)", só letras,
+//   dígitos e _, no máximo 40 caracteres; sem nada aproveitável, "unknown".
+// O handler nunca lança (um Proxy hostil cai no try) e põe exitCode antes de
+// escrever. String.raw: o \n fica como os dois caracteres \ e n, e o shim
+// continua uma linha só, toda ASCII.
+const CATCH_CLI = String.raw`(e) => { let m = "internal error (unknown)"; try { const s = (v) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : ""); if (e?.code === "ERR_MODULE_NOT_FOUND" && (e.url === u || (e.url === undefined && typeof e.message === "string" && e.message.startsWith("Cannot find module '" + fileURLToPath(u) + "'")))) m = "plugin files not found - open a new session"; else m = "internal error (" + (s(e?.code) || s(e?.name) || "unknown") + ")"; } catch {} process.exitCode = 1; try { process.stderr.write("claude-hadouken: " + m + "\n"); } catch {} }`;
 const SHIMS = Object.freeze({
   'statusline.mjs': { alvo: 'statusline.js', modelo: (url) => `await import(${url}).catch(() => {});\n` },
   'cli.mjs': {
     alvo: 'cli.js',
-    modelo: (url) => `await import(${url}).catch(() => { process.stderr.write(${JSON.stringify(`${LINHA_SEM_ARQUIVOS}\n`)}); process.exitCode = 1; });\n`,
+    modelo: (url) => `import { fileURLToPath } from "node:url"; const u = ${url}; await import(u).catch(${CATCH_CLI});\n`,
   },
 });
 // A raiz só é aceita se este arquivo existir nela como arquivo regular.
@@ -41,6 +52,11 @@ const SEPARADOR_CODIFICADO = /%2f|%5c/i;
 // Raiz de plugin não vem daí. UNC comum (\\servidor\compartilhamento) segue
 // aceito. No POSIX o path.resolve reduz // a /, então nada casa.
 const DISPOSITIVO = /^[\\/]{2}[?.][\\/]/;
+// A URL gravada no shim tem de voltar ao mesmo caminho. \\localhost\C$\... é
+// lido pelo sistema, mas pathToFileURL descarta o host localhost e dá
+// file:///C$/..., que não importa. A URL põe o host em minúsculas, e no
+// Windows caminho não diferencia maiúsculas: lá a comparação também não.
+const IGNORA_CAIXA = process.platform === 'win32';
 
 // O_NOFOLLOW e O_NONBLOCK (onde existem): um link ou FIFO posto no lugar do
 // shim entre o lstat e o open nunca é seguido nem trava a leitura. No Windows
@@ -69,16 +85,20 @@ const esperar = (ms) => {
 };
 
 // Raiz do plugin aceitável: string absoluta não vazia, sem NUL, fora do
-// namespace de dispositivo do Windows, que o loader de ESM consegue importar
+// namespace de dispositivo do Windows, cuja URL de arquivo volta ao mesmo
+// caminho (IGNORA_CAIXA), que o loader de ESM consegue importar
 // (SEPARADOR_CODIFICADO) e em que src/statusline.js é arquivo regular pelo
 // lstat (nem link, nem pasta). Devolve a raiz resolvida (sem barra no fim nem
-// `..`) ou null. Nunca lança.
+// `..`) ou null. Nunca lança (fileURLToPath lança em URL sem volta: null).
 function raizValida(raiz) {
   try {
     if (typeof raiz !== 'string' || raiz.length === 0 || raiz.includes('\0') || !path.isAbsolute(raiz)) return null;
     const resolvida = path.resolve(raiz);
     if (DISPOSITIVO.test(resolvida)) return null;
-    if (SEPARADOR_CODIFICADO.test(pathToFileURL(resolvida).pathname)) return null;
+    const url = pathToFileURL(resolvida);
+    const volta = path.resolve(fileURLToPath(url));
+    if (IGNORA_CAIXA ? volta.toLowerCase() !== resolvida.toLowerCase() : volta !== resolvida) return null;
+    if (SEPARADOR_CODIFICADO.test(url.pathname)) return null;
     const info = fs.lstatSync(path.join(resolvida, 'src', ALVO_OBRIGATORIO), { throwIfNoEntry: false });
     return info && info.isFile() ? resolvida : null;
   } catch {
