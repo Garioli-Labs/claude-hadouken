@@ -37,7 +37,7 @@
 
 `effort` pode chegar como string ou como `{ "level": "..." }`: todo leitor usa `normalizarEffort` (Task 1).
 
-**Ruling V1 (2026-09-25):** o último segmento da barra passa de `sessão N tok` para `cache NN%` (`prompt_cache.hit_ratio`), e `estado.sessoes[id].tokens` vira `cache_hit`. Tokens por sessão continuam no `/consumo`, vindos dos transcripts. Custo se errado: um segmento da barra a trocar.
+**Ruling V1 (2026-09-25):** o último segmento da barra passa de `sessão N tok` para `cache NN%` (`prompt_cache.hit_ratio`), e `estado.sessoes[id].tokens` vira `cache_hit`. Tokens por sessão ficam no `/consumo`, vindos dos transcripts: tabela por sessão (entrada, cache criado 1 h e 5 min, cache lido, saída, acerto de cache, projeto e modelos), entregue na correção I-1 da revisão final (2026-09-26); pensamento fica fora (spec 12). Custo se errado: um segmento da barra a trocar.
 
 ## Review Focus
 

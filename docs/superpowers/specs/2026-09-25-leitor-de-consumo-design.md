@@ -160,8 +160,8 @@ Nenhum hook bloqueia o prompt nem retorna erro ao Claude. Qualquer falha termina
 - Varre `~/.claude/projects/*/*.jsonl` e os transcripts de subagentes nos subdiretórios.
 - Lê linha a linha em streaming; linha inválida é contada e ignorada, nunca interrompe.
 - **Deduplicação:** uma mesma resposta da API pode ocupar várias linhas (uma por bloco de conteúdo, campo `apiBlockIndex`) com o mesmo `usage`. Conta cada `requestId` (ou `message.id`, se faltar) uma única vez. Verificação V3.
-- Agrega por período (hoje, 7 dias, janela semanal atual), projeto (a partir de `cwd`), sessão, modelo e effort.
-- Métricas: tokens de entrada, saída, pensamento, cache lido, cache criado (1 h e 5 min); taxa de acerto de cache = `cache_read ÷ (input + cache_read + cache_creation)`.
+- Agrega por período, projeto (a partir de `cwd`), sessão, modelo e effort. Períodos, cada um do instante `desde` em diante: **hoje** desde a meia-noite local (no dia da troca de horário, a meia-noite do calendário local); **últimos 7 dias** desde agora menos 7 × 24 h, sem fuso; **janela semanal** desde o reset da janela de 7d menos 7 dias, ou, sem leitura válida de 7d, os mesmos últimos 7 dias (o relatório diz qual). Sessões: no JSON, as 200 de maior consumo por período (entrada + cache criado + saída), com a contagem das outras; no markdown, as 10 primeiras.
+- Métricas: tokens de entrada, saída, cache lido, cache criado; taxa de acerto de cache = `cache_read ÷ (input + cache_read + cache_creation)`. O cache criado sai em 1 h e 5 min (`usage.cache_creation.ephemeral_1h_input_tokens` e `ephemeral_5m_input_tokens`) só quando a resposta traz os dois como inteiros válidos e eles somam o total; senão o total inteiro vai para "sem detalhe", nunca deduzido. Pensamento fica fora (ver 12).
 - Projeto = nome da pasta de `cwd`; se `cwd` faltar, o nome do diretório do transcript.
 
 ### 6.7 `github`
@@ -177,7 +177,7 @@ Nenhum hook bloqueia o prompt nem retorna erro ao Claude. Qualquer falha termina
 
 - `/consumo` → markdown no chat, em três blocos:
   1. **Limites e ritmo:** "7d X% usado vs Y% esperado; reset <dia HH:MM>", janela de 5 h com reset, modo, idade da leitura.
-  2. **Claude:** tabelas de tokens hoje e na semana por projeto e por modelo × effort; taxa de acerto de cache por projeto.
+  2. **Claude:** tabelas de tokens de hoje, dos últimos 7 dias e da janela semanal por projeto, por modelo × effort, principal × subagentes e por sessão (com projeto e modelos); taxa de acerto de cache em cada linha.
   3. **GitHub:** por repo, execuções 7 e 30 dias, minutos estimados por sistema, cache ocupado vs teto.
 - `/consumo --json` → o mesmo conteúdo em JSON estável e versionado (`"versao": 1`), para B, C e D consumirem.
 - Sem sugestões nesta versão.
@@ -199,7 +199,7 @@ Nenhum hook bloqueia o prompt nem retorna erro ao Claude. Qualquer falha termina
 | 11 | `statusLine` já configurada pelo usuário | `/claude-hadouken:instalar` preserva e pergunta antes de substituir |
 | 12 | Plugin atualizado (novo caminho) | SessionStart ressincroniza o shim |
 | 13 | Caminhos com espaços e acentos (`E:\Projetos DEV\...`, `Lucas Garioli`) | Coberto por teste em Windows |
-| 14 | Horário de verão ou fuso diferente | Cálculos em UTC; só a exibição usa o fuso local |
+| 14 | Horário de verão ou fuso diferente | Cálculos em UTC; só a exibição e o início de "hoje" (meia-noite local) usam o fuso local, com teste em fusos com e sem horário de verão |
 | 15 | Mesmo projeto aberto em worktrees diferentes | Projeto = nome da pasta; worktrees aparecem como projetos distintos (aceito nesta versão) |
 
 ## 8. Privacidade (repo público)
@@ -217,7 +217,7 @@ Nenhum hook bloqueia o prompt nem retorna erro ao Claude. Qualquer falha termina
 | # | Ameaça | Defesa |
 |---|---|---|
 | S1 | Arquivo de dados adulterado (`estado.json`, `alertas.json`, `config.json`, `historico.jsonl`, índices) para injetar texto no contexto do Claude via hook | Todo texto injetado é montado só com números finitos validados e rótulos de listas fixas do código; nenhum campo de texto lido de arquivo entra em linha injetada. Arquivo fora do schema = "sem leitura" |
-| S2 | Texto malicioso em transcripts, nomes de projeto, modelo, effort, repos ou campos do GitHub exibidos no `/consumo` | Saneamento único (`sanear`): remove caracteres de controle e sequências ANSI/OSC, remove `|`, crases e quebras de linha, limita a 64 caracteres; effort aceito só de lista fixa; o relatório declara que é dado, não instrução |
+| S2 | Texto malicioso em transcripts, nomes de projeto, ids de sessão, modelo, effort, repos ou campos do GitHub exibidos no `/consumo` | Saneamento único (`sanear`): remove caracteres de controle e sequências ANSI/OSC, remove `|`, crases e quebras de linha, limita a 64 caracteres; effort aceito só de lista fixa; o relatório declara que é dado, não instrução |
 | S3 | Sequências de terminal (ANSI/OSC, ex.: links ou títulos falsos) chegando à barra por `model.display_name` ou outros campos | `sanear` em todo texto externo antes de imprimir; as únicas sequências ANSI na barra são as cores fixas do próprio código |
 | S4 | Injeção de shell pelos argumentos da skill `/claude-hadouken:consumo` | A skill não repassa `$ARGUMENTS`: roda o comando com `--json` somente se o argumento for exatamente `--json`; a CLI ignora qualquer outro argumento |
 | S5 | Repo malicioso em `config.json` (ex.: `../../user`, argumentos extras); `git` ou `gh` plantado no repo aberto (o cwd do `/consumo`) | Só aceita `dono/repo` casando `^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$`, sem `..`; `gh` chamado por `execFile` e `git` por `spawn`, nunca por shell. Nota sobre a busca do executável (Node 20 × Node 24 no Windows): um nome solto no `execFile`/`spawn` é procurado pelo libuv, e no Node 20 ele olha o cwd do filho antes do PATH, então um `git.exe` ou `gh.exe` plantado no repo rodaria mesmo com o PATH limpo; no Node 24 o cwd não entra na busca, mas uma entrada `.` do PATH ainda leva a ele (no POSIX, entrada vazia ou `.` faz o mesmo). Por isso nenhum dos dois é chamado por nome solto: `src/executavel.js` resolve `git` e `gh` para um caminho absoluto, só por entradas absolutas do PATH (no Windows, com unidade ou UNC), pulando a entrada que é o cwd (comparada resolvida e pelo realpath), só `<nome>.exe` no Windows (`.cmd` e `.bat` exigiriam um shell) e, no POSIX, só arquivo regular com bit de execução. Sem achado, o `git` não roda (sem repo do origin) e o `gh` vira "gh ausente" |
@@ -279,6 +279,7 @@ Resultado divergente em qualquer uma → esta spec é atualizada antes do plano.
 - Guardas de push/CI e sugestões de melhoria (D).
 - Minutos faturados da org via API de billing (exige `admin:org`).
 - Qualquer troca automática de modelo ou effort (impossível no meio da sessão, segundo a documentação oficial).
+- **Tokens de pensamento (adiado na revisão final, 2026-09-26):** o `/consumo` não mostra pensamento, nem no markdown nem no JSON. A premissa de que os transcripts não separam o pensamento não se confirmou: o campo `usage.output_tokens_details.thinking_tokens` existe. O problema é que ele só vem em parte das respostas. Numa leitura local de transcripts reais em 2026-09-26 (os 400 mais recentes, Claude Code 2.1.241 a 2.1.282, respostas deduplicadas por `requestId`; só contagens, nada copiado para o repo), o campo veio em 21 950 de 21 953 respostas de sessões principais, mas em só 3 554 de 27 216 respostas de subagentes (13 %). Somar a ausência como 0 apresentaria um piso como total. Também não está documentado se o pensamento é parte de `output_tokens` ou soma à parte: veio maior que a saída em 2 de 14 306 respostas com o campo. O parser continua lendo o campo e o índice o guarda. Mostrá-lo exige a mesma regra do cache criado (coluna com as respostas "sem detalhe", nunca deduzidas) e a relação com a saída confirmada; fica para uma versão seguinte, com spec própria.
 - **v1.1 (pedido do Sr. Garioli, 2026-09-25): notificações no WhatsApp do usuário** — o Claude envia ao WhatsApp atualizações de push e de tarefas finalizadas. Ganha spec própria depois da v1.0; a spec decide o canal (API oficial WhatsApp Cloud da Meta, Twilio ou outro), a guarda da credencial (fora do repo, nunca em arquivo legível por skills sem necessidade), a opção de ativar por projeto e o conteúdo mínimo das mensagens (sem código, caminhos pessoais ou segredos: sai do computador).
 
 ## 13. Estrutura do repo
