@@ -49,13 +49,20 @@ async function medir(rotulo, raiz, home) {
   const r = await indexarTranscripts({ raiz, desdeMs });
   const tempo = ms(t0);
   let indice = 0;
-  try { indice = fs.statSync(path.join(home, ARQ_INDICE)).size; } catch { /* sem índice */ }
+  // Compact size: the cap (16 MiB) is measured on the compact JSON, which is
+  // how the index is written once gravarJsonAtomico honours { compacto: true }.
+  let compacto = 0;
+  try {
+    const texto = fs.readFileSync(path.join(home, ARQ_INDICE), 'utf8');
+    indice = Buffer.byteLength(texto);
+    compacto = Buffer.byteLength(JSON.stringify(JSON.parse(texto)));
+  } catch { /* sem índice */ }
   const saida = {
     rotulo, ms: tempo, arquivos: r.arquivos, registros: r.registros.length, linhasInvalidas: r.linhasInvalidas,
-    ilegiveis: r.ilegiveis, truncado: r.truncado, indiceMB: mb(indice), rssMB: rss(),
+    ilegiveis: r.ilegiveis, truncado: r.truncado, indiceMB: mb(indice), indiceCompactoMB: mb(compacto), rssMB: rss(),
   };
   console.log(JSON.stringify(saida));
-  return { r, saida, indice };
+  return { r, saida, indice, compacto };
 }
 
 const somaSaida = (r) => r.registros.reduce((s, x) => s + x.output + x.input + x.thinking + x.cacheRead + x.cacheCreate, 0);
@@ -67,8 +74,10 @@ if (process.argv[2] === '--real') {
     console.log(`node ${process.version} ${process.platform}; real tree, read-only; index in a temp dir`);
     await medir('real cold', raiz, home);
     await medir('real warm 1', raiz, home);
-    const { r, indice } = await medir('real warm 2', raiz, home);
-    if (r.registros.length > 0) console.log(`index bytes per record: ${Math.round(indice / r.registros.length)}`);
+    const { r, indice, compacto } = await medir('real warm 2', raiz, home);
+    if (r.registros.length > 0) {
+      console.log(`index bytes per record: ${Math.round(indice / r.registros.length)} as written, ${Math.round(compacto / r.registros.length)} compact`);
+    }
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -220,7 +229,8 @@ try {
     && morno.r.linhasInvalidas === cheio.r.linhasInvalidas
     && somaSaida(morno.r) === somaSaida(cheio.r);
   console.log(`incremental == full: ${iguais} (records ${morno.r.registros.length} vs ${cheio.r.registros.length}; tokens ${somaSaida(morno.r)} vs ${somaSaida(cheio.r)})`);
-  console.log(`index bytes per record: ${Math.round(frio.indice / Math.max(1, frio.r.registros.length))}`);
+  const porRegistro = (n) => Math.round(n / Math.max(1, frio.r.registros.length));
+  console.log(`index bytes per record: ${porRegistro(frio.indice)} as written, ${porRegistro(frio.compacto)} compact`);
   if (!iguais) process.exitCode = 1;
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });

@@ -59,6 +59,13 @@ const indexar = (extra = {}) => indexarTranscripts({ raiz, desdeMs: agora - 7 * 
 const ids = (r) => r.registros.map((x) => x.requestId);
 const arqIndice = () => path.join(home, ARQ_INDICE);
 const lerIndice = () => JSON.parse(fs.readFileSync(arqIndice(), 'utf8'));
+// Identidade do arquivo do índice no disco. gravarJsonAtomico grava um
+// temporário e renomeia por cima, então uma regravação troca o ino (e o
+// mtime), seja qual for a formatação do texto.
+const marcaIndice = () => {
+  const s = fs.statSync(arqIndice(), { bigint: true });
+  return `${s.ino}/${s.mtimeNs}/${s.size}`;
+};
 const LINK_PASTA = process.platform === 'win32' ? 'junction' : 'dir';
 
 // Symlink de arquivo no Windows pede privilégio; sem ele o teste é pulado em
@@ -434,10 +441,12 @@ test('última linha truncada não conta como inválida e é relida depois do app
   assert.equal(lerIndice().arquivos['proj-a/s.jsonl'].offset, fs.statSync(arq).size);
 });
 
-test('última linha completa sem \\n entra uma vez só, antes e depois do append', async () => {
+test('última linha completa sem \\n só vira registro quando o \\n chega', async () => {
   const arq = escreverBruto('proj-a/s.jsonl', `${linha('r1', 0)}\n${linha('r2', 0)}`);
-  assert.deepEqual(ids(await lerTranscript(arq)), ['r1', 'r2']);
-  assert.deepEqual(ids(await indexar()), ['r1', 'r2']);
+  const lido = await lerTranscript(arq);
+  assert.deepEqual([ids(lido), lido.linhasInvalidas], [['r1'], 0]);
+  const r1 = await indexar();
+  assert.deepEqual([ids(r1), r1.linhasInvalidas], [['r1'], 0]);
   assert.equal(lerIndice().arquivos['proj-a/s.jsonl'].offset, Buffer.byteLength(linha('r1', 0)) + 1);
   fs.appendFileSync(arq, `\n${linha('r2', 1)}\n${linha('r3', 0)}\n`);
   const r = await indexar();
@@ -445,9 +454,57 @@ test('última linha completa sem \\n entra uma vez só, antes e depois do append
   assert.equal(r.linhasInvalidas, 0);
 });
 
+// Uma cauda plantada que já é JSON válido custaria um JSON.parse por chamada
+// se fosse lida antes do \n; ela só é decodificada uma vez, quando o \n chega.
+// Contadores, não tempo: o teste não depende da máquina.
+test('cauda sem \\n que já é JSON válido nunca passa pelo JSON.parse, por mais chamadas que haja', async () => {
+  const cauda = linhaDeTamanho('cauda', 4 * 1024 * 1024);
+  const arq = escreverBruto('proj-a/s.jsonl', `${linha('r1', 0)}\n${cauda}`);
+  const parseOriginal = JSON.parse;
+  const abrirOriginal = fs.promises.open;
+  let parsesDaCauda = 0;
+  let aberturas = 0;
+  JSON.parse = function (texto, ...resto) {
+    if (typeof texto === 'string' && texto.length >= cauda.length) parsesDaCauda++;
+    return parseOriginal.call(this, texto, ...resto);
+  };
+  fs.promises.open = async function (p, ...resto) {
+    if (path.resolve(String(p)) === arq) aberturas++;
+    return abrirOriginal.call(this, p, ...resto);
+  };
+  // Uma chamada: ids, linhas inválidas e quantas vezes o arquivo foi aberto.
+  const chamada = async (esperado, abre, rotulo) => {
+    aberturas = 0;
+    const r = await indexar();
+    assert.deepEqual([ids(r), r.linhasInvalidas, aberturas], [esperado, 0, abre], rotulo);
+  };
+  try {
+    for (let i = 0; i < 2; i++) {
+      const l = await lerTranscript(arq);
+      assert.deepEqual([ids(l), l.linhasInvalidas], [['r1'], 0], `lerTranscript ${i}`);
+    }
+    await chamada(['r1'], 1, 'fria');
+    for (let i = 0; i < 3; i++) await chamada(['r1'], 0, `inalterado ${i}: via rápida, zero leituras`);
+    // A cauda cresce (espaços no fim: continua JSON válido), ainda sem \n: o
+    // arquivo é lido uma vez por mudança, a cauda nunca é decodificada, e o
+    // tamanho novo fica no índice para a chamada seguinte não abrir nada.
+    fs.appendFileSync(arq, '   ');
+    await chamada(['r1'], 1, 'cresceu sem \\n');
+    await chamada(['r1'], 0, 'depois de crescer: via rápida');
+    assert.equal(parsesDaCauda, 0, 'a cauda sem \\n nunca chega ao JSON.parse');
+    fs.appendFileSync(arq, '\n');
+    await chamada(['r1', 'cauda'], 1, 'o \\n chegou');
+    await chamada(['r1', 'cauda'], 0, 'depois do \\n: via rápida');
+    assert.equal(parsesDaCauda, 1, 'decodificada uma vez, quando ficou completa');
+  } finally {
+    JSON.parse = parseOriginal;
+    fs.promises.open = abrirOriginal;
+  }
+});
+
 test('cauda JSON válida que depois vira lixo na mesma linha não fica no índice', async () => {
   const arq = escreverBruto('proj-a/s.jsonl', `${linha('r1', 0)}\n${linha('r2', 0)}`);
-  assert.deepEqual(ids(await indexar()), ['r1', 'r2']);
+  assert.deepEqual(ids(await indexar()), ['r1']);
   fs.appendFileSync(arq, ' lixo depois do objeto\n');
   const r = await indexar();
   assert.deepEqual([ids(r), r.linhasInvalidas], [['r1'], 1]);
@@ -507,21 +564,19 @@ test('arquivo inalterado (tamanho e mtime) vem do índice sem ser relido', async
 
 test('nada mudou (nem com cauda pendente): o índice não é regravado; mudou: é', async () => {
   const cheio = escrever('proj-a/cheio.jsonl', [linha('r1', 0)]);
-  // Cauda pendente que já é um objeto completo: entra na saída a cada leitura,
-  // nunca no índice.
+  // Cauda pendente que já é um objeto completo: não é registro enquanto o \n
+  // não chega, e não tira o arquivo da via rápida.
   const pendente = escreverBruto('proj-a/pendente.jsonl', `${linha('r2', 0)}\n${linha('r3', 0)}`);
   fixarMtime(cheio, agora - 60_000);
   fixarMtime(pendente, agora - 60_000);
-  assert.deepEqual(ids(await indexar()), ['r1', 'r2', 'r3']);
+  assert.deepEqual(ids(await indexar()), ['r1', 'r2']);
   assert.deepEqual(lerIndice().arquivos['proj-a/pendente.jsonl'].ids, ['r2']);
-  // Mesmo conteúdo, outra formatação: se o índice for regravado, volta ao formato de gravarJsonAtomico.
-  const compacto = JSON.stringify(lerIndice());
-  fs.writeFileSync(arqIndice(), compacto);
-  assert.deepEqual(ids(await indexar()), ['r1', 'r2', 'r3']);
-  assert.equal(fs.readFileSync(arqIndice(), 'utf8'), compacto);
+  const marca = marcaIndice();
+  assert.deepEqual(ids(await indexar()), ['r1', 'r2']);
+  assert.equal(marcaIndice(), marca, 'nada mudou: o índice não foi regravado');
   fs.appendFileSync(pendente, `\n${linha('r4', 0).slice(0, 30)}`);
   assert.deepEqual(ids(await indexar()), ['r1', 'r2', 'r3']);
-  assert.notEqual(fs.readFileSync(arqIndice(), 'utf8'), compacto);
+  assert.notEqual(marcaIndice(), marca, 'mudou: o índice foi regravado');
   assert.deepEqual(lerIndice().arquivos['proj-a/pendente.jsonl'].ids, ['r2', 'r3']);
 });
 
@@ -909,6 +964,64 @@ test('índice guarda só números, ids validados e rótulos saneados', async () 
   }
   const e = indice.arquivos['proj-a/sess-1.jsonl'];
   assert.deepEqual([e.modelos, e.projetos, e.sessoes], [['claude-opus-5'], ['Demo Proj'], ['sess-1']]);
+});
+
+// Linhas que fazem o índice crescer depressa, todas com requestId de 128 e
+// sessão de 64 distintos. `astrais` também traz modelo e projeto distintos no
+// teto do sanear (40 e 64 pontos de código) com um caractere de 4 bytes em
+// UTF-8 que ocupa 2 unidades UTF-16: é o que separa a medida em bytes da
+// medida em unidades. `baratas` não traz rótulo nenhum, então não passa pelo
+// sanear (~20 µs por linha contra ~80 µs das astrais).
+const ASTRAL = String.fromCodePoint(0x20000);
+const USO_MAX = { input_tokens: 1e9, output_tokens: 999_999_999, output_tokens_details: { thinking_tokens: 999_999_999 }, cache_read_input_tokens: 999_999_999, cache_creation_input_tokens: 999_999_999 };
+function densas(tag, n, astrais) {
+  const ts = new Date(agora - 60_000).toISOString();
+  const partes = [];
+  for (let i = 0; i < n; i++) {
+    const k = `${tag}${String(i).padStart(6, '0')}`;
+    const o = { requestId: k.padEnd(128, 'r'), sessionId: k.padEnd(64, 's'), timestamp: ts, message: { usage: USO_MAX } };
+    if (astrais) {
+      o.cwd = `/x/${k}${ASTRAL.repeat(64 - k.length)}`;
+      o.message.model = `${k}${ASTRAL.repeat(40 - k.length)}`;
+    }
+    partes.push(js(o));
+  }
+  return `${partes.join('\n')}\n`;
+}
+
+// Acima do teto o leitor recusaria o índice inteiro e toda chamada seria fria.
+// Medido em 2026-09-25 (JSON compacto de cada entrada): grande.jsonl (baratas)
+// faz 0,71 do teto; medio.jsonl (astrais) 0,33. Juntos dão 1,046 do teto em
+// bytes, mas só 0,956 em unidades UTF-16. Então:
+// - quem medir em unidades não poda e grava acima do teto;
+// - tirar os menores primeiro deixaria só grande.jsonl;
+// - tirar só o maior basta.
+test('índice acima do teto: saem primeiro as entradas maiores, e o resto segue quente', async () => {
+  const TETO = 16 * 1024 * 1024;
+  escreverBruto('proj-a/grande.jsonl', densas('a', 43_000, false));
+  escreverBruto('proj-a/medio.jsonl', densas('b', 8_400, true));
+  escrever('proj-a/p1.jsonl', [linha('p1', 0)]);
+  escrever('proj-b/p2.jsonl', [linha('p2', 0)]);
+  const r1 = await indexar();
+  assert.equal(r1.registros.length, 51_402, 'a poda não tira nada da saída');
+  const indice = lerIndice();
+  assert.deepEqual(Object.keys(indice.arquivos).sort(), ['proj-a/medio.jsonl', 'proj-a/p1.jsonl', 'proj-b/p2.jsonl']);
+  assert.ok(Buffer.byteLength(JSON.stringify(indice)) <= TETO, 'compacto, em UTF-8, cabe no teto');
+  assert.ok(fs.statSync(arqIndice()).size <= TETO, 'o leitor aceita o índice gravado');
+  // Próxima chamada sem mudança: só o arquivo podado é relido, e o índice
+  // (já podado igual) não é regravado.
+  const marca = marcaIndice();
+  const abertos = [];
+  const abrir = fs.promises.open;
+  fs.promises.open = async function (p, ...resto) {
+    abertos.push(path.relative(raiz, String(p)).split(path.sep).join('/'));
+    return abrir.call(this, p, ...resto);
+  };
+  let r2;
+  try { r2 = await indexar(); } finally { fs.promises.open = abrir; }
+  assert.deepEqual(abertos, ['proj-a/grande.jsonl']);
+  assert.deepEqual(r2, r1);
+  assert.equal(marcaIndice(), marca, 'nada mudou além do podado: não regrava');
 });
 
 test('sem diretório de dados: varre tudo e não grava índice em lugar nenhum', async () => {

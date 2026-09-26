@@ -22,7 +22,13 @@ import { effortValido, EFFORTS_VALIDOS, sanear } from './util.js';
 // modelo, índice do effort em EFFORTS_VALIDOS, input, output, thinking,
 // cacheRead, cacheCreate; -1 = null). Nenhum texto de transcript é guardado; o
 // índice lido passa pelos mesmos validadores das linhas, então nunca produz
-// nada que um transcript não produziria.
+// nada que um transcript não produziria. O índice gravado cabe sempre no teto
+// que o leitor aceita: passou dele, saem as entradas maiores (indiceNoTeto).
+//
+// Uma linha só vira registro quando o seu \n chega. A última linha sem \n
+// (sendo escrita agora, ou plantada) nunca é decodificada: fica depois do
+// offset e só é relida quando o arquivo mudar. Assim cada byte é decodificado
+// uma vez só, e uma cauda hostil não custa um JSON.parse a cada chamada.
 
 export const ARQ_INDICE = 'indice-transcripts.json';
 // Linha acima disto (bytes, sem o \n) é pulada sem ser guardada inteira.
@@ -127,7 +133,7 @@ function comCache(cache, bruto, calcular) {
 function novoContexto(subagente, projetoPadrao, agoraMs) {
   return {
     subagente, projetoPadrao, agoraMs,
-    mapa: new Map(), cauda: new Map(), invalidas: 0,
+    mapa: new Map(), invalidas: 0,
     projetos: new Map(), modelos: new Map(),
   };
 }
@@ -324,42 +330,39 @@ function jsonValido(b) {
   }
 }
 
-// `completa` = terminada por \n. A última linha sem \n pode estar sendo
-// escrita agora: se já for JSON válido, seus registros entram só na saída
-// desta leitura (ctx.cauda, nunca no índice); se não, é ignorada sem contar.
-function tratarLinha(linha, ctx, completa) {
+// Uma linha terminada por \n (sem o \n). Só linhas completas chegam aqui.
+function tratarLinha(linha, ctx) {
   const fim = linha.length > 0 && linha[linha.length - 1] === 0x0d ? linha.length - 1 : linha.length;
   const corpo = fim === linha.length ? linha : linha.subarray(0, fim);
   if (corpo.indexOf(AGULHA) === -1) {
-    if (completa && !vaziaOuObjeto(corpo)) ctx.invalidas++;
+    if (!vaziaOuObjeto(corpo)) ctx.invalidas++;
     return;
   }
   if (!pareceObjeto(corpo) || (corpo.length < VALIDAR_ATE && !jsonValido(corpo))) {
-    if (completa) ctx.invalidas++;
+    ctx.invalidas++;
     return;
   }
   let d;
   try {
     d = JSON.parse(corpo.toString('utf8'));
   } catch {
-    if (completa) ctx.invalidas++;
+    ctx.invalidas++;
     return;
   }
   const r = registroDe(d, ctx);
-  if (r === INVALIDA) {
-    if (completa) ctx.invalidas++;
-  } else if (r !== null) {
-    juntar(completa ? ctx.mapa : ctx.cauda, r, false);
-  }
+  if (r === INVALIDA) ctx.invalidas++;
+  else if (r !== null) juntar(ctx.mapa, r, false);
 }
 
 // Lê os bytes [inicio, fim) em pedaços de até 1 MiB e separa em \n. Uma linha
 // que passa de LINHA_MAX_BYTES deixa de ser acumulada na hora (os bytes seguem
-// sendo descartados até o próximo \n) e conta uma vez como inválida. Devolve o
-// byte seguinte ao último \n lido (o offset que o índice pode guardar) e os até
-// 4 KiB antes dele, tirados dos mesmos bytes que viraram registros: a âncora
-// nunca descreve um conteúdo diferente do que foi lido. `antes` são os até
-// 4 KiB antes de `inicio`, já conferidos contra a âncora guardada.
+// sendo descartados até o próximo \n) e conta uma vez como inválida. O que
+// sobra depois do último \n (a cauda sem \n) é largado sem ser decodificado.
+// Devolve o byte seguinte ao último \n lido (o offset que o índice pode
+// guardar) e os até 4 KiB antes dele, tirados dos mesmos bytes que viraram
+// registros: a âncora nunca descreve um conteúdo diferente do que foi lido.
+// `antes` são os até 4 KiB antes de `inicio`, já conferidos contra a âncora
+// guardada.
 async function lerFaixa(fh, inicio, fim, ctx, antes) {
   const buf = Buffer.allocUnsafe(Math.max(1, Math.min(PEDACO, fim - inicio)));
   let pos = inicio;
@@ -396,7 +399,7 @@ async function lerFaixa(fh, inicio, fim, ctx, antes) {
           const linha = tam === 0 ? vista.subarray(i, ate) : Buffer.concat([...partes, vista.subarray(i, ate)], total);
           partes = [];
           tam = 0;
-          tratarLinha(linha, ctx, true);
+          tratarLinha(linha, ctx);
         }
       }
       if (nl === -1) break;
@@ -411,7 +414,6 @@ async function lerFaixa(fh, inicio, fim, ctx, antes) {
     janela = ultimosBytes(janela, vista);
     pos += bytesRead;
   }
-  if (!descartando && tam > 0) tratarLinha(Buffer.concat(partes, tam), ctx, false);
   return { consumido, ancora: hash48(ancorados) };
 }
 
@@ -457,7 +459,10 @@ async function abrirConferido(abs, visto) {
 
 // Lê um arquivo inteiro ou, com a entrada anterior do índice, só o que falta.
 // Relê do zero quando o arquivo encolheu, quando o mtime voltou atrás, quando
-// tem o mesmo tamanho e outro mtime, ou quando a âncora não confere.
+// tem o mesmo tamanho e outro mtime, ou quando a âncora não confere. A entrada
+// devolvida leva sempre o size e o mtime lidos agora, mesmo sem \n novo: um
+// arquivo que cresceu só na cauda e depois parou cai na via rápida da próxima
+// chamada, em vez de ser reaberto a cada uma.
 async function lerArquivo(item, ant, agoraMs) {
   const aberto = await abrirConferido(item.abs, item.st);
   if (aberto.erro) return aberto;
@@ -478,15 +483,11 @@ async function lerArquivo(item, ant, agoraMs) {
       for (const r of ant.registros) ctx.mapa.set(r.requestId, { ...r });
     }
     const { consumido, ancora } = await lerFaixa(fh, inicio, tam, ctx, antes);
-    // Nada novo além da cauda pendente: a entrada guardada continua exata e o
-    // índice não precisa ser regravado por causa deste arquivo.
-    const inalterado = continuou && consumido === ant.offset && tam === ant.size && mt === ant.mtimeMs;
     return {
       entrada: {
         offset: consumido, size: tam, mtimeMs: mt, ancora, linhasInvalidas: ctx.invalidas,
-        registros: [...ctx.mapa.values()], cauda: [...ctx.cauda.values()], disco: inalterado ? ant.disco : null,
+        registros: [...ctx.mapa.values()], disco: null,
       },
-      inalterado,
     };
   } catch (e) {
     return { erro: e ?? {} };
@@ -510,6 +511,8 @@ function formaDoArquivo(abs) {
 // Lê um transcript avulso. Devolve { registros, linhasInvalidas, ilegivel };
 // caminho que não é arquivo regular (inexistente, pasta, link, FIFO) ou que
 // não pôde ser lido → { registros: [], linhasInvalidas: 0, ilegivel: true }.
+// Uma última linha sem \n ainda não é registro nem conta como inválida: pode
+// estar sendo escrita agora, e só é decodificada quando o \n chegar.
 // Nunca rejeita.
 export async function lerTranscript(arquivo) {
   try {
@@ -524,10 +527,7 @@ export async function lerTranscript(arquivo) {
     if (!st.isFile()) return leituraIlegivel();
     const r = await lerArquivo({ abs, st, ...formaDoArquivo(abs) }, undefined, Date.now());
     if (r.erro) return leituraIlegivel();
-    const saida = new Map();
-    for (const x of r.entrada.registros) saida.set(x.requestId, x);
-    for (const x of r.entrada.cauda) juntar(saida, x, false);
-    return { registros: [...saida.values()], linhasInvalidas: r.entrada.linhasInvalidas, ilegivel: false };
+    return { registros: r.entrada.registros, linhasInvalidas: r.entrada.linhasInvalidas, ilegivel: false };
   } catch {
     return leituraIlegivel();
   }
@@ -598,6 +598,15 @@ async function listarSubagentes(dirSessao, relSessao, padrao, orc, saida) {
 // As duas formas aceitas, em ordem de nome, só por lstat. A raiz também
 // precisa ser pasta de verdade (nem link, nem junção); se não for, raizOk
 // fica false e ela conta como ilegível.
+//
+// Resíduo aceito (spec 8.1, "Limite honesto"): pasta não tem a trava que o
+// arquivo tem (O_NOFOLLOW mais dev/ino no descritor aberto). Uma pasta trocada
+// por junção ou link entre o lstat e o opendir (aqui e em listarSubagentes)
+// seria listada fora da raiz. O Node não tem opendir que recuse link nem como
+// conferir o caminho de um descritor, e um segundo lstat só estreitaria a
+// janela. O dano fica limitado: os arquivos de lá passam pelas mesmas
+// checagens de arquivo e são lidos como não confiáveis, então só rendem
+// números de tokens e rótulos saneados, que o mesmo usuário já poderia ler.
 async function listarTranscripts(base, teto) {
   const saida = { itens: [], ilegiveis: 0, truncado: false, raizOk: false };
   const orc = { arquivos: teto, entradas: teto * ENTRADAS_POR_ARQUIVO };
@@ -702,7 +711,7 @@ function entradaDoDisco(e, ehSubagente, agoraMs) {
     }
     registros.push(r);
   }
-  return { offset, size, mtimeMs, ancora, linhasInvalidas, registros, cauda: [], disco: e };
+  return { offset, size, mtimeMs, ancora, linhasInvalidas, registros, disco: e };
 }
 
 // Índice guardado → Map(chave relativa → entrada), ou null: ausente, grande
@@ -757,10 +766,54 @@ function entradaParaDisco(e) {
   };
 }
 
-function serializar(entradas, chaveRaiz) {
+// Índice a gravar, dentro do teto que carregarIndice aceita (INDICE_MAX_BYTES),
+// medido em bytes UTF-8 do JSON compacto que gravarJsonAtomico grava com
+// { compacto: true }. Passou do teto: saem primeiro as entradas maiores (esses
+// arquivos só são relidos do zero na próxima chamada), em vez de gravar um
+// índice que o leitor recusaria inteiro e deixaria toda chamada fria. Nenhum
+// registro é podado por ts: uma chamada com janela menor envenenaria uma
+// chamada seguinte com janela maior. Devolve o valor a gravar e as entradas
+// que ficaram nele.
+function indiceNoTeto(entradas, chaveRaiz) {
+  const medidas = [];
+  let soma = 0;
+  for (const [rel, e] of entradas) {
+    const disco = entradaParaDisco(e);
+    // "rel":{...}; as vírgulas entre entradas entram em `total`.
+    const bytes = Buffer.byteLength(JSON.stringify(rel)) + 1 + Buffer.byteLength(JSON.stringify(disco));
+    medidas.push({ rel, e, disco, bytes });
+    soma += bytes;
+  }
+  // {"versao":1,"raiz":N,"arquivos":{}}: as entradas vão entre as últimas chaves.
+  const envelope = Buffer.byteLength(JSON.stringify({ versao: VERSAO_INDICE, raiz: chaveRaiz, arquivos: {} }));
+  const total = (n, s) => envelope + s + Math.max(0, n - 1);
+  const fora = new Set();
+  let n = medidas.length;
+  if (total(n, soma) > INDICE_MAX_BYTES) {
+    const maioresPrimeiro = [...medidas].sort((a, b) => b.bytes - a.bytes || (a.rel < b.rel ? -1 : 1));
+    for (const m of maioresPrimeiro) {
+      if (total(n, soma) <= INDICE_MAX_BYTES) break;
+      fora.add(m.rel);
+      soma -= m.bytes;
+      n--;
+    }
+  }
   const arquivos = Object.create(null);
-  for (const [rel, e] of entradas) arquivos[rel] = entradaParaDisco(e);
-  return { versao: VERSAO_INDICE, raiz: chaveRaiz, arquivos };
+  const mantidas = new Map();
+  for (const m of medidas) {
+    if (fora.has(m.rel)) continue;
+    arquivos[m.rel] = m.disco;
+    mantidas.set(m.rel, m.e);
+  }
+  return { valor: { versao: VERSAO_INDICE, raiz: chaveRaiz, arquivos }, mantidas };
+}
+
+// true se `entradas` não é exatamente o índice carregado: mesmas chaves e os
+// mesmos objetos (só a via rápida reaproveita o objeto carregado do disco).
+function difere(entradas, antigo) {
+  if (antigo === null || entradas.size !== antigo.size) return true;
+  for (const [rel, e] of entradas) if (antigo.get(rel) !== e) return true;
+  return false;
 }
 
 // Indexa os transcripts sob `raiz` modificados desde `desdeMs` e devolve as
@@ -787,16 +840,16 @@ export async function indexarTranscripts(opcoes) {
     const antigo = arqIndice === null ? null : carregarIndice(arqIndice, chaveRaiz, agoraMs);
     const novo = new Map();
     let ilegiveis = lista.ilegiveis;
-    let reaproveitados = 0;
     for (const item of lista.itens) {
       const tam = Number(item.st.size);
       const mt = mtimeDe(item.st);
       if (mt < corte) continue;
       const ant = antigo === null ? undefined : antigo.get(item.rel);
-      // Mesmo tamanho e mtime, sem cauda pendente: nem abre o arquivo.
-      if (ant !== undefined && ant.size === tam && ant.mtimeMs === mt && ant.offset === ant.size) {
+      // Mesmo tamanho e mtime: nem abre o arquivo. Uma cauda sem \n depois do
+      // offset continua byte a byte a mesma e ainda não é registro; quando o
+      // \n chegar, o arquivo terá mudado e será lido a partir do offset.
+      if (ant !== undefined && ant.size === tam && ant.mtimeMs === mt) {
         novo.set(item.rel, ant);
-        reaproveitados++;
         continue;
       }
       const r = await lerArquivo(item, ant, agoraMs);
@@ -805,16 +858,19 @@ export async function indexarTranscripts(opcoes) {
         continue;
       }
       novo.set(item.rel, r.entrada);
-      if (r.inalterado) reaproveitados++;
     }
-    const mudou = antigo === null || reaproveitados !== novo.size || novo.size !== antigo.size;
-    if (arqIndice !== null && mudou) gravarJsonAtomico(arqIndice, serializar(novo, chaveRaiz));
+    // Só grava quando o índice mudaria: nada mudou, ou só mudaram entradas que
+    // a poda tiraria de novo, deixa o arquivo como está. O terceiro argumento
+    // pede JSON compacto (o mesmo formato medido em indiceNoTeto).
+    if (arqIndice !== null && difere(novo, antigo)) {
+      const { valor, mantidas } = indiceNoTeto(novo, chaveRaiz);
+      if (difere(mantidas, antigo)) gravarJsonAtomico(arqIndice, valor, { compacto: true });
+    }
     const mapa = new Map();
     let linhasInvalidas = 0;
     for (const e of novo.values()) {
       linhasInvalidas += e.linhasInvalidas;
       for (const r of e.registros) juntar(mapa, r, true);
-      for (const r of e.cauda) juntar(mapa, r, true);
     }
     const registros = [];
     for (const r of mapa.values()) if (r.ts >= corte) registros.push(r);
