@@ -81,8 +81,10 @@ const HTTP = /^HTTP [1-5]\d\d$/;
 
 const EVENTOS = Object.freeze(['push', 'pull_request', 'pull_request_target', 'schedule', 'workflow_dispatch', 'workflow_run', 'merge_group', 'release', 'repository_dispatch', 'dynamic']);
 const CONCLUSOES = Object.freeze(['success', 'failure', 'cancelled', 'skipped', 'timed_out', 'action_required', 'neutral', 'stale', 'startup_failure']);
-const CHAVES_EVENTO = Object.freeze([...EVENTOS, 'outro']);
-const CHAVES_CONCLUSAO = Object.freeze([...CONCLUSOES, 'em_andamento', 'outro']);
+// Chaves de porEvento e de conclusoes30, exportadas para o relatório (Task 10)
+// filtrar o que imprime pela mesma lista.
+export const CHAVES_EVENTO = Object.freeze([...EVENTOS, 'outro']);
+export const CHAVES_CONCLUSAO = Object.freeze([...CONCLUSOES, 'em_andamento', 'outro']);
 
 // Rótulos dos runners hospedados padrão, uma regex ancorada por família, da
 // tabela oficial (docs.github.com/en/actions/reference/runners/github-hosted-runners,
@@ -105,6 +107,13 @@ const MOTIVOS_EXECUTOR = new Set(['gh ausente', 'gh sem login', 'tempo esgotado'
 // Depois de um destes nenhuma chamada nova é feita nesta coleta: insistir não
 // adianta (sem gh, sem login, rede travada) ou piora (limite da API).
 const FATAIS = new Set(['gh ausente', 'gh sem login', 'tempo esgotado', 'limite da API']);
+// Motivos que só a coleta produz (entrada recusada, teto de repos, relógio).
+const MOTIVOS_COLETA = new Set(['invalido', 'truncado', 'agora inválido', 'resposta inválida']);
+
+// Motivo de indisponível que coletarGithub pode devolver: um da lista fixa ou
+// 'HTTP nnn'. O relatório (Task 10) só imprime motivo que passa aqui; o resto
+// vira 'gh falhou', como na coleta. Nunca lança.
+export const motivoValido = (m) => typeof m === 'string' && (MOTIVOS_EXECUTOR.has(m) || MOTIVOS_COLETA.has(m) || HTTP.test(m));
 
 // Variáveis que mudariam a saída ou o comportamento do gh (cor, TTY forçado,
 // depuração no stderr, prompts, aviso de versão, que faz uma requisição a
@@ -722,7 +731,8 @@ function gravarCache(arquivo, repos, agoraMs) {
 // owner/repo do GitHub: regex da spec, sem '..' e sem parte começando com
 // '.' ou '-'. Só um repo que passa aqui chega a um endpoint.
 // Recusar owner/.github (repo legítimo) é limitação deliberada da v0.1.
-function repoValido(r) {
+// Exportada para o config.json, o origin e o relatório (Task 10). Nunca lança.
+export function repoValido(r) {
   if (typeof r !== 'string' || !REPO.test(r) || r.includes('..')) return false;
   const [dono, nome] = r.split('/');
   return !/^[.-]/.test(dono) && !/^[.-]/.test(nome);
