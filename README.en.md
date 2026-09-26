@@ -458,20 +458,21 @@ No plugin failure or slowness may stall Claude. Targets are measured, not assume
 
 | Operation | Target | Measured |
 |---|---|---|
-| Status bar (whole process), Windows | p95 ≤ 250 ms | {{P95_STATUSLINE_WIN}} |
-| Status bar (whole process), Linux/macOS | p95 ≤ 150 ms | {{P95_STATUSLINE_LINUX}} |
-| Hook before each prompt, Windows | p95 ≤ 250 ms | {{P95_HOOK_WIN}} |
-| Hook before each prompt, Linux/macOS | p95 ≤ 150 ms | {{P95_HOOK_LINUX}} |
-| Session start hook, Windows | p95 ≤ 250 ms | {{P95_SESSIONSTART_WIN}} |
-| Session start hook, Linux/macOS | p95 ≤ 150 ms | {{P95_SESSIONSTART_LINUX}} |
-| Session end hook, Windows | p95 ≤ 250 ms | {{P95_SESSIONEND_WIN}} |
-| Session end hook, Linux/macOS | p95 ≤ 150 ms | {{P95_SESSIONEND_LINUX}} |
-| `/claude-hadouken:consumo`, index already built | ≤ 2 s | {{CONSUMO_QUENTE}} |
-| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | {{CONSUMO_FRIO}} |
+| Status bar (whole process), Windows | p95 ≤ 250 ms | 147 ms |
+| Status bar (whole process), Linux/macOS | p95 ≤ 150 ms | Linux 55 ms · macOS 88 ms |
+| Hook before each prompt, Windows | p95 ≤ 250 ms | 157 ms |
+| Hook before each prompt, Linux/macOS | p95 ≤ 150 ms | Linux 54 ms · macOS 55 ms |
+| Session start hook, Windows | p95 ≤ 250 ms | 170 ms |
+| Session start hook, Linux/macOS | p95 ≤ 150 ms | Linux 58 ms · macOS 60 ms |
+| Session end hook, Windows | p95 ≤ 250 ms | 138 ms |
+| Session end hook, Linux/macOS | p95 ≤ 150 ms | Linux 47 ms · macOS 49 ms |
+| `/claude-hadouken:consumo`, index already built | ≤ 2 s | Windows 436 ms · Linux 224 ms · macOS 147 ms |
+| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | Windows 1.93 s · Linux 808 ms · macOS 781 ms |
 
+- Measured on 2026-09-26, p95 of the worst scenario in each row: Windows on an Intel Core i7-7700HQ (8 logical cores, Node 24) with the machine idle; Linux and macOS on GitHub Actions runners (`ubuntu-latest` and `macos-latest`, Node 24), the CI `bench` job.
 - The bar and the hooks are measured over 100 runs, from process start to exit, with a worst-case disk: 1,000 registered sessions and the state at its 50-session cap; for the hooks, the notice memory is full as well.
 - The report is measured over 500 MB of synthetic transcripts (216 files) and one repo answered by the fake `gh`, with no network.
-- The Windows target is higher because Node's startup alone takes 100 to 136 ms on a Windows development machine. The bar runs in the background and never blocks typing.
+- The Windows target is higher because Node's startup alone, with no script at all, already takes 76 ms (p50) and 94 ms (p95) on the same Windows machine. The bar runs in the background and never blocks typing.
 - The session start and end hooks run once per session and have the same target as the bar and the prompt hook. On top of the target, every hook has a 5 s ceiling in `hooks.json`.
 
 Why the report is fast the second time: the transcript index is incremental and only re-reads what changed; completed GitHub runs are cached.

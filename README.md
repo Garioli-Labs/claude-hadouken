@@ -454,20 +454,21 @@ Nenhuma falha ou lentidão do plugin pode travar o Claude. As metas são medidas
 
 | Operação | Meta | Medido |
 |---|---|---|
-| Barra de status (processo inteiro), Windows | p95 ≤ 250 ms | {{P95_STATUSLINE_WIN}} |
-| Barra de status (processo inteiro), Linux/macOS | p95 ≤ 150 ms | {{P95_STATUSLINE_LINUX}} |
-| Hook antes de cada prompt, Windows | p95 ≤ 250 ms | {{P95_HOOK_WIN}} |
-| Hook antes de cada prompt, Linux/macOS | p95 ≤ 150 ms | {{P95_HOOK_LINUX}} |
-| Hook de início de sessão, Windows | p95 ≤ 250 ms | {{P95_SESSIONSTART_WIN}} |
-| Hook de início de sessão, Linux/macOS | p95 ≤ 150 ms | {{P95_SESSIONSTART_LINUX}} |
-| Hook de fim de sessão, Windows | p95 ≤ 250 ms | {{P95_SESSIONEND_WIN}} |
-| Hook de fim de sessão, Linux/macOS | p95 ≤ 150 ms | {{P95_SESSIONEND_LINUX}} |
-| `/claude-hadouken:consumo`, índice já montado | ≤ 2 s | {{CONSUMO_QUENTE}} |
-| `/claude-hadouken:consumo`, índice do zero | ≤ 15 s | {{CONSUMO_FRIO}} |
+| Barra de status (processo inteiro), Windows | p95 ≤ 250 ms | 147 ms |
+| Barra de status (processo inteiro), Linux/macOS | p95 ≤ 150 ms | Linux 55 ms · macOS 88 ms |
+| Hook antes de cada prompt, Windows | p95 ≤ 250 ms | 157 ms |
+| Hook antes de cada prompt, Linux/macOS | p95 ≤ 150 ms | Linux 54 ms · macOS 55 ms |
+| Hook de início de sessão, Windows | p95 ≤ 250 ms | 170 ms |
+| Hook de início de sessão, Linux/macOS | p95 ≤ 150 ms | Linux 58 ms · macOS 60 ms |
+| Hook de fim de sessão, Windows | p95 ≤ 250 ms | 138 ms |
+| Hook de fim de sessão, Linux/macOS | p95 ≤ 150 ms | Linux 47 ms · macOS 49 ms |
+| `/claude-hadouken:consumo`, índice já montado | ≤ 2 s | Windows 436 ms · Linux 224 ms · macOS 147 ms |
+| `/claude-hadouken:consumo`, índice do zero | ≤ 15 s | Windows 1,93 s · Linux 808 ms · macOS 781 ms |
 
+- Medido em 26/09/2026, p95 do pior cenário de cada linha: Windows num Intel Core i7-7700HQ (8 núcleos lógicos, Node 24) com a máquina parada; Linux e macOS nos runners do GitHub Actions (`ubuntu-latest` e `macos-latest`, Node 24), job `bench` do CI.
 - A barra e os hooks são medidos em 100 execuções, do início ao fim do processo, com o disco no pior caso: 1 000 sessões registradas e o estado no teto de 50 sessões; nos hooks, também a memória de avisos cheia.
 - O relatório é medido sobre 500 MB de transcripts sintéticos (216 arquivos) e um repo respondido pelo `gh` falso, sem rede.
-- A meta do Windows é maior porque só a partida do Node leva de 100 a 136 ms numa máquina de desenvolvimento Windows. A barra roda em segundo plano e não trava a digitação.
+- A meta do Windows é maior porque só a partida do Node, sem script nenhum, já leva 76 ms (p50) e 94 ms (p95) na mesma máquina Windows. A barra roda em segundo plano e não trava a digitação.
 - Os hooks de início e fim de sessão rodam uma vez por sessão e têm a mesma meta da barra e do hook de prompt. Além da meta, todo hook tem um teto de 5 s no `hooks.json`.
 
 Por que o relatório é rápido na segunda vez: o índice dos transcripts é incremental e só relê o que mudou; execuções do GitHub já concluídas ficam em cache.
