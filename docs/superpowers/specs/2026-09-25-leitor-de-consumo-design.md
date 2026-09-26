@@ -150,9 +150,11 @@ Entrada: estado lido, `alertas.json` anterior, `agora`. Saída: `{ linha | null,
 
 | Hook | Faz | Tempo máximo |
 |---|---|---|
-| SessionStart | Sincroniza o shim; injeta a linha de estado atual (ou "sem leitura") | 200 ms |
+| SessionStart | Sincroniza o shim; injeta a linha de estado atual (ou "sem leitura") | 250 ms Windows / 150 ms Linux-macOS |
 | UserPromptSubmit | Roda `alerta`; injeta a linha só se houver mudança | 250 ms Windows / 150 ms Linux-macOS |
-| SessionEnd | Anexa `{ at, session_id, cwd, model, effort, five_hour, seven_day, leitura_at, reason }` a `historico.jsonl` (campos abaixo) | 200 ms |
+| SessionEnd | Anexa `{ at, session_id, cwd, model, effort, five_hour, seven_day, leitura_at, reason }` a `historico.jsonl` (campos abaixo) | 250 ms Windows / 150 ms Linux-macOS |
+
+O tempo máximo é o p95 do processo inteiro, a mesma meta da statusline (§9). O SessionStart e o SessionEnd tinham 200 ms, sem benchmark que os conferisse; em 2026-09-26 passaram à meta da barra e do hook de prompt, medida pelo `bench/hooks-p95.mjs`. No Windows a meta fica mais folgada (250 ms: só a partida do Node leva 100–136 ms), no Linux/macOS mais estrita (150 ms).
 
 Registro do SessionEnd, uma linha JSON com as chaves nesta ordem: `at` (a hora do encerramento), `session_id`, `cwd` (do stdin do SessionEnd, saneado), `model` e `effort` (da sessão em `estado.json`), `five_hour` e `seven_day` (as janelas do estado validado, cada uma `{ used_percentage, resets_at, at }` com o `at` da própria leitura em ISO, ou `at` null quando `estado.json` está no formato anterior, de um `at` só; janela sem leitura válida é null; nenhuma é filtrada por idade), `leitura_at` (o `at` do topo do estado validado, o da leitura mais antiga entre as janelas: dá a idade da leitura na hora do encerramento) e `reason` (da lista do SessionEnd, senão `outro`). Campo que não passa na validação vira null.
 
@@ -247,10 +249,13 @@ Instalar o plugin não interfere em sessões já abertas nem nos agentes que rod
 | Operação | Meta | Como medir |
 |---|---|---|
 | statusline (início ao fim do processo) | p95 ≤ 250 ms no Windows e ≤ 150 ms no Linux/macOS (decisão do Sr. Garioli, 2026-09-25: só a partida do Node no Windows desta máquina leva 100–136 ms; a barra roda em segundo plano, sem travar nada) | 100 execuções com fixture sintética do tamanho real (`bench/statusline-p95.mjs`) |
-| hook UserPromptSubmit | p95 ≤ 250 ms no Windows e ≤ 150 ms no Linux/macOS (decisão do Sr. Garioli, 2026-09-25) | idem |
+| hook UserPromptSubmit | p95 ≤ 250 ms no Windows e ≤ 150 ms no Linux/macOS (decisão do Sr. Garioli, 2026-09-25) | 100 execuções com o disco no pior caso (`bench/hooks-p95.mjs`) |
+| hooks SessionStart e SessionEnd | p95 ≤ 250 ms no Windows e ≤ 150 ms no Linux/macOS, a mesma meta da barra (2026-09-26; antes 200 ms, §6.5) | idem |
 | `/consumo` com 7 dias de transcripts, índice quente | ≤ 2 s | tempo de parede, volume desta máquina |
 | `/consumo` com índice frio | ≤ 15 s | idem |
-| GitHub, 3 repos, cache quente | ≤ 3 s | idem |
+| GitHub, 3 repos, cache quente | ≤ 3 s | coberta pela linha `/consumo` quente com repo (nota abaixo) |
+
+A meta do GitHub com cache quente fica coberta pela linha `/consumo` quente (com repo) do `bench/consumo.mjs`. Com o cache quente (dentro do TTL de 15 min) a coleta não chama o gh: o bench confere 0 chamadas em toda rodada quente, e o GitHub só lê o cache. O bench usa 1 repo; com 3, cada um é mais um acerto do mesmo cache (que guarda até 20 repos), também sem chamada. Essa linha mede o `/consumo` inteiro contra 2 s, meta mais estrita que os 3 s.
 
 Se uma meta não for atingida, o plano registra o número medido e a decisão do Sr. Garioli antes de seguir.
 

@@ -7,12 +7,13 @@
 // keyed by a stable `id`) instead of the text report; bench/rodar-todos.mjs
 // reads it.
 //
-// Spec section 9 sets a target only for the prompt hook (UserPromptSubmit),
-// which runs before every prompt of every open session: p95 <= 250 ms on
-// Windows, <= 150 ms on Linux and macOS. SessionStart and SessionEnd run once
-// per session and have no target; their rows are informative. This script
-// only reports the numbers (and whether each prompt-hook p95 is within the
-// target of this platform); it asserts the outputs, not the target.
+// Spec section 9 gives the three hooks the status line target: p95 <= 250 ms
+// on Windows, <= 150 ms on Linux and macOS. The prompt hook (UserPromptSubmit)
+// runs before every prompt of every open session; SessionStart and SessionEnd
+// run once per session and share the same target (spec 6.5, 2026-09-26). The
+// bare `node -e ""` row is the floor, with no target. This script only reports
+// the numbers (and whether each hook p95 is within the target of this
+// platform); it asserts the outputs, not the target.
 //
 // Worst-case disk state, built in a temporary HADOUKEN_HOME that is removed at
 // the end:
@@ -194,10 +195,10 @@ try {
       argv: [hook('session-start.js')],
       stdin: JSON.stringify(inicioDe(uuid(0))),
       conferir: (out) => { linhaInicio = contexto('session start', 'SessionStart')(out); },
-      alvo: false,
+      alvo: true,
     },
-    { id: 'session-end-registrada', nome: 'session end registered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe(uuid(0))), conferir: semSaida('session end registered'), alvo: false },
-    { id: 'session-end-nao-registrada', nome: 'session end unregistered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe('nao-registrada')), conferir: semSaida('session end unregistered'), alvo: false },
+    { id: 'session-end-registrada', nome: 'session end registered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe(uuid(0))), conferir: semSaida('session end registered'), alvo: true },
+    { id: 'session-end-nao-registrada', nome: 'session end unregistered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe('nao-registrada')), conferir: semSaida('session end unregistered'), alvo: true },
     { id: 'node-vazio', nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
   ];
 
@@ -247,7 +248,7 @@ try {
     }
     console.log(`session start context: ${JSON.stringify(linhaInicio)}`);
     console.log(`history lines appended: ${historico.length}`);
-    console.log(`target (spec 9) on ${process.platform}: p95 <= ${ALVO_P95_MS} ms for the prompt hook rows; reported, not asserted`);
+    console.log(`target (spec 9) on ${process.platform}: p95 <= ${ALVO_P95_MS} ms for every hook row (not the bare node floor); reported, not asserted`);
   }
 } finally {
   fs.rmSync(home, { recursive: true, force: true });

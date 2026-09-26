@@ -37,8 +37,9 @@ const SAIDA_MAX = 16 * 1024 * 1024;
 const STDERR_LINHAS = 20;
 
 // Spec section 9 (Sr. Garioli, 2026-09-25): status line and prompt hook p95
-// <= 250 ms on Windows, <= 150 ms on Linux and macOS; /consumo warm <= 2 s,
-// cold <= 15 s.
+// <= 250 ms on Windows, <= 150 ms on Linux and macOS, and since 2026-09-26 the
+// SessionStart and SessionEnd hooks with the same target (spec 6.5);
+// /consumo warm <= 2 s, cold <= 15 s.
 const WINDOWS = process.platform === 'win32';
 const ALVO_P95_MS = WINDOWS ? 250 : 150;
 const ALVO_QUENTE_MS = 2_000;
@@ -103,7 +104,8 @@ function rodarBench(arquivo, args, env) {
 }
 
 // Rows of the p95 benches, by the stable `id` each bench gives its scenarios.
-// `alvo`: 'p95' (spec 9 target of this platform), 'sem-meta' or 'referencia'.
+// `alvo`: 'p95' (spec 9 target of this platform) or 'referencia' (the floor,
+// no target).
 const LINHAS_P95 = [
   ['statusline', 'registrada', 'statusline, sessão registrada (caminho completo)', 'p95'],
   ['statusline', 'registrada-shim', 'statusline, sessão registrada, via shim', 'p95'],
@@ -112,7 +114,9 @@ const LINHAS_P95 = [
   ['hooks', 'prompt-registrada-sem-gravar', 'hook de prompt, sessão registrada, sem gravar', 'p95'],
   ['hooks', 'prompt-registrada-grava', 'hook de prompt, sessão registrada, grava alertas.json', 'p95'],
   ['hooks', 'prompt-nao-registrada', 'hook de prompt, sessão não registrada (só o gate)', 'p95'],
-  ['hooks', 'session-start', 'hook SessionStart', 'sem-meta'],
+  ['hooks', 'session-start', 'hook SessionStart', 'p95'],
+  ['hooks', 'session-end-registrada', 'hook SessionEnd, sessão registrada (anexa ao historico.jsonl)', 'p95'],
+  ['hooks', 'session-end-nao-registrada', 'hook SessionEnd, sessão não registrada (só o gate)', 'p95'],
   ['statusline', 'node-vazio', 'piso: `node -e ""` sem script', 'referencia'],
 ];
 const LINHAS_TRANSCRIPTS = [
@@ -146,14 +150,9 @@ function tabela(resultados, falhas) {
     const p50 = ok ? linha.p50 : null;
     const p95 = ok ? linha.p95 : null;
     const n = ok ? String(linha.n) : '—';
-    let meta = '— (sem meta na spec §9)';
-    let veredito = '—';
-    if (alvo === 'p95') {
-      meta = `p95 ≤ ${ALVO_P95_MS} ms (${plataformaAlvo})`;
-      veredito = dentro(p95, ALVO_P95_MS);
-    } else if (alvo === 'referencia') {
-      meta = '— (referência: a partida do Node)';
-    }
+    const comMeta = alvo === 'p95';
+    const meta = comMeta ? `p95 ≤ ${ALVO_P95_MS} ms (${plataformaAlvo})` : '— (referência: a partida do Node)';
+    const veredito = comMeta ? dentro(p95, ALVO_P95_MS) : '—';
     saida.push(linhaTabela([medida, fmtMs(p50), fmtMs(p95), n, meta, veredito]));
   }
   const dadosT = resultados.transcripts?.dados;
