@@ -30,7 +30,7 @@ test('pesos e sistemas', () => {
   assert.equal(sistemaDoJob(['windows-latest']), 'windows');
   assert.equal(sistemaDoJob(['macos-14']), 'macos');
   assert.equal(sistemaDoJob(['ubuntu-latest']), 'linux');
-  assert.equal(sistemaDoJob(['self-hosted', 'linux']), 'self-hosted');
+  assert.equal(sistemaDoJob(['self-hosted', 'linux']), 'naoClassificado');
 });
 
 test('minutosJob arredonda para cima e trata ausência', () => {
@@ -142,12 +142,12 @@ const idsDeJobs = (eps) => eps.filter((e) => e.includes('/jobs')).map((e) => e.s
 // ---------------------------------------------------------------- funções puras
 
 test('pesoSistema devolve 0 fora dos três sistemas, inclusive membros de Object.prototype', () => {
-  for (const s of ['self-hosted', 'outro', 'LINUX', 'constructor', '__proto__', 'toString', 'hasOwnProperty', '', undefined, null, 1, {}, ['linux']]) {
+  for (const s of ['naoClassificado', 'self-hosted', 'outro', 'LINUX', 'constructor', '__proto__', 'toString', 'hasOwnProperty', '', undefined, null, 1, {}, ['linux']]) {
     assert.equal(pesoSistema(s), 0, String(s));
   }
 });
 
-test('sistemaDoJob usa conjuntos fixos de rótulos hospedados; desconhecido vira self-hosted', () => {
+test('sistemaDoJob usa conjuntos fixos de rótulos hospedados; desconhecido vira naoClassificado', () => {
   // Todos os rótulos da tabela de runners padrão do GitHub (docs.github.com,
   // github-hosted-runners, lida em 2026-09-25), x64 e arm64, Intel e M1.
   const oficiais = {
@@ -166,15 +166,15 @@ test('sistemaDoJob usa conjuntos fixos de rótulos hospedados; desconhecido vira
     // Fora da estimativa: ubuntu-slim (1 núcleo, preço próprio), runners
     // maiores e rótulos próprios da organização, variações que não existem
     // na tabela oficial e rótulos com qualquer sobra de texto.
-    [['ubuntu-slim'], 'self-hosted'], [['macos-15-xlarge'], 'self-hosted'], [['macos-15-large'], 'self-hosted'],
-    [['macos-latest-xlarge'], 'self-hosted'], [['ubuntu-latest-8-cores'], 'self-hosted'], [['windows-latest-8-cores'], 'self-hosted'],
-    [['ubuntu-latest-arm'], 'self-hosted'], [['ubuntu-24.04-arm64'], 'self-hosted'], [['ubuntu-arm'], 'self-hosted'],
-    [['windows-11'], 'self-hosted'], [['windows-2022-arm'], 'self-hosted'], [['windows-11-arm64'], 'self-hosted'], [['windows-latest-arm'], 'self-hosted'],
-    [['macos-latest-intel'], 'self-hosted'], [['macos-15-arm64'], 'self-hosted'], [['macos-15-intel-xlarge'], 'self-hosted'],
-    [['xcode'], 'self-hosted'], [['xcode-latest'], 'self-hosted'], [['xcode-27-intel'], 'self-hosted'],
-    [['linux'], 'self-hosted'], [['gpu'], 'self-hosted'], [[], 'self-hosted'],
-    [['ubuntu-latest; rm -rf ~'], 'self-hosted'], [[' ubuntu-latest'], 'self-hosted'], [['ubuntu-latest\n'], 'self-hosted'],
-    [['ubuntu-24.04-arm\n'], 'self-hosted'], [['macos-15-intel '], 'self-hosted'],
+    [['ubuntu-slim'], 'naoClassificado'], [['macos-15-xlarge'], 'naoClassificado'], [['macos-15-large'], 'naoClassificado'],
+    [['macos-latest-xlarge'], 'naoClassificado'], [['ubuntu-latest-8-cores'], 'naoClassificado'], [['windows-latest-8-cores'], 'naoClassificado'],
+    [['ubuntu-latest-arm'], 'naoClassificado'], [['ubuntu-24.04-arm64'], 'naoClassificado'], [['ubuntu-arm'], 'naoClassificado'],
+    [['windows-11'], 'naoClassificado'], [['windows-2022-arm'], 'naoClassificado'], [['windows-11-arm64'], 'naoClassificado'], [['windows-latest-arm'], 'naoClassificado'],
+    [['macos-latest-intel'], 'naoClassificado'], [['macos-15-arm64'], 'naoClassificado'], [['macos-15-intel-xlarge'], 'naoClassificado'],
+    [['xcode'], 'naoClassificado'], [['xcode-latest'], 'naoClassificado'], [['xcode-27-intel'], 'naoClassificado'],
+    [['linux'], 'naoClassificado'], [['gpu'], 'naoClassificado'], [[], 'naoClassificado'],
+    [['ubuntu-latest; rm -rf ~'], 'naoClassificado'], [[' ubuntu-latest'], 'naoClassificado'], [['ubuntu-latest\n'], 'naoClassificado'],
+    [['ubuntu-24.04-arm\n'], 'naoClassificado'], [['macos-15-intel '], 'naoClassificado'],
   ];
   for (const [labels, esperado] of casos) assert.equal(sistemaDoJob(labels), esperado, JSON.stringify(labels));
 });
@@ -197,24 +197,27 @@ test('pesos com 2 casas: ponderado é exato em centésimos, sem resíduo de pont
   }
 });
 
-test('sistemaDoJob com vários rótulos fica com o mais caro; self-hosted sempre vence', () => {
+test('sistemaDoJob com vários rótulos fica com o mais caro; o rótulo self-hosted sempre vence e vira naoClassificado', () => {
   assert.equal(sistemaDoJob(['windows-latest', 'macos-14']), 'macos');
   assert.equal(sistemaDoJob(['macos-14', 'windows-latest']), 'macos');
   assert.equal(sistemaDoJob(['ubuntu-latest', 'windows-latest']), 'windows');
   assert.equal(sistemaDoJob(['ubuntu-latest', 'gpu']), 'linux');
-  assert.equal(sistemaDoJob(['macos-14', 'self-hosted']), 'self-hosted');
-  assert.equal(sistemaDoJob(['SELF-HOSTED', 'ubuntu-latest']), 'self-hosted');
+  assert.equal(sistemaDoJob(['macos-14', 'self-hosted']), 'naoClassificado');
+  assert.equal(sistemaDoJob(['SELF-HOSTED', 'ubuntu-latest']), 'naoClassificado');
+  // Um só nome para o que fica fora da estimativa: o antigo 'self-hosted'
+  // nunca sai de sistemaDoJob.
+  for (const labels of [['self-hosted'], ['gpu'], [], null]) assert.notEqual(sistemaDoJob(labels), 'self-hosted');
 });
 
 test('sistemaDoJob com entrada hostil nunca lança', () => {
   const proxy = new Proxy(['ubuntu-latest'], { get() { throw new Error('x'); } });
   for (const labels of [null, undefined, 'ubuntu-latest', 42, { length: 1, 0: 'ubuntu-latest' }, proxy]) {
-    assert.equal(sistemaDoJob(labels), 'self-hosted');
+    assert.equal(sistemaDoJob(labels), 'naoClassificado');
   }
   assert.equal(sistemaDoJob([null, 1, {}, ['macos-14'], 'ubuntu-latest']), 'linux');
   assert.equal(sistemaDoJob([`${'x'.repeat(100)}`, 'windows-latest']), 'windows');
   // Só os primeiros 64 rótulos contam: lista gigante não vira trabalho gigante.
-  assert.equal(sistemaDoJob([...Array(64).fill('gpu'), 'macos-14']), 'self-hosted');
+  assert.equal(sistemaDoJob([...Array(64).fill('gpu'), 'macos-14']), 'naoClassificado');
   assert.equal(sistemaDoJob(['ubuntu-latest', ...Array(10_000).fill('macos-14')]), 'macos');
 });
 
@@ -1073,6 +1076,10 @@ test('executor real: nunca rejeita, nem com argumento inválido', async () => {
 // Um filho node que grava o próprio pid e dorme 60 s: faz o papel de um gh
 // travado. O pid permite provar que o processo não sobrevive à chamada.
 const dorminhoco = (arqPid) => ['-e', `require('fs').writeFileSync(${JSON.stringify(arqPid)}, String(process.pid)); setTimeout(() => {}, 60000)`];
+// O mesmo, mas ignorando SIGTERM: no macOS e no Linux o abort do spawn manda
+// SIGTERM, e só o SIGKILL do executor mata este filho. O handler é instalado
+// antes de o pid ser gravado, para que o abort nunca chegue antes dele.
+const teimoso = (arqPid) => ['-e', `process.on('SIGTERM', () => {}); require('fs').writeFileSync(${JSON.stringify(arqPid)}, String(process.pid)); setTimeout(() => {}, 60000)`];
 const vivo = (pid) => {
   try {
     process.kill(pid, 0);
@@ -1081,6 +1088,23 @@ const vivo = (pid) => {
     return e.code === 'EPERM';
   }
 };
+// Limpeza depois de um teste que falhou: não deixa um filho dormindo 60 s.
+function matar(arqPid) {
+  let pid = Number.NaN;
+  try { pid = Number(fs.readFileSync(arqPid, 'utf8')); } catch { /* o filho nem gravou o pid */ }
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !vivo(pid)) return;
+  try { process.kill(pid, 'SIGKILL'); } catch { /* saiu entre a checagem e o kill */ }
+}
+const PENDENTE = Symbol('pendente');
+// A promessa, ou PENDENTE se ela não resolver em `ms`; o relógio é desfeito.
+async function ate(promessa, ms) {
+  let relogio;
+  try {
+    return await Promise.race([promessa, new Promise((res) => { relogio = setTimeout(res, ms, PENDENTE); })]);
+  } finally {
+    clearTimeout(relogio);
+  }
+}
 async function esperarPid(arqPid, limiteMs = 15_000) {
   const fim = Date.now() + limiteMs;
   while (Date.now() < fim) {
@@ -1135,6 +1159,35 @@ test('executor real: abortar o sinal mata o filho, e só resolve depois que ele 
   });
 });
 
+// Fix round 2 (I-1): o execFile não repassa killSignal ao abort do spawn, que
+// manda SIGTERM, e o AbortError desarma o timeout do executor. Sem o SIGKILL
+// explícito, um gh que ignore SIGTERM sobrevive ao prazo. No Windows todo
+// sinal é TerminateProcess, então este teste não teria como falhar lá.
+test('executor real (POSIX): abortar mata com SIGKILL um filho que ignora SIGTERM, até 1 s depois do prazo', { skip: process.platform === 'win32' && 'no Windows todo sinal é TerminateProcess' }, async () => {
+  await comExecFileEspiado(async (filhos) => {
+    const arqPid = path.join(home, 'pid-teimoso');
+    const ac = new AbortController();
+    // Timeout do executor muito maior que o teste: só o abort pode matar.
+    const chamada = criarExecutorGh({ executavel: node, timeoutMs: 120_000 })(teimoso(arqPid), ac.signal);
+    try {
+      const pid = await esperarPid(arqPid);
+      assert.equal(vivo(pid), true);
+      assert.equal(filhos.length, 1);
+      // O abort é o prazo da coleta (chamar aborta o sinal quando ele passa).
+      ac.abort();
+      const r = await ate(chamada, 1000);
+      assert.notEqual(r, PENDENTE, 'ainda pendente 1 s depois do prazo: o filho sobreviveu ao SIGTERM');
+      assert.equal(saiu(filhos[0]), true, 'resolveu antes de o filho sair');
+      assert.equal(filhos[0].signalCode, 'SIGKILL');
+      assert.deepEqual(r, { ok: false, motivo: 'tempo esgotado' });
+      assert.equal(vivo(pid), false, 'o filho sobreviveu ao abort');
+    } finally {
+      matar(arqPid);
+      await ate(chamada, 5000);
+    }
+  });
+});
+
 test('executor real: sinal já abortado não chega a iniciar o processo; sinal que não é AbortSignal é ignorado', async () => {
   const marca = path.join(home, 'nao-rodou');
   const script = ['-e', `require('fs').writeFileSync(${JSON.stringify(marca)}, 'x'); process.stdout.write('rodou')`];
@@ -1151,24 +1204,30 @@ test('executor real: sinal já abortado não chega a iniciar o processo; sinal q
 
 test('coleta com o executor real: o prazo mata o filho travado e nenhum processo sobrevive à coleta', async () => {
   // A coleta roda num node à parte: se o filho travado sobrevivesse, aquele
-  // node só terminaria junto com ele (60 s), não logo depois do prazo.
+  // node só terminaria junto com ele (60 s), não logo depois do prazo. O
+  // filho ignora SIGTERM (fix round 2): no macOS e no Linux só o SIGKILL do
+  // executor o mata; no Windows o teste vale como antes.
   const arqPid = path.join(home, 'pid-coleta');
   const modulo = new URL('../src/github.js', import.meta.url).href;
   const script = [
     `import { coletarGithub, criarExecutorGh } from ${JSON.stringify(modulo)};`,
     `const real = criarExecutorGh({ executavel: process.execPath, timeoutMs: 120000 });`,
     `let visto = null;`,
-    `const gh = (args, sinal) => { visto = sinal; return real(${JSON.stringify(dorminhoco(arqPid))}, sinal); };`,
+    `const gh = (args, sinal) => { visto = sinal; return real(${JSON.stringify(teimoso(arqPid))}, sinal); };`,
     `const r = await coletarGithub({ repos: ['o/r', 'p/q'], agoraMs: ${agora}, gh, prazoMs: 3000 });`,
     `process.stdout.write(JSON.stringify({ r, abortado: visto instanceof AbortSignal && visto.aborted }));`,
   ].join('\n');
-  const inicio = Date.now();
-  const filho = spawnSync(node, ['--input-type=module', '-e', script], { env: { ...process.env, HADOUKEN_HOME: home }, encoding: 'utf8', timeout: 45_000, windowsHide: true });
-  const duracao = Date.now() - inicio;
-  assert.equal(filho.status, 0, filho.stderr);
-  assert.deepEqual(JSON.parse(filho.stdout), { r: { 'o/r': { indisponivel: 'tempo esgotado' }, 'p/q': { indisponivel: 'tempo esgotado' } }, abortado: true });
-  assert.ok(duracao < 15_000, `o node da coleta durou ${duracao} ms`);
-  assert.equal(vivo(Number(fs.readFileSync(arqPid, 'utf8'))), false, 'o filho travado sobreviveu à coleta');
+  try {
+    const inicio = Date.now();
+    const filho = spawnSync(node, ['--input-type=module', '-e', script], { env: { ...process.env, HADOUKEN_HOME: home }, encoding: 'utf8', timeout: 45_000, windowsHide: true });
+    const duracao = Date.now() - inicio;
+    assert.equal(filho.status, 0, filho.stderr);
+    assert.deepEqual(JSON.parse(filho.stdout), { r: { 'o/r': { indisponivel: 'tempo esgotado' }, 'p/q': { indisponivel: 'tempo esgotado' } }, abortado: true });
+    assert.ok(duracao < 15_000, `o node da coleta durou ${duracao} ms`);
+    assert.equal(vivo(Number(fs.readFileSync(arqPid, 'utf8'))), false, 'o filho travado sobreviveu à coleta');
+  } finally {
+    matar(arqPid);
+  }
 });
 
 test('coletarGithub com o executor real e gh ausente: uma tentativa, todos indisponíveis', async () => {

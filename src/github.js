@@ -7,7 +7,8 @@ import { dirDados, gravarJsonAtomico, instante, lerJson } from './estado.js';
 // GitHub, então este módulo é parcimonioso: no máximo 3 repos e 2 páginas de
 // execuções por chamada, jobs só de execução nova (os de execução concluída
 // ficam em cache), orçamento de 60 chamadas de jobs, prazo total (o gh que
-// passa dele é morto) e cache de 15 min em que nenhuma chamada é feita.
+// passa dele leva SIGKILL, mesmo que ignore SIGTERM) e cache de 15 min em que
+// nenhuma chamada é feita.
 //
 // Tudo o que vem do GitHub é não confiável: cada resposta passa por
 // JSON.parse protegido e por um schema; só saem números validados e rótulos
@@ -147,30 +148,30 @@ export function pesoSistema(sistema) {
   return pesoCentesimos(sistema) / 100;
 }
 
-// Sistema do job pelos rótulos: 'self-hosted' se algum rótulo for
+// Sistema do job pelos rótulos: 'naoClassificado' se algum rótulo for
 // self-hosted; senão o mais caro entre os rótulos hospedados conhecidos (um
-// job com windows-latest e macos-14 vai para macOS); senão 'self-hosted'
-// (addendum B: rótulo desconhecido vira 'self-hosted', peso 0; no resumo o
-// balde se chama naoClassificado). Examina só os 64 primeiros rótulos, cada
-// um com até 64 caracteres, em minúsculas. Entrada que não é lista, ou que
-// lança, vira 'self-hosted'.
+// job com windows-latest e macos-14 vai para macOS); senão 'naoClassificado'
+// (addendum B: rótulo desconhecido, maior ou próprio vira 'naoClassificado',
+// peso 0, o mesmo nome do balde do resumo). Examina só os 64 primeiros
+// rótulos, cada um com até 64 caracteres, em minúsculas. Entrada que não é
+// lista, ou que lança, vira 'naoClassificado'.
 export function sistemaDoJob(labels) {
   try {
-    if (!Array.isArray(labels)) return 'self-hosted';
+    if (!Array.isArray(labels)) return 'naoClassificado';
     let melhor = null;
     const n = Math.min(labels.length, MAX_LABELS);
     for (let i = 0; i < n; i++) {
       const rotulo = labels[i];
       if (typeof rotulo !== 'string' || rotulo.length > MAX_LABEL) continue;
       const r = rotulo.toLowerCase();
-      if (r === 'self-hosted') return 'self-hosted';
+      if (r === 'self-hosted') return 'naoClassificado';
       for (const [sistema, padrao] of ROTULOS) {
         if (padrao.test(r) && (melhor === null || pesoCentesimos(sistema) > pesoCentesimos(melhor))) melhor = sistema;
       }
     }
-    return melhor ?? 'self-hosted';
+    return melhor ?? 'naoClassificado';
   } catch {
-    return 'self-hosted';
+    return 'naoClassificado';
   }
 }
 
@@ -253,9 +254,12 @@ function sinalValido(sinal) {
 // Executor do gh: `execFile`, nunca um shell; argumentos passados como lista,
 // literais. Timeout de 15 s, saída de até 8 MB, janela oculta no Windows,
 // stdin fechado, ambiente com MSYS_NO_PATHCONV=1 e sem variáveis que mudem a
-// saída. Recebe (args, sinal): abortar o sinal (o prazo da coleta) mata o gh
-// com SIGKILL, e a promessa só resolve depois que o processo saiu, para que
-// nenhum gh sobreviva à coleta; sinal já abortado nem inicia o processo.
+// saída. Recebe (args, sinal): abortar o sinal (o prazo da coleta) mata o gh.
+// O abort passa pelo spawn, que manda SIGTERM (o execFile não repassa
+// killSignal a ele) e faz o execFile desarmar o próprio timeout; por isso o
+// callback manda SIGKILL em seguida, e a promessa só resolve depois que o
+// processo saiu. Assim nem um gh que ignore SIGTERM sobrevive à coleta. Sinal
+// já abortado nem inicia o processo.
 // Devolve { ok: true, stdout } ou { ok: false, motivo } com motivo de uma
 // lista fixa. Nunca rejeita. As opções existem para os testes, que usam o
 // próprio node (ou um nome inexistente) no lugar do gh e um diretório
@@ -273,8 +277,10 @@ export function criarExecutorGh(opcoes) {
         resolve(falha('tempo esgotado'));
         return;
       }
-      // O gh só lê; SIGKILL garante que ele morra no timeout ou no abort,
-      // mesmo que ignore SIGTERM (no Windows todo sinal é TerminateProcess).
+      // O gh só lê, então pode morrer sem aviso. killSignal vale só para o
+      // timeout do execFile: SIGKILL, mesmo que o gh ignore SIGTERM. O abort
+      // não usa killSignal e é escalado para SIGKILL no callback abaixo. No
+      // Windows todo sinal é TerminateProcess.
       const filho = execFile(executavel, [...args], {
         env: ambienteGh(), timeout: timeoutMs, maxBuffer, windowsHide: true, encoding: 'utf8', shell: false,
         killSignal: 'SIGKILL', signal, ...(cwd === undefined ? {} : { cwd }),
@@ -284,10 +290,16 @@ export function criarExecutorGh(opcoes) {
           return;
         }
         const r = falha(motivoDoErro(erro, stderr));
-        // No abort o execFile chama de volta assim que manda o sinal, antes de
-        // o processo sair; espera a saída para não deixar um gh vivo.
-        if (erro.code === 'ABORT_ERR' && filho.exitCode === null && filho.signalCode === null) filho.once('exit', () => resolve(r));
-        else resolve(r);
+        // No abort o spawn já mandou SIGTERM e o execFile chama de volta na
+        // hora, com o timeout desarmado e o processo talvez ainda vivo: um gh
+        // que trate ou ignore SIGTERM ficaria rodando. Manda SIGKILL e só
+        // resolve na saída.
+        if (erro.code === 'ABORT_ERR' && filho.exitCode === null && filho.signalCode === null) {
+          filho.once('exit', () => resolve(r));
+          try { filho.kill('SIGKILL'); } catch { /* já saiu */ }
+        } else {
+          resolve(r);
+        }
       });
       filho.stdin?.on('error', () => { /* o filho pode já ter saído */ });
       filho.stdin?.end();
@@ -334,9 +346,12 @@ const invocar = async (gh, endpoint, sinal) => gh(['api', endpoint], sinal);
 // Uma chamada: sempre ['api', endpoint], endpoint relativo montado só com o
 // repo validado, segmentos fixos e números. Depois de um motivo fatal ou do
 // prazo, não chama mais nada. Cada chamada leva o próprio AbortSignal; a que
-// passa do prazo é abandonada e o sinal é abortado, o que faz o executor
-// padrão matar o gh. Assim a coleta nunca dura mais que o prazo e nenhum gh
-// fica vivo depois dela. Um executor injetado pode ignorar o sinal.
+// passa do prazo é abandonada e o sinal é abortado. No executor padrão o
+// abort manda SIGTERM e em seguida SIGKILL ao gh, os dois de forma síncrona
+// dentro de abort() (ver criarExecutorGh). Assim a coleta nunca dura mais que
+// o prazo e nenhum gh continua rodando depois dela; o processo morto pode
+// ainda não ter sido recolhido quando a coleta resolve. Um executor injetado
+// pode ignorar o sinal.
 async function chamar(ctx, endpoint) {
   if (ctx.fatal !== null) return falha(ctx.fatal);
   const resta = ctx.fim - performance.now();
