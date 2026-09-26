@@ -162,6 +162,134 @@ test('só uma janela válida: a outra aparece como —', () => {
   assert.match(formatarMarkdown(r), /^5h —$/m);
 });
 
+// Cada janela com o próprio `at` (I-2 da revisão final): o `at` do topo virou
+// o da janela mais antiga, e a idade do relatório passou a ser por janela. Os
+// testes valem com o estado.js que só conhece o `at` do topo e com o que conhece
+// o de cada janela: a idade sai do `at` da janela no estado.json como lido.
+const MIN = 60_000;
+const atras = (ms) => new Date(agora - ms).toISOString();
+const porJanela = (a5, a7, topo) => ({
+  versao: 1, at: topo,
+  five_hour: { used_percentage: 42, resets_at: s + 3600, at: a5 },
+  seven_day: { used_percentage: 48, resets_at: s + 86400, at: a7 },
+  sessoes: {},
+});
+const limitesDe = (e) => montarRelatorio({ estado: e, agoraMs: agora, claude, github: {} });
+// Nenhuma idade acima de 60 min sai no markdown, qualquer que seja a frase.
+function idadesImpressas(texto) {
+  return [...texto.matchAll(/(\d+) min atrás/g)].map((m) => Number(m[1]));
+}
+
+test('idade por janela: cada janela com a sua, o topo é a mais antiga, uma frase com as duas', () => {
+  const r = limitesDe(porJanela(atras(2 * MIN + 30_000), atras(40 * MIN), atras(40 * MIN)));
+  assert.equal(r.limites.five_hour.idade_min, 2, 'piso em minutos');
+  assert.equal(r.limites.seven_day.idade_min, 40);
+  assert.equal(r.limites.idade_min, 40, 'o topo é a leitura mais antiga mostrada');
+  const texto = formatarMarkdown(r);
+  assert.match(texto, /^5h 42% \(faixa normal\); reset \d\d:\d\d\.$/m);
+  assert.match(texto, /^7d 48% usado/m);
+  assert.match(texto, /^Leitura de 2 min atrás \(5h\) e de 40 min atrás \(7d\)\.$/m);
+  assert.equal(texto.match(/Leitura de/g).length, 1);
+  // Mesma idade nas duas: uma frase só, sem rótulo de janela.
+  const igual = formatarMarkdown(limitesDe(porJanela(atras(5 * MIN), atras(5 * MIN), atras(5 * MIN))));
+  assert.match(igual, /^Leitura de 5 min atrás\.$/m);
+  assert.doesNotMatch(igual, /\(5h\)|\(7d\)/);
+});
+
+test('idade por janela: formato de antes (sem `at` na janela, ou null) usa o `at` do topo', () => {
+  const semAt = { ...estado, at: atras(7 * MIN) };
+  const nulo = { ...semAt, five_hour: { ...estado.five_hour, at: null }, seven_day: { ...estado.seven_day, at: null } };
+  for (const e of [semAt, nulo]) {
+    const r = limitesDe(e);
+    assert.equal(r.limites.five_hour.idade_min, 7);
+    assert.equal(r.limites.seven_day.idade_min, 7);
+    assert.equal(r.limites.idade_min, 7);
+    assert.match(formatarMarkdown(r), /^Leitura de 7 min atrás\.$/m);
+  }
+});
+
+test('idade por janela: a janela com leitura própria de mais de 1 h some, mesmo com o topo fresco', () => {
+  // Topo forjado fresco; o `at` da janela de 5 h diz 90 min. Ela nunca sai
+  // como atual nem empresta idade à de 7d.
+  const r = limitesDe(porJanela(atras(90 * MIN), atras(1 * MIN), atras(1 * MIN)));
+  assert.equal(r.limites.five_hour, null);
+  assert.equal(r.limites.seven_day.idade_min, 1);
+  assert.equal(r.limites.idade_min, 1);
+  const texto = formatarMarkdown(r);
+  assert.match(texto, /^5h —$/m);
+  assert.doesNotMatch(texto, /42%/);
+  assert.match(texto, /^Leitura de 1 min atrás\.$/m);
+  assert.deepEqual(idadesImpressas(texto), [1]);
+});
+
+test('idade por janela: uma janela envelheceu e a outra é fresca (topo = a mais antiga) nunca mostra mais de 60 min', () => {
+  // O formato que o estado.js por janela grava: topo = a leitura mais antiga.
+  // Com o estado.js de antes (só o topo) é sem leitura; com o de depois, só a
+  // janela fresca. Nos dois, nenhuma idade acima de 60 min e nunca o 42%.
+  const r = limitesDe(porJanela(atras(90 * MIN), atras(1 * MIN), atras(90 * MIN)));
+  const texto = formatarMarkdown(r);
+  assert.doesNotMatch(texto, /42%/);
+  assert.ok(idadesImpressas(texto).every((i) => i <= 60), texto);
+  if (r.limites === null) {
+    assert.equal(r.limites_motivo, 'sem_leitura');
+  } else {
+    assert.equal(r.limites.five_hour, null);
+    assert.equal(r.limites.seven_day.idade_min, 1);
+    assert.equal(r.limites.idade_min, 1);
+    assert.match(texto, /^Leitura de 1 min atrás\.$/m);
+  }
+  // Com as duas velhas pelo próprio `at`, é sem leitura em qualquer versão.
+  const velhas = limitesDe(porJanela(atras(61 * MIN), atras(90 * MIN), atras(90 * MIN)));
+  assert.equal(velhas.limites, null);
+  assert.equal(velhas.limites_motivo, 'sem_leitura');
+});
+
+test('idade por janela: `at` próprio inválido descarta só aquela janela; relógio adiantado até 5 min é idade 0', () => {
+  const invalidos = ['ontem', '', 42, 0, false, {}, [], atras(-10 * MIN), 'x'.repeat(100), `${atras(MIN)}${' '.repeat(80)}`];
+  for (const at of invalidos) {
+    const r = limitesDe(porJanela(at, atras(3 * MIN), atras(3 * MIN)));
+    assert.equal(r.limites.five_hour, null, String(at));
+    assert.equal(r.limites.seven_day.idade_min, 3, String(at));
+    assert.equal(r.limites.idade_min, 3, String(at));
+    const texto = formatarMarkdown(r);
+    assert.match(texto, /^5h —$/m, String(at));
+    assert.match(texto, /^Leitura de 3 min atrás\.$/m, String(at));
+  }
+  const adiantado = limitesDe(porJanela(atras(-4 * MIN), atras(3 * MIN), atras(3 * MIN)));
+  assert.equal(adiantado.limites.five_hour.idade_min, 0, 'nunca negativa');
+  assert.match(formatarMarkdown(adiantado), /^Leitura de 0 min atrás \(5h\) e de 3 min atrás \(7d\)\.$/m);
+});
+
+test('idade por janela: entradas hostis nunca lançam nem imprimem idade inválida', () => {
+  const lanca = { used_percentage: 42, resets_at: s + 3600, get at() { throw new Error('x'); } };
+  const estados = [
+    { ...estado, five_hour: lanca },
+    { ...estado, seven_day: { ...estado.seven_day, at: new Proxy({}, { get() { throw new Error('x'); } }) } },
+    { ...estado, five_hour: { ...estado.five_hour, at: Object.create(null) } },
+    { ...estado, at: 'ontem', five_hour: { ...estado.five_hour, at: atras(MIN) }, seven_day: { ...estado.seven_day, at: null } },
+  ];
+  for (const e of estados) {
+    const r = limitesDe(e);
+    const texto = formatarMarkdown(r);
+    assert.equal(texto.split('\n')[0], AVISO_DADOS);
+    assert.doesNotMatch(texto, /NaN|undefined|\[object|-\d+ min/);
+    assert.ok(idadesImpressas(texto).every((i) => i <= 60), texto);
+  }
+  // JSON montado à mão: idade por janela fora do formato cai para a do topo, e
+  // uma janela sem linha (—) não dá idade.
+  const mao = (f5, f7, topo) => formatarMarkdown({ limites: { idade_min: topo, five_hour: f5, seven_day: f7 } });
+  const t5 = { used_percentage: 42, resets_at: s + 3600, faixa: 'ok' };
+  const t7 = { used_percentage: 48, resets_at: s + 86400, esperado: 30, modo: 'normal' };
+  for (const ruim of [-3, 1.5, Number.NaN, '5', null, undefined, 2 ** 60]) {
+    const texto = mao({ ...t5, idade_min: ruim }, { ...t7, idade_min: ruim }, 4);
+    assert.match(texto, /^Leitura de 4 min atrás\.$/m, String(ruim));
+    assert.doesNotMatch(texto, /NaN|undefined|-\d+ min/, String(ruim));
+  }
+  const semLinha = mao({ used_percentage: Number.NaN, idade_min: 9 }, { ...t7, idade_min: 2 }, 9);
+  assert.match(semLinha, /^5h —$/m);
+  assert.match(semLinha, /^Leitura de 2 min atrás\.$/m, 'a idade da janela sem linha não aparece');
+});
+
 test('nulos do GitHub e acerto de cache null aparecem como —, nunca 0', () => {
   const nulo = repo({
     publico: null,

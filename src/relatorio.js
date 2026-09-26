@@ -1,6 +1,6 @@
 import { MAX_ROTULOS_SESSAO, MAX_SESSOES, pesoConsumo } from './agregacao.js';
 import { faixa5h, faixa7d } from './alerta.js';
-import { instante, limitesValidos, validarEstado } from './estado.js';
+import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
 import { diaHora, effortValido, formatarTokens, horaLocal, sanear } from './util.js';
 
@@ -237,29 +237,49 @@ function montarClaude(c) {
 
 // ------------------------------------------------------------------ limites
 
+// Instante (ms) da leitura de uma janela, no estado.json como lido: o `at`
+// da própria janela (cada janela tem o seu desde o I-2 da revisão final) ou,
+// ausente ou null (formato de antes), o `at` do topo. `at` próprio presente e
+// inválido não tem leitura (null), como em estado.js, que descarta a janela.
+function leituraDaJanela(estado, k, tTopo, agoraMs) {
+  const at = ler(ler(estado, k), 'at');
+  return at === undefined || at === null ? tTopo : instante(at, agoraMs);
+}
+
+// Cada janela sai com a idade da própria leitura (idade_min) e só se ela tiver
+// até LIMITE_VELHO_MS, a mesma régua de limitesValidos: o `at` do topo é o da
+// janela mais antiga, e uma janela que envelheceu nunca empresta a idade dela
+// à outra nem aparece como atual. `idade_min` do topo é a da leitura mais
+// antiga entre as mostradas.
 function montarLimites(estado, agoraMs) {
   const e = validarEstado(estado, agoraMs);
   const lim = e === null ? null : limitesValidos(e, agoraMs);
-  if (lim === null) {
+  const tTopo = instante(ler(estado, 'at'), agoraMs);
+  const idade = (k) => {
+    const t = lim?.[k] ? leituraDaJanela(estado, k, tTopo, agoraMs) : null;
+    return t === null || agoraMs - t > LIMITE_VELHO_MS ? null : Math.max(0, Math.floor((agoraMs - t) / 60_000));
+  };
+  const i5 = idade('five_hour');
+  const i7 = idade('seven_day');
+  if (i5 === null && i7 === null) {
     // Conta sem rate_limits (spec 7 #1): a statusline já registrou sessões,
     // mas nenhuma leitura de limite chegou (`at` nunca foi gravado).
     const semNaConta = e !== null && e.at === null && Object.keys(e.sessoes).length > 0;
     return { limites: null, limites_motivo: semNaConta ? 'indisponiveis_na_conta' : 'sem_leitura' };
   }
-  const t = instante(e.at, agoraMs);
   let five = null;
   let seven = null;
-  if (lim.five_hour) {
+  if (i5 !== null) {
     const { used_percentage: u, resets_at: r } = lim.five_hour;
-    five = { used_percentage: u, resets_at: r, faixa: faixa5h(u) };
+    five = { used_percentage: u, resets_at: r, faixa: faixa5h(u), idade_min: i5 };
   }
-  if (lim.seven_day) {
+  if (i7 !== null) {
     const { used_percentage: u, resets_at: r } = lim.seven_day;
     const { faixa, esperado, desvio } = faixa7d({ usado: u, resetsAt: r, agoraMs });
-    seven = { used_percentage: u, resets_at: r, esperado, desvio, modo: faixa };
+    seven = { used_percentage: u, resets_at: r, esperado, desvio, modo: faixa, idade_min: i7 };
   }
   return {
-    limites: { idade_min: Math.max(0, Math.floor((agoraMs - t) / 60_000)), five_hour: five, seven_day: seven },
+    limites: { idade_min: Math.max(i5 ?? 0, i7 ?? 0), five_hour: five, seven_day: seven },
     limites_motivo: null,
   };
 }
@@ -356,6 +376,11 @@ function montarAvisos(a) {
 // lido (passa por validarEstado e limitesValidos aqui); `github` é a saída de
 // coletarGithub; `avisos` só entra da lista fixa. Nunca lança.
 //
+// `limites` é null (com limites_motivo) ou { idade_min, five_hour, seven_day }:
+// cada janela é null ou traz a própria idade_min, a da sua leitura (o `at` da
+// janela, ou o do topo quando ela não tem), sempre até 60 min; idade_min do
+// topo é a da leitura mais antiga entre as janelas mostradas.
+//
 // `claude` é { indisponivel } ou, com os instantes em ISO (entram em ms ou
 // ISO):
 //   hoje        desde a meia-noite local (hoje_desde);
@@ -430,13 +455,34 @@ function linha7d(f) {
   return `7d ${Math.floor(u)}% usado vs ${Math.floor(esperado)}% esperado; reset ${diaHora(r)} — modo ${nome}.`;
 }
 
+// Idade das leituras. `janelas`: [nome, janela do JSON, linha impressa] das
+// duas; só conta a idade de uma janela cuja linha saiu (não "—"). Uma frase só
+// quando as mostradas têm a mesma idade (ou só uma tem idade); com idades
+// diferentes, cada uma com a sua. Sem idade por janela (JSON de antes), a do
+// topo.
+function linhaIdade(janelas, lim) {
+  const idades = janelas
+    .filter(([nome, , linha]) => linha !== `${nome} ${SEM}`)
+    .map(([nome, f]) => [nome, inteiro(ler(f, 'idade_min'))])
+    .filter(([, i]) => i !== null);
+  if (idades.length === 2 && idades[0][1] !== idades[1][1]) {
+    return `Leitura de ${idades[0][1]} min atrás (${idades[0][0]}) e de ${idades[1][1]} min atrás (${idades[1][0]}).`;
+  }
+  const idade = idades.length > 0 ? idades[0][1] : inteiro(ler(lim, 'idade_min'));
+  return idade === null ? null : `Leitura de ${idade} min atrás.`;
+}
+
 function blocoLimites(o) {
   const linhas = ['## Limites e ritmo', ''];
   const lim = ler(o, 'limites');
   if (ehObjeto(lim)) {
-    linhas.push(linha5h(ler(lim, 'five_hour')), linha7d(ler(lim, 'seven_day')));
-    const idade = inteiro(ler(lim, 'idade_min'));
-    if (idade !== null) linhas.push(`Leitura de ${idade} min atrás.`);
+    const f5 = ler(lim, 'five_hour');
+    const f7 = ler(lim, 'seven_day');
+    const l5 = linha5h(f5);
+    const l7 = linha7d(f7);
+    linhas.push(l5, l7);
+    const idade = linhaIdade([['5h', f5, l5], ['7d', f7, l7]], lim);
+    if (idade !== null) linhas.push(idade);
     return linhas;
   }
   const motivo = ler(o, 'limites_motivo');
