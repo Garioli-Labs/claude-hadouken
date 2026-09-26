@@ -1,7 +1,11 @@
 // Wall time of the three plugin hooks, from spawn to exit, as Claude Code runs
 // them. Zero dependencies. Usage:
 //
-//   node bench/hooks-p95.mjs [runs]     (default 100 runs after 5 warm-up rounds)
+//   node bench/hooks-p95.mjs [runs] [--json]     (default 100 runs after 5 warm-up rounds)
+//
+// --json prints a single JSON object (fixture facts and one row per scenario,
+// keyed by a stable `id`) instead of the text report; bench/rodar-todos.mjs
+// reads it.
 //
 // Spec section 9 sets a target only for the prompt hook (UserPromptSubmit),
 // which runs before every prompt of every open session: p95 <= 250 ms on
@@ -43,10 +47,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const RUNS = Number.parseInt(process.argv[2] ?? '100', 10);
+const argumentos = process.argv.slice(2);
+const SAIDA_JSON = argumentos.includes('--json');
+const posicionais = argumentos.filter((a) => a !== '--json');
+const RUNS = Number.parseInt(posicionais[0] ?? '100', 10);
 const WARMUPS = 5;
-if (!Number.isInteger(RUNS) || RUNS < 1) {
-  console.error('usage: node bench/hooks-p95.mjs [runs]');
+if (!Number.isInteger(RUNS) || RUNS < 1 || posicionais.length > 1) {
+  console.error('usage: node bench/hooks-p95.mjs [runs] [--json]');
   process.exit(2);
 }
 const ALVO_P95_MS = process.platform === 'win32' ? 250 : 150;
@@ -163,6 +170,7 @@ try {
 
   const cenarios = [
     {
+      id: 'prompt-registrada-sem-gravar',
       nome: 'prompt reg. unchanged',
       argv: [hook('prompt-submit.js')],
       stdin: stdinPrompt,
@@ -171,6 +179,7 @@ try {
       alvo: true,
     },
     {
+      id: 'prompt-registrada-grava',
       nome: 'prompt reg. writes',
       argv: [hook('prompt-submit.js')],
       stdin: stdinPrompt,
@@ -178,17 +187,18 @@ try {
       conferir: memoriaGravada('prompt reg. writes', true),
       alvo: true,
     },
-    { nome: 'prompt unregistered', argv: [hook('prompt-submit.js')], stdin: JSON.stringify(promptDe('nao-registrada')), conferir: semSaida('prompt unregistered'), alvo: true },
+    { id: 'prompt-nao-registrada', nome: 'prompt unregistered', argv: [hook('prompt-submit.js')], stdin: JSON.stringify(promptDe('nao-registrada')), conferir: semSaida('prompt unregistered'), alvo: true },
     {
+      id: 'session-start',
       nome: 'session start',
       argv: [hook('session-start.js')],
       stdin: JSON.stringify(inicioDe(uuid(0))),
       conferir: (out) => { linhaInicio = contexto('session start', 'SessionStart')(out); },
       alvo: false,
     },
-    { nome: 'session end registered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe(uuid(0))), conferir: semSaida('session end registered'), alvo: false },
-    { nome: 'session end unregistered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe('nao-registrada')), conferir: semSaida('session end unregistered'), alvo: false },
-    { nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
+    { id: 'session-end-registrada', nome: 'session end registered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe(uuid(0))), conferir: semSaida('session end registered'), alvo: false },
+    { id: 'session-end-nao-registrada', nome: 'session end unregistered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe('nao-registrada')), conferir: semSaida('session end unregistered'), alvo: false },
+    { id: 'node-vazio', nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
   ];
 
   function rodar(c) {
@@ -215,17 +225,30 @@ try {
     return { n: o.length, min: o[0], p50: quantil(o, 0.5), media, p95: quantil(o, 0.95), max: o[o.length - 1] };
   };
   const fmt = (x) => x.toFixed(1).padStart(6);
-  console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
-  console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions in estado.json, alertas.json ${bytesAlertas} B with 256 sem_leitura entries`);
-  console.log(`runs: ${RUNS} interleaved rounds after ${WARMUPS} shared warm-up rounds, spawn to exit`);
-  for (const c of cenarios) {
-    const r = resumo(tempos.get(c));
-    const veredito = c.alvo ? (r.p95 <= ALVO_P95_MS ? '  within target' : '  OVER target') : '';
-    console.log(`${c.nome.padEnd(26)} n=${r.n}  min=${fmt(r.min)}  p50=${fmt(r.p50)}  mean=${fmt(r.media)}  p95=${fmt(r.p95)}  max=${fmt(r.max)} ms${veredito}`);
+  if (SAIDA_JSON) {
+    console.log(JSON.stringify({
+      bench: 'hooks-p95',
+      plataforma: process.platform,
+      node: process.version,
+      alvoP95Ms: ALVO_P95_MS,
+      rodadas: RUNS,
+      aquecimento: WARMUPS,
+      fixture: { ativas: nAtivas, sessoes: nSessoes, bytesAlertas, linhasHistorico: historico.length },
+      linhas: cenarios.map((c) => ({ id: c.id, nome: c.nome, alvo: c.alvo, ...resumo(tempos.get(c)) })),
+    }));
+  } else {
+    console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
+    console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions in estado.json, alertas.json ${bytesAlertas} B with 256 sem_leitura entries`);
+    console.log(`runs: ${RUNS} interleaved rounds after ${WARMUPS} shared warm-up rounds, spawn to exit`);
+    for (const c of cenarios) {
+      const r = resumo(tempos.get(c));
+      const veredito = c.alvo ? (r.p95 <= ALVO_P95_MS ? '  within target' : '  OVER target') : '';
+      console.log(`${c.nome.padEnd(26)} n=${r.n}  min=${fmt(r.min)}  p50=${fmt(r.p50)}  mean=${fmt(r.media)}  p95=${fmt(r.p95)}  max=${fmt(r.max)} ms${veredito}`);
+    }
+    console.log(`session start context: ${JSON.stringify(linhaInicio)}`);
+    console.log(`history lines appended: ${historico.length}`);
+    console.log(`target (spec 9) on ${process.platform}: p95 <= ${ALVO_P95_MS} ms for the prompt hook rows; reported, not asserted`);
   }
-  console.log(`session start context: ${JSON.stringify(linhaInicio)}`);
-  console.log(`history lines appended: ${historico.length}`);
-  console.log(`target (spec 9) on ${process.platform}: p95 <= ${ALVO_P95_MS} ms for the prompt hook rows; reported, not asserted`);
 } finally {
   fs.rmSync(home, { recursive: true, force: true });
 }

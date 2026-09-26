@@ -1,17 +1,63 @@
 name: CI
+
+# Documentation-only changes skip CI: Markdown at the repository root
+# (README.md, SECURITY.md) and everything under docs/. Markdown elsewhere is
+# plugin code (skills/*/SKILL.md carries security rules that tests check), so
+# it triggers CI. This file is matched by neither pattern and always triggers.
 on:
   push:
+    branches: ['**']
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        node: [20, 24]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --test
+
+  # Report-only: the numbers go to the job summary and never fail the build.
+  # The job fails only if a bench itself breaks (see bench/rodar-todos.mjs).
+  bench:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-      - run: node --test
+      - name: Benches (report-only)
+        shell: bash
+        env:
+          HADOUKEN_HOME: ${{ runner.temp }}/hadouken-home
+        run: node bench/rodar-todos.mjs | tee -a "$GITHUB_STEP_SUMMARY"

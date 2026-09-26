@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Actions are pinned by commit SHA with the tag in a comment; Dependabot
+  # updates both.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+  # No npm dependencies today (zero-dependency policy); this covers a future one.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps

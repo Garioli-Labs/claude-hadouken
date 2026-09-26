@@ -1,8 +1,12 @@
 // Cold and warm timings of indexarTranscripts over synthetic transcripts.
 // Zero dependencies. Usage:
 //
-//   node bench/transcripts.mjs [MB]      (default 500 MB of synthetic data)
-//   node bench/transcripts.mjs --real    (read-only run over ~/.claude/projects)
+//   node bench/transcripts.mjs [MB] [--json]   (default 500 MB of synthetic data)
+//   node bench/transcripts.mjs --real          (read-only run over ~/.claude/projects)
+//
+// --json (synthetic data only) prints a single JSON object (the generated
+// volume, the incremental == full check and one entry per measurement, keyed
+// by a stable `id`) instead of the text report; bench/rodar-todos.mjs reads it.
 //
 // Spec section 9 sets the targets: warm (1 % appended) <= 2 s, cold <= 15 s.
 // This script reports the numbers and checks that the incremental result
@@ -43,7 +47,14 @@ const ms = (t0) => Math.round(performance.now() - t0);
 const mb = (n) => (n / MB).toFixed(1);
 const rss = () => mb(process.memoryUsage().rss);
 
-async function medir(rotulo, raiz, home) {
+const argumentos = process.argv.slice(2);
+const SAIDA_JSON = argumentos.includes('--json');
+const posicionais = argumentos.filter((a) => a !== '--json');
+// Text report lines; with --json only the final object is printed.
+const log = SAIDA_JSON ? () => {} : (linha) => console.log(linha);
+const medidas = [];
+
+async function medir(id, rotulo, raiz, home) {
   process.env.HADOUKEN_HOME = home;
   const t0 = performance.now();
   const r = await indexarTranscripts({ raiz, desdeMs });
@@ -58,23 +69,30 @@ async function medir(rotulo, raiz, home) {
     compacto = Buffer.byteLength(JSON.stringify(JSON.parse(texto)));
   } catch { /* sem índice */ }
   const saida = {
-    rotulo, ms: tempo, arquivos: r.arquivos, registros: r.registros.length, linhasInvalidas: r.linhasInvalidas,
+    id, rotulo, ms: tempo, arquivos: r.arquivos, registros: r.registros.length, linhasInvalidas: r.linhasInvalidas,
     ilegiveis: r.ilegiveis, truncado: r.truncado, indiceMB: mb(indice), indiceCompactoMB: mb(compacto), rssMB: rss(),
   };
-  console.log(JSON.stringify(saida));
+  medidas.push(saida);
+  log(JSON.stringify(saida));
   return { r, saida, indice, compacto };
 }
 
 const somaSaida = (r) => r.registros.reduce((s, x) => s + x.output + x.input + x.thinking + x.cacheRead + x.cacheCreate, 0);
 
-if (process.argv[2] === '--real') {
+const USO = 'usage: node bench/transcripts.mjs [MB] [--json] | --real';
+
+if (posicionais[0] === '--real') {
+  if (SAIDA_JSON || posicionais.length > 1) {
+    console.error(USO);
+    process.exit(2);
+  }
   const raiz = path.join(os.homedir(), '.claude', 'projects');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench real '));
   try {
     console.log(`node ${process.version} ${process.platform}; real tree, read-only; index in a temp dir`);
-    await medir('real cold', raiz, home);
-    await medir('real warm 1', raiz, home);
-    const { r, indice, compacto } = await medir('real warm 2', raiz, home);
+    await medir('real-frio', 'real cold', raiz, home);
+    await medir('real-quente-1', 'real warm 1', raiz, home);
+    const { r, indice, compacto } = await medir('real-quente-2', 'real warm 2', raiz, home);
     if (r.registros.length > 0) {
       console.log(`index bytes per record: ${Math.round(indice / r.registros.length)} as written, ${Math.round(compacto / r.registros.length)} compact`);
     }
@@ -84,9 +102,9 @@ if (process.argv[2] === '--real') {
   process.exit(0);
 }
 
-const alvoMB = process.argv[2] === undefined ? 500 : Number(process.argv[2]);
-if (!Number.isFinite(alvoMB) || alvoMB <= 0) {
-  console.error('usage: node bench/transcripts.mjs [MB] | --real');
+const alvoMB = posicionais[0] === undefined ? 500 : Number(posicionais[0]);
+if (!Number.isFinite(alvoMB) || alvoMB <= 0 || posicionais.length > 1) {
+  console.error(USO);
   process.exit(2);
 }
 
@@ -177,6 +195,7 @@ const PROJETOS = 6;
 const SESSOES = 12;
 const AGENTES = 2;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench transcripts '));
+let resultado = null;
 try {
   const raiz = path.join(tmp, 'projects');
   const alvo = alvoMB * MB;
@@ -211,28 +230,35 @@ try {
       }
     }
   }
-  console.log(`node ${process.version} ${process.platform}; generated ${arquivos} transcripts, ${mb(bytes)} MB in ${ms(t0)} ms`);
+  const msGeracao = ms(t0);
+  log(`node ${process.version} ${process.platform}; generated ${arquivos} transcripts, ${mb(bytes)} MB in ${msGeracao} ms`);
 
   const home = path.join(tmp, 'home');
-  const frio = await medir('cold', raiz, home);
-  await medir('warm, unchanged', raiz, home);
+  const frio = await medir('frio', 'cold', raiz, home);
+  await medir('quente-sem-mudanca', 'warm, unchanged', raiz, home);
 
   // ~1 % dos bytes como requisições completas, espalhado por 8 arquivos ativos.
   const porAtivo = (bytes * 0.01) / ativos.length;
   let anexados = 0;
   for (const { arq, ctx } of ativos) anexados += preencher(arq, ctx, porAtivo, 'a');
-  console.log(`appended ${mb(anexados)} MB (${((anexados / bytes) * 100).toFixed(2)} %) to ${ativos.length} files`);
-  const morno = await medir('warm, +1 %', raiz, home);
-  const cheio = await medir('cold re-read of the appended tree (fresh index)', raiz, path.join(tmp, 'home-cheio'));
+  log(`appended ${mb(anexados)} MB (${((anexados / bytes) * 100).toFixed(2)} %) to ${ativos.length} files`);
+  const morno = await medir('quente-1pct', 'warm, +1 %', raiz, home);
+  const cheio = await medir('frio-releitura', 'cold re-read of the appended tree (fresh index)', raiz, path.join(tmp, 'home-cheio'));
 
   const iguais = morno.r.registros.length === cheio.r.registros.length
     && morno.r.linhasInvalidas === cheio.r.linhasInvalidas
     && somaSaida(morno.r) === somaSaida(cheio.r);
-  console.log(`incremental == full: ${iguais} (records ${morno.r.registros.length} vs ${cheio.r.registros.length}; tokens ${somaSaida(morno.r)} vs ${somaSaida(cheio.r)})`);
+  log(`incremental == full: ${iguais} (records ${morno.r.registros.length} vs ${cheio.r.registros.length}; tokens ${somaSaida(morno.r)} vs ${somaSaida(cheio.r)})`);
   const porRegistro = (n) => Math.round(n / Math.max(1, frio.r.registros.length));
-  console.log(`index bytes per record: ${porRegistro(frio.indice)} as written, ${porRegistro(frio.compacto)} compact`);
+  log(`index bytes per record: ${porRegistro(frio.indice)} as written, ${porRegistro(frio.compacto)} compact`);
   if (!iguais) process.exitCode = 1;
+  resultado = { arquivos, bytesGerados: bytes, msGeracao, bytesAnexados: anexados, incrementalIgualCheio: iguais };
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log(`temp dir removed: ${!fs.existsSync(tmp)}`);
+  const removido = !fs.existsSync(tmp);
+  log(`temp dir removed: ${removido}`);
+  // Only after a complete run: a failure leaves the exception on stderr and no JSON.
+  if (SAIDA_JSON && resultado !== null) {
+    console.log(JSON.stringify({ bench: 'transcripts', plataforma: process.platform, node: process.version, ...resultado, tmpRemovido: removido, medidas }));
+  }
 }

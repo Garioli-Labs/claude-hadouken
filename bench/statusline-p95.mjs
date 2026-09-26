@@ -1,7 +1,11 @@
 // Wall time of the status line, from spawn to exit, as Claude Code runs it on
 // every refresh. Zero dependencies. Usage:
 //
-//   node bench/statusline-p95.mjs [runs]     (default 100 runs after 5 warm-up rounds)
+//   node bench/statusline-p95.mjs [runs] [--json]     (default 100 runs after 5 warm-up rounds)
+//
+// --json prints a single JSON object (fixture facts and one row per scenario,
+// keyed by a stable `id`) instead of the text report; bench/rodar-todos.mjs
+// reads it.
 //
 // Spec section 9 sets the target: p95 <= 250 ms on Windows, <= 150 ms on
 // Linux and macOS. This script only reports the numbers (and whether each p95
@@ -28,10 +32,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const RUNS = Number.parseInt(process.argv[2] ?? '100', 10);
+const argumentos = process.argv.slice(2);
+const SAIDA_JSON = argumentos.includes('--json');
+const posicionais = argumentos.filter((a) => a !== '--json');
+const RUNS = Number.parseInt(posicionais[0] ?? '100', 10);
 const WARMUPS = 5;
-if (!Number.isInteger(RUNS) || RUNS < 1) {
-  console.error('usage: node bench/statusline-p95.mjs [runs]');
+if (!Number.isInteger(RUNS) || RUNS < 1 || posicionais.length > 1) {
+  console.error('usage: node bench/statusline-p95.mjs [runs] [--json]');
   process.exit(2);
 }
 const ALVO_P95_MS = process.platform === 'win32' ? 250 : 150;
@@ -113,11 +120,11 @@ try {
   const registrada = JSON.stringify(entrada(uuid(0)));
   const naoRegistrada = JSON.stringify(entrada('nao-registrada'));
   const cenarios = [
-    { nome: 'registered (full path)', argv: [script], stdin: registrada, conferir: barraCerta('registered'), alvo: true },
-    { nome: 'unregistered (gate only)', argv: [script], stdin: naoRegistrada, conferir: semSaida('unregistered'), alvo: true },
-    { nome: 'registered via shim', argv: [shim], stdin: registrada, conferir: barraCerta('registered via shim'), alvo: true },
-    { nome: 'unregistered via shim', argv: [shim], stdin: naoRegistrada, conferir: semSaida('unregistered via shim'), alvo: true },
-    { nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
+    { id: 'registrada', nome: 'registered (full path)', argv: [script], stdin: registrada, conferir: barraCerta('registered'), alvo: true },
+    { id: 'nao-registrada', nome: 'unregistered (gate only)', argv: [script], stdin: naoRegistrada, conferir: semSaida('unregistered'), alvo: true },
+    { id: 'registrada-shim', nome: 'registered via shim', argv: [shim], stdin: registrada, conferir: barraCerta('registered via shim'), alvo: true },
+    { id: 'nao-registrada-shim', nome: 'unregistered via shim', argv: [shim], stdin: naoRegistrada, conferir: semSaida('unregistered via shim'), alvo: true },
+    { id: 'node-vazio', nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
   ];
 
   const env = { ...process.env, HADOUKEN_HOME: home };
@@ -140,16 +147,31 @@ try {
     return { n: o.length, min: o[0], p50: quantil(o, 0.5), media, p95: quantil(o, 0.95), max: o[o.length - 1] };
   };
   const fmt = (x) => x.toFixed(1).padStart(6);
-  console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
-  console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions in estado.json (${fs.statSync(path.join(home, ARQ_ESTADO)).size} B)`);
-  console.log(`runs: ${RUNS} interleaved rounds after ${WARMUPS} shared warm-up rounds, spawn to exit; colour ${process.env.NO_COLOR ? 'off (NO_COLOR)' : 'on'}`);
-  for (const c of cenarios) {
-    const r = resumo(tempos.get(c));
-    const veredito = c.alvo ? (r.p95 <= ALVO_P95_MS ? '  within target' : '  OVER target') : '';
-    console.log(`${c.nome.padEnd(26)} n=${r.n}  min=${fmt(r.min)}  p50=${fmt(r.p50)}  mean=${fmt(r.media)}  p95=${fmt(r.p95)}  max=${fmt(r.max)} ms${veredito}`);
+  const bytesEstado = fs.statSync(path.join(home, ARQ_ESTADO)).size;
+  if (SAIDA_JSON) {
+    console.log(JSON.stringify({
+      bench: 'statusline-p95',
+      plataforma: process.platform,
+      node: process.version,
+      alvoP95Ms: ALVO_P95_MS,
+      rodadas: RUNS,
+      aquecimento: WARMUPS,
+      cor: !process.env.NO_COLOR,
+      fixture: { ativas: nAtivas, sessoes: nSessoes, bytesEstado },
+      linhas: cenarios.map((c) => ({ id: c.id, nome: c.nome, alvo: c.alvo, ...resumo(tempos.get(c)) })),
+    }));
+  } else {
+    console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
+    console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions in estado.json (${bytesEstado} B)`);
+    console.log(`runs: ${RUNS} interleaved rounds after ${WARMUPS} shared warm-up rounds, spawn to exit; colour ${process.env.NO_COLOR ? 'off (NO_COLOR)' : 'on'}`);
+    for (const c of cenarios) {
+      const r = resumo(tempos.get(c));
+      const veredito = c.alvo ? (r.p95 <= ALVO_P95_MS ? '  within target' : '  OVER target') : '';
+      console.log(`${c.nome.padEnd(26)} n=${r.n}  min=${fmt(r.min)}  p50=${fmt(r.p50)}  mean=${fmt(r.media)}  p95=${fmt(r.p95)}  max=${fmt(r.max)} ms${veredito}`);
+    }
+    console.log(`bar: ${JSON.stringify(barra)}`);
+    console.log(`target (spec 9) on ${process.platform}: p95 <= ${ALVO_P95_MS} ms for the status line rows; reported, not asserted`);
   }
-  console.log(`bar: ${JSON.stringify(barra)}`);
-  console.log(`target (spec 9) on ${process.platform}: p95 <= ${ALVO_P95_MS} ms for the status line rows; reported, not asserted`);
 } finally {
   fs.rmSync(home, { recursive: true, force: true });
 }
