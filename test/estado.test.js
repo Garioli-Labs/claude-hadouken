@@ -161,6 +161,26 @@ test('gravarJsonAtomico: valor não serializável ou destino ruim falha sem lan�
   semTmp();
 });
 
+// { compacto: true } existe para o índice de transcripts (Task 8: 178 -> 69
+// B por registro), que mede o próprio tamanho em JSON compacto. Qualquer outra
+// coisa, inclusive opção inválida ou hostil, grava o JSON indentado de sempre.
+test('gravarJsonAtomico: { compacto: true } grava JSON sem espaços; o padrão continua indentado', () => {
+  const arq = path.join(dir, 'c.json');
+  const valor = { a: [1, 2, { b: 'ç x' }], c: null };
+  assert.deepEqual(gravarJsonAtomico(arq, valor, { compacto: true }), { ok: true });
+  assert.equal(fs.readFileSync(arq, 'utf8'), JSON.stringify(valor));
+  const indentado = JSON.stringify(valor, null, 2);
+  assert.deepEqual(gravarJsonAtomico(arq, valor), { ok: true });
+  assert.equal(fs.readFileSync(arq, 'utf8'), indentado);
+  const hostil = { get compacto() { throw new Error('C:\\x\\getter'); } };
+  for (const opcoes of [undefined, null, 'compacto', 1, [], { compacto: 1 }, { compacto: 'true' }, { compacto: false }, hostil]) {
+    gravarJsonAtomico(arq, { outro: 1 }, { compacto: true });
+    assert.deepEqual(gravarJsonAtomico(arq, valor, opcoes), { ok: true }, String(opcoes));
+    assert.equal(fs.readFileSync(arq, 'utf8'), indentado, String(opcoes));
+  }
+  semTmp();
+});
+
 test('malicioso: used_percentage textual ("95; rm -rf ~") nunca vira limite', () => {
   gravarBruto(estadoBase({
     five_hour: { used_percentage: '95; rm -rf ~', resets_at: agoraS + 3600 },

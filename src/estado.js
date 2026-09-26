@@ -129,10 +129,15 @@ let sequenciaTmp = 0;
 // instante exato da troca pode não achar o arquivo e ver "sem leitura" por uma
 // atualização. Em nenhum sistema sai arquivo pela metade: se o rename falha, o
 // destino antigo fica intacto e o temporário é apagado. Depois de gravar, varre
-// os próprios temporários abandonados. Nunca lança.
-export function gravarJsonAtomico(arquivo, valor) {
+// os próprios temporários abandonados. `opcoes.compacto === true` grava o JSON
+// sem espaços (o índice de transcripts, que mede o próprio tamanho nesse
+// formato); qualquer outro valor, ou opção ilegível, grava indentado com 2
+// espaços. Nunca lança.
+export function gravarJsonAtomico(arquivo, valor, opcoes) {
+  let compacto = false;
+  try { compacto = opcoes?.compacto === true; } catch { /* opção ilegível: indentado */ }
   let texto;
-  try { texto = JSON.stringify(valor, null, 2); } catch { return { ok: false, motivo: 'serializacao' }; }
+  try { texto = compacto ? JSON.stringify(valor) : JSON.stringify(valor, null, 2); } catch { return { ok: false, motivo: 'serializacao' }; }
   if (typeof texto !== 'string') return { ok: false, motivo: 'serializacao' };
   let tmp = null;
   try {
