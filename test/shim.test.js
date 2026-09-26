@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -625,6 +626,127 @@ test('varredura de bin/: no máximo 20 temporários por sincronização', () => 
   assert.equal(temporarios(), 0);
 });
 
+// N-2: a varredura listava bin/ inteira e fazia um lstat por nome de
+// temporário; os novos nunca saem, então um bin/ inundado custava milhares de
+// lstat em todo SessionStart. Agora o opendir lê no máximo 256 entradas, faz
+// no máximo 64 lstat e 20 remoções, e o Dir é sempre fechado. O resto espera a
+// próxima sincronização.
+const LER_MAX = 256;
+const LSTAT_MAX = 64;
+
+// Cria (ou apaga) arquivos vazios de bin/ em lotes paralelos de 128: no
+// Windows, com antivírus, um a um leva o dobro. Lotes pequenos deixam poucos
+// descritores abertos ao mesmo tempo (macOS: limite padrão 256).
+async function emLotes(nomes, fazer) {
+  for (let i = 0; i < nomes.length; i += 128) {
+    await Promise.all(nomes.slice(i, i + 128).map((n) => fazer(path.join(bin(), n))));
+  }
+}
+const plantarMuitos = (nomes) => emLotes(nomes, (p) => fsp.writeFile(p, ''));
+
+// Roda `executar` contando, pelo objeto padrão de node:fs: opendirSync, cada
+// readSync e closeSync do Dir aberto, lstat de nome de temporário e
+// readdirSync. `lerLanca`: todo readSync lança {}.
+function espiarVarredura(executar, { lerLanca = false } = {}) {
+  const originais = { opendirSync: fs.opendirSync, lstatSync: fs.lstatSync, readdirSync: fs.readdirSync };
+  const c = { aberturas: 0, leituras: 0, fechamentos: 0, lstatTmp: 0, readdir: 0, resultado: undefined };
+  try {
+    fs.opendirSync = (...args) => {
+      const dir = originais.opendirSync(...args);
+      c.aberturas++;
+      const lerDir = dir.readSync.bind(dir);
+      const fecharDir = dir.closeSync.bind(dir);
+      dir.readSync = () => {
+        c.leituras++;
+        if (lerLanca) throw {};
+        return lerDir();
+      };
+      dir.closeSync = () => {
+        c.fechamentos++;
+        return fecharDir();
+      };
+      return dir;
+    };
+    fs.lstatSync = (p, ...resto) => {
+      if (NOME_TMP.test(path.basename(p))) c.lstatTmp++;
+      return originais.lstatSync(p, ...resto);
+    };
+    fs.readdirSync = (...args) => {
+      c.readdir++;
+      return originais.readdirSync(...args);
+    };
+    c.resultado = executar();
+  } finally {
+    Object.assign(fs, originais);
+  }
+  return c;
+}
+
+test('varredura de bin/ inundado (mais de 5 000 nomes): no máximo 256 entradas lidas e 64 lstat', async () => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  // 5 001 temporários novos com o nome exato: nenhum sai (têm menos de 1 h).
+  // Sem limite, cada sincronização faria 5 001 lstat.
+  const nomes = Array.from({ length: 5001 }, (_, i) => `.${i % 2 ? 'cli' : 'statusline'}.mjs.${i.toString(16).padStart(12, '0')}.tmp`);
+  assert.ok(nomes.every((n) => NOME_TMP.test(n)));
+  try {
+    await plantarMuitos(nomes);
+    assert.equal(fs.readdirSync(bin()).length, nomes.length + SHIMS.length);
+    // Shims já certos: nenhum temporário da escrita atômica entra na contagem.
+    const c = espiarVarredura(() => sincronizarShims(raiz));
+    assert.deepEqual(c.resultado, { ok: true, alterados: [] });
+    assert.equal(c.readdir, 0, 'a pasta não é listada inteira');
+    assert.equal(c.aberturas, 1);
+    assert.equal(c.fechamentos, 1);
+    assert.ok(c.leituras <= LER_MAX, `leituras: ${c.leituras}`);
+    assert.ok(c.lstatTmp <= LSTAT_MAX, `lstat: ${c.lstatTmp}`);
+    // Todo nome é temporário, então para no 64º lstat, em qualquer ordem da
+    // pasta; no meio, no máximo os dois shims.
+    assert.equal(c.lstatTmp, LSTAT_MAX);
+    assert.ok(c.leituras <= LSTAT_MAX + SHIMS.length, `leituras: ${c.leituras}`);
+    assert.equal(fs.readdirSync(bin()).length, nomes.length + SHIMS.length);
+  } finally {
+    // unlink em paralelo: no Windows, um terço do tempo do rmSync do afterEach.
+    await emLotes(nomes, (p) => fsp.unlink(p).catch(() => {}));
+  }
+});
+
+test('varredura de bin/: lê no máximo 256 entradas, mesmo sem nenhum temporário', async () => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  await plantarMuitos(Array.from({ length: 300 }, (_, i) => `alheio-${i}.txt`));
+  const c = espiarVarredura(() => sincronizarShims(raiz));
+  assert.deepEqual(c.resultado, { ok: true, alterados: [] });
+  assert.equal(c.readdir, 0);
+  assert.equal(c.leituras, LER_MAX);
+  assert.equal(c.lstatTmp, 0);
+  assert.equal(c.fechamentos, 1);
+});
+
+test('varredura de bin/: o Dir é fechado mesmo quando a leitura lança, e o shim é restaurado', () => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  fs.writeFileSync(arqShim('statusline.mjs'), 'adulterado');
+  const c = espiarVarredura(() => sincronizarShims(raiz), { lerLanca: true });
+  assert.deepEqual(c.resultado, { ok: true, alterados: ['statusline.mjs'] });
+  assert.equal(c.aberturas, 1);
+  assert.equal(c.leituras, 1);
+  assert.equal(c.fechamentos, 1);
+  assert.equal(ler(arqShim('statusline.mjs')), esperado(raiz, 'statusline.mjs'));
+  // opendir que lança: a varredura desiste e a sincronização segue.
+  fs.writeFileSync(arqShim('cli.mjs'), 'adulterado');
+  const original = fs.opendirSync;
+  let r;
+  try {
+    fs.opendirSync = () => { throw {}; };
+    r = sincronizarShims(raiz);
+  } finally {
+    fs.opendirSync = original;
+  }
+  assert.deepEqual(r, { ok: true, alterados: ['cli.mjs'] });
+  assert.equal(ler(arqShim('cli.mjs')), esperado(raiz, 'cli.mjs'));
+});
+
 // I-5: um shim adulterado e marcado somente leitura (attrib +R no Windows)
 // fazia o rename falhar com EPERM a cada sessão, e a adulteração ficava.
 test('shim adulterado e somente leitura é restaurado', () => {
@@ -650,6 +772,137 @@ test('bin/ sem escrita para o dono volta a 0o700 e o shim é restaurado (POSIX)'
   } finally {
     try { fs.chmodSync(bin(), 0o700); } catch { /* o afterEach apaga */ }
   }
+});
+
+// N-1: um hard link no lugar do shim divide o arquivo com um nome fora de
+// bin/, e tirar o somente leitura (fchmod) mudaria o arquivo de fora também.
+// O_NOFOLLOW não barra isso, porque hard link não é symlink. Com nlink > 1
+// nada é tocado. No Windows o rename por cima do somente leitura dá EPERM e a
+// falha aparece (shim_invalido). No POSIX o rename troca só a entrada de bin/.
+// fs.linkSync não pede privilégio (NTFS nem POSIX).
+function hardLink(t, alvo, caminho) {
+  try {
+    fs.linkSync(alvo, caminho);
+    return true;
+  } catch (e) {
+    t.skip(`hard link indisponivel aqui (${e.code})`);
+    return false;
+  }
+}
+
+// Arquivo de fora, somente leitura, e o shim de statusline trocado por um hard
+// link para ele. Devolve [caminho de fora, modo de fora] ou null (sem hard link).
+function shimHardLink(t) {
+  const fora = path.join(home, 'fora.txt');
+  fs.writeFileSync(fora, 'original de fora');
+  fs.chmodSync(fora, 0o444);
+  fs.unlinkSync(arqShim('statusline.mjs'));
+  if (!hardLink(t, fora, arqShim('statusline.mjs'))) return null;
+  assert.equal(fs.lstatSync(arqShim('statusline.mjs')).nlink, 2);
+  return [fora, fs.lstatSync(fora).mode];
+}
+
+const erroEperm = () => Object.assign(new Error('EPERM'), { code: 'EPERM' });
+
+test('shim somente leitura que é hard link para um arquivo de fora: o arquivo de fora não muda', (t) => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  const plantado = shimHardLink(t);
+  if (plantado === null) return;
+  const [fora, modoFora] = plantado;
+  try {
+    const r = sincronizarShims(raiz);
+    assert.equal(fs.lstatSync(fora).mode, modoFora);
+    assert.equal(fs.lstatSync(fora).mode & 0o200, 0);
+    assert.equal(ler(fora), 'original de fora');
+    assert.equal(ler(arqShim('cli.mjs')), esperado(raiz, 'cli.mjs'));
+    assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'statusline.mjs']);
+    if (process.platform === 'win32') {
+      assert.deepEqual(r, { ok: false, motivo: 'shim_invalido' });
+      // Recusado sem tocar: a entrada de bin/ continua o hard link.
+      assert.equal(fs.lstatSync(arqShim('statusline.mjs')).nlink, 2);
+      assert.equal(ler(arqShim('statusline.mjs')), 'original de fora');
+    } else {
+      assert.deepEqual(r, { ok: true, alterados: ['statusline.mjs'] });
+      assert.equal(ler(arqShim('statusline.mjs')), esperado(raiz, 'statusline.mjs'));
+      assert.equal(fs.lstatSync(fora).nlink, 1);
+    }
+  } finally {
+    try { fs.chmodSync(fora, 0o666); } catch { /* o afterEach apaga */ }
+  }
+});
+
+// O lstat pode não ver o hard link (criado entre o lstat e o open): a
+// checagem pelo descritor recusa também. O rename espiado dá o EPERM do
+// Windows em qualquer plataforma.
+test('hard link que só o fstat vê: recusado, e o arquivo de fora não muda', (t) => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  const plantado = shimHardLink(t);
+  if (plantado === null) return;
+  const [fora, modoFora] = plantado;
+  const shim = arqShim('statusline.mjs');
+  const originais = { lstatSync: fs.lstatSync, renameSync: fs.renameSync };
+  let r;
+  try {
+    fs.lstatSync = (p, ...resto) => {
+      const s = originais.lstatSync(p, ...resto);
+      if (s && path.resolve(p) === shim) Object.defineProperty(s, 'nlink', { value: 1 });
+      return s;
+    };
+    fs.renameSync = (de, para) => {
+      if (path.resolve(para) === shim) throw erroEperm();
+      return originais.renameSync(de, para);
+    };
+    r = sincronizarShims(raiz);
+  } finally {
+    Object.assign(fs, originais);
+  }
+  try {
+    assert.deepEqual(r, { ok: false, motivo: 'shim_invalido' });
+    assert.equal(fs.lstatSync(fora).mode, modoFora);
+    assert.equal(ler(fora), 'original de fora');
+    assert.equal(fs.lstatSync(shim).nlink, 2);
+    assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'statusline.mjs']);
+  } finally {
+    try { fs.chmodSync(fora, 0o666); } catch { /* o afterEach apaga */ }
+  }
+});
+
+// Tirar o somente leitura soma só a escrita do dono (modo | 0o200), sem abrir
+// grupo e outros (antes era um 0o644 fixo). O rename espiado dá um EPERM na
+// primeira tentativa, para o caminho rodar também no POSIX.
+test('tirar o somente leitura só soma a escrita do dono', () => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  const shim = arqShim('statusline.mjs');
+  fs.writeFileSync(shim, 'adulterado');
+  fs.chmodSync(shim, 0o440);
+  // 0o440 no POSIX; no Windows o Node mostra 0o444 para somente leitura.
+  const antes = fs.lstatSync(shim).mode & 0o777;
+  const originais = { fchmodSync: fs.fchmodSync, renameSync: fs.renameSync };
+  const modos = [];
+  let primeira = true;
+  let r;
+  try {
+    fs.fchmodSync = (fd, modo) => {
+      modos.push(modo);
+      return originais.fchmodSync(fd, modo);
+    };
+    fs.renameSync = (de, para) => {
+      if (primeira && path.resolve(para) === shim) {
+        primeira = false;
+        throw erroEperm();
+      }
+      return originais.renameSync(de, para);
+    };
+    r = sincronizarShims(raiz);
+  } finally {
+    Object.assign(fs, originais);
+  }
+  assert.deepEqual(r, { ok: true, alterados: ['statusline.mjs'] });
+  assert.deepEqual(modos, [antes | 0o200]);
+  assert.equal(ler(shim), esperado(raiz, 'statusline.mjs'));
 });
 
 // m-2: o nome do temporário leva 12 hex de crypto.randomBytes(6); com nome

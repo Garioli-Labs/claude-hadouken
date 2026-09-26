@@ -72,9 +72,18 @@ const RENOMEAR_TRANSITORIOS = new Set(['EPERM', 'EACCES', 'EBUSY']);
 const TMP_BYTES = 6;
 const NOME_TMP = /^\.(?:statusline|cli)\.mjs\.[0-9a-f]{12}\.tmp$/;
 // Temporários deixados por um processo morto entre a escrita e o rename:
-// varridos depois de 1 h, no máximo 20 por sincronização.
+// varridos depois de 1 h. Por sincronização (N-2): no máximo 256 entradas de
+// bin/ lidas, 64 lstat e 20 remoções, para que um bin/ inundado não atrase o
+// SessionStart (S9, como a poda de ativas/). bin/ de verdade guarda os 2
+// shims e um ou outro temporário; o que passar do limite espera a próxima.
 const TMP_VELHO_MS = 3_600_000;
+const TMP_LER_MAX = 256;
+const TMP_CHECAR_MAX = 64;
 const TMP_VARRER_MAX = 20;
+// Resultado de liberarEscrita.
+const LIBERADO = 'liberado';
+const INALTERADO = 'inalterado';
+const RECUSADO = 'recusado';
 
 const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
 const erroComCodigo = (code) => Object.assign(new Error(code), { code });
@@ -90,6 +99,10 @@ const esperar = (ms) => {
 // (SEPARADOR_CODIFICADO) e em que src/statusline.js é arquivo regular pelo
 // lstat (nem link, nem pasta). Devolve a raiz resolvida (sem barra no fim nem
 // `..`) ou null. Nunca lança (fileURLToPath lança em URL sem volta: null).
+// Resíduo aceito (m-3): UNC de qualquer host (\\servidor\compartilhamento)
+// passa, e o lstat abre SMB até ele. Uma home em compartilhamento de rede é
+// legítima, e a raiz vem do CLAUDE_PLUGIN_ROOT do próprio Claude Code, não
+// de entrada não confiável.
 function raizValida(raiz) {
   try {
     if (typeof raiz !== 'string' || raiz.length === 0 || raiz.includes('\0') || !path.isAbsolute(raiz)) return null;
@@ -126,19 +139,27 @@ function pastaBin(dir) {
   return bin;
 }
 
-// Remove até TMP_VARRER_MAX temporários de bin/ com mais de TMP_VELHO_MS. Só
-// arquivo regular com exatamente o nome que gravarTmp gera; nada de pasta,
-// link ou nome alheio, e unlink nunca segue link. Roda a cada sincronização:
-// os shims só são regravados quando o plugin muda, então varrer só depois de
-// gravar quase nunca rodaria. Melhor esforço: nunca lança.
+// Remove temporários de bin/ com mais de TMP_VELHO_MS. Só arquivo regular com
+// exatamente o nome que gravarTmp gera; nada de pasta, link ou nome alheio, e
+// unlink nunca segue link. Roda a cada sincronização: os shims só são
+// regravados quando o plugin muda, então varrer só depois de gravar quase
+// nunca rodaria. Custo limitado (N-2): opendir lido entrada a entrada, nunca a
+// listagem inteira, e para no primeiro limite atingido (TMP_LER_MAX entradas,
+// TMP_CHECAR_MAX lstat, TMP_VARRER_MAX remoções). O Dir é sempre fechado.
+// Melhor esforço: nunca lança.
 function varrerTmpVelhos(bin) {
+  let pasta;
   try {
+    pasta = fs.opendirSync(bin);
     const corte = Date.now() - TMP_VELHO_MS;
+    let checados = 0;
     let removidos = 0;
-    for (const nome of fs.readdirSync(bin)) {
-      if (removidos >= TMP_VARRER_MAX) break;
-      if (!NOME_TMP.test(nome)) continue;
-      const caminho = path.join(bin, nome);
+    for (let lidos = 0; lidos < TMP_LER_MAX && checados < TMP_CHECAR_MAX && removidos < TMP_VARRER_MAX; lidos++) {
+      const entrada = pasta.readSync();
+      if (entrada === null) break;
+      if (!NOME_TMP.test(entrada.name)) continue;
+      checados++;
+      const caminho = path.join(bin, entrada.name);
       try {
         const info = fs.lstatSync(caminho);
         if (!info.isFile() || info.mtimeMs >= corte) continue;
@@ -146,7 +167,13 @@ function varrerTmpVelhos(bin) {
         removidos++;
       } catch { /* sumiu ou sem permissão: segue */ }
     }
-  } catch { /* pasta ilegível: fica para a próxima sincronização */ }
+  } catch {
+    /* pasta ilegível: fica para a próxima sincronização */
+  } finally {
+    if (pasta !== undefined) {
+      try { pasta.closeSync(); } catch { /* já fechada */ }
+    }
+  }
 }
 
 // O shim já tem exatamente `esperado`? Abre sem seguir link, confere pelo
@@ -200,23 +227,32 @@ function gravarTmp(pasta, nome, conteudo) {
   return tmp;
 }
 
-// Shim somente leitura (attrib +R, chmod 444): no Windows o rename por cima
-// dá EPERM enquanto a marca existir, e a adulteração ficaria. Tira a marca:
-// lstat (arquivo regular sem escrita para o dono, nunca link), depois abre
-// sem seguir link onde O_NOFOLLOW existe, confere de novo pelo fstat e só
-// então fchmod 0o644 pelo descritor. Devolve true se mudou algo. Nunca lança.
+// Arquivo regular sem escrita para o dono (attrib +R no Windows, chmod 444).
+const somenteLeitura = (info) => info.isFile() && (info.mode & 0o200) === 0;
+
+// Shim somente leitura: no Windows o rename por cima dá EPERM enquanto a marca
+// existir, e a adulteração ficaria. Tira a marca: lstat (somente leitura,
+// nunca link), depois abre sem seguir link onde O_NOFOLLOW existe, confere de
+// novo pelo fstat e só então fchmod pelo descritor, somando só a escrita do
+// dono (grupo e outros não ganham nada). As duas checagens exigem nlink 1
+// (N-1): num hard link o fchmod mudaria também o arquivo do outro nome, fora
+// de bin/, e O_NOFOLLOW não barra hard link. Com nlink diferente de 1 nada é
+// tocado e a resposta é RECUSADO. Devolve LIBERADO, INALTERADO ou RECUSADO.
+// Nunca lança.
 function liberarEscrita(arquivo) {
   let fd;
   try {
     const info = fs.lstatSync(arquivo, { throwIfNoEntry: false });
-    if (!info || !info.isFile() || (info.mode & 0o200) !== 0) return false;
+    if (!info || !somenteLeitura(info)) return INALTERADO;
+    if (info.nlink !== 1) return RECUSADO;
     fd = fs.openSync(arquivo, ABRIR_LEITURA);
     const aberto = fs.fstatSync(fd);
-    if (!aberto.isFile() || (aberto.mode & 0o200) !== 0) return false;
-    fs.fchmodSync(fd, 0o644);
-    return true;
+    if (!somenteLeitura(aberto)) return INALTERADO;
+    if (aberto.nlink !== 1) return RECUSADO;
+    fs.fchmodSync(fd, (aberto.mode & 0o777) | 0o200);
+    return LIBERADO;
   } catch {
-    return false;
+    return INALTERADO;
   } finally {
     if (fd !== undefined) fechar(fd);
   }
@@ -224,8 +260,10 @@ function liberarEscrita(arquivo) {
 
 // Grava num temporário da mesma pasta e renomeia por cima do shim. O rename
 // troca a entrada, nunca escreve através dela. EPERM/EACCES de um shim
-// somente leitura: tira a marca e tenta de novo. Falhou: o temporário é
-// apagado e o erro sobe.
+// somente leitura: tira a marca e tenta de novo. Shim somente leitura com mais
+// de um nome (hard link): nada é tocado e o erro é 'shim_invalido', a mesma
+// falha visível de uma pasta no lugar do shim. Falhou: o temporário é apagado
+// e o erro sobe.
 function gravarAtomico(arquivo, conteudo) {
   const tmp = gravarTmp(path.dirname(arquivo), path.basename(arquivo), conteudo);
   for (let tentativa = 1; ; tentativa++) {
@@ -237,7 +275,12 @@ function gravarAtomico(arquivo, conteudo) {
         apagar(tmp);
         throw e;
       }
-      if (e.code === 'EBUSY' || !liberarEscrita(arquivo)) esperar(RENOMEAR_ESPERA_MS);
+      const liberacao = e.code === 'EBUSY' ? INALTERADO : liberarEscrita(arquivo);
+      if (liberacao === RECUSADO) {
+        apagar(tmp);
+        throw erroComCodigo('shim_invalido');
+      }
+      if (liberacao !== LIBERADO) esperar(RENOMEAR_ESPERA_MS);
     }
   }
 }
@@ -269,7 +312,8 @@ function sincronizarUm(bin, nome, conteudo) {
 // problema não impede a correção do outro; a primeira falha vira o motivo.
 // Motivos: 'sem_diretorio' (sem home; nenhum I/O), 'raiz_invalida',
 // 'bin_invalido' (bin/ é link, junção ou arquivo; nada escrito),
-// 'shim_invalido' (pasta no lugar de um shim), 'tmp_invalido' (o temporário
+// 'shim_invalido' (pasta no lugar de um shim, ou shim somente leitura com
+// mais de um nome, que fica como está), 'tmp_invalido' (o temporário
 // aberto não é arquivo regular), 'shim' (erro sem código) ou o código do erro
 // de sistema. Nunca lança.
 export function sincronizarShims(raizPlugin) {
