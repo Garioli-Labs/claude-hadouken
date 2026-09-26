@@ -59,13 +59,17 @@ export function criarGerador(agora) {
     const input = inteiro(1, 20);
     const cacheRead = inteiro(10_000, 180_000);
     const cacheCreate = inteiro(0, 20_000);
+    // Detalhe 1 h / 5 min como nos transcripts reais (todas as respostas o
+    // trazem). Divisão fixa, sem sortear: a sequência do PRNG não muda.
+    const cache1h = Math.floor(cacheCreate * 0.9);
+    const cache5m = cacheCreate - cache1h;
     let output = inteiro(10, 200);
     for (let b = 0; b < blocos; b++) {
       output += inteiro(0, 800);
       const conteudo = b % 2 === 0
         ? `[{"type":"text","text":"${texto(inteiro(300, 4_000))}"}]`
         : `[{"type":"tool_use","id":"toolu_${req.slice(9)}${b}","name":"Bash","input":{"command":"${texto(inteiro(50, 1_500))}"}}]`;
-      linhas.push(`{${base},"message":{"id":"${msg}","type":"message","role":"assistant","model":"claude-opus-5-5","content":${conteudo},"stop_reason":null,"usage":{"input_tokens":${input},"cache_creation_input_tokens":${cacheCreate},"cache_read_input_tokens":${cacheRead},"output_tokens":${output},"output_tokens_details":{"thinking_tokens":${Math.floor(output / 3)}},"service_tier":"standard"}},"requestId":"${req}","type":"assistant","uuid":"${uuid()}","timestamp":"${ts()}","effort":"high","apiBlockIndex":${b}}`);
+      linhas.push(`{${base},"message":{"id":"${msg}","type":"message","role":"assistant","model":"claude-opus-5-5","content":${conteudo},"stop_reason":null,"usage":{"input_tokens":${input},"cache_creation_input_tokens":${cacheCreate},"cache_read_input_tokens":${cacheRead},"cache_creation":{"ephemeral_5m_input_tokens":${cache5m},"ephemeral_1h_input_tokens":${cache1h}},"output_tokens":${output},"output_tokens_details":{"thinking_tokens":${Math.floor(output / 3)}},"service_tier":"standard"}},"requestId":"${req}","type":"assistant","uuid":"${uuid()}","timestamp":"${ts()}","effort":"high","apiBlockIndex":${b}}`);
     }
     for (let k = 0; k < 4; k++) {
       linhas.push(`{${base},"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_${req.slice(9)}","type":"tool_result","content":"${texto(inteiro(500, 7_500))}"}]},"uuid":"${uuid()}","timestamp":"${ts()}"}`);

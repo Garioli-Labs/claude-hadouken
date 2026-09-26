@@ -17,13 +17,21 @@ import { effortValido, EFFORTS_VALIDOS, sanear } from './util.js';
 // Índice incremental em <dirDados>/indice-transcripts.json, por caminho
 // relativo à raiz: offset (byte depois do último \n completo), size, mtimeMs,
 // âncora (hash dos 4 KiB antes do offset), linhas inválidas, tabelas de
-// sessões/modelos/projetos e, por resposta, o requestId e 11 números em
+// sessões/modelos/projetos e, por resposta, o requestId e 13 números em
 // `numeros` (ts, índice da sessão, subagente 0/1, índice do projeto, índice do
 // modelo, índice do effort em EFFORTS_VALIDOS, input, output, thinking,
-// cacheRead, cacheCreate; -1 = null). Nenhum texto de transcript é guardado; o
-// índice lido passa pelos mesmos validadores das linhas, então nunca produz
-// nada que um transcript não produziria. O índice gravado cabe sempre no teto
-// que o leitor aceita: passou dele, saem as entradas maiores (indiceNoTeto).
+// cacheRead, cacheCreate, cacheCreate1h, cacheCreate5m; -1 = null). Nenhum
+// texto de transcript é guardado; o índice lido passa pelos mesmos validadores
+// das linhas, então nunca produz nada que um transcript não produziria. O
+// índice gravado cabe sempre no teto que o leitor aceita: passou dele, saem as
+// entradas maiores (indiceNoTeto). Um índice de outra versão (a 1 guardava 11
+// números por resposta, sem o detalhe do cache criado) é descartado e
+// reconstruído, nunca lido com o layout errado.
+//
+// O índice não cresce com o número de sessões: cada resposta guarda só o
+// índice da sua sessão numa tabela por arquivo, que tem no máximo uma entrada
+// por resposta (tabelaValida), e o índice inteiro fica no teto de 16 MiB. A
+// soma por sessão é feita depois, na agregação (agregacao.js).
 //
 // Uma linha só vira registro quando o seu \n chega. A última linha sem \n
 // (sendo escrita agora, ou plantada) nunca é decodificada: fica depois do
@@ -40,7 +48,8 @@ export const ARQUIVOS_MAX = 20_000;
 // uma pasta com milhões de nomes não prenda a caminhada.
 const ENTRADAS_POR_ARQUIVO = 10;
 const INDICE_MAX_BYTES = 16 * 1024 * 1024;
-const VERSAO_INDICE = 1;
+// 2: mais cacheCreate1h e cacheCreate5m por resposta (PASSO de 11 para 13).
+export const VERSAO_INDICE = 2;
 // Tolerância para relógio adiantado: um timestamp até 1 dia à frente ainda vale.
 const FUTURO_MAX_MS = 86_400_000;
 const TS_MIN_MS = -8.64e15;
@@ -58,8 +67,11 @@ const PEDACO = 1024 * 1024;
 const ANCORA_BYTES = 4096;
 const ANCORA_MAX = 2 ** 48 - 1;
 const ID_REQUISICAO = /^[A-Za-z0-9_-]{1,128}$/;
-const PASSO = 11;
+const PASSO = 13;
 const USOS = ['input', 'output', 'thinking', 'cacheRead', 'cacheCreate'];
+// Detalhe do cache criado por duração (usage.cache_creation): número ou null,
+// sempre os dois juntos. Guardados depois dos USOS, com -1 = null no índice.
+const DETALHE_CACHE = ['cacheCreate1h', 'cacheCreate5m'];
 // Filtro barato: só linhas com a chave "usage" são decodificadas. Dentro de um
 // texto JSON as aspas vêm escapadas (\"usage\"), então isto só casa com uma
 // chave ou um valor "usage" de verdade.
@@ -93,6 +105,19 @@ const idRequisicaoValido = (id) => typeof id === 'string' && ID_REQUISICAO.test(
 
 // Número de uso: inteiro finito de 0 a 1e9, ou null (ausente ou inválido). -0 vira 0.
 const numeroUso = (n) => (inteiroEntre(n, 0, USO_MAX) ? n + 0 : null);
+
+// Detalhe do cache criado: { h1, m5 } com os dois números de uso válidos em
+// usage.cache_creation (ephemeral_1h_input_tokens e ephemeral_5m_input_tokens),
+// ou { h1: null, m5: null }. Um só válido também dá null nos dois: o outro
+// nunca é deduzido do total. A conferência com cache_creation_input_tokens é
+// da agregação, depois da deduplicação.
+function detalheCache(u) {
+  const cc = proprio(u, 'cache_creation');
+  if (!ehObjeto(cc)) return { h1: null, m5: null };
+  const h1 = numeroUso(proprio(cc, 'ephemeral_1h_input_tokens'));
+  const m5 = numeroUso(proprio(cc, 'ephemeral_5m_input_tokens'));
+  return h1 === null || m5 === null ? { h1: null, m5: null } : { h1, m5 };
+}
 
 function instanteLinha(valor, agoraMs) {
   if (typeof valor !== 'string' || valor.length > TS_MAX_CHARS) return null;
@@ -162,6 +187,7 @@ function registroDe(d, ctx) {
   const ts = instanteLinha(proprio(d, 'timestamp'), ctx.agoraMs);
   if (ts === null) return INVALIDA;
   const sessao = proprio(d, 'sessionId');
+  const detalhe = detalheCache(u);
   return {
     requestId: chave,
     ts,
@@ -175,11 +201,15 @@ function registroDe(d, ctx) {
     thinking: thinking ?? 0,
     cacheRead: cacheRead ?? 0,
     cacheCreate: cacheCreate ?? 0,
+    cacheCreate1h: detalhe.h1,
+    cacheCreate5m: detalhe.m5,
   };
 }
 
 // Uma resposta por requestId: cada campo de uso fica com o máximo entre as
-// linhas (uma por apiBlockIndex, e o uso pode crescer entre elas); subagente
+// linhas (uma por apiBlockIndex, e o uso pode crescer entre elas); no detalhe
+// do cache, null é ausência e perde para qualquer número (como cada linha traz
+// os dois ou nenhum, o resultado também traz os dois ou nenhum); subagente
 // vale se qualquer ocorrência for de subagente; o resto vem da primeira.
 // `copiar` protege o registro de origem (índice guardado) de ser alterado.
 function juntar(mapa, r, copiar) {
@@ -189,6 +219,7 @@ function juntar(mapa, r, copiar) {
     return;
   }
   for (const k of USOS) if (r[k] > a[k]) a[k] = r[k];
+  for (const k of DETALHE_CACHE) if (r[k] !== null && (a[k] === null || r[k] > a[k])) a[k] = r[k];
   if (r.subagente) a.subagente = true;
 }
 
@@ -508,6 +539,12 @@ function formaDoArquivo(abs) {
   return { subagente, projetoPadrao: rotuloProjeto(path.basename(dirProjeto)) };
 }
 
+// Registro (uma resposta): { requestId, ts (ms), sessionId (ou null),
+// subagente, projeto, model, effort (ou null), input, output, thinking,
+// cacheRead, cacheCreate (inteiros de 0 a 1e9; ausente vale 0), cacheCreate1h,
+// cacheCreate5m (inteiros de 0 a 1e9, ou null nos dois quando a linha não
+// traz o detalhe do cache criado) }.
+//
 // Lê um transcript avulso. Devolve { registros, linhasInvalidas, ilegivel };
 // caminho que não é arquivo regular (inexistente, pasta, link, FIFO) ou que
 // não pôde ser lido → { registros: [], linhasInvalidas: 0, ilegivel: true }.
@@ -709,6 +746,15 @@ function entradaDoDisco(e, ehSubagente, agoraMs) {
       if (v === null) return null;
       r[USOS[j]] = v;
     }
+    // Detalhe do cache: -1 (null) ou número de uso, e os dois juntos, como o
+    // parser grava; qualquer outra combinação invalida o índice.
+    for (let j = 0; j < DETALHE_CACHE.length; j++) {
+      const n = numeros[k + 6 + USOS.length + j];
+      const v = n === -1 ? null : numeroUso(n);
+      if (v === null && n !== -1) return null;
+      r[DETALHE_CACHE[j]] = v;
+    }
+    if ((r.cacheCreate1h === null) !== (r.cacheCreate5m === null)) return null;
     registros.push(r);
   }
   return { offset, size, mtimeMs, ancora, linhasInvalidas, registros, disco: e };
@@ -757,6 +803,7 @@ function entradaParaDisco(e) {
       r.ts, indice(tabelas.sessoes, r.sessionId), r.subagente ? 1 : 0, indice(tabelas.projetos, r.projeto),
       indice(tabelas.modelos, r.model), EFFORTS_VALIDOS.indexOf(r.effort),
       r.input, r.output, r.thinking, r.cacheRead, r.cacheCreate,
+      r.cacheCreate1h ?? -1, r.cacheCreate5m ?? -1,
     );
   }
   return {
@@ -784,7 +831,7 @@ function indiceNoTeto(entradas, chaveRaiz) {
     medidas.push({ rel, e, disco, bytes });
     soma += bytes;
   }
-  // {"versao":1,"raiz":N,"arquivos":{}}: as entradas vão entre as últimas chaves.
+  // {"versao":V,"raiz":N,"arquivos":{}}: as entradas vão entre as últimas chaves.
   const envelope = Buffer.byteLength(JSON.stringify({ versao: VERSAO_INDICE, raiz: chaveRaiz, arquivos: {} }));
   const total = (n, s) => envelope + s + Math.max(0, n - 1);
   const fora = new Set();

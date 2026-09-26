@@ -207,23 +207,36 @@ function raizPadrao() {
 }
 
 // Meia-noite local de hoje, em ms (só a exibição e o corte de "hoje" usam o
-// fuso local; o resto é epoch).
+// fuso local; o resto é epoch). Num dia de mudança de horário a meia-noite
+// continua a do calendário local (o Date resolve o deslocamento do dia).
 function meiaNoiteLocal(agoraMs) {
   const d = new Date(agoraMs);
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 }
 
-// Início da semana: o da janela de 7d quando há leitura válida (reset menos
-// 7 dias); senão os últimos 7 dias.
-function inicioSemana(estado, agoraMs) {
-  const e = validarEstado(estado, agoraMs);
-  const lim = e === null ? null : limitesValidos(e, agoraMs);
-  if (lim?.seven_day) {
-    const desdeMs = lim.seven_day.resets_at * 1000 - SEMANA_MS;
-    if (Number.isFinite(desdeMs) && desdeMs <= agoraMs) return { desdeMs, origem: 'janela_7d' };
+// Início dos três períodos do relatório, em ms; cada período vale de
+// `desde` (inclusive) em diante:
+// - hojeMs: a meia-noite local de hoje;
+// - seteDiasMs: agora menos 7 × 24 h, sem fuso nem calendário;
+// - semana: a janela de 7d quando há leitura válida (reset menos 7 dias,
+//   origem 'janela_7d'); senão os mesmos últimos 7 dias (origem
+//   'ultimos_7_dias').
+// `agoraMs` precisa ser finito (gerarRelatorio garante). Nunca lança.
+export function periodos(estado, agoraMs) {
+  const seteDiasMs = agoraMs - SEMANA_MS;
+  let semana = { desdeMs: seteDiasMs, origem: 'ultimos_7_dias' };
+  try {
+    const e = validarEstado(estado, agoraMs);
+    const lim = e === null ? null : limitesValidos(e, agoraMs);
+    if (lim?.seven_day) {
+      const desdeMs = lim.seven_day.resets_at * 1000 - SEMANA_MS;
+      if (Number.isFinite(desdeMs) && desdeMs <= agoraMs) semana = { desdeMs, origem: 'janela_7d' };
+    }
+  } catch {
+    // estado ilegível: fica a semana dos últimos 7 dias
   }
-  return { desdeMs: agoraMs - SEMANA_MS, origem: 'ultimos_7_dias' };
+  return { hojeMs: meiaNoiteLocal(agoraMs), seteDiasMs, semana };
 }
 
 // Nenhum transcript no período: o motivo certo. O indexador devolve o mesmo
@@ -240,14 +253,16 @@ function motivoSemArquivos(raiz, idx) {
   return idx.ilegiveis > 0 ? CLAUDE_ILEGIVEIS : CLAUDE_SEM_RECENTES;
 }
 
-async function coletarClaude(raiz, hojeMs, semana) {
+async function coletarClaude(raiz, { hojeMs, seteDiasMs, semana }) {
   if (raiz === null) return { indisponivel: CLAUDE_SEM_HOME };
-  const idx = await indexarTranscripts({ raiz, desdeMs: Math.min(hojeMs, semana.desdeMs) });
+  const idx = await indexarTranscripts({ raiz, desdeMs: Math.min(hojeMs, seteDiasMs, semana.desdeMs) });
   if (idx.arquivos === 0) return { indisponivel: motivoSemArquivos(raiz, idx) };
   return {
     hoje: agregar(idx.registros, hojeMs),
+    sete_dias: agregar(idx.registros, seteDiasMs),
     semana: agregar(idx.registros, semana.desdeMs),
     hoje_desde: hojeMs,
+    sete_dias_desde: seteDiasMs,
     semana_desde: semana.desdeMs,
     semana_origem: semana.origem,
     linhasInvalidas: idx.linhasInvalidas,
@@ -287,9 +302,8 @@ export async function gerarRelatorio(opcoes) {
       if (lido.ok) estado = lido.valor;
     }
     const raiz = typeof o.raizTranscripts === 'string' && o.raizTranscripts !== '' ? o.raizTranscripts : raizPadrao();
-    const semana = inicioSemana(estado, agoraMs);
     const [claude, gh] = await Promise.all([
-      coletarClaude(raiz, meiaNoiteLocal(agoraMs), semana),
+      coletarClaude(raiz, periodos(estado, agoraMs)),
       coletarRepos(dir, { gh: o.gh, cwd: o.cwd, prazoMs }, agoraMs),
     ]);
     return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos }) };
