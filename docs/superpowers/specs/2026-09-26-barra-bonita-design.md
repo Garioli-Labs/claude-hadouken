@@ -13,11 +13,12 @@ Pronto quando:
 3. O `/consumo` em markdown tem o painel de limites com barrinhas, números alinhados e legíveis, a coluna "parte do total" e nomes curtos (seção 6).
 4. A saída `--json` do `/consumo` é idêntica byte a byte à da v0.1.0 para os mesmos dados (teste de referência).
 5. As metas de p95 da v0.1.0 (spec v0.1.0 §9) seguem cumpridas, medidas de novo: Windows na máquina parada, Linux e macOS no job `bench` do CI.
-6. A regressão inteira passa em Windows, Linux e macOS com Node 20 e 24; revisão final de qualidade e de segurança (Fable) sem achado aberto.
+6. Sessões simultâneas (seção 12): a barra mostra quantas sessões estão ativas e a previsão de estouro da janela, os avisos ao Claude levam a previsão em conta e o `/consumo` mostra a parte de cada sessão aberta na última hora.
+7. A regressão inteira passa em Windows, Linux e macOS com Node 20 e 24; revisão final de qualidade e de segurança (Fable) sem achado aberto.
 
 ## 2. Fora de escopo
 
-- Qualquer dado novo, leitura nova ou mudança no `--json`.
+- Qualquer dado novo, leitura nova ou mudança no `--json`, exceto o que a seção 12 define (histórico curto das leituras de limite no estado e a tabela de sessões abertas, que entra no `--json` como chave nova).
 - Mudança nas faixas de 5h e 7d, nos avisos ao Claude ou nos limiares de alerta.
 - Descobrir a largura do terminal (a statusline recebe o stdout em pipe; a largura não chega) e cortar a linha para caber.
 - Modo ASCII para terminais sem Unicode: a v0.1.0 já usa `│` e `↻`; a v0.2.0 não piora esse requisito.
@@ -151,13 +152,78 @@ Nenhuma superfície nova de rede, arquivo, variável de ambiente ou comando.
 - README (PT e EN): exemplo da barra novo, faixas de ctx e cache, largura, tabela de desempenho remedida. Registro de mudanças na release.
 - Tag `v0.2.0` e release no GitHub. Quem tem a v0.1.0 instalada atualiza pelo `/plugin`. O gate de ativação não muda: sessão que não passou pelo SessionStart do plugin continua sem barra. Se uma sessão já registrada passa a mostrar o visual novo logo após a atualização (a `statusLine` aponta para o shim, que aponta para o cache do plugin) é verificado no teste de ponta a ponta da release e registrado no README; a mudança é só visual e não altera dados nem estado.
 
+## 12. Sessões simultâneas (adendo de 2026-09-26)
+
+Pedido do Sr. Garioli: "O plugin precisa considerar todas as sessões em aberto naquele momento no VS Code pra calcular melhor as estimativas." Ele escolheu as quatro partes abaixo.
+
+Fato que orienta o desenho: as porcentagens de 5h e 7d que o Claude Code entrega já são da conta inteira, somando todas as sessões (VS Code ou qualquer outro lugar), e o estado do plugin já guarda a leitura mais recente de qualquer sessão. O que não olha as outras sessões hoje é a estimativa: o "esperado" de 7d é uma régua de tempo, não uma previsão pelo ritmo real. O plugin não distingue sessões do VS Code das de outro terminal; conta todas as sessões do Claude Code da máquina que passaram pelo gate de ativação.
+
+### 12.1 Sessão ativa
+
+- Ativa = sessão registrada (gate de ativação, spec v0.1.0 §8.2) cujo registro em `estado.sessoes` tem `at` nos últimos 5 minutos. O `at` é renovado pela barra a cada atualização, isto é, sempre que a sessão trabalha; sessão parada sai da conta em 5 minutos.
+- Limite: sessões abertas antes da instalação não passam pelo gate e não entram na contagem (o consumo delas continua dentro das porcentagens da conta, e a previsão, que vem das porcentagens, as inclui). O README diz isso.
+- A contagem nunca passa de 50 (o teto de `estado.sessoes`).
+
+### 12.2 Histórico curto das leituras
+
+- `estado.json` ganha `historico`: lista de `{ at, h5, d7 }` (instante ISO, `used_percentage` de 5h e de 7d, cada um número válido ou null) com no máximo 1 ponto a cada 2 minutos e no máximo 90 pontos (3 horas). Ponto novo só entra com leitura válida de agora; ponto com `at` no futuro (mais de 5 min) ou mais velho que 3 h é descartado na validação.
+- Troca de janela (o `resets_at` da janela mudou ou a porcentagem caiu mais de 1 ponto) zera o histórico daquela janela: a previsão nunca mistura duas janelas.
+- Schema validado na leitura como o resto do estado (spec v0.1.0 §6.2); histórico inválido vira lista vazia, sem erro.
+
+### 12.3 Previsão de estouro
+
+- Velocidade de consumo = inclinação por mínimos quadrados da porcentagem contra o tempo:
+  - 5h: pontos dos últimos 20 minutos;
+  - 7d: pontos das últimas 3 horas.
+- Só calcula com pelo menos 3 pontos cobrindo pelo menos 6 minutos; inclinação ≤ 0 ou não finita → sem previsão.
+- Previsão = agora + (100 − porcentagem atual) ÷ inclinação. Só aparece se cair antes do reset da janela (senão o reset chega primeiro e não há o que avisar).
+- Na barra, dentro do trecho da janela, depois do reset: `→100% 14:40` (hora local), na cor vermelha da faixa. Exemplo: `5h ▰▰▰▰▰▰▱▱ 74% ↻15:30 →100% 14:40`. O glifo `→` tem largura 1; `⚠` foi descartado porque alguns terminais do Windows o desenham com largura 2.
+- A previsão usa as porcentagens da conta, então já inclui o consumo de todas as sessões, registradas ou não.
+
+### 12.4 Número de sessões ativas na barra
+
+- Trecho novo logo depois do modelo: `3 sessões` (ou `2 sessões`). Com 1 sessão ativa (a própria) o trecho não aparece, para não gastar largura com o óbvio.
+- Sem cor. O número vem da contagem da 12.1, nunca de dado externo.
+
+### 12.5 Avisos ao Claude
+
+- Aviso novo, `projecao`, na mesma linha fixa dos avisos da v0.1.0 (só números e texto do código):
+  - dispara quando a previsão de 5h fica a 60 minutos ou menos e antes do reset; de novo quando fica a 30 minutos ou menos;
+  - texto: `hadouken: no ritmo atual (3 sessões ativas), 5h chega a 100% às 14:40, antes do reset das 15:30. Reduza o paralelismo ou serialize.`; com 1 sessão, sem o parêntese;
+  - para 7d: dispara quando a previsão cai antes do reset e a 24 horas ou menos, com o mesmo texto para 7d.
+- Deduplicação como os avisos existentes: cada faixa (60, 30, 7d) dispara uma vez por janela e sessão; a previsão sair de faixa e voltar não repete o mesmo aviso na mesma janela.
+- Os avisos de faixa da v0.1.0 (70/80/90 e ±10 pontos) não mudam.
+
+### 12.6 Parte de cada sessão no `/consumo`
+
+- Seção nova, "Sessões abertas (última hora)", antes dos períodos: cada sessão com resposta nos últimos 60 minutos (transcripts já indexados; subagentes somados à sessão mãe), com id curto (6.4), projeto, modelos, tokens da última hora e a parte do total com barrinha (6.3).
+- No `--json`, chave nova `sessoesAbertas` (lista com id completo, projeto, modelos, tokens, parte); as chaves da v0.1.0 continuam idênticas, e o teste de referência passa a comparar só elas.
+
+### 12.7 Ameaças da seção 12
+
+| Ameaça | Defesa | Teste |
+|---|---|---|
+| `estado.json` adulterado com histórico falso (pontos demais, datas no futuro, porcentagens fora de 0–100) para forjar uma previsão ou travar a barra | Validação na leitura: no máximo 90 pontos, `at` dentro de [agora − 3 h, agora + 5 min], porcentagens em [0, 100]; o resto é descartado | histórico malicioso vira lista vazia ou é podado |
+| Sessões falsas em `estado.sessoes` inflando a contagem | Mesma validação de id e teto de 50 da v0.1.0; o número só aparece como inteiro | contagem nunca passa de 50; id inválido não conta |
+| Inclinação absurda (divisão por quase zero, relógio andando para trás) mostra hora sem sentido | Mínimo de 3 pontos em 6 minutos; inclinação ≤ 0 ou não finita descartada; previsão só se antes do reset | casos de borda |
+| Texto do aviso levando dado externo ao Claude | Aviso montado só com números validados e texto fixo | aviso com estado malicioso só tem números |
+| Nome de projeto ou modelo na tabela de sessões abertas | Mesma limpeza das outras tabelas (sanear, glifos da barra, nomes curtos) | nome malicioso sai limpo |
+
+### 12.8 Performance
+
+- A barra passa a gravar o histórico no mesmo `estado.json` que já grava a cada atualização; o arquivo cresce em cerca de 5 KB. O cálculo da previsão é linear em no máximo 90 pontos.
+- As metas de p95 da seção 8 valem com o histórico cheio (90 pontos) e 50 sessões no estado; o bench passa a medir esse pior caso.
+
 ## 11. Estrutura
 
 ```
 src/barrinha.js          novo, puro
 src/formato.js           barrinhas, faixas de ctx e cache
 src/util.js              GLIFOS_BARRA ampliado, formatarTokens com a regra nova
-src/relatorio.js         painel, números, parte do total, nomes curtos
+src/relatorio.js         painel, números, parte do total, nomes curtos, sessões abertas
+src/estado.js            histórico curto das leituras
+src/previsao.js          novo, puro: inclinação e previsão de estouro
+src/alerta.js            aviso projecao
 test/barrinha.test.js    novo
 test/fixtures/consumo-v0.1.0.json   referência do --json
 ```
