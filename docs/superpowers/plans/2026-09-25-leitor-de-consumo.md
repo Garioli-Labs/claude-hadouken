@@ -1505,7 +1505,7 @@ git commit -m "report: transcript parser with request dedup and incremental inde
   - `agregar(registros: Registro[], desdeMs: number) → { total: Soma, porProjeto: {[p]: Soma}, porModeloEffort: {["model·effort"]: Soma}, principalVsSubagente: { principal: Soma, subagente: Soma } }`
   - `Soma = { respostas, input, output, thinking, cacheRead, cacheCreate, acertoCache: number|null }` com `acertoCache = cacheRead / (input + cacheRead + cacheCreate)` arredondado a 3 casas, `null` se denominador 0.
   - `pesoSistema(sistema: 'linux'|'windows'|'macos') → 1|2|10`
-  - `sistemaDoJob(labels: string[]) → 'linux'|'windows'|'macos'|'self-hosted'`
+  - `sistemaDoJob(labels: string[]) → 'linux'|'windows'|'macos'|'naoClassificado'`
   - `minutosJob({ started_at, completed_at }) → number` (arredonda para cima; 0 se faltar)
   - `coletarGithub({ repos: string[], agoraMs: number, gh?: (args: string[]) => Promise<{ ok, stdout, motivo? }> }) → Promise<{ [repo]: ResumoRepo | { indisponivel: string } }>`
   - `ResumoRepo = { publico: boolean, runs7: { total, porEvento }, runs30: { total, porEvento }, minutos30: { linux, windows, macos, ponderado }, cache: { bytes, limiteBytes: 10737418240 } }`
@@ -1555,7 +1555,7 @@ test('pesos e sistemas', () => {
   assert.equal(sistemaDoJob(['windows-latest']), 'windows');
   assert.equal(sistemaDoJob(['macos-14']), 'macos');
   assert.equal(sistemaDoJob(['ubuntu-latest']), 'linux');
-  assert.equal(sistemaDoJob(['self-hosted', 'linux']), 'self-hosted');
+  assert.equal(sistemaDoJob(['self-hosted', 'linux']), 'naoClassificado');
 });
 
 test('minutosJob arredonda para cima e trata ausência', () => {
@@ -1662,7 +1662,7 @@ export const pesoSistema = (s) => PESOS[s] ?? 0;
 
 export function sistemaDoJob(labels = []) {
   const l = labels.map((x) => String(x).toLowerCase());
-  if (l.includes('self-hosted')) return 'self-hosted';
+  if (l.includes('self-hosted')) return 'naoClassificado';
   if (l.some((x) => x.startsWith('windows'))) return 'windows';
   if (l.some((x) => x.startsWith('macos'))) return 'macos';
   return 'linux';
@@ -1710,7 +1710,7 @@ async function resumoRepo(repo, agoraMs, gh, cacheJobs) {
     }
     for (const j of jobs) {
       const s = sistemaDoJob(j.labels);
-      if (s === 'self-hosted') continue;
+      if (s === 'naoClassificado') continue;
       const m = minutosJob(j);
       minutos30[s] += m;
       minutos30.ponderado += m * pesoSistema(s);

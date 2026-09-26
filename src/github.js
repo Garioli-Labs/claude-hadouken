@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { dirDados, gravarJsonAtomico, instante, lerJson } from './estado.js';
+import { resolverExecutavel, absolutoCompleto } from './executavel.js';
 
 // Leitor do consumo de GitHub Actions para o /consumo (spec 6.7; 8.1 S2, S5,
 // S9; addendum de segurança da Task 9). O plugin existe para economizar
@@ -81,8 +82,10 @@ const HTTP = /^HTTP [1-5]\d\d$/;
 
 const EVENTOS = Object.freeze(['push', 'pull_request', 'pull_request_target', 'schedule', 'workflow_dispatch', 'workflow_run', 'merge_group', 'release', 'repository_dispatch', 'dynamic']);
 const CONCLUSOES = Object.freeze(['success', 'failure', 'cancelled', 'skipped', 'timed_out', 'action_required', 'neutral', 'stale', 'startup_failure']);
-const CHAVES_EVENTO = Object.freeze([...EVENTOS, 'outro']);
-const CHAVES_CONCLUSAO = Object.freeze([...CONCLUSOES, 'em_andamento', 'outro']);
+// Chaves de porEvento e de conclusoes30, exportadas para o relatório (Task 10)
+// filtrar o que imprime pela mesma lista.
+export const CHAVES_EVENTO = Object.freeze([...EVENTOS, 'outro']);
+export const CHAVES_CONCLUSAO = Object.freeze([...CONCLUSOES, 'em_andamento', 'outro']);
 
 // Rótulos dos runners hospedados padrão, uma regex ancorada por família, da
 // tabela oficial (docs.github.com/en/actions/reference/runners/github-hosted-runners,
@@ -105,6 +108,13 @@ const MOTIVOS_EXECUTOR = new Set(['gh ausente', 'gh sem login', 'tempo esgotado'
 // Depois de um destes nenhuma chamada nova é feita nesta coleta: insistir não
 // adianta (sem gh, sem login, rede travada) ou piora (limite da API).
 const FATAIS = new Set(['gh ausente', 'gh sem login', 'tempo esgotado', 'limite da API']);
+// Motivos que só a coleta produz (entrada recusada, teto de repos, relógio).
+const MOTIVOS_COLETA = new Set(['invalido', 'truncado', 'agora inválido', 'resposta inválida']);
+
+// Motivo de indisponível que coletarGithub pode devolver: um da lista fixa ou
+// 'HTTP nnn'. O relatório (Task 10) só imprime motivo que passa aqui; o resto
+// vira 'gh falhou', como na coleta. Nunca lança.
+export const motivoValido = (m) => typeof m === 'string' && (MOTIVOS_EXECUTOR.has(m) || MOTIVOS_COLETA.has(m) || HTTP.test(m));
 
 // Variáveis que mudariam a saída ou o comportamento do gh (cor, TTY forçado,
 // depuração no stderr, prompts, aviso de versão, que faz uma requisição a
@@ -241,6 +251,19 @@ function opcoesExecutor(opcoes) {
   }
 }
 
+// Programa que o executor roda (fix round 1 da Task 10, Critical 1): caminho
+// absoluto completo como veio (os testes injetam o próprio node; no Windows
+// exige unidade ou UNC, e um enraizado sem unidade é recusado); nome solto
+// resolvido pelo PATH, por caminho absoluto, nunca pelo cwd (executavel.js);
+// caminho relativo com pasta, que dependeria do cwd, é recusado. null → 'gh
+// ausente', sem criar processo.
+function programa(executavel) {
+  if (absolutoCompleto(executavel)) return executavel;
+  if (path.isAbsolute(executavel)) return null;
+  if (/[\\/]/.test(executavel)) return null;
+  return resolverExecutavel(executavel);
+}
+
 // Só um AbortSignal de verdade chega ao execFile; qualquer outra coisa é
 // ignorada (o execFile lançaria com um objeto que só parece um sinal).
 function sinalValido(sinal) {
@@ -251,8 +274,10 @@ function sinalValido(sinal) {
   }
 }
 
-// Executor do gh: `execFile`, nunca um shell; argumentos passados como lista,
-// literais. Timeout de 15 s, saída de até 8 MB, janela oculta no Windows,
+// Executor do gh: `execFile`, nunca um shell, com o gh do PATH por caminho
+// absoluto (nunca um gh plantado no cwd, que é o repo do usuário); sem gh
+// fora do cwd, 'gh ausente'. Argumentos passados como lista, literais.
+// Timeout de 15 s, saída de até 8 MB, janela oculta no Windows,
 // stdin fechado, ambiente com MSYS_NO_PATHCONV=1 e sem variáveis que mudem a
 // saída. Recebe (args, sinal): abortar o sinal (o prazo da coleta) mata o gh.
 // O abort passa pelo spawn, que manda SIGTERM (o execFile não repassa
@@ -277,11 +302,16 @@ export function criarExecutorGh(opcoes) {
         resolve(falha('tempo esgotado'));
         return;
       }
+      const exe = programa(executavel);
+      if (exe === null) {
+        resolve(falha('gh ausente'));
+        return;
+      }
       // O gh só lê, então pode morrer sem aviso. killSignal vale só para o
       // timeout do execFile: SIGKILL, mesmo que o gh ignore SIGTERM. O abort
       // não usa killSignal e é escalado para SIGKILL no callback abaixo. No
       // Windows todo sinal é TerminateProcess.
-      const filho = execFile(executavel, [...args], {
+      const filho = execFile(exe, [...args], {
         env: ambienteGh(), timeout: timeoutMs, maxBuffer, windowsHide: true, encoding: 'utf8', shell: false,
         killSignal: 'SIGKILL', signal, ...(cwd === undefined ? {} : { cwd }),
       }, (erro, stdout, stderr) => {
@@ -722,7 +752,8 @@ function gravarCache(arquivo, repos, agoraMs) {
 // owner/repo do GitHub: regex da spec, sem '..' e sem parte começando com
 // '.' ou '-'. Só um repo que passa aqui chega a um endpoint.
 // Recusar owner/.github (repo legítimo) é limitação deliberada da v0.1.
-function repoValido(r) {
+// Exportada para o config.json, o origin e o relatório (Task 10). Nunca lança.
+export function repoValido(r) {
   if (typeof r !== 'string' || !REPO.test(r) || r.includes('..')) return false;
   const [dono, nome] = r.split('/');
   return !/^[.-]/.test(dono) && !/^[.-]/.test(nome);

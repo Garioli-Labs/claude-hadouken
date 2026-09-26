@@ -1006,8 +1006,11 @@ test('índice acima do teto: saem primeiro as entradas maiores, e o resto segue 
   assert.equal(r1.registros.length, 51_402, 'a poda não tira nada da saída');
   const indice = lerIndice();
   assert.deepEqual(Object.keys(indice.arquivos).sort(), ['proj-a/medio.jsonl', 'proj-a/p1.jsonl', 'proj-b/p2.jsonl']);
-  assert.ok(Buffer.byteLength(JSON.stringify(indice)) <= TETO, 'compacto, em UTF-8, cabe no teto');
-  assert.ok(fs.statSync(arqIndice()).size <= TETO, 'o leitor aceita o índice gravado');
+  const compacto = Buffer.byteLength(JSON.stringify(indice));
+  assert.ok(compacto <= TETO, 'compacto, em UTF-8, cabe no teto');
+  // O índice é gravado exatamente no formato que indiceNoTeto mede (JSON
+  // compacto): um byte a mais no disco seria teto medido e não cumprido.
+  assert.equal(fs.statSync(arqIndice()).size, compacto, 'gravado em JSON compacto, do tamanho medido');
   // Próxima chamada sem mudança: só o arquivo podado é relido, e o índice
   // (já podado igual) não é regravado.
   const marca = marcaIndice();
