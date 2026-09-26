@@ -59,10 +59,6 @@ const esperar = (ms) => {
 // arquivo regular ou não é JSON) e 'grande' (acima do teto). Nunca lança.
 export function lerJson(arquivo, maxBytes = MAX_BYTES_PADRAO) {
   const limite = numeroFinito(maxBytes) && maxBytes >= 0 ? Math.floor(maxBytes) : MAX_BYTES_PADRAO;
-  let info;
-  try { info = fs.statSync(arquivo); } catch { return { ok: false, motivo: 'ausente' }; }
-  if (!info.isFile()) return { ok: false, motivo: 'invalido' };
-  if (info.size > limite) return { ok: false, motivo: 'grande' };
   const lido = lerLimitado(arquivo, limite);
   if (!lido.ok) return lido;
   let texto = lido.bytes.toString('utf8');
@@ -70,13 +66,25 @@ export function lerJson(arquivo, maxBytes = MAX_BYTES_PADRAO) {
   try { return { ok: true, valor: JSON.parse(texto) }; } catch { return { ok: false, motivo: 'invalido' }; }
 }
 
-// Confere o tipo e lê no máximo limite + 1 bytes pelo mesmo descritor, para que
-// um arquivo trocado ou crescendo depois do stat não fure o teto.
+// Abre, confere pelo fstat do mesmo descritor que é arquivo regular dentro do
+// teto e lê no máximo limite + 1 bytes, para que um arquivo trocado ou
+// crescendo depois do open não fure o teto. Sem stat antes do open (C3 da
+// revisão da Task 7, uma chamada a menos por leitura no caminho quente): o
+// fstat já decidia, porque o stat nunca protegeu contra o que fosse trocado
+// entre ele e o open. O que o stat recusava antes (pasta, junção, FIFO,
+// dispositivo) agora é aberto e recusado aqui sem ler um byte; o O_NONBLOCK
+// impede que um FIFO trave o open.
 function lerLimitado(arquivo, limite) {
   let fd;
-  try { fd = fs.openSync(arquivo, ABRIR_LEITURA); } catch { return { ok: false, motivo: 'ausente' }; }
   try {
-    if (!fs.fstatSync(fd).isFile()) return { ok: false, motivo: 'invalido' };
+    fd = fs.openSync(arquivo, ABRIR_LEITURA);
+  } catch (e) {
+    return { ok: false, motivo: motivoSemAbrir(arquivo, limite, e) };
+  }
+  try {
+    const info = fs.fstatSync(fd);
+    if (!info.isFile()) return { ok: false, motivo: 'invalido' };
+    if (info.size > limite) return { ok: false, motivo: 'grande' };
     const partes = [];
     const pedaco = Buffer.allocUnsafe(PEDACO_LEITURA);
     let total = 0;
@@ -92,6 +100,23 @@ function lerLimitado(arquivo, limite) {
     return { ok: false, motivo: 'ausente' };
   } finally {
     try { fs.closeSync(fd); } catch { /* já fechado */ }
+  }
+}
+
+// O open falhou: o mesmo motivo que o stat antes do open dava. Caminho que não
+// existe (ENOENT, ou ENOTDIR quando um trecho é arquivo) é 'ausente' direto,
+// sem chamada nenhuma a mais. Outro erro (socket no POSIX, pasta sem permissão
+// de leitura, arquivo preso por outro processo no Windows) consulta o stat, só
+// neste caminho de erro, para que o que não é arquivo regular continue
+// 'invalido' e um arquivo acima do teto continue 'grande'.
+function motivoSemAbrir(arquivo, limite, erro) {
+  if (erro?.code === 'ENOENT' || erro?.code === 'ENOTDIR') return 'ausente';
+  try {
+    const info = fs.statSync(arquivo);
+    if (!info.isFile()) return 'invalido';
+    return info.size > limite ? 'grande' : 'ausente';
+  } catch {
+    return 'ausente';
   }
 }
 
@@ -111,10 +136,8 @@ export function gravarJsonAtomico(arquivo, valor) {
   if (typeof texto !== 'string') return { ok: false, motivo: 'serializacao' };
   let tmp = null;
   try {
-    fs.mkdirSync(path.dirname(arquivo), { recursive: true });
     tmp = `${arquivo}.${process.pid}.${Date.now()}.${sequenciaTmp++}.tmp`;
-    // 'wx' (O_EXCL): nunca segue nem reaproveita o que já estiver nesse caminho.
-    fs.writeFileSync(tmp, texto, { flag: 'wx' });
+    escreverTmp(arquivo, tmp, texto);
   } catch (e) {
     if (tmp !== null && e?.code !== 'EEXIST') apagar(tmp);
     return { ok: false, motivo: codigoErro(e, 'escrita') };
@@ -133,6 +156,23 @@ export function gravarJsonAtomico(arquivo, valor) {
   }
   apagar(tmp);
   return { ok: false, motivo: codigoErro(erro, 'rename') };
+}
+
+// Cria o temporário com 'wx' (O_EXCL): nunca segue nem reaproveita o que já
+// estiver nesse caminho. A pasta só é criada quando falta (C3 da revisão da
+// Task 7): no caminho quente ela existe, e o mkdir recursivo antes de toda
+// gravação era uma chamada a mais. Se o temporário não nasce por falta de
+// pasta (ENOENT, ou ENOTDIR no POSIX quando um trecho é arquivo), roda o mesmo
+// mkdir de antes, que falha com o mesmo motivo quando um trecho é arquivo, e
+// tenta uma vez mais. Erro sobe para gravarJsonAtomico.
+function escreverTmp(arquivo, tmp, texto) {
+  try {
+    fs.writeFileSync(tmp, texto, { flag: 'wx' });
+  } catch (e) {
+    if (e?.code !== 'ENOENT' && e?.code !== 'ENOTDIR') throw e;
+    fs.mkdirSync(path.dirname(arquivo), { recursive: true });
+    fs.writeFileSync(tmp, texto, { flag: 'wx' });
+  }
 }
 
 // Reconhece exatamente o nome de temporário que gravarJsonAtomico gera para

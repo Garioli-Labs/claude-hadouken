@@ -25,14 +25,29 @@ import { LIMITE_VELHO_MS } from '../estado.js';
 // descida que não aconteceu. `sem_leitura` continua valendo (uma linha por
 // sessão).
 //
+// Regravação (M2 da revisão da Task 7, decisão do controlador): o prompt só
+// regrava alertas.json quando a memória muda ou quando o `at` guardado tem
+// AT_RENOVAR_MS (5 min) ou mais (precisaGravar). Assim o `at` fica até 5 min
+// atrás da última conferência, e a decisão D passa a valer depois de 55 a
+// 60 min de silêncio em vez de 60 exatos: sempre mais cedo, nunca mais tarde,
+// então o pior caso é uma faixa restritiva anunciada de novo, nunca uma
+// descida falsa. Folga aceita pelo controlador.
+//
 // A lista de faixas espelha alerta.js (que as mantém privadas); o teste
 // "aceita toda faixa que alerta.js produz" prende as duas juntas.
 
 export const ARQ_ALERTAS = 'alertas.json';
 export const ALERTAS_MAX_BYTES = 1_048_576;
-// Sessões lembradas em sem_leitura; as mais antigas saem primeiro. Mantém o
-// arquivo pequeno para sempre (uma entrada por sessão sem leitura).
+// No máximo SEM_LEITURA_MAX ids em sem_leitura, o que mantém o arquivo pequeno
+// para sempre (uma entrada por sessão sem leitura). Acima do teto sai o começo
+// da ordem de enumeração do objeto, que é a de inserção (a mais antiga
+// primeiro), exceto ids só de dígitos, que o JavaScript enumera antes de todos
+// e por isso saem primeiro. Ids reais são UUIDs, então na prática sai a mais
+// antiga (M3 da revisão da Task 7).
 export const SEM_LEITURA_MAX = 256;
+// Idade do `at` guardado a partir da qual a memória é regravada mesmo sem
+// mudança, para o `at` andar (precisaGravar).
+export const AT_RENOVAR_MS = 5 * 60_000;
 
 const FAIXAS = Object.freeze({
   five_hour: new Set(['ok', 'atencao', 'serializar', 'fechar']),
@@ -77,6 +92,21 @@ function semLeituraGuardada(v) {
   return copia;
 }
 
+// O registro guardado, validado e sem esquecer nada: { at, f5, f7, semLeitura }
+// com `at` o texto guardado (ausente vira null), ou null se está fora do
+// formato. Pode lançar (getter hostil); quem chama captura.
+function validado(valor) {
+  if (!ehObjeto(valor)) return null;
+  for (const k of Object.keys(valor)) if (!CHAVES.has(k)) return null;
+  const at = proprio(valor, 'at') ?? null;
+  if (at !== null && typeof at !== 'string') return null;
+  const f5 = janelaGuardada(proprio(valor, 'five_hour'), FAIXAS.five_hour);
+  const f7 = janelaGuardada(proprio(valor, 'seven_day'), FAIXAS.seven_day);
+  const semLeitura = semLeituraGuardada(proprio(valor, 'sem_leitura'));
+  if (f5 === INVALIDO || f7 === INVALIDO || semLeitura === INVALIDO) return null;
+  return { at, f5, f7, semLeitura };
+}
+
 // Memória lida do disco (o valor que lerJson devolveu, ou qualquer coisa) →
 // { anteriores, atMs }. `anteriores` vai direto para avaliarAlertas: a
 // memória validada, a memória com as faixas esquecidas (recomeço) ou
@@ -84,18 +114,12 @@ function semLeituraGuardada(v) {
 // (mesmo que velho), para quem regrava sem leitura nova. Nunca lança.
 export function alertasGuardados(valor, agoraMs) {
   try {
-    if (!ehObjeto(valor)) return vazia();
-    for (const k of Object.keys(valor)) if (!CHAVES.has(k)) return vazia();
-    const at = proprio(valor, 'at');
-    if (at !== undefined && at !== null && typeof at !== 'string') return vazia();
-    const f5 = janelaGuardada(proprio(valor, 'five_hour'), FAIXAS.five_hour);
-    const f7 = janelaGuardada(proprio(valor, 'seven_day'), FAIXAS.seven_day);
-    const semLeitura = semLeituraGuardada(proprio(valor, 'sem_leitura'));
-    if (f5 === INVALIDO || f7 === INVALIDO || semLeitura === INVALIDO) return vazia();
-    const atMs = typeof at === 'string' ? instante(at, agoraMs) : null;
+    const g = validado(valor);
+    if (g === null) return vazia();
+    const atMs = g.at === null ? null : instante(g.at, agoraMs);
     const recente = atMs !== null && agoraMs - atMs <= LIMITE_VELHO_MS;
     return {
-      anteriores: { five_hour: recente ? f5 : null, seven_day: recente ? f7 : null, sem_leitura: semLeitura },
+      anteriores: { five_hour: recente ? g.f5 : null, seven_day: recente ? g.f7 : null, sem_leitura: g.semLeitura },
       atMs,
     };
   } catch {
@@ -103,10 +127,35 @@ export function alertasGuardados(valor, agoraMs) {
   }
 }
 
+// O prompt precisa regravar alertas.json? `registro` é o que
+// alertasParaGravar devolveu; `valor`, o que lerJson leu (ou null). Não
+// regrava (false) só quando as duas faixas e sem_leitura (com a ordem) são
+// iguais às guardadas e o `at` não precisa andar: é o mesmo texto guardado (sem
+// leitura válida o `at` não anda, decisão D) ou o guardado é um instante
+// válido de menos de AT_RENOVAR_MS atrás, nunca no futuro. Guardado ausente,
+// fora do formato ou ilegível, `at` guardado velho, no futuro ou inválido, ou
+// qualquer erro: regrava (true). Nunca lança.
+export function precisaGravar(registro, valor, agoraMs) {
+  try {
+    if (!ehObjeto(registro)) return true;
+    const g = validado(valor);
+    if (g === null) return true;
+    const novo = JSON.stringify([registro.five_hour, registro.seven_day, registro.sem_leitura]);
+    if (novo !== JSON.stringify([g.f5, g.f7, g.semLeitura])) return true;
+    if (registro.at === g.at) return false;
+    const atMs = g.at === null ? null : instante(g.at, agoraMs);
+    const idade = atMs === null ? Number.NaN : agoraMs - atMs;
+    return !(idade >= 0 && idade < AT_RENOVAR_MS);
+  } catch {
+    return true;
+  }
+}
+
 // O que gravar em alertas.json depois de avaliarAlertas: só os campos fixos,
 // cada janela conferida de novo (fora do formato vira null), sem_leitura só
-// com ids válidos e no máximo SEM_LEITURA_MAX (as mais recentes, que
-// avaliarAlertas acrescenta no fim) e `at` = atMs em ISO (null se inválido).
+// com ids válidos e no máximo SEM_LEITURA_MAX (o fim da ordem de enumeração,
+// onde avaliarAlertas acrescenta; ver SEM_LEITURA_MAX) e `at` = atMs em ISO
+// (null se inválido).
 // Quem chama passa agora quando houve leitura válida e o atMs lido quando não
 // houve: memória que não foi conferida contra leitura nenhuma não fica mais
 // nova. Nunca lança.

@@ -36,8 +36,18 @@ const DATA_MAX_MS = 8.64e15;
 // checadas. Fora de escopo: mais de 5 000 registros vivos em 30 dias (um por
 // sessão iniciada); abaixo disso toda entrada é lida e o sorteio alcança
 // qualquer registro.
+//
+// C1 da revisão da Task 7: o teto de lstat por chamada é 64, o mesmo da
+// varredura de temporários de base.js (antes 1 000, ~23 ms por SessionStart com
+// mil registros). A varredura de base.js não é reaproveitada porque checa só
+// os primeiros nomes da listagem: basta para temporários, que ficam velhos em
+// 1 h e saem, então a fila anda; um registro vivo é renovado e fica, e com mais
+// de 64 registros os que vêm depois dos primeiros na listagem nunca seriam
+// checados. Com o início sorteado, cada registro entra na checagem com chance
+// de pelo menos 64/N por SessionStart (N registros lidos), e um vencido espera
+// em média N/64 SessionStarts para sair.
 const PODA_LISTAR_MAX = 5000;
-const PODA_CHECAR_MAX = 1000;
+const PODA_CHECAR_MAX = 64;
 const PODA_APAGAR_MAX = 50;
 const NOME_ATIVA = /^(?:[0-9a-f]{2}){1,64}$/;
 

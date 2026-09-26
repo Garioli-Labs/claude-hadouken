@@ -21,7 +21,12 @@ import { effortValido, sanear } from '../util.js';
 //   girado de 5 MiB se perde. Pede dois encerramentos no mesmo milissegundo
 //   exatamente na virada de 5 MiB;
 // - giro que falha (antivírus segurando o arquivo no Windows) perde a linha
-//   daquela sessão; o próximo SessionEnd tenta girar de novo.
+//   daquela sessão; o próximo SessionEnd tenta girar de novo;
+// - sistema de arquivos que não informa a contagem de links (nlink 0 em
+//   algumas montagens FUSE ou de rede): regularUnico recusa todo arquivo, e o
+//   histórico fica desligado ('invalido') nessa home. É o lado seguro, e
+//   NTFS, ReFS, ext4, APFS e SMB do Windows informam nlink (M6 da revisão da
+//   Task 7).
 
 export const ARQ_HISTORICO = 'historico.jsonl';
 export const ARQ_HISTORICO_VELHO = 'historico.1.jsonl';

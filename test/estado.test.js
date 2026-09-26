@@ -2,6 +2,7 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -630,6 +631,115 @@ test('varredura de temporários de estado.json: o Dir é fechado mesmo quando a 
   }
   assert.deepEqual(r, { ok: true });
   assert.deepEqual(lerJson(arq), { ok: true, valor: { a: 2 } });
+  semTmp();
+});
+
+// C3 da revisão da Task 7: no caminho quente, ler é open + fstat + read (sem
+// stat antes: o fstat do mesmo descritor decide tipo e teto) e gravar numa
+// pasta que existe não chama mkdir (só quando o temporário não nasce por falta
+// dela). Conta chamadas pelo objeto padrão de node:fs.
+function contarChamadas(nomes, executar) {
+  const originais = Object.fromEntries(nomes.map((n) => [n, fs[n]]));
+  const c = Object.fromEntries(nomes.map((n) => [n, 0]));
+  try {
+    for (const n of nomes) {
+      fs[n] = (...args) => {
+        c[n]++;
+        return originais[n].apply(fs, args);
+      };
+    }
+    c.resultado = executar();
+  } finally {
+    Object.assign(fs, originais);
+  }
+  return c;
+}
+const LINK_PASTA = process.platform === 'win32' ? 'junction' : 'dir';
+
+test('C3: lerJson não faz stat antes do open; o fstat decide tipo e teto sem ler', () => {
+  const arq = path.join(dir, 'p.json');
+  fs.writeFileSync(arq, '{"a":1}');
+  let c = contarChamadas(['statSync', 'openSync', 'fstatSync'], () => lerJson(arq));
+  assert.deepEqual(c.resultado, { ok: true, valor: { a: 1 } });
+  assert.deepEqual([c.statSync, c.openSync, c.fstatSync], [0, 1, 1]);
+  // Ausente: um open que falha, e nada mais.
+  c = contarChamadas(['statSync', 'openSync'], () => lerJson(path.join(dir, 'nao.json')));
+  assert.deepEqual(c.resultado, { ok: false, motivo: 'ausente' });
+  assert.deepEqual([c.statSync, c.openSync], [0, 1]);
+  // Acima do teto e pasta: recusados sem ler um byte.
+  c = contarChamadas(['statSync', 'readSync'], () => lerJson(arq, 3));
+  assert.deepEqual(c.resultado, { ok: false, motivo: 'grande' });
+  assert.deepEqual([c.statSync, c.readSync], [0, 0]);
+  fs.mkdirSync(path.join(dir, 'pasta.json'));
+  c = contarChamadas(['statSync', 'readSync'], () => lerJson(path.join(dir, 'pasta.json')));
+  assert.deepEqual(c.resultado, { ok: false, motivo: 'invalido' });
+  assert.deepEqual([c.statSync, c.readSync], [0, 0]);
+});
+
+test('C3: lerJson: junção (ou link de pasta) é invalido sem ler; pendente é ausente e o alvo não nasce', (t) => {
+  const fora = path.join(dir, 'fora');
+  fs.mkdirSync(fora);
+  const arq = path.join(dir, 'j.json');
+  try {
+    fs.symlinkSync(fora, arq, LINK_PASTA);
+  } catch (e) {
+    t.skip(`link de pasta indisponivel aqui (${e.code})`);
+    return;
+  }
+  const c = contarChamadas(['readSync'], () => lerJson(arq));
+  assert.deepEqual(c.resultado, { ok: false, motivo: 'invalido' });
+  assert.equal(c.readSync, 0);
+  const pendente = path.join(dir, 'pendente.json');
+  const alvo = path.join(dir, 'alvo-que-falta');
+  fs.symlinkSync(alvo, pendente, LINK_PASTA);
+  assert.deepEqual(lerJson(pendente), { ok: false, motivo: 'ausente' });
+  assert.equal(fs.existsSync(alvo), false);
+  assert.deepEqual(fs.readdirSync(fora), []);
+});
+
+// O open de um socket falha (ENXIO); sem o stat antes do open, só a consulta
+// no caminho de erro mantém o motivo que o contrato dá a quem não é arquivo
+// regular.
+test('C3: lerJson: socket no lugar do arquivo continua invalido (POSIX)', { skip: process.platform === 'win32' && 'socket de arquivo e POSIX' }, async () => {
+  const sock = path.join(dir, 'estado.json');
+  const servidor = net.createServer();
+  await new Promise((ok, erro) => {
+    servidor.once('error', erro);
+    servidor.listen(sock, ok);
+  });
+  try {
+    assert.ok(fs.statSync(sock).isSocket());
+    assert.deepEqual(lerJson(sock), { ok: false, motivo: 'invalido' });
+  } finally {
+    await new Promise((ok) => servidor.close(ok));
+  }
+});
+
+test('C3: gravar numa pasta que existe não chama mkdir; pasta que falta ainda nasce', () => {
+  let c = contarChamadas(['mkdirSync'], () => gravarJsonAtomico(path.join(dir, 'a.json'), { a: 1 }));
+  assert.deepEqual(c.resultado, { ok: true });
+  assert.equal(c.mkdirSync, 0);
+  const fundo = path.join(dir, 'novo', 'fundo', 'b.json');
+  c = contarChamadas(['mkdirSync'], () => gravarJsonAtomico(fundo, { b: 2 }));
+  assert.deepEqual(c.resultado, { ok: true });
+  assert.equal(c.mkdirSync, 1);
+  assert.deepEqual(lerJson(fundo), { ok: true, valor: { b: 2 } });
+  assert.deepEqual(fs.readdirSync(path.dirname(fundo)), ['b.json']);
+  semTmp();
+});
+
+test('C3: pai que é arquivo falha com o mesmo motivo do mkdir, sem .tmp e sem mexer no arquivo', () => {
+  const pai = path.join(dir, 'arquivo');
+  fs.writeFileSync(pai, 'x');
+  let esperado;
+  try {
+    fs.mkdirSync(pai, { recursive: true });
+  } catch (e) {
+    esperado = e.code;
+  }
+  assert.equal(typeof esperado, 'string');
+  assert.deepEqual(gravarJsonAtomico(path.join(pai, 'sub.json'), { a: 1 }), { ok: false, motivo: esperado });
+  assert.equal(fs.readFileSync(pai, 'utf8'), 'x');
   semTmp();
 });
 

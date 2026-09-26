@@ -406,6 +406,65 @@ test('N-3: a poda le no maximo 5000 entradas, casem ou nao com o nome de registr
   assert.ok(lidas <= 5000, `leu ${lidas}`);
 });
 
+// C1 da revisao da Task 7: no maximo 64 lstat de registro por chamada (antes
+// ate 1 000), o mesmo teto da varredura de temporarios de base.js. O inicio
+// sorteado entre os nomes lidos faz chamadas seguidas alcancarem todo
+// registro: nenhum vencido fica para sempre fora da checagem.
+test('C1: a poda faz no maximo 64 lstat por chamada, e o sorteio alcanca todo registro', () => {
+  fs.mkdirSync(pasta());
+  const vivas = [];
+  for (let i = 0; i < 200; i++) {
+    const p = path.join(pasta(), hex(`viva-${i}`));
+    fs.writeFileSync(p, '');
+    datar(p, agora - D);
+    vivas.push(hex(`viva-${i}`));
+  }
+  const originais = { lstatSync: fs.lstatSync, opendirSync: fs.opendirSync, random: Math.random };
+  const sorteios = [0, 0.25, 0.5, 0.75];
+  const vistos = new Set();
+  const porChamada = [];
+  let lstats = 0;
+  let aberturas = 0;
+  let fechamentos = 0;
+  let k = 0;
+  try {
+    fs.lstatSync = (p, ...resto) => {
+      if (path.dirname(String(p)) === pasta()) {
+        lstats++;
+        vistos.add(path.basename(String(p)));
+      }
+      return originais.lstatSync.call(fs, p, ...resto);
+    };
+    fs.opendirSync = (...args) => {
+      const d = originais.opendirSync.call(fs, ...args);
+      aberturas++;
+      const fechar = d.closeSync.bind(d);
+      d.closeSync = () => {
+        fechamentos++;
+        return fechar();
+      };
+      return d;
+    };
+    Math.random = () => sorteios[k];
+    for (; k < sorteios.length; k++) {
+      lstats = 0;
+      assert.deepEqual(registrarSessao('nova', agora), { ok: true });
+      porChamada.push(lstats);
+    }
+  } finally {
+    fs.lstatSync = originais.lstatSync;
+    fs.opendirSync = originais.opendirSync;
+    Math.random = originais.random;
+  }
+  // Por chamada: 1 lstat do proprio registro (gravarRegistro) + 64 da poda.
+  assert.deepEqual(porChamada, [65, 65, 65, 65]);
+  assert.equal(aberturas, sorteios.length);
+  assert.equal(fechamentos, sorteios.length);
+  // Inicios 0, 50, 100 e 150 entre 201 nomes: as quatro janelas cobrem todos.
+  for (const n of vivas) assert.ok(vistos.has(n), `nunca checado: ${n}`);
+  assert.equal(fs.readdirSync(pasta()).length, 201);
+});
+
 test('renovarSessao: so apos 1 h, nunca revive vencida, nunca cria', () => {
   registrarSessao('s1', agora - 2 * H);
   assert.equal(renovarSessao('s1', agora), true);

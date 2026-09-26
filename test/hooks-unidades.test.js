@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { linhaEstado, linhaShimIndisponivel, linhaSemRegistro, LINHA_SEM_LEITURA } from '../src/hooks/linha-estado.js';
-import { alertasGuardados, alertasParaGravar, SEM_LEITURA_MAX } from '../src/hooks/alertas-gravados.js';
+import {
+  alertasGuardados, alertasParaGravar, precisaGravar, SEM_LEITURA_MAX, AT_RENOVAR_MS,
+} from '../src/hooks/alertas-gravados.js';
 import {
   registroHistorico, anexarHistorico, ARQ_HISTORICO, ARQ_HISTORICO_VELHO, HISTORICO_MAX_BYTES,
 } from '../src/hooks/historico.js';
@@ -278,6 +280,101 @@ test('alertasParaGravar: carimba at, só os campos fixos, sem_leitura limitado',
   assert.deepEqual(ruim, { at: iso(AGORA), five_hour: null, seven_day: null, sem_leitura: {} });
   // Nunca lança.
   assert.deepEqual(alertasParaGravar(null, AGORA), { at: iso(AGORA), five_hour: null, seven_day: null, sem_leitura: {} });
+});
+
+// M2 da revisão da Task 7, decisão do controlador: alertas.json só é regravado
+// quando a memória muda ou quando o `at` guardado tem 5 min ou mais. O que o
+// prompt gravaria sai de alertasParaGravar, como no hook.
+const registroDe = (valor, atMs) => alertasParaGravar(alertasGuardados(valor, AGORA).anteriores, atMs);
+
+test('precisaGravar: memória igual e at guardado de menos de 5 min não regrava', () => {
+  assert.equal(AT_RENOVAR_MS, 5 * 60_000);
+  const valor = guardado({ at: iso(AGORA - 60_000) });
+  assert.equal(precisaGravar(registroDe(valor, AGORA), valor, AGORA), false);
+  // Borda: 1 ms antes dos 5 min ainda não regrava; 5 min exatos já regrava.
+  const quase = guardado({ at: iso(AGORA - AT_RENOVAR_MS + 1) });
+  assert.equal(precisaGravar(registroDe(quase, AGORA), quase, AGORA), false);
+  const cinco = guardado({ at: iso(AGORA - AT_RENOVAR_MS) });
+  assert.equal(precisaGravar(registroDe(cinco, AGORA), cinco, AGORA), true);
+  // Guardada agora mesmo: não regrava.
+  const agora = guardado({ at: iso(AGORA) });
+  assert.equal(precisaGravar(registroDe(agora, AGORA), agora, AGORA), false);
+});
+
+test('precisaGravar: at guardado velho, no futuro ou inválido regrava, mesmo com a memória igual', () => {
+  const casos = {
+    'seis minutos': iso(AGORA - 6 * 60_000),
+    'mais de 1 h': iso(AGORA - 2 * H),
+    // Relógio que voltou: regravar traz o at para agora, e a decisão D nunca
+    // passa de 1 h por causa do salto.
+    'um minuto no futuro': iso(AGORA + 60_000),
+    'dez minutos no futuro': iso(AGORA + 10 * 60_000),
+    'ontem': 'ontem',
+    ausente: undefined,
+    nulo: null,
+  };
+  for (const [nome, at] of Object.entries(casos)) {
+    const valor = guardado({ at });
+    // Com leitura válida o registro leva at = agora.
+    const registro = alertasParaGravar({ five_hour: valor.five_hour, seven_day: valor.seven_day, sem_leitura: valor.sem_leitura }, AGORA);
+    assert.equal(precisaGravar(registro, valor, AGORA), true, nome);
+  }
+});
+
+test('precisaGravar: qualquer mudança na memória regrava, mesmo com at recente', () => {
+  const valor = guardado();
+  const base = registroDe(valor, AGORA);
+  const mudancas = {
+    'faixa de 5h': { ...base, five_hour: { resets_at: R5, faixa: 'fechar' } },
+    'reset de 5h': { ...base, five_hour: { resets_at: R5 + 5 * 3600, faixa: 'serializar' } },
+    '5h esquecida': { ...base, five_hour: null },
+    'faixa de 7d': { ...base, seven_day: { resets_at: R7, faixa: 'normal' } },
+    '7d esquecida': { ...base, seven_day: null },
+    'sem_leitura a mais': { ...base, sem_leitura: { ...base.sem_leitura, s2: true } },
+    'sem_leitura a menos': { ...base, sem_leitura: { s1: true } },
+    'sem_leitura em outra ordem': { ...base, sem_leitura: { 'abc-DEF_9': true, s1: true } },
+  };
+  for (const [nome, registro] of Object.entries(mudancas)) assert.equal(precisaGravar(registro, valor, AGORA), true, nome);
+  // Guardado ausente, ilegível ou fora do formato: regrava.
+  const fora = [null, undefined, INSTRUCAO, 42, [valor], guardado({ nota: INSTRUCAO }), guardado({ five_hour: { resets_at: R5, faixa: INSTRUCAO } }),
+    guardado({ sem_leitura: { constructor: true } }), JSON.parse(`{"__proto__": ${JSON.stringify(valor)}}`)];
+  for (const v of fora) assert.equal(precisaGravar(base, v, AGORA), true, String(v));
+  // Guardado acima do teto de sem_leitura: o registro sai limitado, então regrava.
+  const muitos = {};
+  for (let i = 0; i < 300; i++) muitos[`s-${i}`] = true;
+  const cheio = guardado({ sem_leitura: muitos });
+  assert.equal(precisaGravar(registroDe(cheio, AGORA), cheio, AGORA), true);
+  // Registro que não é objeto, getter que lança, agora inválido: regrava, sem lançar.
+  assert.equal(precisaGravar(null, valor, AGORA), true);
+  assert.equal(precisaGravar(base, { get at() { throw new Error('x'); } }, AGORA), true);
+  assert.equal(precisaGravar(base, valor, Number.NaN), true);
+});
+
+// Sem leitura válida o `at` não anda (decisão D): o registro leva o at lido.
+// Se nada mudou, a gravação seria o mesmo conteúdo, então não acontece, mesmo
+// com o at velho ou nulo (sessão que nunca tem leitura, como conta por chave de
+// API, não grava a cada prompt).
+test('precisaGravar: sem leitura, memória igual e o mesmo at não regrava, mesmo velho ou nulo', () => {
+  for (const at of [null, iso(AGORA - 2 * H), iso(AGORA - 10 * 60_000)]) {
+    const valor = guardado({ at, five_hour: null, seven_day: null });
+    const { anteriores, atMs } = alertasGuardados(valor, AGORA);
+    assert.equal(precisaGravar(alertasParaGravar(anteriores, atMs), valor, AGORA), false, String(at));
+  }
+  // at ausente vale o mesmo que null.
+  const semAt = { five_hour: null, seven_day: null, sem_leitura: { s1: true } };
+  assert.equal(precisaGravar(alertasParaGravar(alertasGuardados(semAt, AGORA).anteriores, null), semAt, AGORA), false);
+  // at guardado que não é o ISO que o hook grava (lixo, futuro distante,
+  // outra grafia): regrava e normaliza.
+  for (const at of ['ontem', iso(AGORA + 10 * 60_000), '2026-09-25T18:00:00Z']) {
+    const valor = guardado({ at, five_hour: null, seven_day: null });
+    const { anteriores, atMs } = alertasGuardados(valor, AGORA);
+    assert.equal(precisaGravar(alertasParaGravar(anteriores, atMs), valor, AGORA), true, at);
+  }
+  // Faixas guardadas com at velho e sem leitura: são esquecidas no registro, e
+  // o disco acompanha (regrava sem elas).
+  const velho = guardado({ at: iso(AGORA - 2 * H) });
+  const { anteriores, atMs } = alertasGuardados(velho, AGORA);
+  assert.equal(precisaGravar(alertasParaGravar(anteriores, atMs), velho, AGORA), true);
 });
 
 // --- histórico ---------------------------------------------------------------

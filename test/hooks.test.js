@@ -157,7 +157,7 @@ const prompt = (id = 's1', extra = {}) => ({
 });
 const inicio = (id = 's1', source = 'startup') => ({ session_id: id, hook_event_name: 'SessionStart', source, cwd: 'C:/projetos/x' });
 const fim = (id = 's1', extra = {}) => ({ session_id: id, hook_event_name: 'SessionEnd', cwd: 'C:/x y', reason: 'exit', ...extra });
-const IDS_INVALIDOS = ['../x', '__proto__', 'constructor', '', 'a'.repeat(65), 'a b', 42, null];
+const IDS_INVALIDOS = ['../x', '__proto__', 'constructor', 'toString', '', 'a'.repeat(65), 'a b', 42, null];
 
 // --- SessionStart ------------------------------------------------------------
 
@@ -358,6 +358,52 @@ test('prompt-submit: memória de alerta velha é recomeço, sem linha de descida
   const home = preparar(Date.now() - 2 * H, 10);
   gravarEstado(home, { p5: 10, r5: r5 + 5 * 3600 });
   mudo(rodar('prompt-submit.js', prompt(), home));
+});
+
+// M2 da revisão da Task 7, decisão do controlador: o prompt que não muda a
+// memória de alertas, com at guardado de menos de 5 min, não regrava
+// alertas.json (nem cria temporário). Mudança na memória ou at de 5 min ou mais
+// regrava. A memória é plantada em JSON compacto; o hook grava indentado, então
+// qualquer gravação muda os bytes.
+test('prompt-submit: memória igual e recente não é regravada; mudança ou at velho regrava', () => {
+  const r5 = agoraS() + 3600;
+  const r7 = agoraS() + 84 * 3600;
+  const arqAlertas = (home) => path.join(home, 'alertas.json');
+  const preparar = ({ atMs, faixa5 = 'serializar' }) => {
+    const home = novoHome();
+    registrar(home, 's1');
+    gravarEstado(home, { p5: 82, p7: 50, r5, r7 });
+    fs.writeFileSync(arqAlertas(home), JSON.stringify({
+      at: iso(atMs), five_hour: { resets_at: r5, faixa: faixa5 }, seven_day: { resets_at: r7, faixa: 'normal' }, sem_leitura: {},
+    }));
+    return home;
+  };
+  // Igual e recente: mudo, e a árvore inteira fica idêntica (nada gravado,
+  // nenhum temporário, nenhuma pasta).
+  let home = preparar({ atMs: Date.now() - 60_000 });
+  let antes = arvore(home);
+  mudo(rodar('prompt-submit.js', prompt(), home));
+  assert.deepEqual(arvore(home), antes);
+  // Igual, mas at de 6 min: regrava com at de agora e as mesmas faixas.
+  home = preparar({ atMs: Date.now() - 6 * 60_000 });
+  const inicio6 = Date.now();
+  mudo(rodar('prompt-submit.js', prompt(), home));
+  let memoria = JSON.parse(fs.readFileSync(arqAlertas(home), 'utf8'));
+  assert.ok(Date.parse(memoria.at) >= inicio6 - 1000, memoria.at);
+  assert.deepEqual([memoria.five_hour, memoria.seven_day], [{ resets_at: r5, faixa: 'serializar' }, { resets_at: r7, faixa: 'normal' }]);
+  // Faixa mudou (atenção → serializar) com at recente: anuncia e regrava.
+  home = preparar({ atMs: Date.now() - 60_000, faixa5: 'atencao' });
+  assert.match(contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit'), LINHA_SERIALIZAR);
+  memoria = JSON.parse(fs.readFileSync(arqAlertas(home), 'utf8'));
+  assert.equal(memoria.five_hour.faixa, 'serializar');
+  // Sem leitura e "sem leitura" já avisado nesta sessão: o at não andaria,
+  // então nada muda e nada é gravado, mesmo com at nulo.
+  home = novoHome();
+  registrar(home, 's1');
+  fs.writeFileSync(arqAlertas(home), JSON.stringify({ at: null, five_hour: null, seven_day: null, sem_leitura: { s1: true } }));
+  antes = arvore(home);
+  mudo(rodar('prompt-submit.js', prompt(), home));
+  assert.deepEqual(arvore(home), antes);
 });
 
 test('prompt-submit malicioso: alertas.json adulterado nunca vira contexto nem lança', () => {

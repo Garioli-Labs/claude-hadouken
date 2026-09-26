@@ -17,11 +17,21 @@
 // - alertas.json holds both windows and 256 sem_leitura entries (its cap);
 // - the shims in <home>/bin/ are already in sync with this checkout;
 // - stdin is a realistic hook payload.
-// Scenarios: prompt hook registered (gate, renew, read state and alert memory,
-// evaluate, atomic write) and unregistered (gate only, loads neither estado.js
-// nor alerta.js); SessionStart (register, shim sync, state line); SessionEnd
-// registered (gate, read state, append one history line) and unregistered;
-// and a bare `node -e ""` as the floor of any Node script.
+// Scenarios:
+// - prompt hook registered, in two rows. Both run the gate, renew, read the
+//   state and the alert memory, and evaluate.
+//   - "unchanged" is the common prompt: the memory is what this fixture
+//     evaluates to, with an `at` 1 min old, so the hook writes nothing.
+//   - "writes" has the same memory with an `at` 10 min old, so the hook
+//     rewrites alertas.json atomically (Task 7 review M2: the memory is
+//     rewritten only when it changes or its `at` is 5 min old or more).
+//   Each row plants its memory before the timed spawn and checks afterwards
+//   that the file was left alone, or rewritten, as it claims.
+// - prompt hook unregistered: gate only; loads neither estado.js nor alerta.js.
+// - SessionStart: register, shim sync, state line.
+// - SessionEnd registered (gate, read state, append one history line) and
+//   unregistered.
+// - a bare `node -e ""` as the floor of any Node script.
 //
 // The scenarios are interleaved: every round runs each scenario once, in a
 // fresh random order (Fisher-Yates), so machine drift (thermal, antivirus,
@@ -130,8 +140,44 @@ try {
   const semSaida = (nome) => (out) => {
     if (out !== '') throw new Error(`${nome}: expected no output, got ${JSON.stringify(out)}`);
   };
+
+  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo };
+  // One untimed prompt settles the alert memory to what this fixture
+  // evaluates to (the 7d band of the seeded memory differs from the reading).
+  const arqAlertas = path.join(home, ARQ_ALERTAS);
+  const stdinPrompt = JSON.stringify(promptDe(uuid(0)));
+  const acomodar = spawnSync(process.execPath, [hook('prompt-submit.js')], { input: stdinPrompt, env, encoding: 'utf8' });
+  if (acomodar.status !== 0 || acomodar.stderr !== '') throw new Error(`fixture: settling prompt failed: ${acomodar.stderr}`);
+  vazioOuContexto('fixture', 'UserPromptSubmit')(acomodar.stdout);
+  const memoriaEstavel = JSON.parse(fs.readFileSync(arqAlertas, 'utf8'));
+  let memoriaPlantada = '';
+  const plantarMemoria = (idadeMs) => () => {
+    memoriaPlantada = JSON.stringify({ ...memoriaEstavel, at: new Date(Date.now() - idadeMs).toISOString() }, null, 2);
+    fs.writeFileSync(arqAlertas, memoriaPlantada);
+  };
+  const memoriaGravada = (nome, esperaGravar) => (out) => {
+    semSaida(nome)(out);
+    const gravou = fs.readFileSync(arqAlertas, 'utf8') !== memoriaPlantada;
+    if (gravou !== esperaGravar) throw new Error(`${nome}: alertas.json was ${gravou ? '' : 'not '}rewritten`);
+  };
+
   const cenarios = [
-    { nome: 'prompt registered', argv: [hook('prompt-submit.js')], stdin: JSON.stringify(promptDe(uuid(0))), conferir: vazioOuContexto('prompt registered', 'UserPromptSubmit'), alvo: true },
+    {
+      nome: 'prompt reg. unchanged',
+      argv: [hook('prompt-submit.js')],
+      stdin: stdinPrompt,
+      preparar: plantarMemoria(60_000),
+      conferir: memoriaGravada('prompt reg. unchanged', false),
+      alvo: true,
+    },
+    {
+      nome: 'prompt reg. writes',
+      argv: [hook('prompt-submit.js')],
+      stdin: stdinPrompt,
+      preparar: plantarMemoria(10 * 60_000),
+      conferir: memoriaGravada('prompt reg. writes', true),
+      alvo: true,
+    },
     { nome: 'prompt unregistered', argv: [hook('prompt-submit.js')], stdin: JSON.stringify(promptDe('nao-registrada')), conferir: semSaida('prompt unregistered'), alvo: true },
     {
       nome: 'session start',
@@ -145,8 +191,8 @@ try {
     { nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
   ];
 
-  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo };
   function rodar(c) {
+    c.preparar?.();
     const t0 = process.hrtime.bigint();
     const r = spawnSync(process.execPath, c.argv, { input: c.stdin, env, encoding: 'utf8' });
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
