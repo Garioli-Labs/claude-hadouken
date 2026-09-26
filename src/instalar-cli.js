@@ -7,6 +7,7 @@ import {
   aplicarStatusline,
   removerStatusline,
 } from './configuracao.js';
+import { regexOu } from './util.js';
 
 // Subcomando `instalar` da CLI (task-11-security.md A, D, E, F). A cli.js da
 // Task 10 o carrega sob demanda: instalar: (args) => import('./instalar-cli.js')
@@ -63,11 +64,21 @@ const MENSAGEM_MOTIVO = Object.freeze({
 // diferente: C1 e DEL, formato invisível (bidi, largura zero, tags), uso
 // privado, não atribuídos, surrogates e separadores de linha. Os controles
 // C0 o JSON.stringify já escapa. Só aparecem dentro de strings do JSON, e o
-// escape \u mantém o JSON válido e o valor igual. Estes escapes \p exigem um
-// Node com ICU (os binários oficiais do Node trazem): sem ICU este arquivo
-// não carrega. configuracao.js não usa \p e carrega mesmo sem ICU.
-const INVISIVEL = /[\u{7F}-\u{9F}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}]/gu;
+// escape \u mantém o JSON válido e o valor igual.
+//
+// Os escapes \p exigem um Node com ICU (os binários oficiais do Node trazem).
+// Sem ICU, regexOu (util.js) usa a reserva, mais restrita: escapa tudo o que
+// não for quebra de linha, ASCII visível ou o latim de U+00A0 a U+024F (menos
+// o soft hyphen, U+00AD). Nomes em outros alfabetos e emoji, num caminho ou
+// na statusLine atual, saem em \u; a estrutura do JSON é só ASCII e a quebra
+// de linha da indentação, que a reserva deixa como estão. configuracao.js não
+// usa \p e carrega mesmo sem ICU.
+const INVISIVEL_FONTE = String.raw`[\u{7F}-\u{9F}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}]`;
+const INVISIVEL_RESERVA = /[^\n\u{20}-\u{7E}\u{A0}-\u{AC}\u{AE}-\u{24F}]/gu;
+const INVISIVEL = regexOu(INVISIVEL_FONTE, 'gu', INVISIVEL_RESERVA);
 
+// A flag u casa um ponto de código inteiro: acima de U+FFFF, `c` é o par de
+// surrogates e sai como dois \u.
 function escaparInvisiveis(texto) {
   return texto.replace(INVISIVEL, (c) => {
     let s = '';
@@ -75,6 +86,12 @@ function escaparInvisiveis(texto) {
     return s;
   });
 }
+
+// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva de
+// INVISIVEL. Nada do plugin lê isto.
+export const _reservas = Object.freeze({
+  INVISIVEL: Object.freeze({ fonte: INVISIVEL_FONTE, flags: 'gu', reserva: INVISIVEL_RESERVA }),
+});
 
 // A statusLine atual para exibir: o próprio valor, ou uma frase fixa se ela
 // for grande demais ou não serializável.

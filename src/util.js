@@ -111,6 +111,23 @@ export function formatarTokens(n) {
   return String(n);
 }
 
+// Compila `fonte` com `flags` ou, se o Node recusar a expressão, devolve
+// `reserva`, uma regex já compilada. Um Node compilado sem ICU (tabela de
+// https://nodejs.org/api/intl.html, coluna none) recusa todo escape de
+// propriedade \p{...}: numa regex literal isso é erro antecipado e o módulo
+// inteiro deixaria de carregar (a barra e os hooks sairiam com código 1).
+// Por isso toda expressão com \p do plugin passa por aqui, com a fonte num
+// String.raw e uma reserva literal sem \p, sempre mais restrita que a
+// principal, nunca mais frouxa. Roda uma vez por expressão, na carga do
+// módulo. Nunca lança.
+export function regexOu(fonte, flags, reserva) {
+  try {
+    return new RegExp(fonte, flags);
+  } catch {
+    return reserva;
+  }
+}
+
 // Sequências de escape de terminal (ECMA-48), nas formas de 7 e de 8 bits, em
 // ordem de tentativa: CSI com parâmetros e byte final; cadeias OSC, DCS, SOS,
 // PM e APC até BEL ou ST; e, por fim, qualquer outro ESC mais um caractere
@@ -129,15 +146,30 @@ const ESCAPES = new RegExp([
 // controles bidi, largura zero, ZWJ, soft hyphen, BOM e os caracteres de tag
 // U+E0000–U+E007F capazes de esconder uma frase inteira; surrogates soltos Cs;
 // uso privado Co; não atribuídos Cn), os separadores de linha e de parágrafo
-// (Zl, Zp) e os caracteres | e crase. Trade-offs, só de exibição: sequências
-// de emoji unidas por ZWJ viram seus componentes, e um caractere atribuído
-// depois da versão do Unicode do Node em uso conta como Cn e sai.
-const INVISIVEIS = /[\p{C}\p{Zl}\p{Zp}|`]/gu;
+// (Zl, Zp) e os caracteres | e crase (\x60 na fonte: num String.raw a crase
+// escapada guardaria a barra, escape inválido com a flag u). Trade-offs, só
+// de exibição: sequências de emoji unidas por ZWJ viram seus componentes, e
+// um caractere atribuído depois da versão do Unicode do Node em uso conta
+// como Cn e sai.
+//
+// Sem ICU (regexOu), a reserva é uma lista do que fica: espaço e ASCII
+// visível (U+0020–U+007E) menos | e crase, e o latim de U+00A0 a U+024F
+// menos o soft hyphen (U+00AD, Cf). Todo o resto sai: nomes em outros
+// alfabetos (grego, cirílico, CJK), emoji e marcas combinantes somem da
+// barra, mas nada invisível passa.
+const INVISIVEIS_FONTE = String.raw`[\p{C}\p{Zl}\p{Zp}|\x60]`;
+const INVISIVEIS_RESERVA = /[^\u{20}-\u{7E}\u{A0}-\u{AC}\u{AE}-\u{24F}]|[|`]/gu;
+const INVISIVEIS = regexOu(INVISIVEIS_FONTE, 'gu', INVISIVEIS_RESERVA);
 // Uma enxurrada de marcas combinantes (\p{M}) empilha num glifo só e vaza
 // para as linhas vizinhas em alguns terminais. Duas seguidas bastam para o
 // texto real (vietnamita, NFD, keycap de emoji); o resto sai. Roda depois de
 // INVISIVEIS, então marcas separadas por invisíveis também contam juntas.
-const MARCAS_EXCESSO = /(\p{M}{2})\p{M}+/gu;
+// Sem ICU, a reserva de INVISIVEIS já tirou toda marca combinante (nenhuma
+// fica entre U+00A0 e U+024F): esta reserva nunca casa ((?!) falha em toda
+// posição), e o grupo vazio mantém o '$1' do replace com o mesmo sentido.
+const MARCAS_FONTE = String.raw`(\p{M}{2})\p{M}+`;
+const MARCAS_RESERVA = /(?!)()/gu;
+const MARCAS_EXCESSO = regexOu(MARCAS_FONTE, 'gu', MARCAS_RESERVA);
 const SANEAR_MAX_PADRAO = 64;
 // Teto da entrada (unidades UTF-16) antes das expressões. O resultado é no
 // máximo `max` pontos de código do começo, e um corte no meio de uma sequência
@@ -163,3 +195,11 @@ export function sanear(valor, max = SANEAR_MAX_PADRAO) {
     return null;
   }
 }
+
+// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva de cada
+// expressão com \p deste arquivo, para provar que a fonte compila num Node com
+// ICU e que a reserva tira tudo o que a principal tira. Nada do plugin lê isto.
+export const _reservas = Object.freeze({
+  INVISIVEIS: Object.freeze({ fonte: INVISIVEIS_FONTE, flags: 'gu', reserva: INVISIVEIS_RESERVA }),
+  MARCAS_EXCESSO: Object.freeze({ fonte: MARCAS_FONTE, flags: 'gu', reserva: MARCAS_RESERVA }),
+});

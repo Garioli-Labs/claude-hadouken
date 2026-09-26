@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { codigoErro, gerarRelatorio } from './consumo.js';
 import { formatarMarkdown } from './relatorio.js';
+import { regexOu } from './util.js';
 
 // Comandos do CLI (addendum da Task 10, A, B, D e F). cli.js roda ao ser
 // importado pelo shim (<dirDados>/bin/cli.mjs), então a lógica mora aqui,
@@ -30,7 +31,17 @@ const ESCRITA_MAX_MS = 10_000;
 // e surrogates soltos; estes ficam em \uXXXX (par de surrogates acima de
 // FFFF). Os nomes já chegam saneados; isto é a última barreira. Pode lançar
 // só se o valor não for serializável (o chamador trata).
-const ESCAPAR = /[\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\u007f-\u009f]/gu;
+//
+// Sem ICU (regexOu, em util.js), a reserva escapa tudo o que não for quebra
+// de linha, ASCII visível ou o latim de U+00A0 a U+024F (menos o soft
+// hyphen, U+00AD): nomes em outros alfabetos e emoji saem em \u. Fora das
+// strings o JSON é só ASCII e a quebra de linha da indentação, que a reserva
+// deixa como estão; dentro delas o escape \u mantém o JSON válido e o valor
+// igual. A flag u casa um ponto de código inteiro, então um emoji chega ao
+// replacer como par e sai como dois \u.
+const ESCAPAR_FONTE = String.raw`[\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\u{7F}-\u{9F}]`;
+const ESCAPAR_RESERVA = /[^\n\u{20}-\u{7E}\u{A0}-\u{AC}\u{AE}-\u{24F}]/gu;
+const ESCAPAR = regexOu(ESCAPAR_FONTE, 'gu', ESCAPAR_RESERVA);
 const hex4 = (u) => `\\u${u.toString(16).padStart(4, '0')}`;
 export function jsonSeguro(valor) {
   return JSON.stringify(valor, null, 2).replace(ESCAPAR, (c) => {
@@ -40,6 +51,12 @@ export function jsonSeguro(valor) {
     return hex4(0xd800 + (v >> 10)) + hex4(0xdc00 + (v & 0x3ff));
   });
 }
+
+// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva de
+// ESCAPAR. Nada do plugin lê isto.
+export const _reservas = Object.freeze({
+  ESCAPAR: Object.freeze({ fonte: ESCAPAR_FONTE, flags: 'gu', reserva: ESCAPAR_RESERVA }),
+});
 
 // Gancho só de teste (documentado no relatório da Task 10): com
 // HADOUKEN_TESTE_GH=ausente o coletor recebe um executor que responde
