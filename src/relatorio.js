@@ -1,6 +1,6 @@
 import { MAX_ROTULOS_SESSAO, MAX_SESSOES, pesoConsumo } from './agregacao.js';
 import { faixa5h, faixa7d } from './alerta.js';
-import { DATA_MAX_MS, numeroFinito } from './base.js';
+import { DATA_MAX_MS, numeroFinito, somaSegura } from './base.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
 import { diaHora, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, sanear } from './util.js';
@@ -59,9 +59,6 @@ const NOMES_CHAVE = Object.freeze({ __proto__: null, outro: 'outro', em_andament
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const proprio = (o, k) => (Object.hasOwn(o, k) ? o[k] : undefined);
 const inteiro = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);
-// Soma de duas contagens inteiras seguras que para em
-// Number.MAX_SAFE_INTEGER: acima disso o número deixa de ser exato.
-const somaSegura = (a, b) => Math.min(a + b, Number.MAX_SAFE_INTEGER);
 const nomeDe = (mapa, k) => (typeof k === 'string' && Object.hasOwn(mapa, k) ? mapa[k] : null);
 
 // Lê uma propriedade sem deixar um getter hostil derrubar o relatório.
@@ -105,9 +102,12 @@ function lerSoma(v) {
 
 // Duas linhas que viraram o mesmo nome depois do saneamento: soma e recalcula
 // o acerto com a regra de agregacao.js (3 casas; null com denominador 0).
+// Cada campo para em Number.MAX_SAFE_INTEGER (somaSegura, de base.js): as
+// duas entradas passaram por lerSoma, mas a soma delas não, e sairia no
+// --json sem outra checagem.
 function juntarSomas(a, b) {
   const s = {};
-  for (const c of CAMPOS_SOMA) s[c] = a[c] + b[c];
+  for (const c of CAMPOS_SOMA) s[c] = somaSegura(a[c], b[c]);
   const den = s.input + s.cacheRead + s.cacheCreate;
   s.acertoCache = den > 0 ? Math.round((s.cacheRead / den) * 1000) / 1000 : null;
   return s;

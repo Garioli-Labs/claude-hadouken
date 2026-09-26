@@ -31,8 +31,8 @@ const FUTURO_MAX_MS = 5 * 60_000;
 const MAX_AT_CHARS = 64;
 const ID_SESSAO = /^[A-Za-z0-9_-]{1,64}$/;
 
-// Casa única de três ajudantes que se repetiam pelo plugin (revisão final
-// de qualidade; test/casa-unica.test.js barra cópia nova). base.js não importa
+// Casa única de ajudantes que se repetiam pelo plugin (revisão final de
+// qualidade; test/casa-unica.test.js barra cópia nova). base.js não importa
 // nada do plugin: configuracao.js e o caminho curto da barra e dos hooks
 // os usam sem carregar mais nada.
 //
@@ -44,6 +44,11 @@ export const DATA_MAX_MS = 8.64e15;
 // motivos internos de escrita e rename. O /consumo tem outro, de lista
 // fechada, que nunca devolve código fora dela (consumo.js, codigoErro).
 export const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
+// Soma de duas contagens inteiras seguras e não negativas que para em
+// Number.MAX_SAFE_INTEGER: acima disso o número deixa de ser exato, e o
+// --json do /consumo sairia com um inteiro que não é seguro (revisão final
+// de segurança, nota do juntarSomas). Abaixo do limite a soma é exata.
+export const somaSegura = (a, b) => Math.min(a + b, Number.MAX_SAFE_INTEGER);
 
 const WIN = process.platform === 'win32';
 // Caminho completo no Windows: com letra de unidade (C:\ ou C:/) ou UNC com

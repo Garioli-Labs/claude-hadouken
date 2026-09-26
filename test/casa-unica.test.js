@@ -11,7 +11,7 @@ import { jsonSeguro as jsonSeguroComandos, _reservas as reservasComandos } from 
 import { _reservas as reservasInstalar } from '../src/instalar-cli.js';
 
 // Uma casa só para os ajudantes que se repetiam (follow-up da revisão final
-// de qualidade): numeroFinito, DATA_MAX_MS e codigoErro em base.js;
+// de qualidade): numeroFinito, DATA_MAX_MS, codigoErro e somaSegura em base.js;
 // janelaValida, GLIFOS_BARRA e jsonSeguro em util.js; a linha fixa de "sem
 // leitura" em alerta.js. Como o teste da política de rename (base.test.js),
 // este barra a cópia nova pelo texto de src/.
@@ -43,6 +43,9 @@ test('os ajudantes divididos só são definidos na casa deles', () => {
     ['DATA_MAX_MS', 'base.js', definicao('DATA_MAX_MS')],
     ['literal 8.64e15', 'base.js', /8\.64e15/g],
     ['codigoErro', 'base.js', definicao('codigoErro')],
+    ['somaSegura', 'base.js', definicao('somaSegura')],
+    // A saturação escrita de novo com outro nome.
+    ['soma que para em MAX_SAFE_INTEGER', 'base.js', /Math\.min\([^;\n]*,\s*Number\.MAX_SAFE_INTEGER\s*\)/g],
     ['janelaValida', 'util.js', definicao('janelaValida')],
     // A função janela() das cópias de antes (uma variável `janela` de texto,
     // como a de transcripts.js, é outra coisa e não conta).
@@ -79,6 +82,7 @@ test('as casas exportam os ajudantes, e quem os reexporta entrega o mesmo', () =
   assert.equal(typeof base.numeroFinito, 'function');
   assert.equal(base.DATA_MAX_MS, 8.64e15);
   assert.equal(typeof base.codigoErro, 'function');
+  assert.equal(typeof base.somaSegura, 'function');
   assert.equal(typeof util.janelaValida, 'function');
   assert.ok(util.GLIFOS_BARRA instanceof RegExp);
   assert.equal(util.GLIFOS_BARRA.flags, 'gu');
@@ -97,6 +101,23 @@ test('numeroFinito e codigoErro: só número finito; o código em texto, senão 
   assert.equal(base.codigoErro({ code: 7 }, 'p'), 'p');
   assert.equal(base.codigoErro(null, 'p'), 'p');
   assert.equal(base.codigoErro(undefined, 'p'), 'p');
+});
+
+// Revisão final de segurança (nota do juntarSomas): somar duas contagens
+// perto do limite passava de Number.MAX_SAFE_INTEGER e o --json saía com um
+// número que não é inteiro seguro. somaSegura para no limite.
+test('somaSegura: exata abaixo de Number.MAX_SAFE_INTEGER; acima, para nele', () => {
+  const MAX = Number.MAX_SAFE_INTEGER;
+  assert.equal(base.somaSegura(2, 3), 5);
+  assert.equal(base.somaSegura(0, 0), 0);
+  assert.equal(base.somaSegura(MAX - 10, 4), MAX - 6);
+  assert.equal(base.somaSegura(MAX - 1, 1), MAX);
+  assert.equal(base.somaSegura(MAX, 0), MAX);
+  for (const [a, b] of [[MAX - 1, MAX - 1], [MAX, MAX], [MAX, 1], [1, MAX], [MAX - 1, 2]]) {
+    const s = base.somaSegura(a, b);
+    assert.equal(s, MAX, `${a} + ${b}`);
+    assert.ok(Number.isSafeInteger(s), `${a} + ${b}`);
+  }
 });
 
 // A cópia da barra (formato.js) devolvia o próprio objeto e relia os campos

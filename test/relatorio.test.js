@@ -438,6 +438,45 @@ test('colisão depois do saneamento: as linhas se somam e o acerto é recalculad
   assert.deepEqual({ ...r.claude.hoje.porProjeto }, { Demo: { respostas: 3, input: 10, output: 10, cacheRead: 90, cacheCreate: 100, cacheCreate1h: 60, cacheCreate5m: 40, cacheCreateSemDetalhe: 0, acertoCache: 0.45 } });
 });
 
+// Revisão final de segurança (nota do juntarSomas): duas linhas perto do
+// limite que colidem depois do saneamento somavam 18014398509481982 no
+// --json, número que não é inteiro seguro. A soma para em
+// Number.MAX_SAFE_INTEGER; abaixo do limite continua exata.
+test('colisão perto de Number.MAX_SAFE_INTEGER: a soma para no limite, nos projetos e nas sessões', () => {
+  const MAX = Number.MAX_SAFE_INTEGER;
+  const perto = {
+    respostas: MAX - 1, input: MAX - 1, output: MAX - 10, cacheRead: MAX - 1,
+    cacheCreate: MAX - 1, cacheCreate1h: MAX - 1, cacheCreate5m: 0, cacheCreateSemDetalhe: 0, acertoCache: 0.333,
+  };
+  const pouco = { ...perto, output: 4 };
+  const r = montarRelatorio({
+    estado, agoraMs: agora, github,
+    claude: {
+      ...claude,
+      hoje: agregado({
+        porProjeto: { Demo: perto, 'Demo\u{200B}': pouco },
+        porSessao: { 'sess-1': sessao(perto), 'sess-1\u{200B}': sessao(pouco) },
+      }),
+    },
+  });
+  const esperado = {
+    respostas: MAX, input: MAX, output: MAX - 6, cacheRead: MAX,
+    cacheCreate: MAX, cacheCreate1h: MAX, cacheCreate5m: 0, cacheCreateSemDetalhe: 0, acertoCache: 0.333,
+  };
+  assert.deepEqual({ ...r.claude.hoje.porProjeto }, { Demo: esperado });
+  const sessoes = Object.values(r.claude.hoje.porSessao);
+  assert.equal(sessoes.length, 1, 'os dois ids viram um só');
+  const { projetos, modelos, ...somaSessao } = sessoes[0];
+  assert.deepEqual(somaSessao, esperado);
+  assert.deepEqual(projetos, ['Demo']);
+  assert.deepEqual(modelos, ['claude-opus-5']);
+  for (const s of [r.claude.hoje.porProjeto.Demo, somaSessao]) {
+    for (const [c, n] of Object.entries(s)) if (c !== 'acertoCache') assert.ok(Number.isSafeInteger(n), `${c}: ${n}`);
+  }
+  assert.doesNotMatch(JSON.stringify(r), /18014398509481982|9007199254740992/);
+  assert.match(formatarMarkdown(r), /### Hoje/);
+});
+
 test('mais de 25 linhas: a tabela mostra as 25 de maior consumo e conta o resto', () => {
   const muitos = {};
   for (let i = 0; i < 30; i++) muitos[`p${String(i).padStart(2, '0')}`] = { ...soma, output: i };
