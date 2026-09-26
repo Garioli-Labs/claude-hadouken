@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-escuro.svg">
+    <img src="assets/logo-claro.svg" alt="hadouken" width="420">
+  </picture>
+</p>
+
 # claude-hadouken
 
 [English](README.en.md) · **Português**
