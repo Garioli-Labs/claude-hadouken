@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="670" height="87" viewBox="0 0 670 87" role="img" aria-label="Barra de status do claude-hadouken: Opus 5.5·high, 5h 42% com reset às 15:30, 7d 59% usados contra 65% esperados com reset segunda 22:00, contexto 37%, cache 92%; tudo em verde.">
+  <title>Barra de status do claude-hadouken: Opus 5.5·high, 5h 42% com reset às 15:30, 7d 59% usados contra 65% esperados com reset segunda 22:00, contexto 37%, cache 92%; tudo em verde.</title>
+  <rect x="0.5" y="0.5" width="669" height="86" rx="8" fill="#0D1117" stroke="#30363D"/>
+  <path d="M0.5 34 V8.5 a8 8 0 0 1 8 -8 H661.5 a8 8 0 0 1 8 8 V34 Z" fill="#161B22" stroke="#30363D"/>
+  <circle cx="18" cy="17" r="5" fill="#484F58"/>
+  <circle cx="34" cy="17" r="5" fill="#484F58"/>
+  <circle cx="50" cy="17" r="5" fill="#484F58"/>
+  <text x="335" y="22" text-anchor="middle" font-family="ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="12" fill="#8B949E">barra de status do Claude Code</text>
+  <g font-family="ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="14">
+    <text x="20" y="65" xml:space="preserve"><tspan fill="#E6EDF3">Opus 5.5·high │ </tspan><tspan fill="#3FB950">5h 42% ↻15:30</tspan><tspan fill="#E6EDF3"> │ </tspan><tspan fill="#3FB950">7d 59%/65% ↻seg 22:00</tspan><tspan fill="#E6EDF3"> │ ctx 37% │ cache 92%</tspan></text>
+  </g>
+</svg>
