@@ -17,7 +17,7 @@ const REAL = (() => {
   try { return path.join(os.homedir(), '.claude', 'settings.json'); } catch { return null; }
 })();
 const LINK_PASTA = process.platform === 'win32' ? 'junction' : 'dir';
-const FRASE_CONFLITO = 'As sessões já abertas ficarão sem barra até serem reabertas; a barra atual será substituída (há backup).';
+const FRASE_CONFLITO = 'As sessões abertas antes da instalação do plugin ficarão sem barra até serem reabertas; as demais passam a mostrar a do claude-hadouken; a barra atual será substituída (há backup).';
 const AVISO_CONFIG = 'Se você usa CLAUDE_CONFIG_DIR e esse caminho não está na sua pasta de configuração, responda não: o Claude Code pode tirar essa variável do ambiente dos comandos que roda pelo Bash.';
 
 let dir;
