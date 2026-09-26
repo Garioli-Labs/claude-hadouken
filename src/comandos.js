@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { codigoErro, gerarRelatorio } from './consumo.js';
 import { formatarMarkdown } from './relatorio.js';
-import { regexOu } from './util.js';
+import { jsonSeguro, REGRA_JSON_SEGURO } from './util.js';
 
 // Comandos do CLI (addendum da Task 10, A, B, D e F). cli.js roda ao ser
 // importado pelo shim (<dirDados>/bin/cli.mjs), então a lógica mora aqui,
@@ -25,38 +25,14 @@ const PRAZO_GITHUB_MS = 10_000;
 // Teto de espera pelo callback da escrita: stdout travado não segura o CLI.
 const ESCRITA_MAX_MS = 10_000;
 
-// Escapa no JSON o que um terminal ou o modelo leriam como controle:
-// formato (bidi, largura zero, tags), uso privado, não atribuídos,
-// separadores de linha e parágrafo, DEL e C1. O JSON.stringify já escapa C0
-// e surrogates soltos; estes ficam em \uXXXX (par de surrogates acima de
-// FFFF). Os nomes já chegam saneados; isto é a última barreira. Pode lançar
-// só se o valor não for serializável (o chamador trata).
-//
-// Sem ICU (regexOu, em util.js), a reserva escapa tudo o que não for quebra
-// de linha, ASCII visível ou o latim de U+00A0 a U+024F (menos o soft
-// hyphen, U+00AD): nomes em outros alfabetos e emoji saem em \u. Fora das
-// strings o JSON é só ASCII e a quebra de linha da indentação, que a reserva
-// deixa como estão; dentro delas o escape \u mantém o JSON válido e o valor
-// igual. A flag u casa um ponto de código inteiro, então um emoji chega ao
-// replacer como par e sai como dois \u.
-const ESCAPAR_FONTE = String.raw`[\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\u{7F}-\u{9F}]`;
-const ESCAPAR_RESERVA = /[^\n\u{20}-\u{7E}\u{A0}-\u{AC}\u{AE}-\u{24F}]/gu;
-const ESCAPAR = regexOu(ESCAPAR_FONTE, 'gu', ESCAPAR_RESERVA);
-const hex4 = (u) => `\\u${u.toString(16).padStart(4, '0')}`;
-export function jsonSeguro(valor) {
-  return JSON.stringify(valor, null, 2).replace(ESCAPAR, (c) => {
-    const cp = c.codePointAt(0);
-    if (cp <= 0xffff) return hex4(cp);
-    const v = cp - 0x10000;
-    return hex4(0xd800 + (v >> 10)) + hex4(0xdc00 + (v & 0x3ff));
-  });
-}
+// A saída do `consumo --json` passa por jsonSeguro (util.js): o que um
+// terminal ou o modelo leriam como controle sai em \u, a mesma regra do
+// instalar. Continua exportado daqui.
+export { jsonSeguro };
 
-// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva de
-// ESCAPAR. Nada do plugin lê isto.
-export const _reservas = Object.freeze({
-  ESCAPAR: Object.freeze({ fonte: ESCAPAR_FONTE, flags: 'gu', reserva: ESCAPAR_RESERVA }),
-});
+// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva da regra
+// de jsonSeguro. Nada do plugin lê isto.
+export const _reservas = Object.freeze({ ESCAPAR: REGRA_JSON_SEGURO });
 
 // HADOUKEN_TESTE_GH=ausente (o valor exato, documentado no relatório da
 // Task 10): o coletor recebe um executor que responde 'gh ausente' sem criar

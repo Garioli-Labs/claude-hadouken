@@ -8,7 +8,7 @@ import {
   removerStatusline,
 } from './configuracao.js';
 import { dirDados, origemDados } from './base.js';
-import { regexOu } from './util.js';
+import { jsonSeguro, REGRA_JSON_SEGURO } from './util.js';
 
 // Subcomando `instalar` da CLI (task-11-security.md A, D, E, F). A cli.js da
 // Task 10 o carrega sob demanda: instalar: (args) => import('./instalar-cli.js')
@@ -66,38 +66,17 @@ const MENSAGEM_MOTIVO = Object.freeze({
   'erro-interno': 'Erro interno do instalador.',
 });
 
-// Tudo o que o JSON.stringify deixa cru e um terminal ou o modelo leriam
-// diferente: C1 e DEL, formato invisível (bidi, largura zero, tags), uso
-// privado, não atribuídos, surrogates e separadores de linha. Os controles
-// C0 o JSON.stringify já escapa. Só aparecem dentro de strings do JSON, e o
-// escape \u mantém o JSON válido e o valor igual.
-//
-// Os escapes \p exigem um Node com ICU (os binários oficiais do Node trazem).
-// Sem ICU, regexOu (util.js) usa a reserva, mais restrita: escapa tudo o que
-// não for quebra de linha, ASCII visível ou o latim de U+00A0 a U+024F (menos
-// o soft hyphen, U+00AD). Nomes em outros alfabetos e emoji, num caminho ou
-// na statusLine atual, saem em \u; a estrutura do JSON é só ASCII e a quebra
-// de linha da indentação, que a reserva deixa como estão. configuracao.js não
-// usa \p e carrega mesmo sem ICU.
-const INVISIVEL_FONTE = String.raw`[\u{7F}-\u{9F}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}]`;
-const INVISIVEL_RESERVA = /[^\n\u{20}-\u{7E}\u{A0}-\u{AC}\u{AE}-\u{24F}]/gu;
-const INVISIVEL = regexOu(INVISIVEL_FONTE, 'gu', INVISIVEL_RESERVA);
+// A saída passa por jsonSeguro (util.js), a mesma regra do `consumo --json`:
+// tudo o que o JSON.stringify deixa cru e um terminal ou o modelo leriam
+// diferente (C1 e DEL, formato invisível, uso privado, não atribuídos,
+// surrogates, separadores de linha) sai em \u, e o JSON segue válido com o
+// valor igual. Nomes em outros alfabetos e emoji, num caminho ou na
+// statusLine atual, ficam crus com ICU e saem em \u sem ele (a reserva, mais
+// restrita). configuracao.js não usa \p e carrega mesmo sem ICU.
 
-// A flag u casa um ponto de código inteiro: acima de U+FFFF, `c` é o par de
-// surrogates e sai como dois \u.
-function escaparInvisiveis(texto) {
-  return texto.replace(INVISIVEL, (c) => {
-    let s = '';
-    for (let i = 0; i < c.length; i++) s += `\\u${c.charCodeAt(i).toString(16).padStart(4, '0')}`;
-    return s;
-  });
-}
-
-// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva de
-// INVISIVEL. Nada do plugin lê isto.
-export const _reservas = Object.freeze({
-  INVISIVEL: Object.freeze({ fonte: INVISIVEL_FONTE, flags: 'gu', reserva: INVISIVEL_RESERVA }),
-});
+// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva da regra
+// de jsonSeguro. Nada do plugin lê isto.
+export const _reservas = Object.freeze({ INVISIVEL: REGRA_JSON_SEGURO });
 
 // A statusLine atual para exibir: o próprio valor, ou uma frase fixa se ela
 // for grande demais ou não serializável.
@@ -190,7 +169,7 @@ export async function instalar(args) {
   }
   let texto;
   try {
-    texto = escaparInvisiveis(JSON.stringify(saida, null, 2));
+    texto = jsonSeguro(saida);
   } catch {
     saida = falhaSaida('erro-interno');
     texto = JSON.stringify(saida, null, 2);

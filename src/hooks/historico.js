@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { validarEstado } from '../estado.js';
-import { idValido } from '../base.js';
-import { effortValido, sanear } from '../util.js';
+import { codigoErro, DATA_MAX_MS, idValido, numeroFinito } from '../base.js';
+import { effortValido, GLIFOS_BARRA, sanear } from '../util.js';
 
 // Histórico de sessões do hook SessionEnd (spec 6.5): <dirDados>/historico.jsonl,
 // uma linha JSON por sessão encerrada. Nenhum código da v0.1.0 lê este
@@ -40,21 +40,15 @@ export const HISTORICO_MAX_BYTES = 5 * 1024 * 1024;
 // Motivos de SessionEnd documentados pelo Claude Code; qualquer outro valor
 // vira 'outro'.
 const MOTIVOS = new Set(['clear', 'resume', 'logout', 'prompt_input_exit', 'other']);
-// Os separadores da barra (formato.js) não entram no nome do modelo gravado:
-// o relatório monta linhas com eles.
-const GLIFOS_BARRA = /[│↻·]/gu;
 const MAX_MODEL = 40;
 const MAX_CWD = 200;
-const DATA_MAX_MS = 8.64e15;
 // O_NOFOLLOW e O_NONBLOCK onde existem: um symlink no lugar do histórico não
 // é seguido (ELOOP) e um FIFO sem leitor não trava o hook (ENXIO). No Windows
 // as constantes não existem; lá o lstat antes barra links e junções.
 const ABRIR_ANEXAR = fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT
   | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
 
-const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
 
 // Valor de fn(), ou null se fn lançar (getter hostil numa entrada).
 function seguro(fn) {
@@ -67,6 +61,8 @@ function seguro(fn) {
 
 const proprio = (o, k) => (ehObjeto(o) && Object.hasOwn(o, k) ? o[k] : undefined);
 
+// Os separadores da barra (GLIFOS_BARRA) não entram no nome do modelo
+// gravado: o relatório monta linhas com eles.
 function modeloLimpo(model) {
   const saneado = sanear(model, MAX_MODEL);
   if (saneado === null) return null;

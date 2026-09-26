@@ -1,5 +1,5 @@
 import { faixa5h, faixa7d } from './alerta.js';
-import { horaLocal, diaHora, effortValido, sanear } from './util.js';
+import { horaLocal, diaHora, effortValido, GLIFOS_BARRA, janelaValida, numeroFinito, sanear } from './util.js';
 
 // Linha da barra de status. Todo dado externo passa por aqui antes do terminal
 // (spec 8.1, S2/S3): o nome do modelo passa por `sanear`; o effort vem de lista
@@ -13,27 +13,12 @@ const ROTULO_7D = { normal: '', folga: ' folga', economico: ' econ', 'so-leitura
 const MAX_MODELO = 40;
 const SEM_VALOR = '—';
 const SEPARADOR = ' │ ';
-// Glifos que a própria barra usa (separador, reset, effort). Um display_name
-// com eles forjaria segmentos ("Opus │ 5h 3% ↻09:00") ou um effort; viram
-// espaço antes de exibir.
-const GLIFOS_BARRA = /[│↻·]/gu;
-
-const noIntervalo = (n, min, max) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
+const noIntervalo = (n, min, max) => numeroFinito(n) && n >= min && n <= max;
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const pinta = (texto, cor, ligado) => (ligado ? `${COR[cor]}${texto}${COR.fim}` : texto);
 // Piso, nunca arredondamento (decisão (c) da Task 3): 89.6 aparece como 89%,
 // e não como um 90% que contradiria a faixa ainda abaixo de 90.
 const pct = (x) => `${Math.floor(x)}%`;
-
-// Janela de limite exibível: percentual finito em 0–100 e reset em segundos
-// epoch finito, positivo e abaixo de 1e11 (o mesmo schema de estado.js). Quem
-// chama já passa a saída de limitesValidos; a checagem aqui só garante que
-// nenhum outro chamador faça a barra mostrar NaN ou uma hora inválida.
-function janela(j) {
-  if (!ehObjeto(j) || !noIntervalo(j.used_percentage, 0, 100)) return null;
-  const reset = j.resets_at;
-  return typeof reset === 'number' && Number.isFinite(reset) && reset > 0 && reset < 1e11 ? j : null;
-}
 
 // Razão de acerto 0–1 em percentual inteiro por piso. O arredondamento em 6
 // casas antes do piso tira o ruído do double (0.57 * 100 = 56.99999999999999),
@@ -57,13 +42,17 @@ export function formatarBarra(opcoes) {
     const effort = effortValido(e.effort);
     const partes = [effort ? `${nome}·${effort}` : nome];
 
-    const f5 = janela(l.five_hour);
+    // Cada janela passa de novo por janelaValida (util.js), o schema de
+    // estado.js: quem chama já passa a saída de limitesValidos, e a checagem
+    // só garante que nenhum outro chamador faça a barra mostrar NaN ou uma
+    // hora inválida. O nome do modelo perde os glifos da barra (GLIFOS_BARRA).
+    const f5 = janelaValida(l.five_hour);
     partes.push(f5
       ? pinta(`5h ${pct(f5.used_percentage)} ↻${horaLocal(f5.resets_at)}`, COR_5H[faixa5h(f5.used_percentage)], ligado)
       : `5h ${SEM_VALOR}`);
 
-    const f7 = janela(l.seven_day);
-    if (f7 && typeof agoraMs === 'number' && Number.isFinite(agoraMs)) {
+    const f7 = janelaValida(l.seven_day);
+    if (f7 && numeroFinito(agoraMs)) {
       const { faixa, esperado } = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs });
       partes.push(pinta(`7d ${pct(f7.used_percentage)}/${pct(esperado)}${ROTULO_7D[faixa]} ↻${diaHora(f7.resets_at)}`, COR_7D[faixa], ligado));
     } else {

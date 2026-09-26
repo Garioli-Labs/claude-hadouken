@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { agregar } from './agregacao.js';
+import { numeroFinito } from './base.js';
 import { ARQ_ESTADO, dirDados, lerJson, limitesValidos, validarEstado } from './estado.js';
 import { resolverExecutavel } from './executavel.js';
 import { coletarGithub, repoValido } from './github.js';
@@ -40,8 +41,6 @@ const CODIGOS = new Set([
   'ELOOP', 'ENAMETOOLONG', 'EROFS', 'ETIMEDOUT', 'EPIPE', 'EAGAIN', 'EEXIST', 'EINVAL', 'ENOTEMPTY', 'EXDEV',
   'ECONNRESET', 'ERR_MODULE_NOT_FOUND', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END',
 ]);
-
-const finito = (n) => typeof n === 'number' && Number.isFinite(n);
 
 // Código do erro, só se estiver na lista; senão 'desconhecido'. Nunca lança.
 export function codigoErro(e) {
@@ -293,8 +292,8 @@ async function coletarRepos(dir, { gh, cwd, prazoMs }, agoraMs) {
 export async function gerarRelatorio(opcoes) {
   try {
     const o = opcoes !== null && typeof opcoes === 'object' ? opcoes : {};
-    const agoraMs = finito(o.agoraMs) ? o.agoraMs : Date.now();
-    const prazoMs = finito(o.prazoGithubMs) && o.prazoGithubMs >= 0 && o.prazoGithubMs <= PRAZO_GITHUB_MAX_MS ? o.prazoGithubMs : PRAZO_GITHUB_MS;
+    const agoraMs = numeroFinito(o.agoraMs) ? o.agoraMs : Date.now();
+    const prazoMs = numeroFinito(o.prazoGithubMs) && o.prazoGithubMs >= 0 && o.prazoGithubMs <= PRAZO_GITHUB_MAX_MS ? o.prazoGithubMs : PRAZO_GITHUB_MS;
     const dir = dirDados();
     let estado = null;
     if (dir !== null) {

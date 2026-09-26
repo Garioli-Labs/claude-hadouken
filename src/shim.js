@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  apagar, dirDados, erroComCodigo, esperar, fechar, RENOMEAR_ESPERA_MS, renomearDeNovo, varrerTmpVelhos,
+  apagar, codigoErro, dirDados, erroComCodigo, esperar, fechar, RENOMEAR_ESPERA_MS, renomearDeNovo, varrerTmpVelhos,
 } from './base.js';
 
 // Shims estáveis (spec 8.1, S6). O settings.json do usuário aponta a
@@ -78,8 +78,6 @@ const ehTmpDeShim = (nome) => NOME_TMP.test(nome);
 const LIBERADO = 'liberado';
 const INALTERADO = 'inalterado';
 const RECUSADO = 'recusado';
-
-const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
 
 // Raiz do plugin aceitável: string absoluta não vazia, sem NUL, fora do
 // namespace de dispositivo do Windows, cuja URL de arquivo volta ao mesmo

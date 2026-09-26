@@ -31,7 +31,19 @@ const FUTURO_MAX_MS = 5 * 60_000;
 const MAX_AT_CHARS = 64;
 const ID_SESSAO = /^[A-Za-z0-9_-]{1,64}$/;
 
-const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
+// Casa única de três ajudantes que se repetiam pelo plugin (revisão final
+// de qualidade; test/casa-unica.test.js barra cópia nova). base.js não importa
+// nada do plugin: configuracao.js e o caminho curto da barra e dos hooks
+// os usam sem carregar mais nada.
+//
+// Número de verdade e finito: nunca NaN, ±Infinity nem texto numérico.
+export const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
+// Faixa em que new Date(ms) é válido (±8,64e15 ms, a do ECMAScript).
+export const DATA_MAX_MS = 8.64e15;
+// Código de um erro de sistema (`e.code` em texto) ou `padrao`, para os
+// motivos internos de escrita e rename. O /consumo tem outro, de lista
+// fechada, que nunca devolve código fora dela (consumo.js, codigoErro).
+export const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
 
 const WIN = process.platform === 'win32';
 const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;

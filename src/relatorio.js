@@ -1,8 +1,9 @@
 import { MAX_ROTULOS_SESSAO, MAX_SESSOES, pesoConsumo } from './agregacao.js';
 import { faixa5h, faixa7d } from './alerta.js';
+import { DATA_MAX_MS, numeroFinito } from './base.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
-import { diaHora, effortValido, formatarTokens, horaLocal, sanear } from './util.js';
+import { diaHora, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, sanear } from './util.js';
 
 // Relatório do /consumo (spec 6.8; 8.1 S1, S2, S5; addendum da Task 10, A).
 // Puro: recebe o estado lido, os agregados de transcripts e o resumo do
@@ -45,9 +46,6 @@ const MAX_CHAVES = 5000;
 const MAX_REPOS_RELATORIO = 32;
 const MAX_AVISOS = 10;
 const GIB = 1024 ** 3;
-// Glifos da barra (formato.js): nunca num nome de modelo, e o · da chave
-// modelo·effort é só o que o relatório põe.
-const GLIFOS_BARRA = /[│↻·]/gu;
 const CHAVE_REPOS = /^repos\[(?:\d{1,2}|20\+)\]$/;
 const CAMPOS_SOMA = ['respostas', 'input', 'output', 'cacheRead', 'cacheCreate', 'cacheCreate1h', 'cacheCreate5m', 'cacheCreateSemDetalhe'];
 const LIMITES_MOTIVOS = new Set(['sem_leitura', 'indisponiveis_na_conta']);
@@ -64,7 +62,6 @@ const inteiro = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);
 // Soma de duas contagens inteiras seguras que para em
 // Number.MAX_SAFE_INTEGER: acima disso o número deixa de ser exato.
 const somaSegura = (a, b) => Math.min(a + b, Number.MAX_SAFE_INTEGER);
-const finito = (n) => typeof n === 'number' && Number.isFinite(n);
 const nomeDe = (mapa, k) => (typeof k === 'string' && Object.hasOwn(mapa, k) ? mapa[k] : null);
 
 // Lê uma propriedade sem deixar um getter hostil derrubar o relatório.
@@ -79,9 +76,9 @@ function ler(o, k) {
 // Instante (ms ou texto ISO) para ISO; null se inválido.
 function isoDe(v) {
   let t = Number.NaN;
-  if (finito(v)) t = v;
+  if (numeroFinito(v)) t = v;
   else if (typeof v === 'string' && v.length <= 64) t = Date.parse(v);
-  if (!Number.isFinite(t) || Math.abs(t) > 8.64e15) return null;
+  if (!Number.isFinite(t) || Math.abs(t) > DATA_MAX_MS) return null;
   return new Date(t).toISOString();
 }
 
@@ -102,7 +99,7 @@ function lerSoma(v) {
   }
   if (s.cacheCreate1h + s.cacheCreate5m + s.cacheCreateSemDetalhe !== s.cacheCreate) return null;
   const a = proprio(v, 'acertoCache');
-  s.acertoCache = finito(a) && a >= 0 && a <= 1 ? a : null;
+  s.acertoCache = numeroFinito(a) && a >= 0 && a <= 1 ? a : null;
   return s;
 }
 
@@ -330,7 +327,7 @@ function lerRepo(v) {
       linux: inteiro(ler(m, 'linux')),
       windows: inteiro(ler(m, 'windows')),
       macos: inteiro(ler(m, 'macos')),
-      ponderado: finito(ponderado) && ponderado >= 0 ? Math.round(ponderado * 100) / 100 : null,
+      ponderado: numeroFinito(ponderado) && ponderado >= 0 ? Math.round(ponderado * 100) / 100 : null,
     },
     naoClassificado: { jobs: inteiro(ler(nc, 'jobs')), minutos: inteiro(ler(nc, 'minutos')) },
     cache: { bytes: inteiro(ler(cache, 'bytes')), limiteBytes: inteiro(ler(cache, 'limiteBytes')) },
@@ -444,8 +441,8 @@ const numero = (n) => (inteiro(n) === null ? SEM : String(n));
 const tokens = (n) => (inteiro(n) === null ? SEM : formatarTokens(n));
 // Piso em uma casa; o epsilon só absorve o resíduo do produto em ponto
 // flutuante (0.29 * 1000 = 289.99999999999997).
-const pctCache = (a) => (finito(a) && a >= 0 && a <= 1 ? `${(Math.floor(a * 1000 + 1e-6) / 10).toFixed(1)}%` : SEM);
-const duasCasas = (n) => (finito(n) ? String(Math.round(n * 100) / 100) : SEM);
+const pctCache = (a) => (numeroFinito(a) && a >= 0 && a <= 1 ? `${(Math.floor(a * 1000 + 1e-6) / 10).toFixed(1)}%` : SEM);
+const duasCasas = (n) => (numeroFinito(n) ? String(Math.round(n * 100) / 100) : SEM);
 const gib = (n) => (inteiro(n) === null ? SEM : `${(n / GIB).toFixed(2)} GB`);
 const epochS = (iso) => {
   const t = typeof iso === 'string' ? Date.parse(iso) : Number.NaN;
@@ -456,7 +453,7 @@ function linha5h(f) {
   const u = ler(f, 'used_percentage');
   const r = ler(f, 'resets_at');
   const nome = nomeDe(NOMES_5H, ler(f, 'faixa'));
-  if (!finito(u) || u < 0 || !finito(r) || nome === null) return `5h ${SEM}`;
+  if (!numeroFinito(u) || u < 0 || !numeroFinito(r) || nome === null) return `5h ${SEM}`;
   return `5h ${Math.floor(u)}% (faixa ${nome}); reset ${horaLocal(r)}.`;
 }
 
@@ -465,7 +462,7 @@ function linha7d(f) {
   const r = ler(f, 'resets_at');
   const esperado = ler(f, 'esperado');
   const nome = nomeDe(NOMES_7D, ler(f, 'modo'));
-  if (!finito(u) || u < 0 || !finito(r) || !finito(esperado) || esperado < 0 || nome === null) return `7d ${SEM}`;
+  if (!numeroFinito(u) || u < 0 || !numeroFinito(r) || !numeroFinito(esperado) || esperado < 0 || nome === null) return `7d ${SEM}`;
   return `7d ${Math.floor(u)}% usado vs ${Math.floor(esperado)}% esperado; reset ${diaHora(r)} — modo ${nome}.`;
 }
 

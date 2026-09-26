@@ -1,7 +1,14 @@
+import { numeroFinito } from './base.js';
+
+// numeroFinito mora em base.js e sai também daqui: formato.js, alerta.js e
+// hooks/linha-estado.js já importam este arquivo, e cada import novo custa
+// uma resolução a mais (stat e realpath) em todo processo da barra e dos
+// hooks, mesmo com o módulo já carregado.
+export { numeroFinito };
+
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 const SEM_VALOR = '—';
 const doisDigitos = (n) => String(n).padStart(2, '0');
-const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 
 export function normalizarEffort(e) {
   if (typeof e === 'string' && e.length > 0) return e;
@@ -13,6 +20,22 @@ export function normalizarEffort(e) {
 // isto (o servidor devolve o reset com alguns segundos de variação). Uma só
 // constante para alerta.js (transição de faixa) e estado.js (mescla por janela).
 export const TOLERANCIA_JANELA_S = 600;
+
+// Janela de limite da conta (spec 6.2): percentual finito em 0–100 e reset
+// em segundos epoch finito, positivo e abaixo de 1e11. Devolve uma cópia só
+// com os dois campos, ou null. O schema único de estado.js (gravação e
+// leitura), da barra (formato.js) e da linha do SessionStart
+// (hooks/linha-estado.js). Cada campo é lido uma vez só: um getter não troca
+// o valor entre a checagem e o uso (a cópia da barra devolvia o próprio
+// objeto e o relia). Só lança se um getter lançar (quem chama trata).
+export function janelaValida(j) {
+  if (j === null || typeof j !== 'object' || Array.isArray(j)) return null;
+  const usado = j.used_percentage;
+  const reset = j.resets_at;
+  if (!numeroFinito(usado) || usado < 0 || usado > 100) return null;
+  if (!numeroFinito(reset) || reset <= 0 || reset >= 1e11) return null;
+  return { used_percentage: usado, resets_at: reset };
+}
 
 // Lista única dos níveis de effort aceitos (spec 8.1, S2): o estado.json e a
 // barra consultam a mesma lista, então nunca divergem sobre o que é válido.
@@ -111,6 +134,14 @@ export function formatarTokens(n) {
   return String(n);
 }
 
+// Glifos que a própria barra usa (separador, reset, effort; formato.js). Um
+// nome com eles forjaria segmentos ("Opus │ 5h 3% ↻09:00") ou um effort, e
+// o · da chave modelo·effort do relatório é só o que ele põe: a barra, o
+// histórico e o relatório os tiram antes de exibir ou gravar. Regex global
+// e compartilhada: só com replace, que começa do zero e deixa o lastIndex
+// em 0 (test e exec andariam com ele de uma chamada para outra).
+export const GLIFOS_BARRA = /[│↻·]/gu;
+
 // Compila `fonte` com `flags` ou, se o Node recusar a expressão, devolve
 // `reserva`, uma regex já compilada. Um Node compilado sem ICU (tabela de
 // https://nodejs.org/api/intl.html, coluna none) recusa todo escape de
@@ -119,7 +150,7 @@ export function formatarTokens(n) {
 // Por isso toda expressão com \p do plugin passa por aqui, com a fonte num
 // String.raw e uma reserva literal sem \p, sempre mais restrita que a
 // principal, nunca mais frouxa. Roda uma vez por expressão, na carga do
-// módulo. Nunca lança.
+// módulo (a de jsonSeguro, no primeiro uso). Nunca lança.
 export function regexOu(fonte, flags, reserva) {
   try {
     return new RegExp(fonte, flags);
@@ -196,9 +227,50 @@ export function sanear(valor, max = SANEAR_MAX_PADRAO) {
   }
 }
 
-// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva de cada
-// expressão com \p deste arquivo, para provar que a fonte compila num Node com
-// ICU e que a reserva tira tudo o que a principal tira. Nada do plugin lê isto.
+// Escapa no JSON o que um terminal ou o modelo leriam como controle: DEL e
+// C1, formato (bidi, largura zero, tags), uso privado, não atribuídos,
+// surrogates soltos e separadores de linha e de parágrafo. O JSON.stringify
+// já escapa C0 e os surrogates soltos; estes ficam em \uXXXX (acima de FFFF,
+// o par de surrogates: a flag u casa um ponto de código inteiro, então um
+// emoji chega ao replacer como par e sai como dois \u). Uma regra só para o
+// /consumo --json (comandos.js) e para o instalar (instalar-cli.js): das
+// duas cópias de antes, fica a mais restrita, a do instalar, que também
+// escapava Cs (redundante depois do JSON.stringify, e nunca mais frouxa).
+// Os nomes já chegam saneados; isto é a última barreira. Pode lançar só se
+// o valor não for serializável (o chamador trata).
+//
+// Sem ICU (regexOu), a reserva escapa tudo o que não for quebra de linha,
+// ASCII visível ou o latim de U+00A0 a U+024F (menos o soft hyphen,
+// U+00AD): nomes em outros alfabetos e emoji saem em \u. Fora das strings o
+// JSON é só ASCII e a quebra de linha da indentação, que a reserva deixa
+// como estão; dentro delas o escape \u mantém o JSON válido e o valor igual.
+//
+// Compilada no primeiro uso, não na carga: a barra e os hooks carregam este
+// arquivo e nunca escrevem JSON, e montar a classe com \p{Cn} custa perto de
+// 0,5 ms.
+const JSON_SEGURO_FONTE = String.raw`[\u{7F}-\u{9F}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}]`;
+const JSON_SEGURO_RESERVA = /[^\n\u{20}-\u{7E}\u{A0}-\u{AC}\u{AE}-\u{24F}]/gu;
+let escaparJson = null;
+const hex4 = (u) => `\\u${u.toString(16).padStart(4, '0')}`;
+export function jsonSeguro(valor) {
+  escaparJson ??= regexOu(JSON_SEGURO_FONTE, 'gu', JSON_SEGURO_RESERVA);
+  return JSON.stringify(valor, null, 2).replace(escaparJson, (c) => {
+    const cp = c.codePointAt(0);
+    if (cp <= 0xffff) return hex4(cp);
+    const v = cp - 0x10000;
+    return hex4(0xd800 + (v >> 10)) + hex4(0xdc00 + (v & 0x3ff));
+  });
+}
+
+// Só para os testes (test/sem-icu.test.js, pelos _reservas de comandos.js
+// e de instalar-cli.js): fonte, flags e reserva da regra de jsonSeguro.
+// Nada do plugin lê isto.
+export const REGRA_JSON_SEGURO = Object.freeze({ fonte: JSON_SEGURO_FONTE, flags: 'gu', reserva: JSON_SEGURO_RESERVA });
+
+// Só para os testes (test/sem-icu.test.js): fonte, flags e reserva de
+// INVISIVEIS e MARCAS_EXCESSO, para provar que a fonte compila num Node com
+// ICU e que a reserva tira tudo o que a principal tira (a de jsonSeguro
+// está em REGRA_JSON_SEGURO, acima). Nada do plugin lê isto.
 export const _reservas = Object.freeze({
   INVISIVEIS: Object.freeze({ fonte: INVISIVEIS_FONTE, flags: 'gu', reserva: INVISIVEIS_RESERVA }),
   MARCAS_EXCESSO: Object.freeze({ fonte: MARCAS_FONTE, flags: 'gu', reserva: MARCAS_RESERVA }),

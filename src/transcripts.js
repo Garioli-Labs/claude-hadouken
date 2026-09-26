@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DATA_MAX_MS } from './base.js';
 import { dirDados, gravarJsonAtomico, idValido, lerJson } from './estado.js';
 import { effortValido, EFFORTS_VALIDOS, sanear } from './util.js';
 
@@ -52,7 +53,7 @@ const INDICE_MAX_BYTES = 16 * 1024 * 1024;
 export const VERSAO_INDICE = 2;
 // Tolerância para relógio adiantado: um timestamp até 1 dia à frente ainda vale.
 const FUTURO_MAX_MS = 86_400_000;
-const TS_MIN_MS = -8.64e15;
+const TS_MIN_MS = -DATA_MAX_MS;
 const TS_MAX_CHARS = 64;
 const USO_MAX = 1e9;
 const MODEL_MAX = 40;

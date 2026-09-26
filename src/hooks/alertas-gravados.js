@@ -1,5 +1,5 @@
 import { ALERTAS_VAZIO } from '../alerta.js';
-import { idValido, instante } from '../base.js';
+import { DATA_MAX_MS, idValido, instante, numeroFinito } from '../base.js';
 import { LIMITE_VELHO_MS } from '../estado.js';
 
 // Memória de alertas do hook UserPromptSubmit: <dirDados>/alertas.json, a
@@ -56,11 +56,8 @@ const FAIXAS = Object.freeze({
   seven_day: new Set(['normal', 'folga', 'economico', 'so-leitura']),
 });
 const CHAVES = new Set(['at', 'five_hour', 'seven_day', 'sem_leitura']);
-// Faixa em que new Date(ms) é válido.
-const DATA_MAX_MS = 8.64e15;
 const INVALIDO = Symbol('invalido');
 
-const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const proprio = (o, k) => (Object.hasOwn(o, k) ? o[k] : undefined);
 const vazia = () => ({ anteriores: ALERTAS_VAZIO, atMs: null });

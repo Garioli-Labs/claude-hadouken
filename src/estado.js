@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { effortValido, sanear, TOLERANCIA_JANELA_S } from './util.js';
+import { effortValido, janelaValida, sanear, TOLERANCIA_JANELA_S } from './util.js';
 import {
-  apagar, dirDados, esperar, idValido, instante, RENOMEAR_ESPERA_MS, RENOMEAR_TENTATIVAS, renomearDeNovo, varrerTmpVelhos,
+  apagar, codigoErro, DATA_MAX_MS, dirDados, esperar, idValido, instante, numeroFinito, RENOMEAR_ESPERA_MS,
+  RENOMEAR_TENTATIVAS, renomearDeNovo, varrerTmpVelhos,
 } from './base.js';
 
 // dirDados, idValido e instante moram em base.js (o caminho curto da barra
@@ -44,10 +45,8 @@ const PEDACO_LEITURA = 65_536;
 // gravação, em vez da pasta de dados listada inteira a cada redesenho).
 const MEIO_TMP = /^\d+\.\d+\.\d+$/;
 
-const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const noIntervalo = (n, min, max) => (numeroFinito(n) && n >= min && n <= max ? n : null);
-const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
 
 // Lê um JSON de estado com teto de tamanho. `maxBytes` inválido usa o padrão
 // (1 MB). Motivos: 'ausente' (não existe ou não dá para ler), 'invalido' (não é
@@ -188,18 +187,9 @@ function estadoVazio() {
   return { versao: VERSAO, at: null, five_hour: null, seven_day: null, sessoes: Object.create(null) };
 }
 
-// Janela de limite da conta: percentual finito em 0–100 e reset em segundos
-// epoch finito, positivo e abaixo de 1e11. Devolve cópia só com os dois campos.
-function janela(j) {
-  if (!ehObjeto(j)) return null;
-  const usado = noIntervalo(j.used_percentage, 0, 100);
-  const reset = j.resets_at;
-  if (usado === null || !numeroFinito(reset) || reset <= 0 || reset >= 1e11) return null;
-  return { used_percentage: usado, resets_at: reset };
-}
-
 // Janela guardada em estado.json (I-2 da revisão final, N-6 do ledger): a de
-// `janela` mais o `at` da última leitura real DESTA janela, em ISO canônico.
+// `janelaValida` (util.js) mais o `at` da última leitura real DESTA janela,
+// em ISO canônico.
 // Cada janela envelhece pelo próprio `at` (limitesValidos) e só segura leitura
 // menor enquanto ele tem até LIMITE_VELHO_MS (mantemGuardada). Antes as duas
 // dividiam o `at` do topo, e a janela segurada ganhava `at` novo sempre que a
@@ -212,7 +202,7 @@ function janela(j) {
 // textual, ilegível ou mais de 5 min no futuro, como depois de o relógio
 // voltar) descarta a janela. Devolve { used_percentage, resets_at, at } ou null.
 function janelaGuardada(j, tTopo, agoraMs) {
-  const base = janela(j);
+  const base = janelaValida(j);
   if (base === null) return null;
   const bruto = Object.hasOwn(j, 'at') ? j.at : undefined;
   if (bruto === undefined || bruto === null) return tTopo === null ? null : { ...base, at: null };
@@ -359,7 +349,7 @@ function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
 // devolve motivo 'sem_diretorio'. Nunca lança.
 export function atualizarEstado(entrada, agoraMs) {
   try {
-    const agoraIso = numeroFinito(agoraMs) && Math.abs(agoraMs) <= 8.64e15 ? new Date(agoraMs).toISOString() : null;
+    const agoraIso = numeroFinito(agoraMs) && Math.abs(agoraMs) <= DATA_MAX_MS ? new Date(agoraMs).toISOString() : null;
     if (agoraIso === null) return { ok: false, motivo: 'agora', estado: estadoVazio() };
     const dir = dirDados();
     if (dir === null) return { ok: false, motivo: 'sem_diretorio', estado: estadoVazio() };
@@ -376,7 +366,7 @@ export function atualizarEstado(entrada, agoraMs) {
     // janela velha): a leitura velha de uma sessão ociosa só ganha quando
     // ninguém leu aquela janela na última hora, e aí é o melhor dado que há.
     for (const k of JANELAS) {
-      const nova = janela(rl[k]);
+      const nova = janelaValida(rl[k]);
       const fica = nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
       if (fica) novas[k] = anterior[k];
       else novas[k] = nova === null ? null : { ...nova, at: agoraIso };

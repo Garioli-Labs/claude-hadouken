@@ -1,13 +1,15 @@
 import { calcularRitmo } from './ritmo.js';
-import { horaLocal, diaHora, TOLERANCIA_JANELA_S } from './util.js';
+import { horaLocal, diaHora, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
+
+// A linha fixa de "sem leitura", a mesma no alerta do UserPromptSubmit e
+// na linha do SessionStart (hooks/linha-estado.js a reexporta).
+export const LINHA_SEM_LEITURA = 'Consumo sem leitura: rode /usage.';
 
 const DIA_MS = 24 * 3600_000;
 const ORDEM_5H = ['ok', 'atencao', 'serializar', 'fechar'];
 const RESTRITIVAS_5H = new Set(['atencao', 'serializar', 'fechar']);
 const RESTRITIVAS_7D = new Set(['economico', 'so-leitura']);
 const SUSPENSAS = 'restrições anteriores suspensas';
-
-const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 
 function mesmaJanela(guardada, resetsAt) {
   return Boolean(guardada)
@@ -74,7 +76,7 @@ export function avaliarAlertas({ limites, anteriores, sessionId, agoraMs }) {
 
   if (!limites || (!limites.five_hour && !limites.seven_day)) {
     if (!novos.sem_leitura[sessionId]) {
-      linhas.push('Consumo sem leitura: rode /usage.');
+      linhas.push(LINHA_SEM_LEITURA);
       novos.sem_leitura[sessionId] = true;
     }
     return { linhas, novos };

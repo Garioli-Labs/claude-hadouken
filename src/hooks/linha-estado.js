@@ -1,12 +1,14 @@
-import { faixa7d } from '../alerta.js';
-import { horaLocal, diaHora } from '../util.js';
+import { faixa7d, LINHA_SEM_LEITURA } from '../alerta.js';
+import { horaLocal, diaHora, janelaValida, numeroFinito } from '../util.js';
 
 // Linhas que o SessionStart injeta no contexto do Claude. Spec 8.1, S1: só
 // números finitos validados (com piso, como a barra e os alertas), a saída de
 // horaLocal/diaHora e rótulos fixos deste arquivo. Nenhum texto lido de
 // arquivo, stdin, ambiente ou do resultado de outra função entra aqui.
 
-export const LINHA_SEM_LEITURA = 'Consumo sem leitura: rode /usage.';
+// A linha fixa de "sem leitura" mora em alerta.js (a mesma do alerta) e
+// continua exportada daqui.
+export { LINHA_SEM_LEITURA };
 
 const ROTULO_7D = Object.freeze({ normal: 'normal', folga: 'folga', economico: 'econômico', 'so-leitura': 'só leitura' });
 
@@ -22,23 +24,9 @@ const MOTIVOS_SHIM = new Set([
 // relógio e diretório de dados já foram conferidos pelo hook antes.
 const MOTIVOS_REGISTRO = new Set(['invalido', 'pasta', 'criar', 'inesperado']);
 
-const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const pct = (x) => `${Math.floor(x)}%`;
 const motivoFixo = (motivo, lista) => (typeof motivo === 'string' && lista.has(motivo) ? motivo : 'erro');
-
-// Janela exibível: percentual finito em 0–100 e reset em segundos epoch finito,
-// positivo e abaixo de 1e11 (o schema de estado.js). Quem chama já passa a
-// saída de limitesValidos; a checagem garante que nenhum outro chamador faça
-// a linha mostrar NaN.
-function janela(j) {
-  if (!ehObjeto(j)) return null;
-  const usado = j.used_percentage;
-  const reset = j.resets_at;
-  if (!numeroFinito(usado) || usado < 0 || usado > 100) return null;
-  if (!numeroFinito(reset) || reset <= 0 || reset >= 1e11) return null;
-  return { usado, reset };
-}
 
 // "Consumo: 5h 42% (reset 18:40) · 7d 58% vs 41% esperado, modo econômico;
 // reset qui 22:00." Janela ausente aparece como "sem leitura", nunca como 0;
@@ -47,14 +35,17 @@ function janela(j) {
 export function linhaEstado(limites, agoraMs) {
   try {
     const l = ehObjeto(limites) ? limites : {};
-    const f5 = janela(l.five_hour);
-    const f7 = numeroFinito(agoraMs) ? janela(l.seven_day) : null;
+    // Cada janela passa de novo por janelaValida (util.js), o schema de
+    // estado.js: quem chama já passa a saída de limitesValidos, e a checagem
+    // garante que nenhum outro chamador faça a linha mostrar NaN.
+    const f5 = janelaValida(l.five_hour);
+    const f7 = numeroFinito(agoraMs) ? janelaValida(l.seven_day) : null;
     if (f5 === null && f7 === null) return LINHA_SEM_LEITURA;
-    const partes = [f5 ? `5h ${pct(f5.usado)} (reset ${horaLocal(f5.reset)})` : '5h sem leitura'];
+    const partes = [f5 ? `5h ${pct(f5.used_percentage)} (reset ${horaLocal(f5.resets_at)})` : '5h sem leitura'];
     if (f7) {
-      const { faixa, esperado } = faixa7d({ usado: f7.usado, resetsAt: f7.reset, agoraMs });
+      const { faixa, esperado } = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs });
       if (!Object.hasOwn(ROTULO_7D, faixa) || !numeroFinito(esperado)) return LINHA_SEM_LEITURA;
-      partes.push(`7d ${pct(f7.usado)} vs ${pct(esperado)} esperado, modo ${ROTULO_7D[faixa]}; reset ${diaHora(f7.reset)}`);
+      partes.push(`7d ${pct(f7.used_percentage)} vs ${pct(esperado)} esperado, modo ${ROTULO_7D[faixa]}; reset ${diaHora(f7.resets_at)}`);
     } else {
       partes.push('7d sem leitura');
     }
