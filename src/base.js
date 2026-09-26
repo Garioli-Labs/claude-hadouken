@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -5,7 +6,13 @@ import path from 'node:path';
 // diretório de dados e validador de id de sessão, mais o validador de
 // instante que os dados em disco usam. Fica fora de estado.js para que a
 // barra de uma sessão não registrada não carregue a camada de estado inteira;
-// estado.js reexporta tudo daqui.
+// estado.js reexporta os três. Mora aqui também a varredura limitada de
+// temporários que shim.js e estado.js dividem (varrerTmpVelhos, não
+// reexportada): o caminho curto nunca a chama, e node:fs já vem carregado por
+// ativas.js, então ela não pesa na barra de uma sessão não registrada.
+//
+// fs é usado pelo objeto padrão de node:fs, nunca desestruturado: os testes
+// trocam opendirSync e lstatSync nesse objeto para contar a varredura.
 //
 // os.homedir é chamado pelo objeto padrão de node:os, nunca desestruturado:
 // os testes de "sem home" trocam os.homedir nesse objeto, e uma cópia feita
@@ -55,3 +62,48 @@ export function instante(valor, agoraMs) {
 // herdado. Mesmo validador para estado.json, o registro de ativação (ativas/)
 // e os hooks. Nunca lança.
 export const idValido = (id) => typeof id === 'string' && ID_SESSAO.test(id) && !(id in Object.prototype);
+
+// Temporários da escrita atômica deixados por um processo morto entre a
+// escrita e o rename (bin/ de shim.js, a pasta de dados de estado.js): saem
+// depois de 1 h. Roda a cada gravação de estado.json (o redesenho da barra
+// registrada) e a cada sincronização de shims (o SessionStart), então o custo
+// por chamada é limitado (shim.js N-2, estado.js O-1): opendir lido entrada a
+// entrada, nunca a listagem inteira, e para no primeiro limite atingido
+// (TMP_LER_MAX entradas, TMP_CHECAR_MAX lstat, TMP_REMOVER_MAX remoções). Uma
+// pasta inundada não atrasa ninguém; o que passar do limite espera a próxima
+// chamada. Só sai arquivo regular cujo nome passa em `ehTmp` e com mtime de
+// mais de TMP_VELHO_MS; nada de pasta ou link, e unlink nunca segue link. O
+// Dir é sempre fechado. Melhor esforço: nunca lança.
+const TMP_VELHO_MS = 3_600_000;
+const TMP_LER_MAX = 256;
+const TMP_CHECAR_MAX = 64;
+const TMP_REMOVER_MAX = 20;
+
+export function varrerTmpVelhos(pasta, ehTmp) {
+  let d;
+  try {
+    d = fs.opendirSync(pasta);
+    const corte = Date.now() - TMP_VELHO_MS;
+    let checados = 0;
+    let removidos = 0;
+    for (let lidos = 0; lidos < TMP_LER_MAX && checados < TMP_CHECAR_MAX && removidos < TMP_REMOVER_MAX; lidos++) {
+      const entrada = d.readSync();
+      if (entrada === null) break;
+      if (!ehTmp(entrada.name)) continue;
+      checados++;
+      const caminho = path.join(pasta, entrada.name);
+      try {
+        const info = fs.lstatSync(caminho);
+        if (!info.isFile() || info.mtimeMs >= corte) continue;
+        fs.unlinkSync(caminho);
+        removidos++;
+      } catch { /* sumiu ou sem permissão: segue */ }
+    }
+  } catch {
+    /* pasta ilegível: fica para a próxima chamada */
+  } finally {
+    if (d !== undefined) {
+      try { d.closeSync(); } catch { /* já fechada */ }
+    }
+  }
+}

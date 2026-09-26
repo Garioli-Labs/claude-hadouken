@@ -774,6 +774,99 @@ test('bin/ sem escrita para o dono volta a 0o700 e o shim é restaurado (POSIX)'
   }
 });
 
+// O-2: o chmod de bin/ era pelo caminho e seguia um symlink posto no lugar de
+// bin/ entre o lstat e o chmod. Agora é pelo descritor: open com O_DIRECTORY e
+// O_NOFOLLOW, fstat (pasta do próprio usuário) e fchmod.
+const SO_POSIX = process.platform === 'win32' && 'modo de pasta é do POSIX';
+
+test('bin/ sem rwx para o dono: o modo volta pelo descritor, nunca pelo caminho (POSIX)', { skip: SO_POSIX }, () => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  fs.writeFileSync(arqShim('statusline.mjs'), 'adulterado');
+  fs.chmodSync(bin(), 0o555);
+  const originais = { chmodSync: fs.chmodSync, fchmodSync: fs.fchmodSync };
+  const porCaminho = [];
+  const porDescritor = [];
+  let r;
+  try {
+    fs.chmodSync = (p, modo) => { porCaminho.push([p, modo]); return originais.chmodSync(p, modo); };
+    fs.fchmodSync = (fd, modo) => { porDescritor.push(modo); return originais.fchmodSync(fd, modo); };
+    r = sincronizarShims(raiz);
+  } finally {
+    Object.assign(fs, originais);
+  }
+  try {
+    assert.deepEqual(r, { ok: true, alterados: ['statusline.mjs'] });
+    assert.deepEqual(porCaminho, []);
+    assert.deepEqual(porDescritor, [0o700]);
+    assert.equal(fs.lstatSync(bin()).mode & 0o777, 0o700);
+    assert.equal(ler(arqShim('statusline.mjs')), esperado(raiz, 'statusline.mjs'));
+  } finally {
+    try { fs.chmodSync(bin(), 0o700); } catch { /* o afterEach apaga */ }
+  }
+});
+
+// Symlink posto no lugar de bin/ entre o lstat de pastaBin e o chmod: o open
+// sem seguir link falha (ELOOP), nada muda na pasta de fora e nada é escrito
+// nela ('bin_invalido', como bin/ link visto já no lstat). O lstat espiado faz
+// a troca logo depois de ver a pasta de verdade.
+test('bin/ trocada por symlink entre o lstat e o chmod: a pasta de fora não muda (POSIX)', { skip: SO_POSIX }, () => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  fs.chmodSync(bin(), 0o555);
+  const fora = path.join(home, 'fora');
+  fs.mkdirSync(fora);
+  fs.chmodSync(fora, 0o755);
+  fs.writeFileSync(path.join(fora, 'sentinela.txt'), 'original');
+  const afastada = path.join(home, 'bin afastada');
+  const original = fs.lstatSync;
+  let trocou = false;
+  let r;
+  try {
+    fs.lstatSync = (p, ...resto) => {
+      const s = original(p, ...resto);
+      if (!trocou && path.resolve(String(p)) === bin()) {
+        trocou = true;
+        fs.renameSync(bin(), afastada);
+        fs.symlinkSync(fora, bin(), 'dir');
+      }
+      return s;
+    };
+    r = sincronizarShims(raiz);
+  } finally {
+    fs.lstatSync = original;
+  }
+  try {
+    assert.equal(trocou, true);
+    assert.deepEqual(r, { ok: false, motivo: 'bin_invalido' });
+    assert.equal(fs.lstatSync(fora).mode & 0o777, 0o755);
+    assert.deepEqual(fs.readdirSync(fora), ['sentinela.txt']);
+    assert.equal(ler(path.join(fora, 'sentinela.txt')), 'original');
+    assert.ok(fs.lstatSync(bin()).isSymbolicLink());
+  } finally {
+    try { fs.chmodSync(afastada, 0o700); } catch { /* o afterEach apaga */ }
+  }
+});
+
+// Dono sem leitura em bin/ (chmod 0o100: só atravessa). O open de pasta pede
+// leitura e falha com EACCES (menos para o root); aí o chmod é pelo caminho,
+// resíduo registrado, para que um chmod 100 não segure o shim adulterado de
+// pé. Como root o open passa e o caminho é o do descritor; o Docker roda este
+// arquivo também com --user node.
+test('bin/ sem leitura para o dono (0o100): o shim adulterado é restaurado assim mesmo (POSIX)', { skip: SO_POSIX }, () => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  fs.writeFileSync(arqShim('statusline.mjs'), "import('node:child_process').then((c) => c.execSync('echo pwned'));\n");
+  fs.chmodSync(bin(), 0o100);
+  try {
+    assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs'] });
+    assert.equal(fs.lstatSync(bin()).mode & 0o777, 0o700);
+    assert.equal(ler(arqShim('statusline.mjs')), esperado(raiz, 'statusline.mjs'));
+  } finally {
+    try { fs.chmodSync(bin(), 0o700); } catch { /* o afterEach apaga */ }
+  }
+});
+
 // N-1: um hard link no lugar do shim divide o arquivo com um nome fora de
 // bin/, e tirar o somente leitura (fchmod) mudaria o arquivo de fora também.
 // O_NOFOLLOW não barra isso, porque hard link não é symlink. Com nlink > 1
@@ -842,23 +935,36 @@ test('hard link que só o fstat vê: recusado, e o arquivo de fora não muda', (
   if (plantado === null) return;
   const [fora, modoFora] = plantado;
   const shim = arqShim('statusline.mjs');
-  const originais = { lstatSync: fs.lstatSync, renameSync: fs.renameSync };
+  const originais = { lstatSync: fs.lstatSync, renameSync: fs.renameSync, openSync: fs.openSync };
+  let armado = false;
+  let abertos = 0;
   let r;
   try {
+    // O lstat de liberarEscrita pede bigint (N-3): o nlink falso segue o tipo.
     fs.lstatSync = (p, ...resto) => {
       const s = originais.lstatSync(p, ...resto);
-      if (s && path.resolve(p) === shim) Object.defineProperty(s, 'nlink', { value: 1 });
+      if (s && path.resolve(p) === shim) Object.defineProperty(s, 'nlink', { value: typeof s.nlink === 'bigint' ? 1n : 1 });
       return s;
     };
     fs.renameSync = (de, para) => {
-      if (path.resolve(para) === shim) throw erroEperm();
+      if (path.resolve(para) === shim) {
+        armado = true;
+        throw erroEperm();
+      }
       return originais.renameSync(de, para);
+    };
+    fs.openSync = (p, ...resto) => {
+      if (armado && path.resolve(String(p)) === shim) abertos++;
+      return originais.openSync(p, ...resto);
     };
     r = sincronizarShims(raiz);
   } finally {
     Object.assign(fs, originais);
   }
   try {
+    // O lstat passou (nlink 1 falso) e o open de liberarEscrita aconteceu:
+    // quem recusou foi o fstat.
+    assert.equal(abertos, 1);
     assert.deepEqual(r, { ok: false, motivo: 'shim_invalido' });
     assert.equal(fs.lstatSync(fora).mode, modoFora);
     assert.equal(ler(fora), 'original de fora');
@@ -866,6 +972,72 @@ test('hard link que só o fstat vê: recusado, e o arquivo de fora não muda', (
     assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'statusline.mjs']);
   } finally {
     try { fs.chmodSync(fora, 0o666); } catch { /* o afterEach apaga */ }
+  }
+});
+
+// N-3: o fstat tem de ser do mesmo arquivo que o lstat viu. Um processo do
+// mesmo usuário que ganha duas janelas levava o fchmod a um arquivo de fora, e
+// a sincronização dizia ok: entre o lstat e o open, afasta o shim e põe no
+// nome um hard link para o arquivo de fora (nlink 2); entre o open e o fstat,
+// apaga o nome de bin/, e o de fora volta a nlink 1. Agora dev e ino do fstat
+// têm de ser os do lstat (bigint: o id de arquivo do NTFS tem 64 bits). O open
+// espiado faz as duas trocas em volta do open de verdade; fs.linkSync não pede
+// privilégio. O rename espiado dá o EPERM do Windows na primeira tentativa,
+// para o caminho rodar também no POSIX.
+test('arquivo trocado entre o lstat e o fstat: recusado, e o arquivo de fora não muda', (t) => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  sincronizarShims(raiz);
+  const shim = arqShim('statusline.mjs');
+  const afastado = path.join(bin(), 'afastado');
+  const fora = path.join(home, 'fora.txt');
+  fs.writeFileSync(fora, 'original de fora');
+  const teste = path.join(home, 'teste-link');
+  if (!hardLink(t, fora, teste)) return;
+  fs.unlinkSync(teste);
+  fs.chmodSync(fora, 0o444);
+  const modoFora = fs.lstatSync(fora).mode;
+  // Shim adulterado e somente leitura, com um nome só (nlink 1).
+  fs.writeFileSync(shim, 'adulterado');
+  fs.chmodSync(shim, 0o444);
+  const originais = { openSync: fs.openSync, renameSync: fs.renameSync };
+  let armado = false;
+  let disparou = false;
+  let r;
+  try {
+    fs.renameSync = (de, para) => {
+      if (!armado && path.resolve(para) === shim) {
+        armado = true;
+        throw erroEperm();
+      }
+      return originais.renameSync(de, para);
+    };
+    fs.openSync = (p, ...resto) => {
+      if (!armado || disparou || path.resolve(String(p)) !== shim) return originais.openSync(p, ...resto);
+      disparou = true;
+      originais.renameSync(shim, afastado);
+      fs.linkSync(fora, shim);
+      const fd = originais.openSync(p, ...resto);
+      fs.unlinkSync(shim);
+      return fd;
+    };
+    r = sincronizarShims(raiz);
+  } finally {
+    Object.assign(fs, originais);
+  }
+  try {
+    assert.equal(disparou, true);
+    assert.deepEqual(r, { ok: false, motivo: 'shim_invalido' });
+    assert.equal(fs.lstatSync(fora).mode, modoFora);
+    assert.equal(fs.lstatSync(fora).mode & 0o200, 0);
+    assert.equal(fs.lstatSync(fora).nlink, 1);
+    assert.equal(ler(fora), 'original de fora');
+    // Nenhum temporário ficou: só o shim afastado pelo "atacante" e o cli.mjs.
+    assert.deepEqual(fs.readdirSync(bin()).sort(), ['afastado', 'cli.mjs']);
+    assert.equal(ler(arqShim('cli.mjs')), esperado(raiz, 'cli.mjs'));
+  } finally {
+    for (const p of [fora, afastado]) {
+      try { fs.chmodSync(p, 0o666); } catch { /* o afterEach apaga */ }
+    }
   }
 });
 

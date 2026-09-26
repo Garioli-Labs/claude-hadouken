@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { effortValido, sanear, TOLERANCIA_JANELA_S } from './util.js';
-import { dirDados, idValido, instante } from './base.js';
+import { dirDados, idValido, instante, varrerTmpVelhos } from './base.js';
 
 // dirDados, idValido e instante moram em base.js (o caminho curto da barra
 // os usa sem carregar este arquivo) e continuam exportados daqui.
@@ -40,9 +40,9 @@ const RENOMEAR_ESPERA_MS = 20;
 // destino por instantes; outros erros não melhoram tentando de novo.
 const RENOMEAR_TRANSITORIOS = new Set(['EPERM', 'EACCES', 'EBUSY']);
 // Temporários `<arquivo>.<pid>.<ms>.<seq>.tmp` deixados por um processo morto
-// entre a escrita e o rename: varridos depois de 1 h, no máximo 20 por gravação.
-const TMP_VELHO_MS = 3_600_000;
-const TMP_VARRER_MAX = 20;
+// entre a escrita e o rename: varridos depois de 1 h pela varredura limitada
+// de base.js (O-1: no máximo 256 entradas lidas, 64 lstat e 20 remoções por
+// gravação, em vez da pasta de dados listada inteira a cada redesenho).
 const MEIO_TMP = /^\d+\.\d+\.\d+$/;
 
 const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
@@ -123,7 +123,7 @@ export function gravarJsonAtomico(arquivo, valor) {
   for (let tentativa = 1; tentativa <= RENOMEAR_TENTATIVAS; tentativa++) {
     try {
       fs.renameSync(tmp, arquivo);
-      varrerTmpVelhos(arquivo);
+      varrerTmpVelhos(path.dirname(arquivo), tmpDe(arquivo));
       return { ok: true };
     } catch (e) {
       erro = e;
@@ -135,28 +135,13 @@ export function gravarJsonAtomico(arquivo, valor) {
   return { ok: false, motivo: codigoErro(erro, 'rename') };
 }
 
-// Remove até TMP_VARRER_MAX temporários deste destino com mais de TMP_VELHO_MS.
-// Só arquivos regulares com exatamente o nome que gravarJsonAtomico gera; nada
-// de outro destino, pasta ou link. Melhor esforço: nunca lança.
-function varrerTmpVelhos(arquivo) {
-  try {
-    const pasta = path.dirname(arquivo);
-    const prefixo = `${path.basename(arquivo)}.`;
-    const corte = Date.now() - TMP_VELHO_MS;
-    let removidos = 0;
-    for (const nome of fs.readdirSync(pasta)) {
-      if (removidos >= TMP_VARRER_MAX) break;
-      if (!nome.startsWith(prefixo) || !nome.endsWith('.tmp')) continue;
-      if (!MEIO_TMP.test(nome.slice(prefixo.length, -'.tmp'.length))) continue;
-      const caminho = path.join(pasta, nome);
-      try {
-        const info = fs.lstatSync(caminho);
-        if (!info.isFile() || info.mtimeMs >= corte) continue;
-        fs.unlinkSync(caminho);
-        removidos++;
-      } catch { /* sumiu ou sem permissão: segue */ }
-    }
-  } catch { /* pasta ilegível: fica para a próxima gravação */ }
+// Reconhece exatamente o nome de temporário que gravarJsonAtomico gera para
+// `arquivo`; nada de outro destino. A varredura (base.js) só remove arquivo
+// regular com esse nome e mais de 1 h, e nunca lança.
+function tmpDe(arquivo) {
+  const prefixo = `${path.basename(arquivo)}.`;
+  return (nome) => nome.startsWith(prefixo) && nome.endsWith('.tmp')
+    && MEIO_TMP.test(nome.slice(prefixo.length, -'.tmp'.length));
 }
 
 function estadoVazio() {

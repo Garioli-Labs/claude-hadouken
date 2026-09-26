@@ -533,6 +533,106 @@ test('gravarJsonAtomico varre os proprios .tmp com mais de 1 h, no maximo 20 por
   assert.equal(restantes(), 0);
 });
 
+// O-1: a varredura dos temporários de estado.json listava a pasta de dados
+// inteira (readdirSync) e fazia um lstat por nome de temporário a cada
+// gravação, isto é, a cada redesenho da barra de uma sessão registrada. Agora
+// é a varredura limitada de base.js, a mesma de shim.js: opendir lido entrada
+// a entrada, no máximo 256 entradas lidas, 64 lstat e 20 remoções, e o Dir
+// sempre fechado. O resto espera a próxima gravação.
+const LER_MAX = 256;
+const LSTAT_MAX = 64;
+const NOME_TMP_ESTADO = /^estado\.json\.\d+\.\d+\.\d+\.tmp$/;
+const plantarVazios = (nomes) => { for (const n of nomes) fs.writeFileSync(path.join(dir, n), ''); };
+
+// Roda `executar` contando, pelo objeto padrão de node:fs: opendirSync, cada
+// readSync e closeSync do Dir aberto, lstat de nome de temporário de
+// estado.json e readdirSync. `lerLanca`: todo readSync lança {}.
+function espiarVarredura(executar, { lerLanca = false } = {}) {
+  const originais = { opendirSync: fs.opendirSync, lstatSync: fs.lstatSync, readdirSync: fs.readdirSync };
+  const c = { aberturas: 0, leituras: 0, fechamentos: 0, lstatTmp: 0, readdir: 0, resultado: undefined };
+  try {
+    fs.opendirSync = (...args) => {
+      const d = originais.opendirSync(...args);
+      c.aberturas++;
+      const lerDir = d.readSync.bind(d);
+      const fecharDir = d.closeSync.bind(d);
+      d.readSync = () => {
+        c.leituras++;
+        if (lerLanca) throw {};
+        return lerDir();
+      };
+      d.closeSync = () => {
+        c.fechamentos++;
+        return fecharDir();
+      };
+      return d;
+    };
+    fs.lstatSync = (p, ...resto) => {
+      if (NOME_TMP_ESTADO.test(path.basename(p))) c.lstatTmp++;
+      return originais.lstatSync(p, ...resto);
+    };
+    fs.readdirSync = (...args) => {
+      c.readdir++;
+      return originais.readdirSync(...args);
+    };
+    c.resultado = executar();
+  } finally {
+    Object.assign(fs, originais);
+  }
+  return c;
+}
+
+test('varredura de temporários de estado.json: pasta inundada custa no máximo 256 leituras e 64 lstat', () => {
+  const arq = path.join(dir, ARQ_ESTADO);
+  // 300 temporários novos com o nome exato: nenhum sai (têm menos de 1 h).
+  // Sem limite, cada gravação faria 300 lstat.
+  const nomes = Array.from({ length: 300 }, (_, i) => `estado.json.1.${i}.0.tmp`);
+  plantarVazios(nomes);
+  const c = espiarVarredura(() => gravarJsonAtomico(arq, { a: 1 }));
+  assert.deepEqual(c.resultado, { ok: true });
+  assert.equal(c.readdir, 0, 'a pasta não é listada inteira');
+  assert.equal(c.aberturas, 1);
+  assert.equal(c.fechamentos, 1);
+  // Todo nome é temporário, então para no 64º lstat, em qualquer ordem da
+  // pasta; no meio, no máximo o próprio estado.json.
+  assert.equal(c.lstatTmp, LSTAT_MAX);
+  assert.ok(c.leituras <= LSTAT_MAX + 1, `leituras: ${c.leituras}`);
+  assert.equal(fs.readdirSync(dir).filter((n) => NOME_TMP_ESTADO.test(n)).length, nomes.length);
+});
+
+test('varredura de temporários de estado.json: lê no máximo 256 entradas, mesmo sem nenhum temporário', () => {
+  plantarVazios(Array.from({ length: 300 }, (_, i) => `alheio-${i}.txt`));
+  const c = espiarVarredura(() => gravarJsonAtomico(path.join(dir, ARQ_ESTADO), { a: 1 }));
+  assert.deepEqual(c.resultado, { ok: true });
+  assert.equal(c.readdir, 0);
+  assert.equal(c.aberturas, 1);
+  assert.equal(c.leituras, LER_MAX);
+  assert.equal(c.lstatTmp, 0);
+  assert.equal(c.fechamentos, 1);
+});
+
+test('varredura de temporários de estado.json: o Dir é fechado mesmo quando a leitura lança, e a gravação vale', () => {
+  const arq = path.join(dir, ARQ_ESTADO);
+  const c = espiarVarredura(() => gravarJsonAtomico(arq, { a: 1 }), { lerLanca: true });
+  assert.deepEqual(c.resultado, { ok: true });
+  assert.equal(c.aberturas, 1);
+  assert.equal(c.leituras, 1);
+  assert.equal(c.fechamentos, 1);
+  assert.deepEqual(lerJson(arq), { ok: true, valor: { a: 1 } });
+  // opendir que lança: a varredura desiste e a gravação vale assim mesmo.
+  const original = fs.opendirSync;
+  let r;
+  try {
+    fs.opendirSync = () => { throw {}; };
+    r = gravarJsonAtomico(arq, { a: 2 });
+  } finally {
+    fs.opendirSync = original;
+  }
+  assert.deepEqual(r, { ok: true });
+  assert.deepEqual(lerJson(arq), { ok: true, valor: { a: 2 } });
+  semTmp();
+});
+
 test('symlink no lugar de estado.json e substituido, nunca escrito atraves', (t) => {
   const alvo = path.join(dir, 'alvo.txt');
   fs.writeFileSync(alvo, 'intocado');
