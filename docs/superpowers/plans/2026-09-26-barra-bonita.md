@@ -1,20 +1,3 @@
-# RASCUNHO — incompleto, pausado em 2026-09-26
-
-Pausado por ordem do Sr. Garioli. O plano abaixo está escrito por inteiro (Tasks 1 a 7, com todos os blocos), mas a verificação não terminou; não executar antes de fechar os pontos abaixo.
-
-- Conferido de ponta a ponta numa cópia de `73937e9`, com os blocos extraídos deste arquivo: Tasks 1 a 4 e o caminho "C-A aceito, C-B recusado" das Tasks 5 e 6. Contagens do plano confirmadas: Task 1 vermelho `# fail 2` e verde `# tests 725`; Task 2 vermelho 22 de 59 e verde 728; Task 3 vermelho 5 e verde 739; Task 4 740; C-A vermelho 5 e verde 740; C-B vermelho 3 de 49, verde 59 (1 pulado) e suíte 751; C-B recusado 740; imagens com os sha256 do plano; `preencher_desempenho.py` nos modos `windows` e `ci`.
-- Benches e A/B só conferidos na sintaxe, com poucas rodadas (máquina carregada no momento).
-- Falta conferir: o caminho "C-B aceito" com `patch_cb_docs.py` e a Task 6 depois dele; os caminhos com o C-A recusado; a revisão final do plano.
-- Correções achadas e ainda não aplicadas no texto:
-  1. Task 1, Step 2: `test/fixtures/` não existe na base; rodar `mkdir -p test/fixtures` antes de extrair a entrada.
-  2. Task 3, Step 5: com a entrada de referência, a chave sai `Opus 5.5 · high` (não `xhigh`).
-  3. Task 4, Step 1: `SHIMS` vai da linha 39 à 45 de `src/shim.js` (não 44).
-  4. Task 5, Step 1: encadear `node "$SCRATCH/checar-piso.mjs" &&` antes de cada bench, como nos outros passos.
-  5. Task 5, Step 8: o esperado do vermelho é `# tests 49`, `# fail 3`.
-  6. Task 6, Step 1: conferir a versão com `node -p "[require('./package.json').version, require('./.claude-plugin/plugin.json').version, require('./.claude-plugin/marketplace.json').plugins[0].version].join(' ')"` (esperado `0.2.0 0.2.0 0.2.0`); o `grep` com aspas não imprime nada neste harness.
-
----
-
 # Barra bonita (v0.2.0) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -43,7 +26,7 @@ Pausado por ordem do Sr. Garioli. O plano abaixo está escrito por inteiro (Task
 - `.gitattributes` fixa `eol=lf`: todo arquivo do repo fica em LF.
 - Commit sempre com pathspec explícito: `git add <arquivos>`, depois `git diff --cached --stat` (conferir que só estão os arquivos da tarefa), depois `git commit -m "<título>" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" -- <arquivos>`. Conferir que `git log -1 --format=%H` devolve um hash novo. Nunca `git add -A`, `git add .` nem `git commit -a`.
 - Testes: `node --test` na raiz roda a suíte inteira; `node --test test/<arquivo>.test.js` roda um arquivo. Com a saída num pipe ou arquivo, o Node usa o formato TAP, e as linhas finais `# tests N`, `# pass`, `# fail M` e `# skipped` são o resumo. As contagens deste plano são do Windows com Node 24; os `# skipped` são testes só POSIX.
-- Flake conhecido: sob a carga da suíte inteira, o teste "stdin que nunca fecha: a barra sai no prazo curto" (`test/statusline.test.js`) pode falhar por tempo. Rodar o arquivo sozinho: se passar, é o flake e vai para o ledger; se falhar sozinho, é defeito.
+- Flakes conhecidos, os dois da v0.1.0 e ambos por tempo com a máquina carregada: "stdin que nunca fecha: a barra sai no prazo curto e ainda imprime" (`test/statusline.test.js`) e "HADOUKEN_HOME fora da lista de caracteres: caminho-inseguro, código 1, instrução manual, caminho nunca ecoado" (`test/instalar-cli.test.js`, uns 34 processos filhos com prazo de 15 s cada). Se um deles falhar na suíte inteira, rode o arquivo dele sozinho: se passar, é o flake e vai para o ledger; se falhar sozinho, é defeito.
 - Node 20.0.0 local: três testes de lista de módulos falham desde a v0.1.0 (pré-existente, fora do escopo). O CI usa a última 20.x, onde passam.
 - RTK: o hook do harness reescreve `git diff` e `git status` e compacta a saída. Para ver o diff de verdade, `rtk proxy git diff ...`.
 - Ledger local, ignorado pelo git: `.superpowers/sdd/2026-09-26-barra-bonita/progress.md`. Cada tarefa anota nele os comandos, os resumos de teste, os números de bench e qualquer desvio. Números que o README ou o SECURITY.md citam também vão para a seção "Registro de execução" deste plano, no commit da tarefa que os mediu.
@@ -146,7 +129,7 @@ Crie `.superpowers/sdd/2026-09-26-barra-bonita/progress.md` (a pasta é ignorada
 
 - [ ] **Step 2: Gerar a referência do `--json` com o `src/` da v0.1.0, antes de qualquer mudança em `src/`**
 
-A entrada é sintética (projetos, sessões, modelos com e sem data, repo com minutos e cache). A saída esperada é gerada agora, com o código ainda igual ao da tag `v0.1.0`, e nunca mais se edita à mão.
+A entrada é sintética (projetos, sessões, modelos com e sem data, repo com minutos e cache). A saída esperada é gerada agora, com o código ainda igual ao da tag `v0.1.0`, e nunca mais se edita à mão. A pasta `test/fixtures/` ainda não existe no repo: o primeiro comando depois da conferência a cria.
 
 <!-- bloco: consumo-v0.1.0-entrada.json -->
 ```json
@@ -271,6 +254,7 @@ A entrada é sintética (projetos, sessões, modelos com e sem data, repo com mi
 
 ```bash
 git diff --quiet v0.1.0 HEAD -- src && echo "src igual ao da v0.1.0"
+mkdir -p test/fixtures
 node "$SCRATCH/extrair-bloco.mjs" "$PLANO" consumo-v0.1.0-entrada.json test/fixtures/consumo-v0.1.0-entrada.json
 node --input-type=module -e "import fs from 'node:fs'; import { montarRelatorio } from './src/relatorio.js'; import { jsonSeguro } from './src/util.js'; const e = JSON.parse(fs.readFileSync('test/fixtures/consumo-v0.1.0-entrada.json', 'utf8')); fs.writeFileSync('test/fixtures/consumo-v0.1.0.json', jsonSeguro(montarRelatorio(e)));"
 node -e "const c=require('node:crypto'),fs=require('node:fs');for(const f of ['test/fixtures/consumo-v0.1.0-entrada.json','test/fixtures/consumo-v0.1.0.json'])console.log(c.createHash('sha256').update(fs.readFileSync(f)).digest('hex'),f)"
@@ -469,7 +453,7 @@ Expected: sha256 `08648dab785f94c458c508a1784ec270b536110fa984378010ba4479d0a1cf
 - [ ] **Step 5: Rodar e ver falhar**
 
 Run: `node --test test/barrinha.test.js test/casa-unica.test.js`
-Expected: FAIL, `# fail 2`: os dois arquivos param no carregamento com `ERR_MODULE_NOT_FOUND` para `src/barrinha.js`.
+Expected: FAIL, `# tests 2`, `# fail 2`: os dois arquivos param no carregamento com `ERR_MODULE_NOT_FOUND` para `src/barrinha.js`.
 
 - [ ] **Step 6: Implementar `src/barrinha.js`**
 
@@ -2147,7 +2131,7 @@ Expected: `# tests 739`, `# fail 0`.
 node --input-type=module -e "import fs from 'node:fs'; import { montarRelatorio, formatarMarkdown } from './src/relatorio.js'; const e = JSON.parse(fs.readFileSync('test/fixtures/consumo-v0.1.0-entrada.json', 'utf8')); fs.writeFileSync(process.argv[1], formatarMarkdown(montarRelatorio(e)));" "$SCRATCH/consumo-v0.2.0.md"
 ```
 
-Abra `$SCRATCH/consumo-v0.2.0.md` e confira a olho: o painel alinhado, uma barrinha por janela e a marca só na 7d; `Opus 5.5 · xhigh` nas chaves; ids de sessão com 8 caracteres; números à direita com espaço no milhar e vírgula; coluna "parte do total" logo depois do nome. Anote no ledger.
+Abra `$SCRATCH/consumo-v0.2.0.md` e confira a olho: o painel alinhado, uma barrinha por janela e a marca só na 7d; `Opus 5.5 · high` e `Haiku 4.5 · low` em "Hoje"; em "Últimos 7 dias", `claude-opus-5-5 · high` e `claude-opus-5-5-20260901 · high` na forma longa (dariam o mesmo curto), `<1%` com uma casa e `0%` com a barrinha vazia, e os ids de sessão com o desempate (`a1b2c3d4-999` com 12, os dois `a1b2c3d4-0000-…` inteiros, `ffee0011` com 8); números à direita com espaço no milhar e vírgula; coluna "parte do total" logo depois do nome. Anote no ledger.
 
 - [ ] **Step 6: Commit**
 
@@ -2174,7 +2158,7 @@ A spec §10 deixou em aberto se uma sessão já registrada passa ao visual novo 
 
 - [ ] **Step 1: Ler e confirmar o mecanismo**
 
-Leia `src/shim.js` (constante `SHIMS`, linhas 39 a 44; `sincronizarShims`, a partir da linha 306) e `src/hooks/session-start.js` (comentário do topo e a chamada `sincronizarShims(process.env.CLAUDE_PLUGIN_ROOT)`). Confirme cada fato abaixo e anote no ledger o arquivo e a linha que o provam:
+Leia `src/shim.js` (constante `SHIMS`, linhas 39 a 45; `sincronizarShims`, a partir da linha 306) e `src/hooks/session-start.js` (comentário do topo e a chamada `sincronizarShims(process.env.CLAUDE_PLUGIN_ROOT)`). Confirme cada fato abaixo e anote no ledger o arquivo e a linha que o provam:
 
 1. A `statusLine` do `settings.json` chama o shim estável `<dirDados>/bin/statusline.mjs`, e o shim é uma linha só: `await import("<file URL de <raiz>/src/statusline.js>").catch(() => {});`.
 2. O hook SessionStart roda em toda origem (startup, resume, clear, compact), sem matcher, e reescreve o shim com a raiz do plugin daquela sessão (`CLAUDE_PLUGIN_ROOT`) sempre que o conteúdo muda.
@@ -2460,13 +2444,11 @@ process.exit(parada ? 0 : 2);
 
 ```bash
 node "$SCRATCH/extrair-bloco.mjs" "$PLANO" checar-piso.mjs "$SCRATCH/checar-piso.mjs"
-node "$SCRATCH/checar-piso.mjs"
-node bench/statusline-p95.mjs 100 > "$SCRATCH/partida-statusline.txt"
-node "$SCRATCH/checar-piso.mjs"
-node bench/hooks-p95.mjs 100 > "$SCRATCH/partida-hooks.txt"
+node "$SCRATCH/checar-piso.mjs" && node bench/statusline-p95.mjs 100 > "$SCRATCH/partida-statusline.txt"
+node "$SCRATCH/checar-piso.mjs" && node bench/hooks-p95.mjs 100 > "$SCRATCH/partida-hooks.txt"
 ```
 
-Expected: sha256 `3f664669928f488a1e7efef0ca6fa3514ad454ef010a649055d9df21a0d4f627`; as duas checagens dizem "máquina parada"; os dois benches terminam com código 0. Copie as duas tabelas para o ledger como "partida (depois da Task 4)". Para referência, a v0.1.0 mediu nesta máquina (p50/p95, ms): barra registrada 111,5/137,2; prompt registrado 112,3/135,4; prompt que grava 116,9/156,7; não registrada cerca de 95/118; SessionStart 131,3/169,6; SessionEnd 108,7/138,2; `node -e ""` 76,3/94,4.
+Expected: sha256 `3f664669928f488a1e7efef0ca6fa3514ad454ef010a649055d9df21a0d4f627`; as duas checagens dizem "máquina parada" (com "máquina carregada", o `&&` não roda o bench: espere e repita a linha); os dois benches terminam com código 0 e a barra conferida pelo bench já tem as barrinhas. Copie as duas tabelas para o ledger como "partida (depois da Task 4)". Para referência, a v0.1.0 mediu nesta máquina (p50/p95, ms): barra registrada 111,5/137,2; prompt registrado 112,3/135,4; prompt que grava 116,9/156,7; não registrada cerca de 95/118; SessionStart 131,3/169,6; SessionEnd 108,7/138,2; `node -e ""` 76,3/94,4.
 
 - [ ] **Step 2: O harness de A/B**
 
@@ -2792,7 +2774,7 @@ git apply --check "$SCRATCH/t5-ca-testes.diff" && git apply "$SCRATCH/t5-ca-test
 node --test test/casa-unica.test.js test/hooks.test.js test/statusline.test.js
 ```
 
-Expected: `$SCRATCH/raiz-antes-ca.txt` guarda o caminho da raiz A do A/B do C-A (o `src/` de antes do C-A); sha256 `cd1b2fe1b85691a2ecc6266ca029c2200fafaf63bfa60fbef16a33fecad54f4b`; FAIL, `# fail 5`: "as casas exportam os ajudantes, e quem os reexporta entrega o mesmo", "os ajudantes divididos só são definidos na casa deles", "gate antes dos imports: sessão não registrada não carrega estado.js nem formato.js", "prompt-submit: sessão não registrada não carrega estado.js nem alerta.js" e "session-end: sessão não registrada não carrega estado.js nem historico.js".
+Expected: `$SCRATCH/raiz-antes-ca.txt` guarda o caminho da raiz A do A/B do C-A (o `src/` de antes do C-A); sha256 `cd1b2fe1b85691a2ecc6266ca029c2200fafaf63bfa60fbef16a33fecad54f4b`; FAIL, `# tests 54`, `# fail 5`: "as casas exportam os ajudantes, e quem os reexporta entrega o mesmo", "os ajudantes divididos só são definidos na casa deles", "gate antes dos imports: sessão não registrada não carrega estado.js nem formato.js", "prompt-submit: sessão não registrada não carrega estado.js nem alerta.js" e "session-end: sessão não registrada não carrega estado.js nem historico.js".
 
 - [ ] **Step 6: C-A, implementar**
 
@@ -3018,7 +3000,7 @@ node --test test/casa-unica.test.js test/hooks.test.js test/statusline.test.js
 node --test
 ```
 
-Expected: sha256 `f349fae5acf05d0a495cfb1f545c589086e1a863b672bc7e42f04a579553bd48`; os três arquivos PASS; suíte inteira `# tests 740`, `# fail 0`.
+Expected: sha256 `f349fae5acf05d0a495cfb1f545c589086e1a863b672bc7e42f04a579553bd48`; os três arquivos PASS, `# tests 54`, `# fail 0`; suíte inteira `# tests 740`, `# fail 0`.
 
 - [ ] **Step 7: C-A, medir duas vezes e decidir**
 
@@ -3420,7 +3402,7 @@ python "$SCRATCH/patch_cb_aceite.py" .
 node --test test/cache-compilacao.test.js test/statusline.test.js test/hooks.test.js
 ```
 
-Expected: `$SCRATCH/raiz-antes-cb.txt` guarda o caminho da raiz A do A/B do C-B (o `src/` de antes do C-B); sha256 `4c0187676ebf10bc649ea31948de694cb321c1fbb8df0f11f6e275011c9f1a20` e `ffc4d398bf29a8123e4143a0a3f82d407e0df8ebb68e09aa98b8f4ac02c552b5`; o script imprime `ok`; FAIL, `# fail 3`: `test/cache-compilacao.test.js` para no carregamento com `SyntaxError: The requested module '../src/base.js' does not provide an export named 'DIR_CACHE_COMPILACAO'`, e falham "prompt-submit: memória igual e recente não é regravada; mudança ou at velho regrava" e "sessão registrada muda só o estado.json e o cache de compilação: sem cache/ nem entrada nova".
+Expected: `$SCRATCH/raiz-antes-cb.txt` guarda o caminho da raiz A do A/B do C-B (o `src/` de antes do C-B); sha256 `4c0187676ebf10bc649ea31948de694cb321c1fbb8df0f11f6e275011c9f1a20` e `ffc4d398bf29a8123e4143a0a3f82d407e0df8ebb68e09aa98b8f4ac02c552b5`; o script imprime `ok`; FAIL, `# tests 49`, `# fail 3`: `test/cache-compilacao.test.js` para no carregamento com `SyntaxError: The requested module '../src/base.js' does not provide an export named 'DIR_CACHE_COMPILACAO'`, e falham "prompt-submit: memória igual e recente não é regravada; mudança ou at velho regrava" e "sessão registrada muda só o estado.json e o cache de compilação: sem cache/ nem entrada nova".
 
 - [ ] **Step 9: C-B, implementar**
 
@@ -3554,7 +3536,7 @@ node --test test/cache-compilacao.test.js test/statusline.test.js test/hooks.tes
 node --test
 ```
 
-Expected: sha256 `1ab0279ee0de6d6e9e3c82e31555f4ed416ea3d70c518f4ecbd73855f586211d`; o script imprime `C-B aplicado em .` (serve com e sem o C-A); os três arquivos PASS com `# fail 0` (`# skipped 1` no Windows); suíte inteira `# tests 751`, `# fail 0`.
+Expected: sha256 `1ab0279ee0de6d6e9e3c82e31555f4ed416ea3d70c518f4ecbd73855f586211d`; o script imprime `C-B aplicado em .` (serve com e sem o C-A); os três arquivos PASS, `# tests 59`, `# fail 0` (`# skipped 1` no Windows); suíte inteira `# tests 751`, `# fail 0`.
 
 - [ ] **Step 10: C-B, medir duas vezes e decidir**
 
@@ -3744,8 +3726,8 @@ No ledger, uma tabela "antes (Step 1) / depois" por linha de bench, e a decisão
 
 Com a ferramenta Edit (o texto é ASCII), troque `"version": "0.1.0"` por `"version": "0.2.0"` em `package.json`, `.claude-plugin/plugin.json` e `.claude-plugin/marketplace.json` (neste, dentro de `plugins[0]`).
 
-Run: `rtk proxy grep -n '"version"' package.json .claude-plugin/plugin.json .claude-plugin/marketplace.json`
-Expected: as três linhas com `0.2.0` e nenhuma com `0.1.0`.
+Run: `node -p "[require('./package.json').version, require('./.claude-plugin/plugin.json').version, require('./.claude-plugin/marketplace.json').plugins[0].version].join(' ')"`
+Expected: `0.2.0 0.2.0 0.2.0`.
 
 - [ ] **Step 2: Gerador das imagens e imagens novas**
 
@@ -4926,6 +4908,9 @@ Acrescente ao "Registro de execução" o hash do merge, o id da execução do CI
 | §9 testes | Tasks 1, 2 e 3; `casa-unica` nas Tasks 1 e 2 |
 | §10 versão, README, tag, release; sessão registrada após a atualização | Task 4 (resposta e teste), Task 6 (versão, README), Task 7 (tag, release, ponta a ponta) |
 | §11 estrutura | "Estrutura de arquivos" |
+| §2 fora de escopo | Nenhuma leitura nova e `--json` igual (Task 1, referência); faixas de 5h e 7d, avisos e limiares sem mudança (os testes da v0.1.0 continuam passando em toda tarefa); largura só documentada (Task 6); nada de WhatsApp. A única escrita nova possível é a do C-B, por ordem 3b do Sr. Garioli, e só com ganho medido |
+| §3 decisões do Sr. Garioli | Tasks 1 (quadradinhos, 8 casas, marca `┃`), 2 (os quatro indicadores, trecho inteiro na cor, faixas de ctx e cache) e 3 (painel, números, parte do total sobre os quatro tokens, nomes curtos) |
+| §10 registro de mudanças na release | Task 7, Step 5 (notas da release) |
 | Ordem 1 (atualização) | Task 4 |
 | Ordem 2 (segurança) | tabela abaixo; gate da Task 7 |
 | Ordem 3 (desempenho) | Task 5 (3a partida, 3b C-B, 3c grafo, 3d aceite por medida), Task 6 (README) |
@@ -5016,4 +5001,6 @@ O sha256 de cada bloco é o do texto extraído (UTF-8, LF, com `\n` no fim), que
 
 ## Registro de execução
 
-(preenchido durante a execução: partida e chegada dos benches, as execuções do A/B e a decisão de C-A e C-B, a tabela de desempenho da v0.2.0 em Windows, Linux e macOS, o resultado do teste de ponta a ponta, o merge, o CI e a release, com data)
+Durante a execução entram aqui, com data: partida e chegada dos benches, as execuções do A/B e a decisão de C-A e C-B, a tabela de desempenho da v0.2.0 em Windows, Linux e macOS, o resultado do teste de ponta a ponta, o merge, o CI e a release.
+
+**2026-09-26, verificação do plano antes da execução (Windows, Node 24.18).** Numa cópia limpa de `73937e9`, com este plano commitado por cima e cada bloco extraído daqui pelo `extrair-bloco.mjs`, os comandos das Tasks 1 a 4 e 6 rodaram como estão escritos e deram as contagens do plano (Task 1: vermelho `# fail 2`, verde 725; Task 2: vermelho 22 de 59, verde 728; Task 3: vermelho 5, verde 739; Task 4: 740). A Task 5 rodou nas quatro combinações: C-A aceito e recusado (vermelho 5 de 54, verde 740; recusado volta a `git status` vazio e 740) e, em cima de cada um, C-B aceito com `patch_cb_docs.py` (vermelho 3 de 49, verde 59 com 1 pulado, suíte 751) e C-B recusado com `patch_cb_rejeita.py` (740). Nas quatro, a Task 6 aplicou `t6-readme.diff` e `t6-security.diff` sem conflito, as imagens saíram com os sha256 do plano e a suíte ficou em 740 ou 751. `preencher_desempenho.py` conferido nos modos `windows` e `ci`. Benches e A/B só conferidos na sintaxe, com poucas rodadas: a máquina estava carregada, e os números de verdade são os da execução. Numa das suítes inteiras, o flake conhecido de `test/instalar-cli.test.js` falhou uma vez e passou sozinho três vezes.
