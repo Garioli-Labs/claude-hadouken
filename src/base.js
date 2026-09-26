@@ -6,13 +6,16 @@ import path from 'node:path';
 // diretório de dados e validador de id de sessão, mais o validador de
 // instante que os dados em disco usam. Fica fora de estado.js para que a
 // barra de uma sessão não registrada não carregue a camada de estado inteira;
-// estado.js reexporta os três. Mora aqui também a varredura limitada de
-// temporários que shim.js e estado.js dividem (varrerTmpVelhos, não
-// reexportada): o caminho curto nunca a chama, e node:fs já vem carregado por
-// ativas.js, então ela não pesa na barra de uma sessão não registrada.
+// estado.js reexporta os três. Moram aqui também as partes da escrita atômica
+// que estado.js, shim.js e configuracao.js dividem (a varredura limitada de
+// temporários varrerTmpVelhos, a política de retentativa do rename e quatro
+// ajudantes pequenos; nada disso é reexportado): o caminho curto nunca as
+// chama, e node:fs já vem carregado por ativas.js, então elas não pesam na
+// barra de uma sessão não registrada.
 //
 // fs é usado pelo objeto padrão de node:fs, nunca desestruturado: os testes
-// trocam opendirSync e lstatSync nesse objeto para contar a varredura.
+// trocam métodos nesse objeto (opendirSync e lstatSync para contar a
+// varredura, entre outros), e uma cópia feita no import não veria a troca.
 //
 // os.homedir é chamado pelo objeto padrão de node:os, nunca desestruturado:
 // os testes de "sem home" trocam os.homedir nesse objeto, e uma cópia feita
@@ -64,13 +67,15 @@ export function instante(valor, agoraMs) {
 export const idValido = (id) => typeof id === 'string' && ID_SESSAO.test(id) && !(id in Object.prototype);
 
 // Temporários da escrita atômica deixados por um processo morto entre a
-// escrita e o rename (bin/ de shim.js, a pasta de dados de estado.js): saem
-// depois de 1 h. Roda a cada gravação de estado.json (o redesenho da barra
-// registrada) e a cada sincronização de shims (o SessionStart), então o custo
-// por chamada é limitado (shim.js N-2, estado.js O-1): opendir lido entrada a
-// entrada, nunca a listagem inteira, e para no primeiro limite atingido
-// (TMP_LER_MAX entradas, TMP_CHECAR_MAX lstat, TMP_REMOVER_MAX remoções). Uma
-// pasta inundada não atrasa ninguém; o que passar do limite espera a próxima
+// escrita e o rename (bin/ de shim.js, a pasta de dados de estado.js, a pasta
+// do settings.json de configuracao.js): saem depois de 1 h. Roda a cada
+// gravação de estado.json (o redesenho da barra registrada), a cada
+// sincronização de shims (o SessionStart) e depois de cada gravação do
+// settings.json pelo instalador, então o custo por chamada é limitado
+// (shim.js N-2, estado.js O-1): opendir lido entrada a entrada, nunca a
+// listagem inteira, e para no primeiro limite atingido (TMP_LER_MAX
+// entradas, TMP_CHECAR_MAX lstat, TMP_REMOVER_MAX remoções). Uma pasta
+// inundada não atrasa ninguém; o que passar do limite espera a próxima
 // chamada. Só sai arquivo regular cujo nome passa em `ehTmp` e com mtime de
 // mais de TMP_VELHO_MS; nada de pasta ou link, e unlink nunca segue link. O
 // Dir é sempre fechado. Melhor esforço: nunca lança.
@@ -108,3 +113,43 @@ export function varrerTmpVelhos(pasta, ehTmp) {
     }
   }
 }
+
+// Política de retentativa do rename que os três gravadores atômicos dividem.
+// Só a política e os ajudantes abaixo são comuns: cada módulo mantém o
+// próprio temporário e o próprio laço de rename, porque as garantias diferem
+// (estado.json: nome previsível criado com 'wx' na pasta de dados; shims:
+// nome sorteado, lstat antes do 'wx' e liberação do shim somente leitura
+// entre as tentativas; settings.json: nome sorteado, modo do original, fsync,
+// backup e nova conferência pelo lstat antes de cada tentativa).
+//
+// No Windows um antivírus, um indexador, um leitor concorrente ou o próprio
+// Claude Code pode segurar o destino (ou um .mjs recém-escrito) por
+// instantes, e o rename falha com EPERM, EACCES ou EBUSY: até
+// RENOMEAR_TENTATIVAS tentativas, com RENOMEAR_ESPERA_MS entre elas. Outros
+// erros não melhoram tentando de novo. O conjunto de códigos fica privado:
+// quem chama pergunta a renomearDeNovo, e nenhum módulo consegue alargá-lo
+// para os outros.
+export const RENOMEAR_TENTATIVAS = 3;
+export const RENOMEAR_ESPERA_MS = 20;
+const RENOMEAR_TRANSITORIOS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+// O rename que falhou com `e` na tentativa `tentativa` (contada a partir de 1)
+// merece outra: erro passageiro e tentativas ainda abaixo de
+// RENOMEAR_TENTATIVAS. Valor lançado sem `code` (até null) não é passageiro.
+export const renomearDeNovo = (e, tentativa) => tentativa < RENOMEAR_TENTATIVAS && RENOMEAR_TRANSITORIOS.has(e?.code);
+
+// Espera síncrona entre duas tentativas (os gravadores são síncronos). Se a
+// espera falhar, segue sem esperar. Nunca lança.
+export const esperar = (ms) => {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* segue sem esperar */ }
+};
+
+// Apaga a entrada (unlink nunca segue link) e ignora a que já sumiu. Nunca lança.
+export const apagar = (arquivo) => { try { fs.unlinkSync(arquivo); } catch { /* já não existe */ } };
+
+// Fecha o descritor e ignora o que já estava fechado. Nunca lança.
+export const fechar = (fd) => { try { fs.closeSync(fd); } catch { /* já fechado */ } };
+
+// Erro com `code`, para uma recusa própria (EEXIST, 'tmp_invalido',
+// 'shim_invalido') seguir o mesmo caminho dos erros de sistema.
+export const erroComCodigo = (code) => Object.assign(new Error(code), { code });

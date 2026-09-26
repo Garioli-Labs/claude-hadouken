@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { effortValido, sanear, TOLERANCIA_JANELA_S } from './util.js';
-import { dirDados, idValido, instante, varrerTmpVelhos } from './base.js';
+import {
+  apagar, dirDados, esperar, idValido, instante, RENOMEAR_ESPERA_MS, RENOMEAR_TENTATIVAS, renomearDeNovo, varrerTmpVelhos,
+} from './base.js';
 
 // dirDados, idValido e instante moram em base.js (o caminho curto da barra
 // os usa sem carregar este arquivo) e continuam exportados daqui.
@@ -34,11 +36,8 @@ const DURACAO_S = { five_hour: 5 * 3600, seven_day: 7 * 86_400 };
 // constante não existe e o open de um pipe nomeado não bloqueia.
 const ABRIR_LEITURA = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 const PEDACO_LEITURA = 65_536;
-const RENOMEAR_TENTATIVAS = 3;
-const RENOMEAR_ESPERA_MS = 20;
-// No Windows um antivírus, indexador ou leitor concorrente pode segurar o
-// destino por instantes; outros erros não melhoram tentando de novo.
-const RENOMEAR_TRANSITORIOS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+// A política de retentativa do rename (RENOMEAR_*, renomearDeNovo), apagar e
+// esperar vêm de base.js, divididos com shim.js e configuracao.js.
 // Temporários `<arquivo>.<pid>.<ms>.<seq>.tmp` deixados por um processo morto
 // entre a escrita e o rename: varridos depois de 1 h pela varredura limitada
 // de base.js (O-1: no máximo 256 entradas lidas, 64 lstat e 20 remoções por
@@ -49,10 +48,6 @@ const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const noIntervalo = (n, min, max) => (numeroFinito(n) && n >= min && n <= max ? n : null);
 const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
-const apagar = (arquivo) => { try { fs.unlinkSync(arquivo); } catch { /* já não existe */ } };
-const esperar = (ms) => {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* segue sem esperar */ }
-};
 
 // Lê um JSON de estado com teto de tamanho. `maxBytes` inválido usa o padrão
 // (1 MB). Motivos: 'ausente' (não existe ou não dá para ler), 'invalido' (não é
@@ -155,7 +150,7 @@ export function gravarJsonAtomico(arquivo, valor, opcoes) {
       return { ok: true };
     } catch (e) {
       erro = e;
-      if (!RENOMEAR_TRANSITORIOS.has(e?.code) || tentativa === RENOMEAR_TENTATIVAS) break;
+      if (!renomearDeNovo(e, tentativa)) break;
       esperar(RENOMEAR_ESPERA_MS);
     }
   }

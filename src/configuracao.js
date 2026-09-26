@@ -3,7 +3,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { dirDados, varrerTmpVelhos } from './base.js';
+import {
+  apagar, dirDados, erroComCodigo, esperar, fechar, RENOMEAR_ESPERA_MS, RENOMEAR_TENTATIVAS, renomearDeNovo,
+  varrerTmpVelhos,
+} from './base.js';
 import { DIR_BIN } from './shim.js';
 
 // Instalador da barra (spec 8.1 S7 e 8.2; task-11-security.md). Grava só a
@@ -68,11 +71,11 @@ const TMP_RESTO = /^[0-9a-f]{12}\.tmp$/;
 const MODO_NOVO = 0o600;
 const MODO_BACKUP = 0o600;
 const PEDACO_LEITURA = 65_536;
-const RENOMEAR_TENTATIVAS = 3;
-const RENOMEAR_ESPERA_MS = 20;
-// No Windows um antivírus, indexador ou o próprio Claude Code pode segurar o
-// destino por instantes; outros erros não melhoram tentando de novo.
-const RENOMEAR_TRANSITORIOS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+// A política de retentativa do rename (RENOMEAR_*, renomearDeNovo), apagar,
+// fechar, esperar e erroComCodigo vêm de base.js, divididos com estado.js e
+// shim.js. O temporário, o backup e o laço de rename continuam aqui: nenhum
+// gravador comum dá as garantias do settings.json (bytes e formato exatos,
+// modo do original, fsync, backup, conferência pelo lstat a cada tentativa).
 const POSIX = process.platform !== 'win32';
 // O_NOFOLLOW e O_NONBLOCK onde existem: um link posto no lugar entre o lstat e
 // o open não é seguido (ELOOP) e um FIFO não trava. No Windows o lstat antes
@@ -143,12 +146,6 @@ const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const falha = (motivo, codigo = null) => (codigo === null ? { ok: false, motivo } : { ok: false, motivo, codigo });
 // Só códigos de sistema no formato errno (EPERM, EACCES...); nada de texto livre.
 const codigoDe = (e) => (typeof e?.code === 'string' && /^E[A-Z0-9]{1,20}$/.test(e.code) ? e.code : null);
-const erroComCodigo = (code) => Object.assign(new Error(code), { code });
-const apagar = (p) => { try { fs.unlinkSync(p); } catch { /* já não existe */ } };
-const fechar = (fd) => { try { fs.closeSync(fd); } catch { /* já fechado */ } };
-const esperar = (ms) => {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* segue sem esperar */ }
-};
 const somenteLeitura = (info) => (Number(info.mode) & 0o200) === 0;
 
 // Caminho do settings.json que o Claude Code lê, nesta ordem:
@@ -476,7 +473,7 @@ function trocar(tmp, arquivo, infoLido) {
       return { ok: true };
     } catch (e) {
       erro = e;
-      if (!RENOMEAR_TRANSITORIOS.has(e?.code) || tentativa === RENOMEAR_TENTATIVAS) break;
+      if (!renomearDeNovo(e, tentativa)) break;
       esperar(RENOMEAR_ESPERA_MS);
     }
   }

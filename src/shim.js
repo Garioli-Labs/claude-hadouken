@@ -2,7 +2,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirDados, varrerTmpVelhos } from './base.js';
+import {
+  apagar, dirDados, erroComCodigo, esperar, fechar, RENOMEAR_ESPERA_MS, renomearDeNovo, varrerTmpVelhos,
+} from './base.js';
 
 // Shims estáveis (spec 8.1, S6). O settings.json do usuário aponta a
 // statusLine (e o CLI) para <dirDados>/bin/<shim>, um caminho que não muda
@@ -64,11 +66,9 @@ const IGNORA_CAIXA = process.platform === 'win32';
 const ABRIR_LEITURA = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
 // bin/ aberta para o fchmod (O-2, só POSIX): só pasta e nunca por link.
 const ABRIR_PASTA = fs.constants.O_RDONLY | (fs.constants.O_DIRECTORY ?? 0) | (fs.constants.O_NOFOLLOW ?? 0);
-const RENOMEAR_TENTATIVAS = 3;
-const RENOMEAR_ESPERA_MS = 20;
-// No Windows um antivírus ou indexador pode segurar um .mjs recém-escrito por
-// instantes; outros erros não melhoram tentando de novo.
-const RENOMEAR_TRANSITORIOS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+// A política de retentativa do rename (RENOMEAR_ESPERA_MS, renomearDeNovo),
+// apagar, fechar, esperar e erroComCodigo vêm de base.js, divididos com
+// estado.js e configuracao.js.
 // Temporário da escrita atômica: .<shim>.<12 hex sorteados>.tmp. O sorteio
 // impede plantar um link no nome antes da escrita (m-2).
 const TMP_BYTES = 6;
@@ -80,12 +80,6 @@ const INALTERADO = 'inalterado';
 const RECUSADO = 'recusado';
 
 const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
-const erroComCodigo = (code) => Object.assign(new Error(code), { code });
-const apagar = (arquivo) => { try { fs.unlinkSync(arquivo); } catch { /* já não existe */ } };
-const fechar = (fd) => { try { fs.closeSync(fd); } catch { /* já fechado */ } };
-const esperar = (ms) => {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* segue sem esperar */ }
-};
 
 // Raiz do plugin aceitável: string absoluta não vazia, sem NUL, fora do
 // namespace de dispositivo do Windows, cuja URL de arquivo volta ao mesmo
@@ -265,7 +259,7 @@ function gravarAtomico(arquivo, conteudo) {
       fs.renameSync(tmp, arquivo);
       return;
     } catch (e) {
-      if (!RENOMEAR_TRANSITORIOS.has(e?.code) || tentativa === RENOMEAR_TENTATIVAS) {
+      if (!renomearDeNovo(e, tentativa)) {
         apagar(tmp);
         throw e;
       }
