@@ -27,7 +27,8 @@ import { jsonSeguro, REGRA_JSON_SEGURO } from './util.js';
 // (`aviso`), com todo caractere invisível ou de controle escapado como \u.
 // Toda saída ok traz também a pasta de dados que o comando da barra usa
 // (`pastaDados`) e de onde ela vem (`origemPastaDados`: 'HADOUKEN_HOME' ou
-// 'padrao').
+// 'padrao'); a recusa settings-link também, porque a chave `manual` dela
+// leva o mesmo comando.
 
 const FLAGS = new Set(['--aplicar', '--substituir', '--remover']);
 // A statusLine atual maior que isto (em JSON) não é despejada no contexto.
@@ -95,6 +96,16 @@ function exibivel(atual) {
 // reconhece uma posta à mão, então não há o que acrescentar; só a remoção à mão.
 const MENSAGEM_REMOVER_INSEGURO = 'O caminho da pasta de dados do claude-hadouken tem caracteres que o instalador não aceita no comando da barra, então ele não instalou a barra neste settings.json e não reconhece uma posta à mão; nada foi alterado. Para tirá-la, apague à mão a chave statusLine do settings.json.';
 
+// A pasta de dados do comando da barra e de onde ela vem, para a skill
+// mostrar antes de gravar (revisão final de segurança, M-1): numa sessão com
+// HADOUKEN_HOME definida, a barra gravada no settings.json aponta para essa
+// pasta em todo projeto, e quem confirma precisa saber disso. Vai nas saídas
+// ok, em que o comando já foi montado e a pasta passou por caminhoAceito
+// (configuracao.js), e na recusa settings-link, cuja chave `manual` é esse
+// mesmo comando, para o usuário colar à mão (M-A). Nas outras recusas o
+// caminho nunca é ecoado.
+const pasta = () => ({ pastaDados: dirDados(), origemPastaDados: origemDados() });
+
 function falhaSaida(motivo, arquivo = null, codigo = null, remover = false) {
   const m = Object.hasOwn(MENSAGEM_MOTIVO, motivo) ? motivo : 'erro-interno';
   const inseguroRemover = m === 'caminho-inseguro' && remover;
@@ -102,8 +113,11 @@ function falhaSaida(motivo, arquivo = null, codigo = null, remover = false) {
   if (arquivo !== null) saida.arquivo = arquivo;
   if (typeof codigo === 'string') saida.codigo = codigo;
   if (m === 'settings-link') {
+    // O manual leva a pasta de dados dentro do comando: a saída diz qual é e
+    // de onde vem, como nas saídas ok, e a skill avisa quando vem de
+    // HADOUKEN_HOME (M-A).
     const p = statusLineProposta();
-    if (p.ok) saida.manual = { statusLine: p.valor };
+    if (p.ok) Object.assign(saida, pasta(), { manual: { statusLine: p.valor } });
   } else if (m === 'caminho-inseguro' && !inseguroRemover) {
     // Com o marcador no lugar da pasta: o caminho recusado nunca entra no
     // manual. O `arquivo` (qual settings.json editar) fica, e pode levar a
@@ -112,14 +126,6 @@ function falhaSaida(motivo, arquivo = null, codigo = null, remover = false) {
   }
   return saida;
 }
-
-// A pasta de dados do comando da barra e de onde ela vem, para a skill
-// mostrar antes de gravar (revisão final de segurança, M-1): numa sessão com
-// HADOUKEN_HOME definida, a barra gravada no settings.json aponta para essa
-// pasta em todo projeto, e quem confirma precisa saber disso. Só nas saídas
-// ok: nelas o comando já foi montado, e a pasta passou por caminhoAceito
-// (configuracao.js); numa recusa o caminho nunca é ecoado.
-const pasta = () => ({ pastaDados: dirDados(), origemPastaDados: origemDados() });
 
 function saidaDe(r, arquivo, remover = false) {
   if (!r.ok) return falhaSaida(r.motivo, arquivo, r.codigo, remover);

@@ -20,6 +20,7 @@ const LINK_PASTA = process.platform === 'win32' ? 'junction' : 'dir';
 const FRASE_CONFLITO = 'As sessões abertas antes da instalação do plugin ficarão sem barra até serem reabertas; as demais passam a mostrar a do claude-hadouken; a barra atual será substituída (há backup).';
 const AVISO_CONFIG = 'Se você usa CLAUDE_CONFIG_DIR e esse caminho não está na sua pasta de configuração, responda não: o Claude Code pode tirar essa variável do ambiente dos comandos que roda pelo Bash.';
 const FRASE_HOME = 'A barra vai apontar para <pastaDados> porque a variável de ambiente HADOUKEN_HOME está definida nesta sessão; isso fica gravado e vale para todos os projetos, mesmo depois que a variável sair do ambiente. Se não foi você quem definiu HADOUKEN_HOME, responda não.';
+const FRASE_LINK = 'A chave manual aponta para <pastaDados> porque a variável de ambiente HADOUKEN_HOME está definida nesta sessão; se você a acrescentar, isso fica gravado e vale para todos os projetos, mesmo depois que a variável sair do ambiente. Se não foi você quem definiu HADOUKEN_HOME, não a acrescente.';
 
 let dir;
 let arq;
@@ -327,16 +328,24 @@ test('pastaDados e origemPastaDados: sem HADOUKEN_HOME, a pasta padrão da home,
   assert.equal(fs.existsSync(padrao), false);
 });
 
-test('pastaDados nunca aparece numa recusa', () => {
-  fs.writeFileSync(arq, bonito({ statusLine: { type: 'command', command: 'outra' } }));
-  for (const args of [['--aplicar'], ['--remover']]) {
-    const p = rodar(args);
-    assert.equal(p.status, 1, args.join(' '));
+// Numa recusa, a pasta só aparece na settings-link, cujo `manual` já a leva
+// no comando (revisão final de segurança, M-A); o teste do link, mais abaixo,
+// confere os dois campos nela.
+test('pastaDados numa recusa: só na settings-link', () => {
+  const semPasta = (p, rotulo) => {
+    assert.equal(p.status, 1, rotulo);
     const s = json(p);
-    assert.equal(s.ok, false);
-    assert.equal(Object.hasOwn(s, 'pastaDados'), false, args.join(' '));
-    assert.equal(Object.hasOwn(s, 'origemPastaDados'), false, args.join(' '));
-  }
+    assert.equal(s.ok, false, rotulo);
+    assert.notEqual(s.motivo, 'settings-link', rotulo);
+    assert.equal(Object.hasOwn(s, 'pastaDados'), false, rotulo);
+    assert.equal(Object.hasOwn(s, 'origemPastaDados'), false, rotulo);
+  };
+  fs.writeFileSync(arq, bonito({ statusLine: { type: 'command', command: 'outra' } }));
+  for (const args of [['--aplicar'], ['--remover'], ['--substituir']]) semPasta(rodar(args), args.join(' '));
+  semPasta(rodar([], { env: { HADOUKEN_HOME: path.join(dir, 'x$y') } }), 'caminho-inseguro');
+  semPasta(rodar([], { env: { HADOUKEN_HOME: 'relativo' } }), 'pasta-dados-invalida');
+  fs.writeFileSync(arq, '{ quebrado');
+  semPasta(rodar([]), 'settings-invalido');
 });
 
 test('HADOUKEN_SETTINGS vence CLAUDE_CONFIG_DIR na CLI', () => {
@@ -444,9 +453,51 @@ test('settings.json como junção: código 1, instrução manual com a statusLin
     assert.equal(s.motivo, 'settings-link');
     assert.deepEqual(s.manual, { statusLine: nossa() });
     assert.match(s.mensagem, /à mão/);
+    // A pasta para a qual a chave manual aponta, e de onde ela vem (M-A).
+    assert.equal(s.pastaDados, homeDados);
+    assert.equal(s.origemPastaDados, 'HADOUKEN_HOME');
+    assert.deepEqual(Object.keys(s).slice(-3), ['pastaDados', 'origemPastaDados', 'manual']);
   }
+  // Sem HADOUKEN_HOME: a pasta padrão da casa falsa, origem padrao.
+  const padrao = path.join(casaFalsa, '.claude', 'hadouken');
+  const p = rodar([], { env: { HADOUKEN_HOME: undefined, HOME: casaFalsa, USERPROFILE: casaFalsa } });
+  assert.equal(p.status, 1, p.stderr);
+  const s = json(p);
+  assert.equal(s.motivo, 'settings-link');
+  assert.equal(s.pastaDados, padrao);
+  assert.equal(s.origemPastaDados, 'padrao');
+  assert.equal(s.manual.statusLine.command, `node "${path.join(padrao, 'bin', 'statusline.mjs').split(path.sep).join('/')}"`);
   assert.ok(fs.lstatSync(arq).isSymbolicLink());
   assert.deepEqual(fs.readdirSync(alvo), []);
+  assert.equal(fs.existsSync(casaFalsa), false);
+});
+
+// A recusa passa pelo mesmo jsonSeguro das saídas ok: a linha da pasta sai
+// igual, byte a byte, à do plano ok para a mesma HADOUKEN_HOME. (Um caractere
+// que o jsonSeguro escaparia nem chega aqui: a lista do comando da barra o
+// recusa antes, com caminho-inseguro, sem pasta na saída.)
+test('recusa settings-link: pastaDados e origemPastaDados saem como no plano ok da mesma pasta', (t) => {
+  const home = path.join(dir, 'Dados (ç ñ ğ ß) x');
+  const linhasDaPasta = (stdout) => stdout.split('\n').filter((l) => /^ {2}"(?:pastaDados|origemPastaDados)"/.test(l));
+  const ok = rodar([], { env: { HADOUKEN_HOME: home } });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(json(ok).acao, 'instalar');
+  const alvo = path.join(dir, 'fora');
+  fs.mkdirSync(alvo);
+  try {
+    fs.symlinkSync(alvo, arq, LINK_PASTA);
+  } catch (e) {
+    t.skip(`link indisponivel aqui (${e.code})`);
+    return;
+  }
+  const recusa = rodar([], { env: { HADOUKEN_HOME: home } });
+  assert.equal(recusa.status, 1, recusa.stderr);
+  assert.equal(json(recusa).motivo, 'settings-link');
+  assert.doesNotMatch(recusa.stdout, CRU);
+  const esperadas = linhasDaPasta(ok.stdout);
+  assert.equal(esperadas.length, 2, ok.stdout);
+  assert.deepEqual(linhasDaPasta(recusa.stdout), esperadas);
+  assert.equal(json(recusa).pastaDados, home);
 });
 
 // O modelo da chave para instalar à mão: o caminho recusado nunca entra nele.
@@ -630,4 +681,22 @@ test('skill instalar: a chave manual aparece no settings-link e no caminho-inseg
   const texto = fs.readFileSync(SKILL, 'utf8');
   const passo2 = texto.split('\n').find((l) => l.startsWith('2. '));
   for (const parte of ['`manual`', '`settings-link`', '`caminho-inseguro`', '`<pasta de dados>`']) assert.ok(passo2.includes(parte), `${parte}: ${passo2}`);
+});
+
+// M-A: na recusa settings-link, a chave manual já aponta para a pasta de
+// HADOUKEN_HOME; o passo 2 diz isso antes de mostrá-la, com a mesma decisão
+// do passo 4 (só pela origem, que é enum do código).
+test('skill instalar: na recusa settings-link com HADOUKEN_HOME, a frase fixa vem antes da chave manual', () => {
+  const texto = fs.readFileSync(SKILL, 'utf8');
+  const linhas = texto.split('\n').filter((l) => l.includes(FRASE_LINK));
+  assert.equal(linhas.length, 1, 'a frase aparece uma vez');
+  const [passo2] = linhas;
+  assert.ok(passo2.startsWith('2. '), passo2);
+  assert.ok(passo2.includes(`Com \`settings-link\` e \`origemPastaDados\` igual a \`HADOUKEN_HOME\`, mostre antes da chave esta frase: "${FRASE_LINK}"`), passo2);
+  assert.ok(passo2.includes('Com `origemPastaDados` igual a `padrao`, não acrescente nada.'), passo2);
+  assert.ok(passo2.indexOf(FRASE_LINK) < passo2.indexOf('Nunca grave essa chave'), passo2);
+  // O marcador da frase é trocado pelo campo da CLI, como nas perguntas.
+  assert.ok(texto.includes('Em toda pergunta e na frase do passo 2, troque `<arquivo>`'));
+  // Não é pergunta: as perguntas continuam duas.
+  assert.equal([...texto.matchAll(/pergunta "([^"]*)"/g)].length, 2);
 });
