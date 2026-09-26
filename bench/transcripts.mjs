@@ -18,7 +18,8 @@
 // The line mix follows the shape measured on a real week of transcripts
 // (2026-09-25: ~23 KB and ~8 lines per request, ~1.9 usage lines per request):
 // per request one user line, 1 to 3 assistant lines with the same requestId and
-// growing usage (one per apiBlockIndex), 4 tool-result lines without usage,
+// growing usage (one per apiBlockIndex, with the 1 h / 5 min cache_creation
+// detail that every real usage carries), 4 tool-result lines without usage,
 // every 20th request a tool result that carries a "usage" key outside
 // message.usage (parsed, then discarded), and every 300th request a ~1 MB
 // tool-result line. The generator lives in bench/lib/transcripts-sinteticos.mjs,
@@ -77,7 +78,7 @@ async function medir(id, rotulo, raiz, home) {
   return { r, saida, indice, compacto };
 }
 
-const somaSaida = (r) => r.registros.reduce((s, x) => s + x.output + x.input + x.thinking + x.cacheRead + x.cacheCreate, 0);
+const somaSaida = (r) => r.registros.reduce((s, x) => s + x.output + x.input + x.thinking + x.cacheRead + x.cacheCreate + (x.cacheCreate1h ?? 0) + (x.cacheCreate5m ?? 0), 0);
 
 const USO = 'usage: node bench/transcripts.mjs [MB] [--json] | --real';
 

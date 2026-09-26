@@ -1,11 +1,11 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { reposDaConfig, repoDoOrigin, lerOrigin, gerarRelatorio, codigoErro, ARQ_CONFIG } from '../src/consumo.js';
-import { AVISO_CONFIG, CLAUDE_RAIZ_RECUSADA, CLAUDE_SEM_TRANSCRIPTS, CLAUDE_SEM_RECENTES } from '../src/relatorio.js';
+import { reposDaConfig, repoDoOrigin, lerOrigin, gerarRelatorio, codigoErro, periodos, ARQ_CONFIG } from '../src/consumo.js';
+import { AVISO_CONFIG, CLAUDE_RAIZ_RECUSADA, CLAUDE_SEM_TRANSCRIPTS, CLAUDE_SEM_RECENTES, formatarMarkdown } from '../src/relatorio.js';
 import { ARQ_ESTADO } from '../src/estado.js';
 
 // Pipeline do /consumo (addendum da Task 10, B e D): config.json, origin do
@@ -221,6 +221,157 @@ test('sem leitura de 7d: a semana são os últimos 7 dias', async () => {
   assert.equal(r.relatorio.claude.semana_origem, 'ultimos_7_dias');
   assert.equal(r.relatorio.claude.semana.total.respostas, 1);
   assert.equal(r.relatorio.limites, null);
+});
+
+// ------------------------------------------------------------ períodos
+
+const meiaNoite = (ms) => new Date(ms).setHours(0, 0, 0, 0);
+const estadoCom = (resetS, extra = {}) => ({
+  versao: 1, at: iso(agora - 60_000),
+  five_hour: { used_percentage: 42, resets_at: Math.floor(agora / 1000) + 3600 },
+  seven_day: { used_percentage: 48, resets_at: resetS },
+  sessoes: {}, ...extra,
+});
+
+test('periodos: hoje na meia-noite local, 7 dias exatos e a janela de 7d ou a reserva', () => {
+  const s = Math.floor(agora / 1000);
+  const semLeitura = periodos(null, agora);
+  const hoje = new Date(semLeitura.hojeMs);
+  assert.deepEqual([hoje.getHours(), hoje.getMinutes(), hoje.getSeconds(), hoje.getMilliseconds()], [0, 0, 0, 0]);
+  assert.equal(hoje.toDateString(), new Date(agora).toDateString(), 'o mesmo dia do calendário local');
+  assert.equal(semLeitura.seteDiasMs, agora - 7 * DIA, 'agora menos 7 × 24 h, sem fuso');
+  assert.deepEqual(semLeitura.semana, { desdeMs: agora - 7 * DIA, origem: 'ultimos_7_dias' });
+  const janela = periodos(estadoCom(s + 2 * 86_400), agora);
+  assert.deepEqual(janela.semana, { desdeMs: (s + 2 * 86_400) * 1000 - 7 * DIA, origem: 'janela_7d' });
+  assert.equal(janela.hojeMs, semLeitura.hojeMs);
+  // Na meia-noite exata "hoje" começa nela; 1 ms antes, na meia-noite anterior.
+  const m = semLeitura.hojeMs;
+  assert.equal(periodos(null, m).hojeMs, m);
+  assert.equal(periodos(null, m - 1).hojeMs, meiaNoite(m - 1));
+  assert.ok(meiaNoite(m - 1) < m && m - meiaNoite(m - 1) <= 25 * 3_600_000);
+  // Leitura velha, janela que começaria no futuro ou estado hostil: a reserva.
+  const reservas = {
+    velha: estadoCom(s + 2 * 86_400, { at: iso(agora - 2 * 3_600_000) }),
+    futura: estadoCom(s + 8 * 86_400),
+    lixo: estadoCom('amanhã'),
+    lanca: { get versao() { throw new Error('C:\\x'); } },
+  };
+  for (const [nome, estado] of Object.entries(reservas)) {
+    assert.deepEqual(periodos(estado, agora).semana, { desdeMs: agora - 7 * DIA, origem: 'ultimos_7_dias' }, nome);
+  }
+});
+
+// O fuso vem do ambiente: cada caso roda num processo filho com TZ própria.
+// America/New_York em 2026-03-08 adianta o relógio (o dia tem 23 h) e em
+// 2026-11-01 atrasa (25 h); Asia/Kolkata é UTC+5:30, sem horário de verão.
+function periodosNoFuso(tz, agoras) {
+  const url = new URL('../src/consumo.js', import.meta.url).href;
+  const codigo = `import { periodos } from ${JSON.stringify(url)};
+const agoras = ${JSON.stringify(agoras)};
+console.log(JSON.stringify({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, offsetJan: new Date(Date.UTC(2026, 0, 15)).getTimezoneOffset(), hoje: agoras.map((a) => periodos(null, a).hojeMs) }));`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', codigo], { env: { ...process.env, TZ: tz }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+}
+
+test('periodos: meia-noite local em fusos com e sem horário de verão (processo filho com TZ)', (t) => {
+  const Z = (s) => Date.parse(s);
+  // Deslocamento de cada fuso em 15/01/2026 (getTimezoneOffset, em minutos):
+  // prova que o filho aplicou o fuso, seja qual for o nome que o ICU devolve
+  // (Asia/Kolkata sai como Asia/Calcutta em alguns Node).
+  const offsetJan = { 'America/New_York': 300, 'Asia/Kolkata': -330, UTC: 0 };
+  const casos = {
+    'America/New_York': [
+      // Dia de 23 h: meia-noite ainda em EST (UTC-5).
+      [Z('2026-03-08T15:00:00Z'), Z('2026-03-08T05:00:00Z')],
+      [Z('2026-03-08T05:00:00Z'), Z('2026-03-08T05:00:00Z')],
+      [Z('2026-03-08T04:59:59.999Z'), Z('2026-03-07T05:00:00Z')],
+      // Dia seguinte já em EDT (UTC-4).
+      [Z('2026-03-09T12:00:00Z'), Z('2026-03-09T04:00:00Z')],
+      // Dia de 25 h: meia-noite ainda em EDT.
+      [Z('2026-11-01T23:30:00Z'), Z('2026-11-01T04:00:00Z')],
+    ],
+    'Asia/Kolkata': [
+      [Z('2026-03-08T00:00:00Z'), Z('2026-03-07T18:30:00Z')],
+      [Z('2026-03-07T18:30:00Z'), Z('2026-03-07T18:30:00Z')],
+      [Z('2026-03-07T18:29:59.999Z'), Z('2026-03-06T18:30:00Z')],
+    ],
+    UTC: [[Z('2026-03-08T23:59:59.999Z'), Z('2026-03-08T00:00:00Z')]],
+  };
+  let aplicados = 0;
+  for (const [tz, pares] of Object.entries(casos)) {
+    const r = periodosNoFuso(tz, pares.map(([a]) => a));
+    if (r.offsetJan !== offsetJan[tz]) {
+      t.diagnostic(`fuso ${tz} indisponível neste Node (resolvido: ${r.tz})`);
+      continue;
+    }
+    aplicados++;
+    assert.deepEqual(r.hoje.map((ms) => new Date(ms).toISOString()), pares.map(([, m]) => new Date(m).toISOString()), tz);
+  }
+  assert.ok(aplicados > 0, 'nenhum fuso aplicado: o teste não provaria nada');
+});
+
+// Linha com sessão e detalhe de cache à escolha.
+const linhaUso = (req, { ts = agora - 1000, sessao = 'sess-1', cwd = 'C:/Projetos DEV/Demo Proj', model = 'claude-opus-5', detalhe = null } = {}) => JSON.stringify({
+  type: 'assistant', requestId: req, apiBlockIndex: 0, sessionId: sessao, cwd,
+  timestamp: iso(ts), effort: 'high', isSidechain: false,
+  message: {
+    id: `msg-${req}`, model,
+    usage: {
+      input_tokens: 10, output_tokens: 100, output_tokens_details: { thinking_tokens: 40 }, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500,
+      ...(detalhe === null ? {} : { cache_creation: { ephemeral_1h_input_tokens: detalhe[0], ephemeral_5m_input_tokens: detalhe[1] } }),
+    },
+  },
+});
+
+test('limites dos períodos: resposta no instante exato entra, 1 ms antes fica de fora', async () => {
+  const s = Math.floor(agora / 1000);
+  gravarEstado({ seven_day: { used_percentage: 48, resets_at: s + 2 * 86_400 } });
+  config(JSON.stringify({ repos: [] }));
+  const hojeMs = meiaNoite(agora);
+  const janelaMs = agora - 5 * DIA;
+  const seteMs = agora - 7 * DIA;
+  transcript('proj-a/s1.jsonl', [
+    linhaUso('hoje0', { ts: hojeMs }), linhaUso('hoje1', { ts: hojeMs - 1 }),
+    linhaUso('jan0', { ts: janelaMs }), linhaUso('jan1', { ts: janelaMs - 1 }),
+    linhaUso('sete0', { ts: seteMs }), linhaUso('sete1', { ts: seteMs - 1 }),
+  ]);
+  const c = (await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home })).relatorio.claude;
+  assert.equal(c.hoje.total.respostas, 1, 'só hoje0');
+  assert.equal(c.semana.total.respostas, 3, 'hoje0, hoje1 e jan0');
+  assert.equal(c.sete_dias.total.respostas, 5, 'todas menos sete1');
+  assert.equal(c.hoje_desde, iso(hojeMs));
+  assert.equal(c.semana_desde, iso(janelaMs));
+  assert.equal(c.semana_origem, 'janela_7d');
+  assert.equal(c.sete_dias_desde, iso(seteMs));
+});
+
+test('por sessão e cache criado 1 h / 5 min de ponta a ponta, sem pensamento no relatório', async () => {
+  config(JSON.stringify({ repos: [] }));
+  transcript('proj-a/s1.jsonl', [
+    linhaUso('a1', { sessao: 'sess-a', detalhe: [300, 200] }),
+    linhaUso('a2', { sessao: 'sess-a', detalhe: [100, 400] }),
+    linhaUso('b1', { sessao: 'sess-b', cwd: '/x/Outro', model: 'claude-sonnet-5' }),
+    linhaUso('c1', { sessao: 'sess-c', detalhe: [0, 58_716] }),
+  ]);
+  const r = (await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home })).relatorio;
+  const hoje = r.claude.hoje;
+  assert.deepEqual(Object.keys(hoje.porSessao), ['sess-a', 'sess-b', 'sess-c'], 'em ordem de consumo, empate pelo id');
+  const a = hoje.porSessao['sess-a'];
+  assert.deepEqual([a.respostas, a.cacheCreate, a.cacheCreate1h, a.cacheCreate5m, a.cacheCreateSemDetalhe], [2, 1000, 400, 600, 0]);
+  assert.deepEqual([a.projetos, a.modelos], [['Demo Proj'], ['claude-opus-5']]);
+  const b = hoje.porSessao['sess-b'];
+  assert.deepEqual([b.cacheCreate1h, b.cacheCreate5m, b.cacheCreateSemDetalhe, b.projetos, b.modelos], [0, 0, 500, ['Outro'], ['claude-sonnet-5']]);
+  // Detalhe que não soma o total (caso real): o total vai para sem detalhe.
+  const c = hoje.porSessao['sess-c'];
+  assert.deepEqual([c.cacheCreate1h, c.cacheCreate5m, c.cacheCreateSemDetalhe], [0, 0, 500]);
+  const t = hoje.total;
+  assert.deepEqual([t.cacheCreate, t.cacheCreate1h, t.cacheCreate5m, t.cacheCreateSemDetalhe], [2000, 400, 600, 1000]);
+  assert.equal(hoje.sessoesOmitidas, 0);
+  assert.doesNotMatch(JSON.stringify(r), /thinking/);
+  const texto = formatarMarkdown(r);
+  assert.match(texto, /^\| `sess-a` \| `Demo Proj` \| `claude-opus-5` \| 2 \| 20 \| 400 \| 600 \| 0 \| 2k \| 200 \| /m);
+  assert.match(texto, /cache criado sem detalhe/);
 });
 
 test('config.json inválido: aviso fixo e o origin do cwd no lugar', { skip: !temGit && 'git ausente' }, async () => {

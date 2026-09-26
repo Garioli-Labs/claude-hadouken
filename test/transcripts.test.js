@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { lerTranscript, indexarTranscripts, ARQ_INDICE, ARQUIVOS_MAX, LINHA_MAX_BYTES } from '../src/transcripts.js';
+import { lerTranscript, indexarTranscripts, ARQ_INDICE, ARQUIVOS_MAX, LINHA_MAX_BYTES, VERSAO_INDICE } from '../src/transcripts.js';
 
 // Parser dos transcripts (spec 6.6, 7 #7–#9, 8.1 S2/S9). Transcripts são
 // entrada não confiável: tudo aqui é sintético e gerado pelo próprio teste.
@@ -169,6 +169,7 @@ test('Registro traz exatamente os campos do contrato, com sessionId e ts', async
   assert.deepEqual(r, {
     requestId: 'r1', ts: agora - 60_000, sessionId: 'sess-1', subagente: false, projeto: 'Demo Proj',
     model: 'claude-opus-5', effort: 'high', input: 10, output: 100, thinking: 40, cacheRead: 1000, cacheCreate: 500,
+    cacheCreate1h: null, cacheCreate5m: null,
   });
   const leitura = await lerTranscript(arq);
   assert.equal(leitura.ilegivel, false);
@@ -197,6 +198,92 @@ test('duplicata que atravessa o offset do índice entra uma vez, pelo máximo', 
   const r = await indexar();
   assert.deepEqual(ids(r), ['r1']);
   assert.equal(r.registros[0].output, 300);
+});
+
+// ---------------------------------------------------------------------------
+// Detalhe do cache criado (usage.cache_creation): 1 h e 5 min, ou os dois null.
+
+const comDetalhe = (h1, m5, extra = {}) => ({ ...USO, cache_creation: { ephemeral_1h_input_tokens: h1, ephemeral_5m_input_tokens: m5, ...extra } });
+const detalhe = (x) => [x.cacheCreate1h, x.cacheCreate5m];
+
+test('cache_creation: 1 h e 5 min só com os dois inteiros válidos; ausente, pela metade ou lixo dá os dois null', async () => {
+  const casos = {
+    valido: [comDetalhe(300, 200), [300, 200]],
+    zeros: [comDetalhe(0, 0), [0, 0]],
+    // Caso real: detalhe que não soma o total fica como veio; agregacao.js
+    // manda o total para "sem detalhe".
+    incoerente: [{ ...comDetalhe(0, 58_716), cache_creation_input_tokens: 0 }, [0, 58_716]],
+    ausente: [USO, [null, null]],
+    so1h: [{ ...USO, cache_creation: { ephemeral_1h_input_tokens: 300 } }, [null, null]],
+    so5m: [{ ...USO, cache_creation: { ephemeral_5m_input_tokens: 200 } }, [null, null]],
+    texto: [comDetalhe('300', 200), [null, null]],
+    negativo: [comDetalhe(300, -1), [null, null]],
+    fracionario: [comDetalhe(1.5, 200), [null, null]],
+    acimaDoTeto: [comDetalhe(1e10, 200), [null, null]],
+    nulo: [comDetalhe(null, 200), [null, null]],
+    booleano: [comDetalhe(true, 200), [null, null]],
+    ccTexto: [{ ...USO, cache_creation: 'ephemeral_1h_input_tokens' }, [null, null]],
+    ccNumero: [{ ...USO, cache_creation: 42 }, [null, null]],
+    ccLista: [{ ...USO, cache_creation: [300, 200] }, [null, null]],
+    ccNulo: [{ ...USO, cache_creation: null }, [null, null]],
+  };
+  const linhas = Object.entries(casos).map(([req, [usage]]) => js(obj(req, 0, { usage })));
+  // __proto__ como chave própria (JSON.parse cria a chave, não troca o
+  // protótipo): os números lá dentro não são do detalhe.
+  linhas.push(`{"type":"assistant","requestId":"proto","sessionId":"sess-1","timestamp":"${new Date(agora - 60_000).toISOString()}","message":{"model":"claude-opus-5","usage":{"input_tokens":10,"cache_creation_input_tokens":500,"cache_creation":{"__proto__":{"ephemeral_1h_input_tokens":300,"ephemeral_5m_input_tokens":200}}}}}`);
+  const arq = escrever('proj-a/s.jsonl', linhas);
+  const frio = await indexar();
+  const quente = await indexar();
+  for (const r of [await lerTranscript(arq), frio, quente]) {
+    assert.equal(r.linhasInvalidas, 0, 'detalhe ruim não invalida a linha');
+    const por = Object.fromEntries(r.registros.map((x) => [x.requestId, x]));
+    for (const [req, [, esperado]] of Object.entries(casos)) {
+      assert.deepEqual(detalhe(por[req]), esperado, req);
+      assert.equal(por[req].cacheCreate, req === 'incoerente' ? 0 : 500, `${req}: o total não muda`);
+    }
+    assert.deepEqual(detalhe(por.proto), [null, null], '__proto__');
+  }
+  assert.deepEqual(quente, frio, 'o índice guarda o detalhe e o devolve igual');
+});
+
+test('Object.prototype poluído com o detalhe do cache não vira dado', async () => {
+  const arq = escrever('proj-a/s.jsonl', [js(obj('r1', 0, { usage: { ...USO, cache_creation: {} } })), linha('r2', 0)]);
+  const poluir = { ephemeral_1h_input_tokens: 300, ephemeral_5m_input_tokens: 200, cache_creation: { ephemeral_1h_input_tokens: 300, ephemeral_5m_input_tokens: 200 } };
+  for (const [k, v] of Object.entries(poluir)) Object.defineProperty(Object.prototype, k, { value: v, configurable: true, writable: true });
+  let saidas;
+  try {
+    saidas = [await lerTranscript(arq), await indexar()];
+  } finally {
+    for (const k of Object.keys(poluir)) delete Object.prototype[k];
+  }
+  for (const r of saidas) {
+    assert.deepEqual(ids(r).sort(), ['r1', 'r2']);
+    for (const x of r.registros) assert.deepEqual(detalhe(x), [null, null], x.requestId);
+  }
+});
+
+test('duplicatas: o detalhe do cache guarda o máximo de cada campo, e bloco sem detalhe não apaga o de outro', async () => {
+  const arq = escrever('proj-a/s.jsonl', [
+    js(obj('r1', 0, { usage: comDetalhe(10, 5) })),
+    js(obj('r1', 1)),
+    js(obj('r1', 2, { usage: comDetalhe(3, 20) })),
+    js(obj('r2', 0)),
+  ]);
+  for (const r of [await lerTranscript(arq), await indexar()]) {
+    const por = Object.fromEntries(r.registros.map((x) => [x.requestId, x]));
+    assert.deepEqual(detalhe(por.r1), [10, 20]);
+    assert.deepEqual(detalhe(por.r2), [null, null]);
+  }
+  // Atravessando o offset do índice: o bloco novo chega depois, na leitura
+  // incremental, e se junta ao que o índice já guardava.
+  fs.appendFileSync(arq, js(obj('r2', 1, { usage: comDetalhe(400, 100) })) + '\n');
+  fs.appendFileSync(arq, js(obj('r1', 3, { usage: comDetalhe(50, 1) })) + '\n');
+  const r = await indexar();
+  const por = Object.fromEntries(r.registros.map((x) => [x.requestId, x]));
+  assert.deepEqual(detalhe(por.r1), [50, 20]);
+  assert.deepEqual(detalhe(por.r2), [400, 100]);
+  fs.rmSync(arqIndice());
+  assert.deepEqual(await indexar(), r, 'igual à leitura do zero');
 });
 
 test('mesmo requestId em dois arquivos conta uma vez, pelo máximo', async () => {
@@ -602,6 +689,13 @@ test('índice incremental dá o mesmo resultado que a leitura completa, com cort
         const fim = rnd() < 0.2 ? '\r\n' : '\n';
         if (tipo < 0.65) {
           const uso = { input_tokens: Math.floor(rnd() * 100), output_tokens: Math.floor(rnd() * 1000), cache_read_input_tokens: Math.floor(rnd() * 5000) };
+          // Metade traz o detalhe do cache criado: blocos da mesma resposta
+          // com e sem detalhe se juntam pelo máximo, e o índice guarda os dois.
+          if (rnd() < 0.5) {
+            const h1 = Math.floor(rnd() * 300);
+            const m5 = Math.floor(rnd() * 300);
+            Object.assign(uso, { cache_creation_input_tokens: h1 + m5, cache_creation: { ephemeral_1h_input_tokens: h1, ephemeral_5m_input_tokens: m5 } });
+          }
           s += js(obj(`q${f}-${Math.floor(rnd() * 25)}`, Math.floor(rnd() * 3), { usage: uso })) + fim;
         } else if (tipo < 0.75) s += `lixo sem chave${fim}`;
         else if (tipo < 0.85) s += `{"usage": quebrada${fim}`;
@@ -638,9 +732,14 @@ test('índice incremental dá o mesmo resultado que a leitura completa, com cort
       for (const x of l.registros) {
         const a = junto.get(x.requestId);
         if (!a) junto.set(x.requestId, { ...x });
-        else for (const k of ['input', 'output', 'thinking', 'cacheRead', 'cacheCreate']) a[k] = Math.max(a[k], x[k]);
+        else {
+          for (const k of ['input', 'output', 'thinking', 'cacheRead', 'cacheCreate']) a[k] = Math.max(a[k], x[k]);
+          // O detalhe é null quando falta: null não entra no máximo.
+          for (const k of ['cacheCreate1h', 'cacheCreate5m']) if (x[k] !== null) a[k] = a[k] === null ? x[k] : Math.max(a[k], x[k]);
+        }
       }
     }
+    assert.ok(final.registros.some((x) => x.cacheCreate1h !== null) && final.registros.some((x) => x.cacheCreate1h === null), 'com e sem detalhe');
     assert.deepEqual([...final.registros].sort(porId), [...junto.values()].sort(porId));
     assert.equal(final.linhasInvalidas, invalidas);
     assert.ok(final.registros.length > 20);
@@ -894,11 +993,13 @@ test('índice corrompido ou adulterado é descartado e reconstruído igual ao li
     'não é JSON': () => 'isto não é json {',
     'array': () => '[]',
     'null': () => 'null',
-    'versão 2': () => ({ ...clone(), versao: 2 }),
+    'versão anterior': () => ({ ...clone(), versao: VERSAO_INDICE - 1 }),
+    'versão seguinte': () => ({ ...clone(), versao: VERSAO_INDICE + 1 }),
+    'versão em texto': () => ({ ...clone(), versao: String(VERSAO_INDICE) }),
     'sem versão': () => { const b = clone(); delete b.versao; return b; },
     'raiz de outra árvore': () => ({ ...clone(), raiz: indiceLimpo.raiz + 1 }),
     'arquivos array': () => ({ ...clone(), arquivos: [] }),
-    'chave __proto__': () => `{"versao":1,"raiz":${indiceLimpo.raiz},"arquivos":{"__proto__":${JSON.stringify(indiceLimpo.arquivos[REL])}}}`,
+    'chave __proto__': () => `{"versao":${VERSAO_INDICE},"raiz":${indiceLimpo.raiz},"arquivos":{"__proto__":${JSON.stringify(indiceLimpo.arquivos[REL])}}}`,
     'chave ..': comChave('../fora/x.jsonl'),
     'chave . no meio': comChave('proj-a/./x.jsonl'),
     'chave absoluta POSIX': comChave('/tmp/x.jsonl'),
@@ -922,6 +1023,15 @@ test('índice corrompido ou adulterado é descartado e reconstruído igual ao li
     'uso negativo': mut((e) => { e.numeros[7] = -1; }),
     'ts no futuro': mut((e) => { e.numeros[0] = Date.parse('2999-01-01'); }),
     'ts em texto': mut((e) => { e.numeros[0] = 'ontem'; }),
+    // Detalhe do cache (posições 11 e 12): os dois null (-1) ou os dois
+    // inteiros de 0 a 1e9; nunca um só.
+    'detalhe só 1 h': mut((e) => { e.numeros[11] = 5; }),
+    'detalhe só 5 min': mut((e) => { e.numeros[12] = 5; }),
+    'detalhe -2': mut((e) => { e.numeros[11] = -2; e.numeros[12] = 0; }),
+    'detalhe acima de 1e9': mut((e) => { e.numeros[11] = 1e10; e.numeros[12] = 0; }),
+    'detalhe fracionário': mut((e) => { e.numeros[11] = 1.5; e.numeros[12] = 0; }),
+    'detalhe em texto': mut((e) => { e.numeros[11] = '5'; e.numeros[12] = 0; }),
+    'detalhe nulo': mut((e) => { e.numeros[11] = null; }),
     'índice de modelo fora da tabela': mut((e) => { e.numeros[4] = 99; }),
     'índice de effort fora da lista': mut((e) => { e.numeros[5] = 5; }),
     'subagente 2': mut((e) => { e.numeros[2] = 2; }),
@@ -946,19 +1056,54 @@ test('índice corrompido ou adulterado é descartado e reconstruído igual ao li
   assert.equal(({}).texto, undefined);
 });
 
+// Índice gravado por uma versão anterior do plugin (versão 1: 11 números por
+// resposta, sem o detalhe do cache) nunca é lido como se fosse o atual: é
+// descartado, os transcripts são relidos e o índice volta na versão atual.
+test('índice da versão 1 (11 números por resposta) é descartado, relido e regravado na versão atual', async () => {
+  escrever('proj-a/sess-1.jsonl', [js(obj('r1', 0, { usage: comDetalhe(300, 200) })), linha('r2', 0)]);
+  escrever('proj-a/sess-1/subagents/agent-a.jsonl', [linha('r3', 0)]);
+  const limpo = await indexar();
+  const indiceLimpo = lerIndice();
+  const textoLimpo = fs.readFileSync(arqIndice(), 'utf8');
+  assert.deepEqual(detalhe(limpo.registros.find((x) => x.requestId === 'r1')), [300, 200]);
+  // A versão 1 tinha os mesmos 11 primeiros números por resposta.
+  const v1 = structuredClone(indiceLimpo);
+  v1.versao = 1;
+  for (const e of Object.values(v1.arquivos)) e.numeros = e.numeros.filter((_, i) => i % 13 < 11);
+  const variantes = {
+    'versão 1 como gravada': v1,
+    'números da versão 1 rotulados como atuais': { ...v1, versao: VERSAO_INDICE },
+  };
+  for (const [nome, v] of Object.entries(variantes)) {
+    fs.writeFileSync(arqIndice(), JSON.stringify(v));
+    const abertos = [];
+    const abrir = fs.promises.open;
+    fs.promises.open = async function (p, ...resto) {
+      abertos.push(path.relative(raiz, String(p)).split(path.sep).join('/'));
+      return abrir.call(this, p, ...resto);
+    };
+    let r;
+    try { r = await indexar(); } finally { fs.promises.open = abrir; }
+    assert.deepEqual(abertos.filter((a) => a.endsWith('.jsonl')).sort(), ['proj-a/sess-1.jsonl', 'proj-a/sess-1/subagents/agent-a.jsonl'], `${nome}: tudo relido`);
+    assert.deepEqual(r, limpo, nome);
+    assert.equal(fs.readFileSync(arqIndice(), 'utf8'), textoLimpo, `${nome}: regravado na versão atual`);
+  }
+});
+
 test('índice guarda só números, ids validados e rótulos saneados', async () => {
   escrever('proj-a/sess-1.jsonl', [linha('r1', 0), linha('r2', 0, { effort: undefined, sessionId: undefined })]);
   escrever('proj-a/sess-1/subagents/agent-a.jsonl', [linha('r3', 0)]);
   await indexar();
   const indice = lerIndice();
   assert.deepEqual(Object.keys(indice).sort(), ['arquivos', 'raiz', 'versao']);
-  assert.equal(indice.versao, 1);
+  assert.equal(indice.versao, 2);
+  assert.equal(VERSAO_INDICE, 2);
   assert.ok(Number.isInteger(indice.raiz));
   for (const [rel, e] of Object.entries(indice.arquivos)) {
     assert.deepEqual(Object.keys(e).sort(), ['ancora', 'ids', 'linhasInvalidas', 'modelos', 'mtimeMs', 'numeros', 'offset', 'projetos', 'sessoes', 'size'], rel);
     for (const k of ['ancora', 'linhasInvalidas', 'mtimeMs', 'offset', 'size']) assert.equal(typeof e[k], 'number', `${rel}.${k}`);
     assert.ok(e.numeros.every((n) => Number.isInteger(n)), rel);
-    assert.equal(e.numeros.length, e.ids.length * 11, rel);
+    assert.equal(e.numeros.length, e.ids.length * 13, rel);
     assert.ok(e.ids.every((id) => /^[A-Za-z0-9_-]{1,128}$/.test(id)), rel);
     assert.ok(e.sessoes.every((id) => /^[A-Za-z0-9_-]{1,64}$/.test(id)), rel);
   }
@@ -990,9 +1135,10 @@ function densas(tag, n, astrais) {
 }
 
 // Acima do teto o leitor recusaria o índice inteiro e toda chamada seria fria.
-// Medido em 2026-09-25 (JSON compacto de cada entrada): grande.jsonl (baratas)
-// faz 0,71 do teto; medio.jsonl (astrais) 0,33. Juntos dão 1,046 do teto em
-// bytes, mas só 0,956 em unidades UTF-16. Então:
+// Medido em 2026-09-26 com o índice da versão 2, 13 números por resposta (JSON
+// compacto de cada entrada): grande.jsonl (baratas) faz 0,73 do teto;
+// medio.jsonl (astrais) 0,335. Juntos dão 1,065 do teto em bytes, mas só
+// 0,974 em unidades UTF-16. Então:
 // - quem medir em unidades não poda e grava acima do teto;
 // - tirar os menores primeiro deixaria só grande.jsonl;
 // - tirar só o maior basta.
