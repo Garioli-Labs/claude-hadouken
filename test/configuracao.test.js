@@ -33,7 +33,8 @@ const mesmoCaminho = (a, b) => (process.platform === 'win32' ? a.toLowerCase() =
 let dir;
 let arq;
 let homeDados;
-const envAntes = { home: process.env.HADOUKEN_HOME, settings: process.env.HADOUKEN_SETTINGS };
+const VARIAVEIS = ['HADOUKEN_HOME', 'HADOUKEN_SETTINGS', 'CLAUDE_CONFIG_DIR'];
+const envAntes = Object.fromEntries(VARIAVEIS.map((v) => [v, process.env[v]]));
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk cfg ç '));
@@ -41,15 +42,17 @@ beforeEach(() => {
   arq = path.join(dir, 'settings.json');
   process.env.HADOUKEN_HOME = homeDados;
   process.env.HADOUKEN_SETTINGS = arq;
+  // Um CLAUDE_CONFIG_DIR de quem roda os testes não entra em teste nenhum.
+  delete process.env.CLAUDE_CONFIG_DIR;
   // Guarda: o arquivo alvo é o temporário, nunca o do usuário.
-  assert.equal(arquivoSettings(), arq);
-  if (REAL !== null) assert.ok(!mesmoCaminho(path.resolve(arquivoSettings()), path.resolve(REAL)));
+  assert.deepEqual(arquivoSettings(), { ok: true, arquivo: arq });
+  if (REAL !== null) assert.ok(!mesmoCaminho(path.resolve(arquivoSettings().arquivo), path.resolve(REAL)));
 });
 
 afterEach(() => {
-  for (const [chave, valor] of [['HADOUKEN_HOME', envAntes.home], ['HADOUKEN_SETTINGS', envAntes.settings]]) {
-    if (valor === undefined) delete process.env[chave];
-    else process.env[chave] = valor;
+  for (const chave of VARIAVEIS) {
+    if (envAntes[chave] === undefined) delete process.env[chave];
+    else process.env[chave] = envAntes[chave];
   }
   // Somente leitura no Windows impede o rmSync: devolve a escrita antes.
   const liberar = (p) => {
@@ -114,30 +117,93 @@ test('ambiente: HADOUKEN_SETTINGS e HADOUKEN_HOME apontam para a pasta temporár
   assert.equal(process.env.HADOUKEN_SETTINGS, arq);
   assert.equal(process.env.HADOUKEN_HOME, homeDados);
   assert.ok(arq.startsWith(os.tmpdir()));
-  assert.equal(arquivoSettings(), arq);
+  assert.equal(process.env.CLAUDE_CONFIG_DIR, undefined);
+  assert.deepEqual(arquivoSettings(), { ok: true, arquivo: arq });
 });
 
-test('arquivoSettings: sem HADOUKEN_SETTINGS usa <home>/.claude/settings.json; sem home, null', () => {
+// Roda `corpo` sem HADOUKEN_SETTINGS e com os.homedir numa pasta falsa que
+// nunca é criada: se a ordem dos caminhos errar, o resultado aponta para ela,
+// nunca para o settings.json de verdade. Devolve a pasta falsa.
+function semHadoukenSettings(corpo) {
   const original = os.homedir;
   const falso = path.resolve(os.tmpdir(), 'hdk-home-falso-nunca-criado');
   delete process.env.HADOUKEN_SETTINGS;
   try {
     os.homedir = () => falso;
-    assert.equal(arquivoSettings(), path.join(falso, '.claude', 'settings.json'));
-    os.homedir = () => { throw new Error('sem home'); };
-    assert.equal(arquivoSettings(), null);
-    os.homedir = () => 'relativo';
-    assert.equal(arquivoSettings(), null);
+    corpo(falso);
   } finally {
     os.homedir = original;
     process.env.HADOUKEN_SETTINGS = arq;
+    delete process.env.CLAUDE_CONFIG_DIR;
   }
   assert.equal(fs.existsSync(falso), false);
+  return falso;
+}
+
+const nuncaOReal = (r) => {
+  if (r.ok && REAL !== null) assert.ok(!mesmoCaminho(path.resolve(r.arquivo), path.resolve(REAL)), r.arquivo);
+  return r;
+};
+
+test('arquivoSettings: sem HADOUKEN_SETTINGS nem CLAUDE_CONFIG_DIR usa <home>/.claude/settings.json; sem home, sem-diretorio', () => {
+  semHadoukenSettings((falso) => {
+    assert.deepEqual(nuncaOReal(arquivoSettings()), { ok: true, arquivo: path.join(falso, '.claude', 'settings.json') });
+    os.homedir = () => { throw new Error('sem home'); };
+    assert.deepEqual(arquivoSettings(), { ok: false, motivo: 'sem-diretorio' });
+    os.homedir = () => 'relativo';
+    assert.deepEqual(arquivoSettings(), { ok: false, motivo: 'sem-diretorio' });
+  });
 });
 
 test('arquivoSettings: HADOUKEN_SETTINGS relativo vira absoluto', () => {
   process.env.HADOUKEN_SETTINGS = path.join('rel', 'settings.json');
-  assert.equal(arquivoSettings(), path.resolve('rel', 'settings.json'));
+  assert.deepEqual(arquivoSettings(), { ok: true, arquivo: path.resolve('rel', 'settings.json') });
+});
+
+// Formas absolutas de cada sistema; path.isAbsolute decide, sem I/O.
+const CONFIG_ABSOLUTOS = process.platform === 'win32'
+  ? ['C:\\hdk\\config', 'C:/hdk/config', 'D:\\Dados do Usuário\\claude cfg\\', '\\\\servidor\\pasta\\cfg']
+  : ['/hdk/config', '/home/usuário/claude cfg/', '/tmp/a b/c'];
+
+test('arquivoSettings: CLAUDE_CONFIG_DIR absoluto vira <CLAUDE_CONFIG_DIR>/settings.json', () => {
+  semHadoukenSettings(() => {
+    for (const cfg of [path.join(dir, 'cfg'), ...CONFIG_ABSOLUTOS]) {
+      process.env.CLAUDE_CONFIG_DIR = cfg;
+      assert.deepEqual(nuncaOReal(arquivoSettings()), { ok: true, arquivo: path.join(cfg, 'settings.json') }, cfg);
+    }
+  });
+});
+
+test('arquivoSettings: CLAUDE_CONFIG_DIR definido mas relativo, vazio ou só espaços é config-dir-invalido', () => {
+  const relativos = ['', ' ', '\t', 'cfg', path.join('rel', 'cfg'), '.claude', '~/.claude', '~', `.${path.sep}cfg`, 'C:cfg',
+    ` ${path.join(dir, 'cfg')}`];
+  semHadoukenSettings(() => {
+    for (const cfg of relativos) {
+      process.env.CLAUDE_CONFIG_DIR = cfg;
+      assert.equal(process.env.CLAUDE_CONFIG_DIR, cfg);
+      assert.deepEqual(arquivoSettings(), { ok: false, motivo: 'config-dir-invalido' }, JSON.stringify(cfg));
+    }
+  });
+});
+
+test('arquivoSettings: HADOUKEN_SETTINGS vence CLAUDE_CONFIG_DIR, válido ou não', () => {
+  for (const cfg of [path.join(dir, 'cfg'), 'relativo', '']) {
+    process.env.CLAUDE_CONFIG_DIR = cfg;
+    assert.deepEqual(arquivoSettings(), { ok: true, arquivo: arq }, JSON.stringify(cfg));
+  }
+});
+
+test('arquivoSettings: o arquivo de CLAUDE_CONFIG_DIR é o que consultar e aplicar usam', () => {
+  const cfg = path.join(dir, 'cfg');
+  semHadoukenSettings(() => {
+    process.env.CLAUDE_CONFIG_DIR = cfg;
+    const { arquivo } = nuncaOReal(arquivoSettings());
+    assert.equal(arquivo, path.join(cfg, 'settings.json'));
+    assert.equal(consultarStatusline({ arquivo }).acao, 'instalar');
+    assert.deepEqual(aplicarStatusline({ arquivo, substituir: false, agoraMs: 1 }), { ok: true, acao: 'instalar', backup: null });
+    assert.deepEqual(JSON.parse(fs.readFileSync(arquivo, 'utf8')), { statusLine: nossa() });
+  });
+  assert.deepEqual(nomes(), ['cfg']);
 });
 
 // ---------------------------------------------------------------- comando
@@ -156,10 +222,11 @@ test('comando: espaços, acentos e o que as aspas duplas neutralizam são aceito
   assert.deepEqual(comandoStatusline(), { ok: true, comando: `node "${alvo}"` });
 });
 
-// Claude Code pode rodar o comando por um shell POSIX (Git Bash no Windows)
-// ou pelo cmd: dentro de aspas duplas, " ` $ \ fecham ou expandem no sh, % e !
-// expandem no cmd, e controles (inclusive os invisíveis de formato e os
-// separadores de linha) quebram ou disfarçam a linha.
+// O Claude Code roda o comando por um sh no POSIX e, no Windows, pelo Git
+// Bash ou, sem ele, pelo PowerShell: dentro de aspas duplas, " ` $ \ fecham ou
+// expandem no sh, $ ` " no PowerShell, % e ! expandem no cmd (conservador), e
+// controles (inclusive os invisíveis de formato e os separadores de linha)
+// quebram ou disfarçam a linha.
 const PROIBIDOS = [
   ['aspas', '"'], ['crase', '`'], ['cifrão', '$'], ['porcento', '%'], ['exclamação', '!'],
   ['LF', '\n'], ['CR', '\r'], ['TAB', '\t'], ['SOH', String.fromCodePoint(0x01)], ['ESC', String.fromCodePoint(0x1b)],
@@ -350,6 +417,152 @@ test('aplicar: bytes que não são UTF-8 (ex.: é em Latin-1) são settings-inva
   assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'settings-invalido' });
   assert.deepEqual(ler(), bytes);
   assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('aplicar: UTF-8 malformado (surrogate codificado, forma longa, byte solto, sequência cortada) é settings-invalido', () => {
+  const ruins = [[0xed, 0xa0, 0x80], [0xc0, 0xaf], [0x80], [0xe2, 0x82], [0xf4, 0x90, 0x80, 0x80]];
+  for (const ruim of ruins) {
+    const bytes = Buffer.concat([Buffer.from('{"a":"x'), Buffer.from(ruim), Buffer.from('"}\n')]);
+    fs.writeFileSync(arq, bytes);
+    assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'settings-invalido' }, ruim.join(','));
+    assert.deepEqual(ler(), bytes);
+  }
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('sem ICU (TextDecoder indisponível): o módulo carrega e ainda valida UTF-8', () => {
+  // Um Node compilado sem ICU lança no new TextDecoder('utf-8', { fatal: true }).
+  const url = new URL('../src/configuracao.js', import.meta.url).href;
+  const latin1 = path.join(dir, 'latin1.json');
+  fs.writeFileSync(latin1, Buffer.concat([Buffer.from('{"nome":"Jos'), Buffer.from([0xe9]), Buffer.from('"}\n')]));
+  fs.writeFileSync(arq, bonito({ nome: 'José' }));
+  const script = [
+    "globalThis.TextDecoder = class { constructor() { throw Object.assign(new Error('sem ICU'), { code: 'ERR_NO_ICU' }); } };",
+    `const m = await import(${JSON.stringify(url)});`,
+    `const a = m.aplicarStatusline({ arquivo: ${JSON.stringify(latin1)}, substituir: false, agoraMs: 1 });`,
+    `const b = m.aplicarStatusline({ arquivo: ${JSON.stringify(arq)}, substituir: false, agoraMs: 2 });`,
+    'process.stdout.write(JSON.stringify([a, b]));',
+  ].join('\n');
+  const p = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    env: { ...process.env, HADOUKEN_HOME: homeDados, HADOUKEN_SETTINGS: arq }, encoding: 'utf8', timeout: 15_000,
+  });
+  assert.equal(p.error, undefined, String(p.error));
+  assert.equal(p.status, 0, p.stderr);
+  assert.deepEqual(JSON.parse(p.stdout), [
+    { ok: false, motivo: 'settings-invalido' },
+    { ok: true, acao: 'instalar', backup: `${arq}.bak-hadouken-2` },
+  ]);
+  assert.deepEqual(JSON.parse(lerTexto()), { nome: 'José', statusLine: nossa() });
+});
+
+// ---------------------------------------------------------------- fidelidade dos números
+
+// Literais que o JSON.parse + JSON.stringify não regravam com o mesmo valor
+// decimal: o texto que o usuário escreveu mudaria de sentido.
+const NUMEROS_IMPRECISOS = [
+  '12345678901234567890', '9007199254740993', '-9007199254740993', '123456789012345678', '10000000000000001',
+  '-0', '-0.0', '-0e5', '-0.000E-3', '1e400', '-1e400', '1e-400', '-1e-400', '2.4703282292062328e-324',
+  '0.1000000000000000055511151231257827', '3.14159265358979323846',
+];
+// Literais que saem com o mesmo valor, ainda que noutra grafia (1.0 vira 1).
+const NUMEROS_EXATOS = [
+  '0', '1', '-1', '1.0', '1E3', '1e+3', '1E-3', '0.1', '9007199254740992', '-9007199254740992', '1e23',
+  '100000000000000000000', '5e-324', '123e-20', '1.50000000000000000000', `0.${'0'.repeat(30)}1`,
+  '1.7976931348623157e308', '0e999999', '-1.5e-7', '0.000001',
+];
+const comNumero = (lit) => `{\n  "permissions": {\n    "allow": []\n  },\n  "limites": {\n    "n": [\n      1,\n      ${lit}\n    ]\n  }\n}\n`;
+
+test('fidelidade: número que não regrava igual (inteiro > 2^53, -0, 1e400...) recusa com settings-numero-impreciso', () => {
+  for (const lit of NUMEROS_IMPRECISOS) {
+    const texto = comNumero(lit);
+    JSON.parse(texto);
+    fs.writeFileSync(arq, texto);
+    for (const substituir of [false, true]) {
+      assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir, agoraMs: 1 }), { ok: false, motivo: 'settings-numero-impreciso' }, lit);
+    }
+    assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: false, motivo: 'settings-numero-impreciso' }, lit);
+    assert.equal(lerTexto(), texto, lit);
+    assert.deepEqual(nomes(), ['settings.json'], lit);
+  }
+});
+
+test('fidelidade: número que regrava com o mesmo valor é aceito, na forma canônica', () => {
+  let ms = 1;
+  for (const lit of NUMEROS_EXATOS) {
+    fs.writeFileSync(arq, comNumero(lit));
+    assert.equal(consultarStatusline({ arquivo: arq }).acao, 'instalar', lit);
+    const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: ms++ });
+    assert.equal(r.ok, true, `${lit}: ${JSON.stringify(r)}`);
+    const novo = JSON.parse(lerTexto());
+    assert.ok(Object.is(novo.limites.n[1], Number(lit)), lit);
+    assert.deepEqual(novo.statusLine, nossa());
+    fs.rmSync(arq);
+  }
+});
+
+test('fidelidade: remover também recusa; o arquivo e a nossa barra ficam', () => {
+  const texto = bonito({ statusLine: nossa() }).replace(/\n}\n$/, ',\n  "id": 12345678901234567890\n}\n');
+  fs.writeFileSync(arq, texto);
+  assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), { ok: false, motivo: 'settings-numero-impreciso' });
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('fidelidade: sem nada a gravar (já instalado, ou remover sem barra), o número não impede', () => {
+  const instalado = bonito({ statusLine: nossa() }).replace(/\n}\n$/, ',\n  "zero": -0\n}\n');
+  fs.writeFileSync(arq, instalado);
+  assert.equal(consultarStatusline({ arquivo: arq }).acao, 'ja-instalado');
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: true, acao: 'ja-instalado', backup: null });
+  const semBarra = '{"zero": -0}\n';
+  fs.writeFileSync(arq, semBarra);
+  assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), { ok: true, acao: 'nao-instalado', backup: null });
+  assert.equal(lerTexto(), semBarra);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('fidelidade: o que só parece número dentro de texto (valor ou chave) não conta', () => {
+  const texto = [
+    '{',
+    '  "s": "-0",',
+    '  "t": "12345678901234567890",',
+    '  "u": "a\\"-0 1e400",',
+    '  "v": "\\\\",',
+    '  "w": "\\\\\\"-0",',
+    '  "12345678901234567890": [-1, 2.5, "1e400"],',
+    '  "-0": {"x": "\\u0022-0"}',
+    '}',
+    '',
+  ].join('\n');
+  const antes = JSON.parse(texto);
+  fs.writeFileSync(arq, texto);
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(JSON.parse(lerTexto()), { ...antes, statusLine: nossa() });
+});
+
+test('fidelidade: número impreciso dentro da statusLine que sai também recusa (conferência do texto inteiro)', () => {
+  const texto = '{"statusLine": {"type": "command", "command": "outra", "padding": -0}}\n';
+  fs.writeFileSync(arq, texto);
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: false, motivo: 'settings-numero-impreciso' });
+  assert.equal(lerTexto(), texto);
+});
+
+test('fidelidade: literal de milhões de algarismos perto do teto é recusado sem travar', { timeout: 30_000 }, () => {
+  const casos = [
+    [`{"n":${'1'.repeat(MAX_SETTINGS_BYTES - 16)}}`, 'settings-numero-impreciso'],
+    [`{"n":1${'0'.repeat(MAX_SETTINGS_BYTES - 16)}1}`, 'settings-numero-impreciso'],
+  ];
+  for (const [texto, motivo] of casos) {
+    fs.writeFileSync(arq, texto);
+    assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo });
+    assert.equal(fs.statSync(arq).size, texto.length);
+  }
+  // Exato apesar do tamanho: 0,000...01 × 10^n com o expoente certo é 0.1.
+  const zeros = MAX_SETTINGS_BYTES - 64;
+  fs.writeFileSync(arq, `{"n":0.${'0'.repeat(zeros)}1e${zeros}}`);
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 2 });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(JSON.parse(lerTexto()).n, 0.1);
 });
 
 test('aplicar: arquivo de 5 MB é settings-grande e fica intacto', () => {

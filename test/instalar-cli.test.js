@@ -18,15 +18,18 @@ const REAL = (() => {
 })();
 const LINK_PASTA = process.platform === 'win32' ? 'junction' : 'dir';
 const FRASE_CONFLITO = 'As sessões já abertas ficarão sem barra até serem reabertas; a barra atual será substituída (há backup).';
+const AVISO_CONFIG = 'Se você usa CLAUDE_CONFIG_DIR e esse caminho não está na sua pasta de configuração, responda não: o Claude Code pode tirar essa variável do ambiente dos comandos que roda pelo Bash.';
 
 let dir;
 let arq;
 let homeDados;
+let casaFalsa;
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk cli ç '));
   homeDados = path.join(dir, 'hadouken');
   arq = path.join(dir, 'settings.json');
+  casaFalsa = path.join(dir, 'casa');
 });
 
 afterEach(() => {
@@ -39,16 +42,37 @@ const bonito = (v) => `${JSON.stringify(v, null, 2)}\n`;
 const lerTexto = () => fs.readFileSync(arq, 'utf8');
 const nomes = () => fs.readdirSync(dir).sort();
 
+// Tira do ambiente as chaves pedidas em qualquer caixa (o Windows não distingue).
+function semChaves(ambiente, nomesChave) {
+  for (const k of Object.keys(ambiente)) if (nomesChave.includes(k.toUpperCase())) delete ambiente[k];
+  return ambiente;
+}
+
 // Roda `instalar(args)` num filho. `depois` é código extra depois da chamada
 // (ex.: o process.exit() que a cli.js da Task 10 faz); `antes`, código antes.
-function rodar(args, { env = {}, antes = '', depois = '' } = {}) {
-  const ambiente = { ...process.env, HADOUKEN_HOME: homeDados, HADOUKEN_SETTINGS: arq, ...env };
-  assert.ok(ambiente.HADOUKEN_SETTINGS && ambiente.HADOUKEN_HOME, 'HADOUKEN_SETTINGS e HADOUKEN_HOME definidos');
-  assert.ok(ambiente.HADOUKEN_SETTINGS.startsWith(dir), 'settings na pasta temporária');
-  if (REAL !== null) assert.notEqual(path.resolve(ambiente.HADOUKEN_SETTINGS).toLowerCase(), path.resolve(REAL).toLowerCase());
+// Um CLAUDE_CONFIG_DIR de quem roda os testes nunca passa para o filho. Com
+// `semSettings` o filho não tem HADOUKEN_SETTINGS e a pasta pessoal (HOME e
+// USERPROFILE) é a `casaFalsa`, que nunca é criada: se a ordem dos caminhos
+// errar, o alvo cai na pasta temporária, nunca no settings.json de verdade.
+function rodar(args, { env = {}, antes = '', depois = '', semSettings = false, cwd = RAIZ } = {}) {
+  const fora = ['HADOUKEN_HOME', 'HADOUKEN_SETTINGS', 'CLAUDE_CONFIG_DIR', ...(semSettings ? ['HOME', 'USERPROFILE'] : [])];
+  const ambiente = semChaves({ ...process.env }, fora);
+  const alvo = semSettings ? { HOME: casaFalsa, USERPROFILE: casaFalsa } : { HADOUKEN_SETTINGS: arq };
+  Object.assign(ambiente, { HADOUKEN_HOME: homeDados }, alvo, env);
+  assert.ok(ambiente.HADOUKEN_HOME, 'HADOUKEN_HOME definido');
+  if (semSettings) {
+    assert.equal(ambiente.HADOUKEN_SETTINGS, undefined);
+    assert.ok(ambiente.HOME.startsWith(dir) && ambiente.USERPROFILE.startsWith(dir), 'pasta pessoal na pasta temporária');
+    const cfg = ambiente.CLAUDE_CONFIG_DIR;
+    if (typeof cfg === 'string' && path.isAbsolute(cfg)) assert.ok(cfg.startsWith(dir), 'CLAUDE_CONFIG_DIR na pasta temporária');
+  } else {
+    assert.ok(ambiente.HADOUKEN_SETTINGS, 'HADOUKEN_SETTINGS definido');
+    assert.ok(ambiente.HADOUKEN_SETTINGS.startsWith(dir), 'settings na pasta temporária');
+    if (REAL !== null) assert.notEqual(path.resolve(ambiente.HADOUKEN_SETTINGS).toLowerCase(), path.resolve(REAL).toLowerCase());
+  }
   const script = `${antes}\nimport { instalar } from ${JSON.stringify(URL_CLI)};\nawait instalar(process.argv.slice(1));\n${depois}`;
   const p = spawnSync(process.execPath, ['--input-type=module', '-e', script, '--', ...args], {
-    env: ambiente, encoding: 'utf8', timeout: 15_000, cwd: RAIZ,
+    env: ambiente, encoding: 'utf8', timeout: 15_000, cwd,
   });
   assert.equal(p.error, undefined, String(p.error));
   return p;
@@ -108,7 +132,71 @@ test('--aplicar: instala, código 0, mensagem sobre sessões abertas', () => {
   assert.equal(s.acao, 'instalar');
   assert.equal(s.backup, null);
   assert.match(s.mensagem, /sessões já abertas/);
+  // Elas rodam o comando novo na hora (a troca de comando pula o debounce),
+  // mas o gate as deixa vazias: não "continuam como estão".
+  assert.match(s.mensagem, /não ganham a barra/);
+  assert.match(s.mensagem, /na hora/);
+  assert.match(s.mensagem, /dicas de teclado do rodapé/);
+  assert.doesNotMatch(s.mensagem, /não mudam|como estão/);
   assert.deepEqual(JSON.parse(lerTexto()).statusLine, nossa());
+});
+
+test('CLAUDE_CONFIG_DIR absoluto: o arquivo é <CLAUDE_CONFIG_DIR>/settings.json, mostrado antes de gravar', () => {
+  const cfg = path.join(dir, 'config claude ç');
+  const alvo = path.join(cfg, 'settings.json');
+  let p = rodar([], { semSettings: true, env: { CLAUDE_CONFIG_DIR: cfg } });
+  assert.equal(p.status, 0, p.stderr);
+  let s = json(p);
+  assert.equal(s.acao, 'instalar');
+  assert.equal(s.arquivo, alvo);
+  assert.deepEqual(nomes(), []);
+  p = rodar(['--aplicar'], { semSettings: true, env: { CLAUDE_CONFIG_DIR: cfg } });
+  assert.equal(p.status, 0, p.stderr);
+  s = json(p);
+  assert.equal(s.acao, 'instalar');
+  assert.equal(s.arquivo, alvo);
+  assert.deepEqual(JSON.parse(fs.readFileSync(alvo, 'utf8')), { statusLine: nossa() });
+  // A casa falsa nunca nasce: nada caiu em <home>/.claude.
+  assert.deepEqual(nomes(), ['config claude ç']);
+});
+
+test('CLAUDE_CONFIG_DIR relativo ou vazio: config-dir-invalido, código 1, nada gravado em lugar nenhum', () => {
+  for (const cfg of ['cfg-relativo', '~/.claude', '', ' ']) {
+    for (const args of [[], ['--aplicar'], ['--aplicar', '--substituir'], ['--remover']]) {
+      const rotulo = `${JSON.stringify(cfg)} ${args.join(' ')}`;
+      const p = rodar(args, { semSettings: true, env: { CLAUDE_CONFIG_DIR: cfg }, cwd: dir });
+      assert.equal(p.status, 1, rotulo);
+      const s = json(p);
+      assert.equal(s.ok, false, rotulo);
+      assert.equal(s.motivo, 'config-dir-invalido', rotulo);
+      assert.match(s.mensagem, /CLAUDE_CONFIG_DIR/, rotulo);
+      assert.match(s.mensagem, /nada foi alterado/, rotulo);
+      assert.equal(s.arquivo, undefined, rotulo);
+    }
+  }
+  assert.deepEqual(nomes(), []);
+});
+
+test('HADOUKEN_SETTINGS vence CLAUDE_CONFIG_DIR na CLI', () => {
+  const p = rodar(['--aplicar'], { env: { CLAUDE_CONFIG_DIR: path.join(dir, 'cfg') } });
+  assert.equal(p.status, 0, p.stderr);
+  assert.equal(json(p).arquivo, arq);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('número que não regravaria igual: settings-numero-impreciso com mensagem fixa, arquivo intacto', () => {
+  const texto = '{\n  "id": 12345678901234567890,\n  "zero": -0\n}\n';
+  fs.writeFileSync(arq, texto);
+  for (const args of [[], ['--aplicar'], ['--aplicar', '--substituir']]) {
+    const p = rodar(args);
+    assert.equal(p.status, 1, args.join(' '));
+    const s = json(p);
+    assert.equal(s.motivo, 'settings-numero-impreciso');
+    assert.match(s.mensagem, /nada foi alterado/);
+    assert.equal(s.arquivo, arq);
+  }
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json']);
 });
 
 test('--aplicar com outra barra: conflito, código 1, nada muda', () => {
@@ -204,6 +292,8 @@ test('HADOUKEN_HOME com caractere de shell: caminho-inseguro, código 1, nada gr
     const s = json(p);
     assert.equal(s.motivo, 'caminho-inseguro', c);
     assert.equal(s.manual, undefined);
+    // A mensagem nomeia os executores reais e as classes invisíveis recusadas.
+    for (const termo of [/Git Bash/, /PowerShell/, /invisíve/]) assert.match(s.mensagem, termo, c);
   }
   assert.deepEqual(nomes(), []);
 });
@@ -279,4 +369,27 @@ test('skill instalar: todo comando citado é um dos quatro fixos', () => {
   assert.ok(citados.length >= 3);
   for (const c of citados) assert.ok(permitidos.has(c), c);
   assert.ok(citados.includes(`${base} --aplicar --substituir`));
+});
+
+test('skill instalar: as duas perguntas citam o arquivo alvo e avisam do CLAUDE_CONFIG_DIR', () => {
+  const texto = fs.readFileSync(SKILL, 'utf8');
+  const perguntas = [...texto.matchAll(/pergunta "([^"]*)"/g)].map((m) => m[1]);
+  assert.equal(perguntas.length, 2);
+  for (const q of perguntas) {
+    assert.ok(q.includes('<arquivo>'), q);
+    assert.ok(q.includes(AVISO_CONFIG), q);
+  }
+  assert.ok(perguntas[1].startsWith(FRASE_CONFLITO), perguntas[1]);
+  // O modelo troca o marcador pelo caminho que a CLI devolveu.
+  assert.ok(texto.includes('troque `<arquivo>` pelo valor exato do campo `arquivo`'));
+  assert.ok(!texto.includes('em `~/.claude/settings.json`. Só'), 'o alvo não é mais fixo em ~/.claude');
+  assert.ok(texto.includes('CLAUDE_CONFIG_DIR'));
+});
+
+test('skill instalar: sessões abertas descritas como a documentação diz, nunca "como estão"', () => {
+  const texto = fs.readFileSync(SKILL, 'utf8');
+  for (const errado of ['continuam como estão', 'seguem como estão', 'não mudam']) assert.ok(!texto.includes(errado), errado);
+  assert.ok(texto.includes('não ganham a barra'));
+  assert.ok(texto.includes('na hora'));
+  assert.ok(texto.includes('dicas de teclado do rodapé'));
 });

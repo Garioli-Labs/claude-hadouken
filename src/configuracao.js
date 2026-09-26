@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,7 +28,16 @@ import { DIR_BIN } from './shim.js';
 //   __proto__ e constructor, que o JSON.parse cria como chaves próprias e o
 //   espalhamento copia como dado. Limite do JSON do JavaScript, o mesmo que o
 //   Claude Code vê ao ler: chaves que são índices inteiros vêm primeiro,
-//   chave repetida fica com o último valor, e números saem na forma canônica.
+//   chave repetida fica com o último valor, e números saem na forma canônica
+//   (1.0 vira 1, 1E3 vira 1000, mesmo valor).
+// - Números que o JSON.parse + JSON.stringify não devolvem com o mesmo valor
+//   perdem fidelidade: inteiros acima de 2^53 perdem algarismos
+//   (12345678901234567890 sairia 12345678901234567000), -0 sai 0, 1e400
+//   sairia null e 1e-400 sairia 0. Esses arquivos não são regravados:
+//   numeroImpreciso compara o valor decimal exato de cada número do texto
+//   com o que o JSON.stringify escreveria e, havendo diferença, recusa com
+//   'settings-numero-impreciso'. A conferência cobre o texto inteiro, também
+//   a statusLine que sai: recusa a mais, nunca a menos.
 //
 // fs, os e crypto são usados pelos objetos padrão (nunca desestruturados): os
 // testes trocam fs.openSync, fs.renameSync e os.homedir nesses objetos.
@@ -59,14 +69,25 @@ const POSIX = process.platform !== 'win32';
 // o open não é seguido (ELOOP) e um FIFO não trava. No Windows o lstat antes
 // já recusou link e junção, e a checagem de dev/ino pega a troca.
 const ABRIR_LEITURA = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
-// Caminho que o shell leria diferente dentro de aspas duplas: " ` $ \ fecham
-// ou expandem no sh (o Claude Code pode usar o Git Bash no Windows), % e !
-// expandem no cmd, e controles, formato invisível (bidi, largura zero, tags),
-// surrogates soltos e separadores de linha quebram ou disfarçam a linha.
+// Caminho que o shell leria diferente dentro de aspas duplas. O Claude Code
+// roda o comando da barra por um sh no POSIX e, no Windows, pelo Git Bash ou,
+// quando o Git Bash não está instalado, pelo PowerShell. Dentro de aspas
+// duplas, " ` $ \ fecham ou expandem no sh e $ ` " no PowerShell; % e !
+// expandem no cmd (conservador: fica recusado também). Controles, formato
+// invisível (bidi, largura zero, tags), surrogates soltos e separadores de
+// linha quebram ou disfarçam a linha.
 const INSEGURO = /["`$\\%!\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
 const BOM = String.fromCodePoint(0xfeff);
-const UTF8_ESTRITO = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const FORMATO_NOVO = Object.freeze({ bom: false, eol: '\n', indent: 2 });
+// Um número do JSON: sinal, parte inteira, fração e expoente. NUMERO (fixo na
+// posição) lê o literal no texto; NUMERO_TODO confere o que o stringify dá.
+const NUMERO = /(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?/y;
+const NUMERO_TODO = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
+const ASPAS = 0x22;
+const BARRA_INVERTIDA = 0x5c;
+const MENOS = 0x2d;
+const ZERO = 0x30;
+const NOVE = 0x39;
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const falha = (motivo, codigo = null) => (codigo === null ? { ok: false, motivo } : { ok: false, motivo, codigo });
@@ -80,16 +101,35 @@ const esperar = (ms) => {
 };
 const somenteLeitura = (info) => (Number(info.mode) & 0o200) === 0;
 
-// Caminho do settings.json: HADOUKEN_SETTINGS (testes), resolvido contra o cwd,
-// ou <home>/.claude/settings.json. Sem home absoluta: null. Nunca lança.
+// Caminho do settings.json que o Claude Code lê, nesta ordem:
+// 1. HADOUKEN_SETTINGS (testes), resolvido contra o cwd;
+// 2. <CLAUDE_CONFIG_DIR>/settings.json quando essa variável está definida e é
+//    um caminho absoluto: com ela o Claude Code guarda ali settings, sessões e
+//    plugins. Definida mas relativa, vazia ou só espaços (nada disso é
+//    absoluto): 'config-dir-invalido', porque gravar em ~/.claude mudaria um
+//    arquivo que esse Claude Code não lê, e a documentação não diz como ele
+//    trata um valor relativo. O valor não é aparado nem tem ~ expandido (o
+//    shell já expandiu ao exportar). NUL não chega aqui: o ambiente do sistema
+//    corta o valor no NUL, e arquivoDe recusa NUL de qualquer forma;
+// 3. <home>/.claude/settings.json; sem home absoluta, 'sem-diretorio'.
+// Devolve { ok: true, arquivo } ou { ok: false, motivo }. Nunca lança.
+// Ressalva: com CLAUDE_CODE_SUBPROCESS_ENV_SCRUB o Claude Code tira
+// CLAUDE_CONFIG_DIR do ambiente dos comandos que roda, e este processo cai no
+// item 3; por isso a skill mostra o `arquivo` na pergunta antes de gravar.
+// dirDados() não segue CLAUDE_CONFIG_DIR: shims e comando ficam em
+// ~/.claude/hadouken (ou HADOUKEN_HOME).
 export function arquivoSettings() {
   try {
     const configurado = process.env.HADOUKEN_SETTINGS;
-    if (configurado) return path.resolve(configurado);
+    if (configurado) return { ok: true, arquivo: path.resolve(configurado) };
+    const pastaConfig = process.env.CLAUDE_CONFIG_DIR;
+    if (pastaConfig !== undefined) {
+      return path.isAbsolute(pastaConfig) ? { ok: true, arquivo: path.join(pastaConfig, 'settings.json') } : falha('config-dir-invalido');
+    }
     const home = os.homedir();
-    return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'settings.json') : null;
+    return typeof home === 'string' && path.isAbsolute(home) ? { ok: true, arquivo: path.join(home, '.claude', 'settings.json') } : falha('sem-diretorio');
   } catch {
-    return null;
+    return falha('sem-diretorio');
   }
 }
 
@@ -218,12 +258,10 @@ function lerSettings(arquivo) {
   if (info.size > BigInt(MAX_SETTINGS_BYTES)) return falha('settings-grande');
   const lido = lerBytes(arquivo, info);
   if (!lido.ok) return lido;
-  let texto;
-  try {
-    texto = UTF8_ESTRITO.decode(lido.bytes);
-  } catch {
-    return falha('settings-invalido');
-  }
+  // isUtf8 é estrito (sem surrogate codificado, forma longa ou sequência
+  // cortada) e não depende de ICU, ao contrário do TextDecoder com fatal.
+  if (!isUtf8(lido.bytes)) return falha('settings-invalido');
+  let texto = lido.bytes.toString('utf8');
   const bom = texto.startsWith(BOM);
   if (bom) texto = texto.slice(BOM.length);
   let settings;
@@ -233,7 +271,55 @@ function lerSettings(arquivo) {
     return falha('settings-invalido');
   }
   if (!ehObjeto(settings)) return falha('settings-invalido');
-  return { ok: true, existe: true, settings, bytes: lido.bytes, info, formato: formatoDe(texto, bom) };
+  return { ok: true, existe: true, settings, bytes: lido.bytes, texto, info, formato: formatoDe(texto, bom) };
+}
+
+// O valor decimal exato de um número casado por NUMERO ou NUMERO_TODO, numa
+// forma única: sinal, algarismos sem zeros nas pontas e expoente ("-0" fica
+// "-0"; 1.50 e 15e-1 dão o mesmo). Os zeros saem por laço, não por regex: um
+// literal de milhões de algarismos não vira tempo quadrático.
+function decimalExato([, sinal, inteira, fracao = '', expoente = '0']) {
+  const algarismos = inteira + fracao;
+  let ini = 0;
+  while (ini < algarismos.length && algarismos.charCodeAt(ini) === ZERO) ini++;
+  let fim = algarismos.length;
+  while (fim > ini && algarismos.charCodeAt(fim - 1) === ZERO) fim--;
+  if (ini === fim) return `${sinal}0`;
+  return `${sinal}${algarismos.slice(ini, fim)}e${Number(expoente) - fracao.length + (algarismos.length - fim)}`;
+}
+
+// Algum número do texto (JSON já validado pelo JSON.parse) sai do
+// JSON.stringify com outro valor decimal? Texto entre aspas é pulado inteiro
+// (com os escapes), então "-0" ou "1e400" dentro de uma string ou chave não
+// contam. Fora de strings, em JSON válido, só números começam com - ou
+// algarismo. Qualquer surpresa conta como impreciso: recusa, nunca grava.
+function numeroImpreciso(texto) {
+  try {
+    let i = 0;
+    while (i < texto.length) {
+      const c = texto.charCodeAt(i);
+      if (c === ASPAS) {
+        for (i++; i < texto.length; i++) {
+          const d = texto.charCodeAt(i);
+          if (d === BARRA_INVERTIDA) i++;
+          else if (d === ASPAS) break;
+        }
+        i++;
+      } else if (c === MENOS || (c >= ZERO && c <= NOVE)) {
+        NUMERO.lastIndex = i;
+        const lido = NUMERO.exec(texto);
+        if (lido === null) return true;
+        const regravado = NUMERO_TODO.exec(JSON.stringify(Number(lido[0])));
+        if (regravado === null || decimalExato(regravado) !== decimalExato(lido)) return true;
+        i = NUMERO.lastIndex;
+      } else {
+        i++;
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 // ---------------------------------------------------------------- escrita
@@ -451,14 +537,26 @@ function preparar(opcoes, comAgora) {
   return { ok: true, arquivo, agoraMs, lido, settings, proposto: p.valor, ...plano(settings, p.valor) };
 }
 
+// O que impede regravar um settings.json que existe: somente leitura, ou um
+// número que não sairia com o mesmo valor. null quando nada impede. Só é
+// chamado quando haveria o que gravar.
+function bloqueioDeEscrita(lido) {
+  if (!lido.existe) return null;
+  if (somenteLeitura(lido.info)) return falha('settings-somente-leitura');
+  if (numeroImpreciso(lido.texto)) return falha('settings-numero-impreciso');
+  return null;
+}
+
 // O plano para o arquivo, sem gravar nada (o "mostrar antes de gravar" da
 // skill): { ok: true, acao, atual, proposto } ou a falha que o aplicar daria
-// ('settings-somente-leitura' só quando haveria o que gravar).
+// ('settings-somente-leitura' e 'settings-numero-impreciso' só quando haveria
+// o que gravar).
 export function consultarStatusline(opcoes) {
   try {
     const c = preparar(opcoes, false);
     if (!c.ok) return c;
-    if (c.acao !== 'ja-instalado' && c.lido.existe && somenteLeitura(c.lido.info)) return falha('settings-somente-leitura');
+    const bloqueio = c.acao === 'ja-instalado' ? null : bloqueioDeEscrita(c.lido);
+    if (bloqueio !== null) return bloqueio;
     return { ok: true, acao: c.acao, atual: c.atual, proposto: c.proposto };
   } catch {
     return falha('erro-interno');
@@ -475,7 +573,8 @@ export function aplicarStatusline(opcoes) {
     if (!c.ok) return c;
     if (c.acao === 'ja-instalado') return { ok: true, acao: 'ja-instalado', backup: null };
     if (c.acao === 'conflito' && opcoes.substituir !== true) return falha('conflito');
-    if (c.lido.existe && somenteLeitura(c.lido.info)) return falha('settings-somente-leitura');
+    const bloqueio = bloqueioDeEscrita(c.lido);
+    if (bloqueio !== null) return bloqueio;
     const g = gravar(c.arquivo, c.lido, { ...c.settings, [CHAVE]: c.proposto }, c.agoraMs);
     if (!g.ok) return g;
     return { ok: true, acao: c.acao === 'conflito' ? 'substituir' : 'instalar', backup: g.backup };
@@ -493,7 +592,8 @@ export function removerStatusline(opcoes) {
     if (!c.ok) return c;
     if (c.acao === 'instalar') return { ok: true, acao: 'nao-instalado', backup: null };
     if (c.acao === 'conflito') return falha('outra-barra');
-    if (somenteLeitura(c.lido.info)) return falha('settings-somente-leitura');
+    const bloqueio = bloqueioDeEscrita(c.lido);
+    if (bloqueio !== null) return bloqueio;
     const { [CHAVE]: _removida, ...resto } = c.settings;
     const g = gravar(c.arquivo, c.lido, resto, c.agoraMs);
     return g.ok ? { ok: true, acao: 'remover', backup: g.backup } : g;
