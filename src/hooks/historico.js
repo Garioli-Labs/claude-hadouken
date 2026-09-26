@@ -5,9 +5,12 @@ import { idValido } from '../base.js';
 import { effortValido, sanear } from '../util.js';
 
 // Histórico de sessões do hook SessionEnd (spec 6.5): <dirDados>/historico.jsonl,
-// uma linha JSON por sessão encerrada, lida depois pelo relatório. Spec 8.1,
-// S1–S3 e adendo C da Task 7: cada campo é validado ou saneado aqui, e o
-// arquivo só é anexado se for arquivo regular de um nome só.
+// uma linha JSON por sessão encerrada. Nenhum código da v0.1.0 lê este
+// arquivo: ele fica gravado para os subprojetos seguintes (B, C e D da spec,
+// seção 1, ainda sem spec própria), e quem vier a lê-lo deve tratá-lo como
+// entrada não confiável (S1). Spec 8.1, S1–S3 e adendo C da Task 7: cada campo
+// é validado ou saneado aqui, e o arquivo só é anexado se for arquivo regular
+// de um nome só.
 //
 // fs é usado pelo objeto padrão de node:fs, nunca desestruturado: os testes
 // trocam lstatSync e renameSync nesse objeto para simular corridas.
@@ -74,9 +77,11 @@ function modeloLimpo(model) {
 // at (agora), session_id, cwd (do stdin do SessionEnd, saneado, 200 pontos de
 // código), model e effort (da sessão em estado.json, achada por Object.hasOwn
 // no estado validado), five_hour e seven_day (as janelas validadas do
-// instantâneo), leitura_at (o `at` desse instantâneo, para o relatório saber a
-// idade da leitura) e reason (da lista, senão 'outro'). Campo que não passa
-// vira null. Nunca lança.
+// instantâneo, cada uma com o `at` da própria leitura, ou at null quando
+// estado.json está no formato antigo, de um `at` só), leitura_at (o `at`
+// desse instantâneo, o da leitura mais antiga entre as janelas: dá a idade da
+// leitura na hora do encerramento) e reason (da lista, senão 'outro').
+// Campo que não passa vira null. Nunca lança.
 export function registroHistorico({ entrada, estadoBruto, sessionId, agoraMs } = {}) {
   const registro = {
     at: numeroFinito(agoraMs) && Math.abs(agoraMs) <= DATA_MAX_MS ? new Date(agoraMs).toISOString() : null,

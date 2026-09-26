@@ -390,10 +390,11 @@ afterEach(() => {
 const arqHist = () => path.join(dir, ARQ_HISTORICO);
 const arqVelho = () => path.join(dir, ARQ_HISTORICO_VELHO);
 const linhas = (p) => fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+// Formato de estado.json desde I-2: cada janela com o `at` da própria leitura.
 const estadoBruto = (sessoes = {}) => ({
   versao: 1, at: iso(AGORA - 5 * 60_000),
-  five_hour: { used_percentage: 42, resets_at: R5 },
-  seven_day: { used_percentage: 48, resets_at: R7 },
+  five_hour: { used_percentage: 42, resets_at: R5, at: iso(AGORA - 5 * 60_000) },
+  seven_day: { used_percentage: 48, resets_at: R7, at: iso(AGORA - 2 * 60_000) },
   sessoes,
 });
 const sessao = (extra = {}) => ({ at: iso(AGORA - 60_000), model: 'Opus 5.5', effort: 'high', cwd: 'C:/x', context_pct: 30, cache_hit: 0.9, ...extra });
@@ -411,11 +412,17 @@ test('registroHistorico: campos validados da sessão e da leitura', () => {
     cwd: 'C:/projetos/proj x',
     model: 'Opus 5.5',
     effort: 'high',
-    five_hour: { used_percentage: 42, resets_at: R5 },
-    seven_day: { used_percentage: 48, resets_at: R7 },
+    five_hour: { used_percentage: 42, resets_at: R5, at: iso(AGORA - 5 * 60_000) },
+    seven_day: { used_percentage: 48, resets_at: R7, at: iso(AGORA - 2 * 60_000) },
     leitura_at: iso(AGORA - 5 * 60_000),
     reason: 'logout',
   });
+});
+
+test('registroHistorico: estado.json do formato antigo (um at só no topo) grava as janelas com at null', () => {
+  const antigo = { versao: 1, at: iso(AGORA - 5 * 60_000), five_hour: { used_percentage: 42, resets_at: R5 }, seven_day: null, sessoes: {} };
+  const r = registroHistorico({ entrada: {}, estadoBruto: antigo, sessionId: 's1', agoraMs: AGORA });
+  assert.deepEqual([r.five_hour, r.seven_day, r.leitura_at], [{ used_percentage: 42, resets_at: R5, at: null }, null, iso(AGORA - 5 * 60_000)]);
 });
 
 test('registroHistorico: motivos conhecidos ficam, o resto vira outro', () => {

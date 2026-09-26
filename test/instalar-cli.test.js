@@ -408,7 +408,8 @@ test('skill instalar: só o usuário a invoca, sem $ARGUMENTS, pergunta fixa no 
 
 test('skill instalar: todo comando citado é um dos quatro fixos', () => {
   const texto = fs.readFileSync(SKILL, 'utf8');
-  const base = 'node ~/.claude/hadouken/bin/cli.mjs instalar';
+  // "$HOME/..." entre aspas, nunca ~/...: o PowerShell não expande ~ (I-3).
+  const base = 'node "$HOME/.claude/hadouken/bin/cli.mjs" instalar';
   const permitidos = new Set([base, `${base} --aplicar`, `${base} --aplicar --substituir`, `${base} --remover`]);
   const citados = [...texto.matchAll(/`([^`]*)`/g)].map((x) => x[1]).filter((c) => /\bnode\b|cli\.mjs/.test(c));
   assert.ok(citados.length >= 3);
