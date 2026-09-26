@@ -782,7 +782,7 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 | D. GitHub guards | Guards for pushes and for CI on documentation-only changes, plus improvement suggestions. | Planned |
 
 - **v0.2.0** (in progress) = a prettier bar: percentages also as little squares (`▰▰▰▱▱▱▱▱`), the weekly pace mark on the 7-day bar, colours for ctx and cache, and an easier-to-read `/consumo`.
-- **v0.3.0** = notifications on WhatsApp, on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
+- **v0.3.0** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
 - **v1.0** = A + B + C + D.
 
 ---

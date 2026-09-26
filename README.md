@@ -780,7 +780,7 @@ O plugin completo tem quatro subprojetos, cada um com spec, plano e revisão pr�
 | D. Guardas do GitHub | Guardas de pushes e de CI em mudança só de documentação, e sugestões de melhoria. | Planejado |
 
 - **v0.2.0** (em andamento) = barra mais bonita: as porcentagens também em quadradinhos (`▰▰▰▱▱▱▱▱`), a marca do ritmo semanal na barrinha de 7 dias, cores para ctx e cache e um `/consumo` mais fácil de ler.
-- **v0.3.0** = avisos no WhatsApp, no [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) ou nos dois, à escolha do usuário (pushes e tarefas concluídas). Ganha spec própria, e a segurança é pré-condição: a credencial fica fora do repo, a ativação é por projeto e as mensagens levam o mínimo, sem código, caminhos pessoais nem segredos.
+- **v0.3.0** = avisos no [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (prioridade), no WhatsApp ou nos dois, à escolha do usuário (pushes e tarefas concluídas). Ganha spec própria, e a segurança é pré-condição: a credencial fica fora do repo, a ativação é por projeto e as mensagens levam o mínimo, sem código, caminhos pessoais nem segredos.
 - **v1.0** = A + B + C + D.
 
 ---
