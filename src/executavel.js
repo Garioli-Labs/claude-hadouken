@@ -28,6 +28,11 @@ const WIN = process.platform === 'win32';
 // Nome simples: começa por letra ou dígito, sem separador de pasta nem ":".
 const NOME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
+
+// Caminho absoluto completo: no Windows, com unidade ou UNC. Um caminho
+// enraizado sem unidade (\dir\gh.exe) é completado pelo libuv com a unidade
+// do cwd e por isso não conta como absoluto aqui.
+export const absolutoCompleto = (p) => (typeof p === 'string' && (WIN ? COMPLETO_WIN.test(p) : p.startsWith('/')));
 const CACHE_MAX = 32;
 const cache = new Map();
 
@@ -54,6 +59,10 @@ function entradas(valor) {
   return lista;
 }
 
+// Limite conhecido: o cwd escrito como UNC de loopback (\\localhost\C$\...,
+// \\127.0.0.1\C$, \\?\UNC\localhost\C$) não é reconhecido como o cwd, porque o
+// realpath mantém a forma UNC. Só chega aqui por uma entrada que o próprio
+// usuário pôs no PATH.
 const chaveDir = (d) => (WIN ? path.resolve(d).toLowerCase() : path.resolve(d));
 
 function realOuNull(d) {

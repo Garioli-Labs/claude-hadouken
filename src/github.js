@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { dirDados, gravarJsonAtomico, instante, lerJson } from './estado.js';
-import { resolverExecutavel } from './executavel.js';
+import { resolverExecutavel, absolutoCompleto } from './executavel.js';
 
 // Leitor do consumo de GitHub Actions para o /consumo (spec 6.7; 8.1 S2, S5,
 // S9; addendum de segurança da Task 9). O plugin existe para economizar
@@ -252,12 +252,14 @@ function opcoesExecutor(opcoes) {
 }
 
 // Programa que o executor roda (fix round 1 da Task 10, Critical 1): caminho
-// absoluto como veio (os testes injetam o próprio node); nome solto
+// absoluto completo como veio (os testes injetam o próprio node; no Windows
+// exige unidade ou UNC, e um enraizado sem unidade é recusado); nome solto
 // resolvido pelo PATH, por caminho absoluto, nunca pelo cwd (executavel.js);
 // caminho relativo com pasta, que dependeria do cwd, é recusado. null → 'gh
 // ausente', sem criar processo.
 function programa(executavel) {
-  if (path.isAbsolute(executavel)) return executavel;
+  if (absolutoCompleto(executavel)) return executavel;
+  if (path.isAbsolute(executavel)) return null;
   if (/[\\/]/.test(executavel)) return null;
   return resolverExecutavel(executavel);
 }
