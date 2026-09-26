@@ -1,0 +1,863 @@
+import { test, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  arquivoSettings,
+  comandoStatusline,
+  statusLineProposta,
+  planejarStatusline,
+  consultarStatusline,
+  aplicarStatusline,
+  removerStatusline,
+  MAX_SETTINGS_BYTES,
+  MAX_BACKUPS,
+} from '../src/configuracao.js';
+
+// Instalador da statusline (spec 8.1 S7 e 8.2; task-11-security.md). O
+// settings.json guarda permissões, hooks e às vezes segredos em `env`: é a
+// gravação mais sensível do plugin. Todo teste usa HADOUKEN_SETTINGS e
+// HADOUKEN_HOME numa pasta temporária; o settings.json de verdade nunca é lido
+// nem gravado aqui (o beforeEach confere).
+
+const SO_POSIX = process.platform === 'win32' && 'modo de arquivo é do POSIX';
+// No Windows a junção não pede privilégio; no POSIX um symlink de pasta também não.
+const LINK_PASTA = process.platform === 'win32' ? 'junction' : 'dir';
+const REAL = (() => {
+  try { return path.join(os.homedir(), '.claude', 'settings.json'); } catch { return null; }
+})();
+const mesmoCaminho = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+let dir;
+let arq;
+let homeDados;
+const envAntes = { home: process.env.HADOUKEN_HOME, settings: process.env.HADOUKEN_SETTINGS };
+
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk cfg ç '));
+  homeDados = path.join(dir, 'hadouken');
+  arq = path.join(dir, 'settings.json');
+  process.env.HADOUKEN_HOME = homeDados;
+  process.env.HADOUKEN_SETTINGS = arq;
+  // Guarda: o arquivo alvo é o temporário, nunca o do usuário.
+  assert.equal(arquivoSettings(), arq);
+  if (REAL !== null) assert.ok(!mesmoCaminho(path.resolve(arquivoSettings()), path.resolve(REAL)));
+});
+
+afterEach(() => {
+  for (const [chave, valor] of [['HADOUKEN_HOME', envAntes.home], ['HADOUKEN_SETTINGS', envAntes.settings]]) {
+    if (valor === undefined) delete process.env[chave];
+    else process.env[chave] = valor;
+  }
+  // Somente leitura no Windows impede o rmSync: devolve a escrita antes.
+  const liberar = (p) => {
+    for (const e of fs.readdirSync(p, { withFileTypes: true })) {
+      const c = path.join(p, e.name);
+      try {
+        const info = fs.lstatSync(c);
+        if (info.isFile()) fs.chmodSync(c, 0o644);
+        else if (info.isDirectory()) liberar(c);
+      } catch { /* segue */ }
+    }
+  };
+  try { liberar(dir); } catch { /* segue */ }
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+const alvoShim = () => path.join(homeDados, 'bin', 'statusline.mjs').split(path.sep).join('/');
+const comandoEsperado = () => `node "${alvoShim()}"`;
+const nossa = () => ({ type: 'command', command: comandoEsperado(), padding: 0 });
+const bonito = (v, indent = 2) => `${JSON.stringify(v, null, indent)}\n`;
+const ler = () => fs.readFileSync(arq);
+const lerTexto = () => fs.readFileSync(arq, 'utf8');
+const nomes = () => fs.readdirSync(dir).sort();
+const backups = () => nomes().filter((n) => n.startsWith('settings.json.bak-hadouken-'));
+const temporarios = () => nomes().filter((n) => n.endsWith('.tmp'));
+const NOME_TMP = /\.hadouken-[0-9a-f]{12}\.tmp$/;
+
+// Symlink de arquivo no Windows pede modo desenvolvedor; sem permissão o teste
+// é pulado em vez de passar sem provar nada.
+function link(t, alvo, caminho, tipo) {
+  try {
+    fs.symlinkSync(alvo, caminho, tipo);
+    return true;
+  } catch (e) {
+    t.skip(`symlink indisponivel aqui (${e.code})`);
+    return false;
+  }
+}
+
+// Troca fs[nome] por um espião até a primeira chamada que casa com `casa`;
+// nessa chamada restaura o original, roda `antes` e segue. Devolve o restaurador.
+function espiar(nome, casa, antes) {
+  const original = fs[nome];
+  let disparou = false;
+  fs[nome] = function espiao(...args) {
+    if (!disparou && casa(...args)) {
+      disparou = true;
+      fs[nome] = original;
+      antes(...args);
+    }
+    return original.apply(this, args);
+  };
+  return () => {
+    fs[nome] = original;
+    return disparou;
+  };
+}
+
+// ---------------------------------------------------------------- ambiente
+
+test('ambiente: HADOUKEN_SETTINGS e HADOUKEN_HOME apontam para a pasta temporária', () => {
+  assert.equal(process.env.HADOUKEN_SETTINGS, arq);
+  assert.equal(process.env.HADOUKEN_HOME, homeDados);
+  assert.ok(arq.startsWith(os.tmpdir()));
+  assert.equal(arquivoSettings(), arq);
+});
+
+test('arquivoSettings: sem HADOUKEN_SETTINGS usa <home>/.claude/settings.json; sem home, null', () => {
+  const original = os.homedir;
+  const falso = path.resolve(os.tmpdir(), 'hdk-home-falso-nunca-criado');
+  delete process.env.HADOUKEN_SETTINGS;
+  try {
+    os.homedir = () => falso;
+    assert.equal(arquivoSettings(), path.join(falso, '.claude', 'settings.json'));
+    os.homedir = () => { throw new Error('sem home'); };
+    assert.equal(arquivoSettings(), null);
+    os.homedir = () => 'relativo';
+    assert.equal(arquivoSettings(), null);
+  } finally {
+    os.homedir = original;
+    process.env.HADOUKEN_SETTINGS = arq;
+  }
+  assert.equal(fs.existsSync(falso), false);
+});
+
+test('arquivoSettings: HADOUKEN_SETTINGS relativo vira absoluto', () => {
+  process.env.HADOUKEN_SETTINGS = path.join('rel', 'settings.json');
+  assert.equal(arquivoSettings(), path.resolve('rel', 'settings.json'));
+});
+
+// ---------------------------------------------------------------- comando
+
+test('comando: node "<dirDados>/bin/statusline.mjs", aspas e barras normais', () => {
+  const r = comandoStatusline();
+  assert.deepEqual(r, { ok: true, comando: comandoEsperado() });
+  assert.match(r.comando, /^node ".*\/hadouken\/bin\/statusline\.mjs"$/);
+  assert.ok(!r.comando.includes('\\'));
+  assert.deepEqual(statusLineProposta(), { ok: true, valor: nossa() });
+});
+
+test('comando: espaços, acentos e o que as aspas duplas neutralizam são aceitos', () => {
+  process.env.HADOUKEN_HOME = path.join(dir, "Lucas Garioli ç ~x (1) & 'a' ; # ^ é");
+  const alvo = path.join(process.env.HADOUKEN_HOME, 'bin', 'statusline.mjs').split(path.sep).join('/');
+  assert.deepEqual(comandoStatusline(), { ok: true, comando: `node "${alvo}"` });
+});
+
+// Claude Code pode rodar o comando por um shell POSIX (Git Bash no Windows)
+// ou pelo cmd: dentro de aspas duplas, " ` $ \ fecham ou expandem no sh, % e !
+// expandem no cmd, e controles (inclusive os invisíveis de formato e os
+// separadores de linha) quebram ou disfarçam a linha.
+const PROIBIDOS = [
+  ['aspas', '"'], ['crase', '`'], ['cifrão', '$'], ['porcento', '%'], ['exclamação', '!'],
+  ['LF', '\n'], ['CR', '\r'], ['TAB', '\t'], ['SOH', String.fromCodePoint(0x01)], ['ESC', String.fromCodePoint(0x1b)],
+  ['DEL', String.fromCodePoint(0x7f)], ['NEL', String.fromCodePoint(0x85)], ['CSI de 8 bits', String.fromCodePoint(0x9b)],
+  ['RLO bidi', String.fromCodePoint(0x202e)], ['LS', String.fromCodePoint(0x2028)], ['PS', String.fromCodePoint(0x2029)],
+  ['ZWSP', String.fromCodePoint(0x200b)], ['BOM', String.fromCodePoint(0xfeff)], ['tag', String.fromCodePoint(0xe0041)],
+];
+
+test('comando: cada caractere que um shell interpretaria recusa com caminho-inseguro', () => {
+  for (const [nome, c] of PROIBIDOS) {
+    process.env.HADOUKEN_HOME = path.join(dir, `pasta${c}dados`);
+    assert.deepEqual(comandoStatusline(), { ok: false, motivo: 'caminho-inseguro' }, nome);
+    assert.deepEqual(statusLineProposta(), { ok: false, motivo: 'caminho-inseguro' }, nome);
+    assert.deepEqual(planejarStatusline({}), { ok: false, motivo: 'caminho-inseguro' }, nome);
+  }
+});
+
+test('caminho inseguro: aplicar e remover não tocam no settings.json', () => {
+  const original = bonito({ permissions: { allow: [] } });
+  fs.writeFileSync(arq, original);
+  for (const [nome, c] of PROIBIDOS) {
+    process.env.HADOUKEN_HOME = path.join(dir, `pasta${c}dados`);
+    assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: false, motivo: 'caminho-inseguro' }, nome);
+    assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), { ok: false, motivo: 'caminho-inseguro' }, nome);
+    assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: false, motivo: 'caminho-inseguro' }, nome);
+  }
+  assert.equal(lerTexto(), original);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('barra invertida no nome de pasta: recusada no POSIX (continua \\ depois da conversão)', { skip: process.platform === 'win32' && 'no Windows \\ é separador' }, () => {
+  process.env.HADOUKEN_HOME = path.join(dir, 'a\\b');
+  assert.deepEqual(comandoStatusline(), { ok: false, motivo: 'caminho-inseguro' });
+});
+
+test('barra invertida no Windows é separador: vira / e o comando é aceito', { skip: process.platform !== 'win32' && 'só no Windows \\ é separador' }, () => {
+  process.env.HADOUKEN_HOME = `${dir}\\a\\b`;
+  const r = comandoStatusline();
+  assert.equal(r.ok, true);
+  assert.ok(!r.comando.includes('\\'));
+  assert.ok(r.comando.endsWith('/a/b/bin/statusline.mjs"'));
+});
+
+test('sem home: sem-diretorio em comando, planejar e aplicar, sem I/O', () => {
+  const original = os.homedir;
+  delete process.env.HADOUKEN_HOME;
+  try {
+    os.homedir = () => { throw new Error('sem home'); };
+    assert.deepEqual(comandoStatusline(), { ok: false, motivo: 'sem-diretorio' });
+    assert.deepEqual(planejarStatusline({}), { ok: false, motivo: 'sem-diretorio' });
+    assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'sem-diretorio' });
+  } finally {
+    os.homedir = original;
+    process.env.HADOUKEN_HOME = homeDados;
+  }
+  assert.deepEqual(nomes(), []);
+});
+
+// ---------------------------------------------------------------- planejar
+
+test('planejar: instalar, já instalado e conflito', () => {
+  for (const s of [{}, null, undefined, { permissions: {} }]) {
+    const p = planejarStatusline(s);
+    assert.deepEqual(p, { ok: true, acao: 'instalar', atual: null, proposto: nossa() });
+  }
+  assert.equal(planejarStatusline({ statusLine: nossa() }).acao, 'ja-instalado');
+  // Comando exato decide; padding ou outras chaves do usuário não importam.
+  assert.equal(planejarStatusline({ statusLine: { ...nossa(), padding: 2, extra: true } }).acao, 'ja-instalado');
+  const outra = { type: 'command', command: 'outra' };
+  assert.deepEqual(planejarStatusline({ statusLine: outra }), { ok: true, acao: 'conflito', atual: outra, proposto: nossa() });
+});
+
+test('planejar: qualquer statusLine que não seja exatamente a nossa é conflito', () => {
+  const variantes = [
+    { type: 'command', command: 'node "/outra/copia/hadouken/bin/statusline.mjs"' },
+    { type: 'command', command: `node ${alvoShim()}` },
+    { type: 'command', command: `${comandoEsperado()} ` },
+    { type: 'command', command: comandoEsperado().toUpperCase() },
+    { type: 'static', command: comandoEsperado() },
+    { command: comandoEsperado() },
+    'texto', 0, null, false, [], [nossa()],
+  ];
+  for (const v of variantes) {
+    assert.equal(planejarStatusline({ statusLine: v }).acao, 'conflito', JSON.stringify(v));
+  }
+});
+
+test('planejar: só chaves próprias contam (__proto__ e protótipo herdado não instalam nem conflitam)', () => {
+  const doJson = JSON.parse(`{"__proto__": {"statusLine": ${JSON.stringify(nossa())}}}`);
+  assert.ok(Object.hasOwn(doJson, '__proto__'));
+  assert.equal(planejarStatusline(doJson).acao, 'instalar');
+  const herdado = Object.create({ statusLine: nossa() });
+  assert.equal(planejarStatusline(herdado).acao, 'instalar');
+  const linhaHerdada = { statusLine: Object.create({ type: 'command', command: comandoEsperado() }) };
+  assert.equal(planejarStatusline(linhaHerdada).acao, 'conflito');
+  // Cada campo conta sozinho: tipo herdado com comando próprio, e o contrário.
+  const tipoHerdado = Object.assign(Object.create({ type: 'command' }), { command: comandoEsperado() });
+  assert.equal(planejarStatusline({ statusLine: tipoHerdado }).acao, 'conflito');
+  const comandoHerdado = Object.assign(Object.create({ command: comandoEsperado() }), { type: 'command' });
+  assert.equal(planejarStatusline({ statusLine: comandoHerdado }).acao, 'conflito');
+  assert.equal({}.statusLine, undefined);
+});
+
+test('planejar: topo que não é objeto é settings-invalido; nunca lança', () => {
+  for (const s of [[], [{}], 'x', 3, true]) {
+    assert.deepEqual(planejarStatusline(s), { ok: false, motivo: 'settings-invalido' }, JSON.stringify(s));
+  }
+  const hostil = new Proxy({}, {
+    getOwnPropertyDescriptor() { throw new Error('C:\\segredo'); },
+    get() { throw new Error('C:\\segredo'); },
+    has() { throw new Error('C:\\segredo'); },
+  });
+  assert.deepEqual(planejarStatusline(hostil), { ok: false, motivo: 'settings-invalido' });
+});
+
+// ---------------------------------------------------------------- aplicar
+
+test('aplicar: preserva as outras chaves e a ordem, grava bonito com \\n final e faz backup dos bytes', () => {
+  const original = { permissions: { defaultMode: 'auto', allow: ['Bash(npm:*)'] }, hooks: { X: [] }, env: { SEGREDO: 'nao-mexer' } };
+  const texto = bonito(original);
+  fs.writeFileSync(arq, texto);
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  assert.deepEqual(r, { ok: true, acao: 'instalar', backup: `${arq}.bak-hadouken-1` });
+  assert.equal(lerTexto(), bonito({ ...original, statusLine: nossa() }));
+  assert.deepEqual(Object.keys(JSON.parse(lerTexto())), ['permissions', 'hooks', 'env', 'statusLine']);
+  assert.deepEqual(fs.readFileSync(r.backup), Buffer.from(texto));
+  assert.deepEqual(temporarios(), []);
+});
+
+test('aplicar: conflito sem substituir não altera nada nem cria backup', () => {
+  const original = JSON.stringify({ statusLine: { type: 'command', command: 'outra' } });
+  fs.writeFileSync(arq, original);
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'conflito' });
+  assert.equal(lerTexto(), original);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('aplicar: conflito com substituir troca a statusLine no mesmo lugar, com backup', () => {
+  const original = { a: 1, statusLine: { type: 'command', command: 'outra', padding: 1 }, b: [2] };
+  const texto = bonito(original);
+  fs.writeFileSync(arq, texto);
+  const r = aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 7 });
+  assert.deepEqual(r, { ok: true, acao: 'substituir', backup: `${arq}.bak-hadouken-7` });
+  assert.equal(lerTexto(), bonito({ a: 1, statusLine: nossa(), b: [2] }));
+  assert.deepEqual(fs.readFileSync(r.backup), Buffer.from(texto));
+});
+
+test('aplicar: já instalado não grava nada (nem com substituir)', () => {
+  const texto = bonito({ x: 1, statusLine: nossa() });
+  fs.writeFileSync(arq, texto);
+  const antes = fs.statSync(arq, { bigint: true });
+  for (const substituir of [false, true]) {
+    assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir, agoraMs: 1 }), { ok: true, acao: 'ja-instalado', backup: null });
+  }
+  const depois = fs.statSync(arq, { bigint: true });
+  assert.equal(depois.mtimeNs, antes.mtimeNs);
+  assert.equal(depois.ino, antes.ino);
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('aplicar: settings.json ausente é criado (e a pasta também), sem backup', () => {
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  assert.deepEqual(r, { ok: true, acao: 'instalar', backup: null });
+  assert.equal(lerTexto(), bonito({ statusLine: nossa() }));
+  const fundo = path.join(dir, 'nova', 'pasta', 'settings.json');
+  assert.deepEqual(aplicarStatusline({ arquivo: fundo, substituir: false, agoraMs: 1 }), { ok: true, acao: 'instalar', backup: null });
+  assert.equal(fs.readFileSync(fundo, 'utf8'), bonito({ statusLine: nossa() }));
+  assert.deepEqual(temporarios(), []);
+});
+
+test('aplicar e remover: JSON inválido, topo não objeto e vazio nunca são sobrescritos', () => {
+  for (const texto of ['{ quebrado', '[]', 'null', '"texto"', '3', '', '{"a":1}{"b":2}', '{"a":1,}']) {
+    fs.writeFileSync(arq, texto);
+    for (const substituir of [false, true]) {
+      assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir, agoraMs: 1 }), { ok: false, motivo: 'settings-invalido' }, texto);
+    }
+    assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), { ok: false, motivo: 'settings-invalido' }, texto);
+    assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: false, motivo: 'settings-invalido' }, texto);
+    assert.equal(lerTexto(), texto);
+    assert.deepEqual(nomes(), ['settings.json']);
+  }
+});
+
+test('aplicar: bytes que não são UTF-8 (ex.: é em Latin-1) são settings-invalido, nunca regravados com U+FFFD', () => {
+  const bytes = Buffer.concat([Buffer.from('{"nome":"Jos'), Buffer.from([0xe9]), Buffer.from('"}\n')]);
+  fs.writeFileSync(arq, bytes);
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'settings-invalido' });
+  assert.deepEqual(ler(), bytes);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('aplicar: arquivo de 5 MB é settings-grande e fica intacto', () => {
+  const texto = `{"x":"${'a'.repeat(5 * 1024 * 1024)}"}`;
+  fs.writeFileSync(arq, texto);
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: false, motivo: 'settings-grande' });
+  assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: false, motivo: 'settings-grande' });
+  assert.equal(fs.statSync(arq).size, texto.length);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('aplicar: arquivo acima do teto é recusado pelo lstat, sem nem ser aberto', () => {
+  fs.writeFileSync(arq, `{"x":"${'a'.repeat(MAX_SETTINGS_BYTES)}"}`);
+  const original = fs.openSync;
+  let aberturas = 0;
+  fs.openSync = function (p, ...resto) {
+    if (p === arq) aberturas++;
+    return original.call(this, p, ...resto);
+  };
+  try {
+    assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'settings-grande' });
+  } finally {
+    fs.openSync = original;
+  }
+  assert.equal(aberturas, 0);
+});
+
+test('aplicar: o teto é 4 MiB exatos (no teto aceita, um byte acima recusa)', () => {
+  assert.equal(MAX_SETTINGS_BYTES, 4 * 1024 * 1024);
+  const comTamanho = (n) => `{"x":"${'a'.repeat(n - 8)}"}`;
+  fs.writeFileSync(arq, comTamanho(MAX_SETTINGS_BYTES + 1));
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'settings-grande' });
+  fs.writeFileSync(arq, comTamanho(MAX_SETTINGS_BYTES));
+  assert.equal(fs.statSync(arq).size, MAX_SETTINGS_BYTES);
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 2 });
+  assert.equal(r.ok, true);
+  assert.equal(JSON.parse(lerTexto()).x.length, MAX_SETTINGS_BYTES - 8);
+});
+
+test('aplicar: BOM é aceito e mantido; o backup guarda os bytes com BOM', () => {
+  const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+  const corpo = bonito({ model: 'opus' });
+  const bytes = Buffer.concat([bom, Buffer.from(corpo)]);
+  fs.writeFileSync(arq, bytes);
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  assert.equal(r.ok, true);
+  const novo = ler();
+  assert.deepEqual(novo.subarray(0, 3), bom);
+  assert.equal(novo.subarray(3).toString('utf8'), bonito({ model: 'opus', statusLine: nossa() }));
+  assert.deepEqual(fs.readFileSync(r.backup), bytes);
+});
+
+test('aplicar: indentação do original é mantida (tab, 4 espaços); minificado vira 2 espaços; CRLF é mantido', () => {
+  const casos = [
+    [JSON.stringify({ a: { b: 1 } }, null, '\t'), '\t', '\n'],
+    [JSON.stringify({ a: { b: 1 } }, null, 4), 4, '\n'],
+    [JSON.stringify({ a: { b: 1 } }), 2, '\n'],
+    [JSON.stringify({ a: { b: 1 } }, null, 2).replace(/\n/g, '\r\n'), 2, '\r\n'],
+    [JSON.stringify({ a: { b: 1 } }, null, '\t').replace(/\n/g, '\r\n'), '\t', '\r\n'],
+  ];
+  let ms = 1;
+  for (const [texto, indent, eol] of casos) {
+    fs.writeFileSync(arq, texto);
+    assert.equal(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: ms++ }).ok, true);
+    const esperado = `${JSON.stringify({ a: { b: 1 }, statusLine: nossa() }, null, indent)}\n`.replace(/\n/g, eol);
+    assert.equal(lerTexto(), esperado, JSON.stringify(texto));
+  }
+});
+
+test('aplicar: chaves __proto__ e constructor sobrevivem byte a byte e nada vaza para o protótipo', () => {
+  const texto = [
+    '{',
+    '  "__proto__": {',
+    '    "statusLine": {',
+    '      "type": "command",',
+    '      "command": "x"',
+    '    }',
+    '  },',
+    '  "constructor": {',
+    '    "prototype": {',
+    '      "polu": 1',
+    '    }',
+    '  },',
+    '  "hooks": {',
+    '    "__proto__": {',
+    '      "a": 1',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  fs.writeFileSync(arq, texto);
+  assert.equal(consultarStatusline({ arquivo: arq }).acao, 'instalar');
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  assert.equal(r.ok, true);
+  const bloco = JSON.stringify(nossa(), null, 2).replace(/\n/g, '\n  ');
+  assert.equal(lerTexto(), texto.replace(/\n}\n$/, `,\n  "statusLine": ${bloco}\n}\n`));
+  assert.equal({}.statusLine, undefined);
+  assert.equal({}.polu, undefined);
+  assert.equal({}.a, undefined);
+  // E sai de novo sem levar as chaves perigosas junto.
+  assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 2 }).acao, 'remover');
+  assert.equal(lerTexto(), texto);
+});
+
+test('aplicar: aninhamento que o JSON.stringify não aguenta vira serializacao, nada gravado', () => {
+  const n = 200_000;
+  const texto = `{"a":${'['.repeat(n)}${']'.repeat(n)}}`;
+  fs.writeFileSync(arq, texto);
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'serializacao' });
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('aplicar: argumentos inválidos devolvem argumentos, nunca lançam', () => {
+  const casos = [
+    undefined, null, {}, { arquivo: 5, agoraMs: 1 }, { arquivo: arq }, { arquivo: arq, agoraMs: Number.NaN },
+    { arquivo: arq, agoraMs: -1 }, { arquivo: arq, agoraMs: 1.5 }, { arquivo: arq, agoraMs: 2 ** 60 },
+    { arquivo: 'relativo/settings.json', agoraMs: 1 }, { arquivo: `${arq}\0x`, agoraMs: 1 }, { arquivo: '', agoraMs: 1 },
+  ];
+  for (const c of casos) {
+    assert.deepEqual(aplicarStatusline(c), { ok: false, motivo: 'argumentos' }, JSON.stringify(c));
+    assert.deepEqual(removerStatusline(c), { ok: false, motivo: 'argumentos' }, JSON.stringify(c));
+  }
+  assert.deepEqual(consultarStatusline({ arquivo: 5 }), { ok: false, motivo: 'argumentos' });
+  assert.deepEqual(consultarStatusline(), { ok: false, motivo: 'argumentos' });
+  assert.deepEqual(nomes(), []);
+});
+
+// ---------------------------------------------------------------- links e tipos
+
+test('settings.json como symlink de arquivo: settings-link, link e alvo intactos', (t) => {
+  const alvo = path.join(dir, 'dotfiles-settings.json');
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(alvo, texto);
+  if (!link(t, alvo, arq, 'file')) return;
+  assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: false, motivo: 'settings-link' });
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: false, motivo: 'settings-link' });
+  assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), { ok: false, motivo: 'settings-link' });
+  assert.ok(fs.lstatSync(arq).isSymbolicLink());
+  assert.equal(fs.readFileSync(alvo, 'utf8'), texto);
+  assert.deepEqual(nomes(), ['dotfiles-settings.json', 'settings.json']);
+});
+
+test('settings.json como junção (ou symlink de pasta): settings-link, nada criado no alvo', (t) => {
+  const alvo = path.join(dir, 'fora');
+  fs.mkdirSync(alvo);
+  if (!link(t, alvo, arq, LINK_PASTA)) return;
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: false, motivo: 'settings-link' });
+  assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: false, motivo: 'settings-link' });
+  assert.ok(fs.lstatSync(arq).isSymbolicLink());
+  assert.deepEqual(fs.readdirSync(alvo), []);
+  assert.deepEqual(nomes(), ['fora', 'settings.json']);
+});
+
+test('settings.json como junção pendente: settings-link, o alvo não é criado', (t) => {
+  const alvo = path.join(dir, 'nao-existe');
+  if (!link(t, alvo, arq, LINK_PASTA)) return;
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: false, motivo: 'settings-link' });
+  assert.equal(fs.existsSync(alvo), false);
+});
+
+test('settings.json com hard link: settings-link (o rename quebraria o outro nome)', (t) => {
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(arq, texto);
+  const outro = path.join(dir, 'dotfiles-settings.json');
+  try {
+    fs.linkSync(arq, outro);
+  } catch (e) {
+    t.skip(`hard link indisponivel aqui (${e.code})`);
+    return;
+  }
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'settings-link' });
+  assert.equal(lerTexto(), texto);
+  assert.equal(fs.statSync(arq).nlink, 2);
+  assert.deepEqual(nomes(), ['dotfiles-settings.json', 'settings.json']);
+});
+
+test('pasta no lugar do settings.json: settings-invalido', () => {
+  fs.mkdirSync(arq);
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: false, motivo: 'settings-invalido' });
+  assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: false, motivo: 'settings-invalido' });
+  assert.ok(fs.statSync(arq).isDirectory());
+});
+
+test('FIFO no lugar do settings.json: settings-invalido sem travar (POSIX)', { skip: process.platform === 'win32' && 'FIFO é do POSIX' }, () => {
+  execFileSync('mkfifo', [arq]);
+  const url = new URL('../src/configuracao.js', import.meta.url).href;
+  const p = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { aplicarStatusline } from ${JSON.stringify(url)}; process.stdout.write(JSON.stringify(aplicarStatusline({ arquivo: ${JSON.stringify(arq)}, substituir: true, agoraMs: 1 })));`,
+  ], { env: { ...process.env, HADOUKEN_HOME: homeDados, HADOUKEN_SETTINGS: arq }, encoding: 'utf8', timeout: 5000 });
+  assert.equal(p.error, undefined, String(p.error));
+  assert.equal(p.status, 0, p.stderr);
+  assert.deepEqual(JSON.parse(p.stdout), { ok: false, motivo: 'settings-invalido' });
+  assert.ok(fs.lstatSync(arq).isFIFO());
+});
+
+test('settings.json somente leitura: recusa com settings-somente-leitura, mas já instalado segue ok', () => {
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(arq, texto);
+  fs.chmodSync(arq, 0o444);
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), { ok: false, motivo: 'settings-somente-leitura' });
+  assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: false, motivo: 'settings-somente-leitura' });
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json']);
+  fs.chmodSync(arq, 0o644);
+  fs.writeFileSync(arq, bonito({ statusLine: nossa() }));
+  fs.chmodSync(arq, 0o444);
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: true, acao: 'ja-instalado', backup: null });
+  assert.equal(consultarStatusline({ arquivo: arq }).acao, 'ja-instalado');
+});
+
+// ---------------------------------------------------------------- gravação concorrente
+
+const ehNossoTmp = (p) => typeof p === 'string' && NOME_TMP.test(p);
+
+test('concorrência: o Claude Code grava o settings.json entre a leitura e o rename: settings-mudou', () => {
+  fs.writeFileSync(arq, bonito({ a: 1 }));
+  const doClaude = bonito({ a: 1, permissions: { allow: ['Read'] } });
+  const restaurar = espiar('openSync', ehNossoTmp, () => fs.writeFileSync(arq, doClaude));
+  let r;
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  } finally {
+    assert.equal(restaurar(), true);
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'settings-mudou' });
+  assert.equal(lerTexto(), doClaude);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('concorrência: só a data mudou (mesmo tamanho e bytes): settings-mudou', () => {
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(arq, texto);
+  const restaurar = espiar('openSync', ehNossoTmp, () => {
+    const s = fs.statSync(arq);
+    fs.utimesSync(arq, s.atime, new Date(s.mtimeMs + 10_000));
+  });
+  let r;
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  } finally {
+    assert.equal(restaurar(), true);
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'settings-mudou' });
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('concorrência: trocado por outro arquivo de mesmo tamanho e data (só o ino muda): settings-mudou', () => {
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(arq, texto);
+  const segundo = 1_700_000_000;
+  fs.utimesSync(arq, segundo, segundo);
+  const restaurar = espiar('openSync', ehNossoTmp, () => {
+    const outro = path.join(dir, 'gravado-pelo-claude');
+    fs.writeFileSync(outro, texto);
+    fs.utimesSync(outro, segundo, segundo);
+    fs.renameSync(outro, arq);
+  });
+  let r;
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  } finally {
+    assert.equal(restaurar(), true);
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'settings-mudou' });
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('concorrência: ausente na leitura e criado antes do rename: settings-mudou, o criado fica', () => {
+  const doClaude = bonito({ criadoPeloClaude: true });
+  const restaurar = espiar('openSync', ehNossoTmp, () => fs.writeFileSync(arq, doClaude));
+  let r;
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  } finally {
+    assert.equal(restaurar(), true);
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'settings-mudou' });
+  assert.equal(lerTexto(), doClaude);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('concorrência: regravado no lugar durante a leitura (lido ≠ tamanho do lstat): settings-mudou, não inválido', () => {
+  const texto = bonito({ a: 1, b: 'x'.repeat(100) });
+  fs.writeFileSync(arq, texto);
+  // O Claude Code trunca e está no meio da escrita quando a leitura começa.
+  const restaurar = espiar('readSync', () => true, () => fs.truncateSync(arq, 10));
+  let r;
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  } finally {
+    assert.equal(restaurar(), true);
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'settings-mudou' });
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+test('rename: EPERM passageiro tenta de novo e grava; EPERM persistente falha sem sobras', () => {
+  fs.writeFileSync(arq, bonito({ a: 1 }));
+  const original = fs.renameSync;
+  let falhas = 1;
+  fs.renameSync = function (de, para, ...resto) {
+    if (ehNossoTmp(de) && falhas > 0) {
+      falhas--;
+      throw Object.assign(new Error('preso'), { code: 'EPERM' });
+    }
+    return original.call(this, de, para, ...resto);
+  };
+  let r;
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  } finally {
+    fs.renameSync = original;
+  }
+  assert.equal(r.ok, true);
+  assert.equal(JSON.parse(lerTexto()).statusLine.command, comandoEsperado());
+
+  const texto = bonito({ b: 2 });
+  fs.writeFileSync(arq, texto);
+  fs.renameSync = function (de, ...resto) {
+    if (ehNossoTmp(de)) throw Object.assign(new Error('C:\\caminho\\secreto'), { code: 'EPERM' });
+    return original.call(this, de, ...resto);
+  };
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 2 });
+  } finally {
+    fs.renameSync = original;
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'escrita', codigo: 'EPERM' });
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(backups(), ['settings.json.bak-hadouken-1']);
+  assert.deepEqual(temporarios(), []);
+});
+
+// ---------------------------------------------------------------- backup
+
+test('backup: criado com wx; nome já existente nunca é sobrescrito (backup-existe)', () => {
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(arq, texto);
+  const sentinela = path.join(dir, 'settings.json.bak-hadouken-1');
+  fs.writeFileSync(sentinela, 'sentinela');
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'backup-existe' });
+  assert.equal(fs.readFileSync(sentinela, 'utf8'), 'sentinela');
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json', 'settings.json.bak-hadouken-1']);
+});
+
+test('backup: arquivo que aparece entre o lstat e o open não é sobrescrito (o wx recusa)', () => {
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(arq, texto);
+  const nomeBackup = `${arq}.bak-hadouken-1`;
+  const restaurar = espiar('openSync', (p) => p === nomeBackup, () => fs.writeFileSync(nomeBackup, 'sentinela'));
+  let r;
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  } finally {
+    assert.equal(restaurar(), true);
+  }
+  assert.deepEqual(r, { ok: false, motivo: 'backup-existe' });
+  assert.equal(fs.readFileSync(nomeBackup, 'utf8'), 'sentinela');
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json', 'settings.json.bak-hadouken-1']);
+});
+
+test('backup: junção pendente no nome do backup é recusada e o alvo não nasce', (t) => {
+  fs.writeFileSync(arq, bonito({ a: 1 }));
+  const alvo = path.join(dir, 'fora-nao-existe');
+  if (!link(t, alvo, path.join(dir, 'settings.json.bak-hadouken-1'), LINK_PASTA)) return;
+  assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }), { ok: false, motivo: 'backup-existe' });
+  assert.equal(fs.existsSync(alvo), false);
+  assert.equal(JSON.parse(lerTexto()).statusLine, undefined);
+});
+
+test('backup com modo 0600 e settings.json com o modo original (POSIX)', { skip: SO_POSIX }, () => {
+  fs.writeFileSync(arq, bonito({ a: 1 }));
+  fs.chmodSync(arq, 0o640);
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  assert.equal(r.ok, true);
+  assert.equal(fs.statSync(r.backup).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(arq).mode & 0o777, 0o640);
+});
+
+test('modos exatos mesmo com umask hostil: backup 0600, settings com o modo original (POSIX)', { skip: SO_POSIX }, () => {
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(arq, texto);
+  fs.chmodSync(arq, 0o640);
+  const antes = process.umask(0o277);
+  let r;
+  try {
+    r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  } finally {
+    process.umask(antes);
+  }
+  assert.equal(r.ok, true);
+  assert.equal(fs.statSync(r.backup).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(arq).mode & 0o777, 0o640);
+  assert.deepEqual(fs.readFileSync(r.backup), Buffer.from(texto));
+});
+
+test('settings.json novo nasce com modo 0600 (POSIX)', { skip: SO_POSIX }, () => {
+  assert.equal(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }).ok, true);
+  assert.equal(fs.statSync(arq).mode & 0o777, 0o600);
+});
+
+test(`backup: guarda no máximo ${MAX_BACKUPS} nossos; apaga os mais velhos, nunca link, pasta ou nome alheio`, (t) => {
+  assert.equal(MAX_BACKUPS, 5);
+  fs.writeFileSync(arq, bonito({ a: 1 }));
+  for (const ms of [10, 11, 12, 13, 14, 15]) fs.writeFileSync(path.join(dir, `settings.json.bak-hadouken-${ms}`), `v${ms}`);
+  const alheios = ['settings.json.bak-hadouken-abc', 'settings.json.bak-hadouken-', 'outro.json.bak-hadouken-1', 'settings.json.bak-hadouken-1x'];
+  for (const n of alheios) fs.writeFileSync(path.join(dir, n), 'alheio');
+  fs.mkdirSync(path.join(dir, 'settings.json.bak-hadouken-9'));
+  const fora = path.join(dir, 'fora');
+  fs.mkdirSync(fora);
+  fs.writeFileSync(path.join(fora, 'dentro'), 'x');
+  const comLink = link(t, fora, path.join(dir, 'settings.json.bak-hadouken-8'), LINK_PASTA);
+  let comHard = true;
+  try {
+    fs.linkSync(path.join(fora, 'dentro'), path.join(dir, 'settings.json.bak-hadouken-7'));
+  } catch {
+    comHard = false;
+  }
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 100 });
+  assert.equal(r.ok, true);
+  const nossos = backups().filter((n) => /^settings\.json\.bak-hadouken-\d+$/.test(n)).filter((n) => {
+    const i = fs.lstatSync(path.join(dir, n));
+    return i.isFile() && i.nlink === 1;
+  });
+  assert.deepEqual(nossos.sort(), ['settings.json.bak-hadouken-100', 'settings.json.bak-hadouken-12', 'settings.json.bak-hadouken-13',
+    'settings.json.bak-hadouken-14', 'settings.json.bak-hadouken-15']);
+  for (const n of alheios) assert.equal(fs.readFileSync(path.join(dir, n), 'utf8'), 'alheio', n);
+  assert.ok(fs.statSync(path.join(dir, 'settings.json.bak-hadouken-9')).isDirectory());
+  if (comLink) assert.ok(fs.lstatSync(path.join(dir, 'settings.json.bak-hadouken-8')).isSymbolicLink());
+  if (comHard) assert.equal(fs.readFileSync(path.join(dir, 'settings.json.bak-hadouken-7'), 'utf8'), 'x');
+  assert.equal(fs.readFileSync(path.join(fora, 'dentro'), 'utf8'), 'x');
+});
+
+test('backup: o recém-criado nunca é podado, mesmo com o relógio atrasado', () => {
+  fs.writeFileSync(arq, bonito({ a: 1 }));
+  for (const ms of [1000, 1001, 1002, 1003, 1004, 1005]) fs.writeFileSync(path.join(dir, `settings.json.bak-hadouken-${ms}`), `v${ms}`);
+  const r = aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 });
+  assert.equal(r.ok, true);
+  assert.deepEqual(backups().sort(), ['settings.json.bak-hadouken-1', 'settings.json.bak-hadouken-1002', 'settings.json.bak-hadouken-1003',
+    'settings.json.bak-hadouken-1004', 'settings.json.bak-hadouken-1005']);
+});
+
+test('temporário nosso abandonado há mais de 1 h é varrido; alheio fica', () => {
+  fs.writeFileSync(arq, bonito({ a: 1 }));
+  const velho = path.join(dir, 'settings.json.hadouken-0123456789ab.tmp');
+  const alheio = path.join(dir, 'settings.json.outro.tmp');
+  for (const p of [velho, alheio]) {
+    fs.writeFileSync(p, '{}');
+    const s = (Date.now() - 2 * 3_600_000) / 1000;
+    fs.utimesSync(p, s, s);
+  }
+  assert.equal(aplicarStatusline({ arquivo: arq, substituir: false, agoraMs: 1 }).ok, true);
+  assert.equal(fs.existsSync(velho), false);
+  assert.equal(fs.existsSync(alheio), true);
+});
+
+// ---------------------------------------------------------------- remover
+
+test('remover: tira só a nossa statusLine, mantém o resto e a ordem, com backup', () => {
+  const resto = { a: 1, b: { c: [1, 2] } };
+  const texto = bonito({ a: 1, statusLine: nossa(), b: { c: [1, 2] } });
+  fs.writeFileSync(arq, texto);
+  const r = removerStatusline({ arquivo: arq, agoraMs: 3 });
+  assert.deepEqual(r, { ok: true, acao: 'remover', backup: `${arq}.bak-hadouken-3` });
+  assert.equal(lerTexto(), bonito(resto));
+  assert.deepEqual(fs.readFileSync(r.backup), Buffer.from(texto));
+});
+
+test('remover: a nossa com padding diferente também sai (o comando decide)', () => {
+  fs.writeFileSync(arq, bonito({ statusLine: { ...nossa(), padding: 3 } }));
+  assert.equal(removerStatusline({ arquivo: arq, agoraMs: 1 }).acao, 'remover');
+  assert.equal(lerTexto(), bonito({}));
+});
+
+test('remover: outra statusLine nunca é tocada (outra-barra)', () => {
+  for (const outra of [{ type: 'command', command: 'outra' }, { type: 'command', command: 'node "/outra/copia/hadouken/bin/statusline.mjs"' }, null, 'x']) {
+    const texto = bonito({ statusLine: outra });
+    fs.writeFileSync(arq, texto);
+    assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), { ok: false, motivo: 'outra-barra' }, JSON.stringify(outra));
+    assert.equal(lerTexto(), texto);
+    assert.deepEqual(nomes(), ['settings.json']);
+  }
+});
+
+test('remover: sem statusLine ou sem arquivo não grava nada (nao-instalado)', () => {
+  assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), { ok: true, acao: 'nao-instalado', backup: null });
+  assert.deepEqual(nomes(), []);
+  const texto = bonito({ a: 1 });
+  fs.writeFileSync(arq, texto);
+  assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), { ok: true, acao: 'nao-instalado', backup: null });
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['settings.json']);
+});
+
+// ---------------------------------------------------------------- consultar
+
+test('consultar: plano sem gravar nada, lendo o arquivo', () => {
+  assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: true, acao: 'instalar', atual: null, proposto: nossa() });
+  assert.deepEqual(nomes(), []);
+  const outra = { type: 'command', command: 'outra' };
+  fs.writeFileSync(arq, bonito({ statusLine: outra }));
+  assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: true, acao: 'conflito', atual: outra, proposto: nossa() });
+  assert.deepEqual(nomes(), ['settings.json']);
+  assert.equal(fs.existsSync(homeDados), false);
+});

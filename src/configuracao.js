@@ -1,0 +1,503 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { dirDados, varrerTmpVelhos } from './base.js';
+import { DIR_BIN } from './shim.js';
+
+// Instalador da barra (spec 8.1 S7 e 8.2; task-11-security.md). Grava só a
+// chave `statusLine` do settings.json do usuário, que também guarda
+// permissões, hooks e às vezes segredos em `env`: a gravação mais sensível do
+// plugin. Regras:
+// - Leitura com teto de 4 MiB, sem seguir link. JSON inválido, bytes que não
+//   são UTF-8, topo que não é objeto, arquivo grande demais, link (symlink,
+//   junção ou hard link) ou somente leitura: recusa com motivo fixo e o
+//   arquivo não é tocado. Só chaves próprias contam (Object.hasOwn).
+// - Backup dos bytes lidos (nunca uma segunda leitura), criado com 'wx' e modo
+//   0600 em <settings>.bak-hadouken-<agoraMs>; no máximo MAX_BACKUPS nossos.
+// - Escrita num temporário ao lado, com o modo do original (POSIX), e rename.
+//   Logo antes de cada rename o arquivo é conferido de novo pelo lstat: se o
+//   tamanho, a data ou o ino mudaram desde a leitura (o Claude Code grava esse
+//   arquivo quando quer), nada é gravado ('settings-mudou'). Resíduo aceito:
+//   uma gravação no intervalo entre esse lstat e o rename (microssegundos) se
+//   perde; não há rename condicional portátil.
+// - Saída: JSON bonito com a indentação do original (tab ou N espaços; senão
+//   2), a quebra de linha do original (LF ou CRLF), o BOM se havia, e \n final.
+//   Toda outra chave fica com o valor e a ordem de antes, inclusive
+//   __proto__ e constructor, que o JSON.parse cria como chaves próprias e o
+//   espalhamento copia como dado. Limite do JSON do JavaScript, o mesmo que o
+//   Claude Code vê ao ler: chaves que são índices inteiros vêm primeiro,
+//   chave repetida fica com o último valor, e números saem na forma canônica.
+//
+// fs, os e crypto são usados pelos objetos padrão (nunca desestruturados): os
+// testes trocam fs.openSync, fs.renameSync e os.homedir nesses objetos.
+//
+// Nenhuma função exportada lança: erro vira { ok: false, motivo } (com
+// `codigo` de sistema quando há um).
+
+export const MAX_SETTINGS_BYTES = 4 * 1024 * 1024;
+export const MAX_BACKUPS = 5;
+
+const CHAVE = 'statusLine';
+const SHIM_BARRA = 'statusline.mjs';
+const SUFIXO_BACKUP = '.bak-hadouken-';
+// Exatamente o que String(agoraMs) gera para um inteiro seguro não negativo.
+const MS_BACKUP = /^(?:0|[1-9]\d{0,15})$/;
+const BACKUP_LISTAR_MAX = 4096;
+const TMP_BYTES = 6;
+const TMP_RESTO = /^[0-9a-f]{12}\.tmp$/;
+const MODO_NOVO = 0o600;
+const MODO_BACKUP = 0o600;
+const PEDACO_LEITURA = 65_536;
+const RENOMEAR_TENTATIVAS = 3;
+const RENOMEAR_ESPERA_MS = 20;
+// No Windows um antivírus, indexador ou o próprio Claude Code pode segurar o
+// destino por instantes; outros erros não melhoram tentando de novo.
+const RENOMEAR_TRANSITORIOS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const POSIX = process.platform !== 'win32';
+// O_NOFOLLOW e O_NONBLOCK onde existem: um link posto no lugar entre o lstat e
+// o open não é seguido (ELOOP) e um FIFO não trava. No Windows o lstat antes
+// já recusou link e junção, e a checagem de dev/ino pega a troca.
+const ABRIR_LEITURA = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
+// Caminho que o shell leria diferente dentro de aspas duplas: " ` $ \ fecham
+// ou expandem no sh (o Claude Code pode usar o Git Bash no Windows), % e !
+// expandem no cmd, e controles, formato invisível (bidi, largura zero, tags),
+// surrogates soltos e separadores de linha quebram ou disfarçam a linha.
+const INSEGURO = /["`$\\%!\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
+const BOM = String.fromCodePoint(0xfeff);
+const UTF8_ESTRITO = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+const FORMATO_NOVO = Object.freeze({ bom: false, eol: '\n', indent: 2 });
+
+const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const falha = (motivo, codigo = null) => (codigo === null ? { ok: false, motivo } : { ok: false, motivo, codigo });
+// Só códigos de sistema no formato errno (EPERM, EACCES...); nada de texto livre.
+const codigoDe = (e) => (typeof e?.code === 'string' && /^E[A-Z0-9]{1,20}$/.test(e.code) ? e.code : null);
+const erroComCodigo = (code) => Object.assign(new Error(code), { code });
+const apagar = (p) => { try { fs.unlinkSync(p); } catch { /* já não existe */ } };
+const fechar = (fd) => { try { fs.closeSync(fd); } catch { /* já fechado */ } };
+const esperar = (ms) => {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* segue sem esperar */ }
+};
+const somenteLeitura = (info) => (Number(info.mode) & 0o200) === 0;
+
+// Caminho do settings.json: HADOUKEN_SETTINGS (testes), resolvido contra o cwd,
+// ou <home>/.claude/settings.json. Sem home absoluta: null. Nunca lança.
+export function arquivoSettings() {
+  try {
+    const configurado = process.env.HADOUKEN_SETTINGS;
+    if (configurado) return path.resolve(configurado);
+    const home = os.homedir();
+    return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'settings.json') : null;
+  } catch {
+    return null;
+  }
+}
+
+// Comando da barra: node "<dirDados>/bin/statusline.mjs" com barras normais.
+// Motivos: 'sem-diretorio' (sem home) e 'caminho-inseguro' (INSEGURO, depois
+// da troca de separador: no POSIX um \ num nome de pasta continua \).
+export function comandoStatusline() {
+  try {
+    const dir = dirDados();
+    if (dir === null) return falha('sem-diretorio');
+    const alvo = path.join(dir, DIR_BIN, SHIM_BARRA).split(path.sep).join('/');
+    if (INSEGURO.test(alvo)) return falha('caminho-inseguro');
+    return { ok: true, comando: `node "${alvo}"` };
+  } catch {
+    return falha('sem-diretorio');
+  }
+}
+
+// O valor da chave statusLine que o instalador grava (objeto novo a cada chamada).
+export function statusLineProposta() {
+  const c = comandoStatusline();
+  return c.ok ? { ok: true, valor: { type: 'command', command: c.comando, padding: 0 } } : c;
+}
+
+// A nossa é a de comando exatamente igual (tipo 'command'); o resto da
+// statusLine do usuário (padding etc.) não conta. O comando de outra cópia do
+// plugin, ou o mesmo caminho escrito de outro jeito, é outra barra.
+function ehNossa(atual, comando) {
+  return ehObjeto(atual)
+    && Object.hasOwn(atual, 'type') && atual.type === 'command'
+    && Object.hasOwn(atual, 'command') && atual.command === comando;
+}
+
+function plano(settings, proposto) {
+  const existe = Object.hasOwn(settings, CHAVE) && settings[CHAVE] !== undefined;
+  const atual = existe ? settings[CHAVE] : null;
+  if (!existe) return { acao: 'instalar', atual, proposto };
+  return { acao: ehNossa(atual, proposto.command) ? 'ja-instalado' : 'conflito', atual, proposto };
+}
+
+// Plano para um settings já lido (null ou undefined = arquivo ausente):
+// 'instalar' (sem statusLine própria), 'ja-instalado' (a nossa, comando
+// exato) ou 'conflito' (qualquer outra, inclusive null ou texto). Topo que não
+// é objeto: 'settings-invalido'. Nunca lança.
+export function planejarStatusline(settings) {
+  try {
+    if (settings !== null && settings !== undefined && !ehObjeto(settings)) return falha('settings-invalido');
+    const p = statusLineProposta();
+    if (!p.ok) return p;
+    return { ok: true, ...plano(settings ?? {}, p.valor) };
+  } catch {
+    return falha('settings-invalido');
+  }
+}
+
+// ---------------------------------------------------------------- leitura
+
+// Mesmo arquivo e sem mudança: arquivo regular com um nome só, mesmo dev e
+// ino (bigint: o id do NTFS tem 64 bits), mesmo tamanho e mesma data.
+function mesmoArquivo(a, b) {
+  return Boolean(a && b) && b.isFile() && b.nlink === 1n
+    && a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeNs === b.mtimeNs;
+}
+
+// Nada mudou desde a leitura: continua ausente, ou continua o mesmo arquivo.
+const inalterado = (antes, agora) => (antes === null ? !agora : mesmoArquivo(antes, agora));
+
+// Lê os bytes pelo descritor, conferindo pelo fstat que é o arquivo que o
+// lstat viu, no máximo MAX_SETTINGS_BYTES + 1 bytes.
+function lerBytes(arquivo, info) {
+  let fd;
+  try {
+    fd = fs.openSync(arquivo, ABRIR_LEITURA);
+  } catch (e) {
+    if (e?.code === 'ELOOP') return falha('settings-link');
+    if (e?.code === 'ENOENT') return falha('settings-mudou');
+    return falha('settings-ilegivel', codigoDe(e));
+  }
+  try {
+    if (!mesmoArquivo(info, fs.fstatSync(fd, { bigint: true }))) return falha('settings-mudou');
+    const partes = [];
+    const pedaco = Buffer.allocUnsafe(PEDACO_LEITURA);
+    let total = 0;
+    for (;;) {
+      const n = fs.readSync(fd, pedaco, 0, pedaco.length, null);
+      if (n === 0) break;
+      total += n;
+      if (total > MAX_SETTINGS_BYTES) return falha('settings-grande');
+      partes.push(Buffer.from(pedaco.subarray(0, n)));
+    }
+    if (BigInt(total) !== info.size) return falha('settings-mudou');
+    return { ok: true, bytes: Buffer.concat(partes, total) };
+  } catch (e) {
+    return falha('settings-ilegivel', codigoDe(e));
+  } finally {
+    fechar(fd);
+  }
+}
+
+// Indentação da primeira linha indentada (tab, ou 1 a 10 espaços), quebra de
+// linha (CRLF se houver alguma) e BOM do original.
+function formatoDe(texto, bom) {
+  const eol = texto.includes('\r\n') ? '\r\n' : '\n';
+  const m = /\n([ \t]+)\S/.exec(texto);
+  let indent = 2;
+  if (m && m[1][0] === '\t') indent = '\t';
+  else if (m && /^ {1,10}$/.test(m[1])) indent = m[1].length;
+  return { bom, eol, indent };
+}
+
+// { ok: true, existe: false, info: null } para arquivo ausente, ou
+// { ok: true, existe: true, settings, bytes, info, formato }. lstat primeiro:
+// link, junção ou hard link → 'settings-link'; pasta, FIFO, socket →
+// 'settings-invalido'; acima do teto → 'settings-grande', sem abrir.
+function lerSettings(arquivo) {
+  let info;
+  try {
+    info = fs.lstatSync(arquivo, { bigint: true, throwIfNoEntry: false });
+  } catch (e) {
+    return falha('settings-ilegivel', codigoDe(e));
+  }
+  if (!info) return { ok: true, existe: false, info: null };
+  // Hard link: o rename trocaria só este nome e o outro ficaria com o antigo.
+  if (info.isSymbolicLink() || (info.isFile() && info.nlink !== 1n)) return falha('settings-link');
+  if (!info.isFile()) return falha('settings-invalido');
+  if (info.size > BigInt(MAX_SETTINGS_BYTES)) return falha('settings-grande');
+  const lido = lerBytes(arquivo, info);
+  if (!lido.ok) return lido;
+  let texto;
+  try {
+    texto = UTF8_ESTRITO.decode(lido.bytes);
+  } catch {
+    return falha('settings-invalido');
+  }
+  const bom = texto.startsWith(BOM);
+  if (bom) texto = texto.slice(BOM.length);
+  let settings;
+  try {
+    settings = JSON.parse(texto);
+  } catch {
+    return falha('settings-invalido');
+  }
+  if (!ehObjeto(settings)) return falha('settings-invalido');
+  return { ok: true, existe: true, settings, bytes: lido.bytes, info, formato: formatoDe(texto, bom) };
+}
+
+// ---------------------------------------------------------------- escrita
+
+function serializar(valor, { bom, eol, indent }) {
+  let texto;
+  try {
+    texto = JSON.stringify(valor, null, indent);
+  } catch {
+    return null;
+  }
+  if (typeof texto !== 'string') return null;
+  texto += '\n';
+  if (eol !== '\n') texto = texto.replace(/\n/g, eol);
+  return Buffer.from(bom ? `${BOM}${texto}` : texto, 'utf8');
+}
+
+// Backup com os bytes lidos. lstat antes do 'wx': no Windows o CREATE_NEW
+// atravessa uma junção pendente e criaria o alvo dela; qualquer entrada com o
+// nome já é 'backup-existe' e fica intocada. Modo 0600 (fchmod no POSIX, que o
+// umask não alarga). Devolve { ok: true, caminho } ou a falha.
+function criarBackup(arquivo, bytes, agoraMs) {
+  const caminho = `${arquivo}${SUFIXO_BACKUP}${agoraMs}`;
+  try {
+    if (fs.lstatSync(caminho, { throwIfNoEntry: false })) return falha('backup-existe');
+  } catch (e) {
+    return falha('backup', codigoDe(e));
+  }
+  let fd;
+  try {
+    fd = fs.openSync(caminho, 'wx', MODO_BACKUP);
+  } catch (e) {
+    return e?.code === 'EEXIST' ? falha('backup-existe') : falha('backup', codigoDe(e));
+  }
+  let criado = false;
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw erroComCodigo('EEXIST');
+    criado = true;
+    if (POSIX) fs.fchmodSync(fd, MODO_BACKUP);
+    fs.writeFileSync(fd, bytes);
+    fs.fsyncSync(fd);
+  } catch (e) {
+    fechar(fd);
+    if (criado) apagar(caminho);
+    return e?.code === 'EEXIST' ? falha('backup-existe') : falha('backup', codigoDe(e));
+  }
+  try {
+    fs.closeSync(fd);
+  } catch (e) {
+    apagar(caminho);
+    return falha('backup', codigoDe(e));
+  }
+  return { ok: true, caminho };
+}
+
+// Temporário <settings>.hadouken-<12 hex sorteados>.tmp na mesma pasta, com o
+// mesmo cuidado do backup (lstat, 'wx', fstat) e o modo pedido. Devolve o
+// caminho; erro sobe.
+function gravarTmp(arquivo, bytes, modo) {
+  const tmp = `${arquivo}.hadouken-${crypto.randomBytes(TMP_BYTES).toString('hex')}.tmp`;
+  if (fs.lstatSync(tmp, { throwIfNoEntry: false })) throw erroComCodigo('EEXIST');
+  const fd = fs.openSync(tmp, 'wx', modo);
+  let criado = false;
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw erroComCodigo('EEXIST');
+    criado = true;
+    if (POSIX) fs.fchmodSync(fd, modo);
+    fs.writeFileSync(fd, bytes);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+  } catch (e) {
+    fechar(fd);
+    if (criado) apagar(tmp);
+    throw e;
+  }
+  return tmp;
+}
+
+// Confere pelo lstat que nada mudou desde a leitura e renomeia, a cada
+// tentativa: a janela entre a conferência e a troca fica mínima, também
+// quando um EPERM passageiro obriga a esperar.
+function trocar(tmp, arquivo, infoLido) {
+  let erro = null;
+  for (let tentativa = 1; tentativa <= RENOMEAR_TENTATIVAS; tentativa++) {
+    let agora;
+    try {
+      agora = fs.lstatSync(arquivo, { bigint: true, throwIfNoEntry: false });
+    } catch {
+      return falha('settings-mudou');
+    }
+    if (!inalterado(infoLido, agora)) return falha('settings-mudou');
+    try {
+      fs.renameSync(tmp, arquivo);
+      return { ok: true };
+    } catch (e) {
+      erro = e;
+      if (!RENOMEAR_TRANSITORIOS.has(e?.code) || tentativa === RENOMEAR_TENTATIVAS) break;
+      esperar(RENOMEAR_ESPERA_MS);
+    }
+  }
+  return falha('escrita', codigoDe(erro));
+}
+
+// Guarda no máximo MAX_BACKUPS backups nossos: o recém-criado sempre fica
+// (mesmo com o relógio atrasado) e, dos outros, os de agoraMs maior. Só conta
+// e só apaga arquivo regular com um nome só (nada de link, junção, pasta ou
+// hard link) cujo nome é exatamente <settings>.bak-hadouken-<inteiro>.
+// Melhor esforço: nunca lança.
+function podarBackups(arquivo, novo) {
+  const pasta = path.dirname(arquivo);
+  const prefixo = `${path.basename(arquivo)}${SUFIXO_BACKUP}`;
+  const nomeNovo = path.basename(novo);
+  let d;
+  try {
+    d = fs.opendirSync(pasta);
+    const nossos = [];
+    for (let lidos = 0; lidos < BACKUP_LISTAR_MAX; lidos++) {
+      const e = d.readSync();
+      if (e === null) break;
+      if (e.name === nomeNovo || !e.name.startsWith(prefixo)) continue;
+      const ms = e.name.slice(prefixo.length);
+      if (MS_BACKUP.test(ms)) nossos.push({ nome: e.name, ms: Number(ms) });
+    }
+    nossos.sort((a, b) => b.ms - a.ms);
+    let mantidos = 1;
+    for (const { nome } of nossos) {
+      const caminho = path.join(pasta, nome);
+      try {
+        const info = fs.lstatSync(caminho);
+        if (!info.isFile() || info.nlink !== 1) continue;
+        if (mantidos < MAX_BACKUPS) {
+          mantidos++;
+          continue;
+        }
+        fs.unlinkSync(caminho);
+      } catch { /* sumiu ou sem permissão: segue */ }
+    }
+  } catch {
+    /* pasta ilegível: fica para a próxima */
+  } finally {
+    if (d !== undefined) {
+      try { d.closeSync(); } catch { /* já fechada */ }
+    }
+  }
+}
+
+// Temporário nosso abandonado (processo morto entre a escrita e o rename).
+function ehTmpDe(arquivo) {
+  const prefixo = `${path.basename(arquivo)}.hadouken-`;
+  return (nome) => nome.startsWith(prefixo) && TMP_RESTO.test(nome.slice(prefixo.length));
+}
+
+// Grava `valor` no lugar do settings lido: serializa, faz o backup (se o
+// arquivo existia) ou cria a pasta (se não), escreve o temporário e troca.
+// Qualquer falha apaga o temporário e o backup recém-criados; o settings.json
+// fica como estava.
+function gravar(arquivo, lido, valor, agoraMs) {
+  const bytes = serializar(valor, lido.existe ? lido.formato : FORMATO_NOVO);
+  if (bytes === null) return falha('serializacao');
+  let backup = null;
+  if (lido.existe) {
+    const b = criarBackup(arquivo, lido.bytes, agoraMs);
+    if (!b.ok) return b;
+    backup = b.caminho;
+  } else {
+    try {
+      fs.mkdirSync(path.dirname(arquivo), { recursive: true });
+    } catch (e) {
+      return falha('escrita', codigoDe(e));
+    }
+  }
+  const modo = lido.existe ? Number(lido.info.mode) & 0o777 : MODO_NOVO;
+  let tmp;
+  try {
+    tmp = gravarTmp(arquivo, bytes, modo);
+  } catch (e) {
+    if (backup !== null) apagar(backup);
+    return falha('escrita', codigoDe(e));
+  }
+  const r = trocar(tmp, arquivo, lido.info);
+  if (!r.ok) {
+    apagar(tmp);
+    if (backup !== null) apagar(backup);
+    return r;
+  }
+  if (backup !== null) podarBackups(arquivo, backup);
+  varrerTmpVelhos(path.dirname(arquivo), ehTmpDe(arquivo));
+  return { ok: true, backup };
+}
+
+// ---------------------------------------------------------------- API
+
+// Caminho absoluto, não vazio, sem NUL; senão null.
+function arquivoDe(opcoes) {
+  const a = ehObjeto(opcoes) ? opcoes.arquivo : undefined;
+  return typeof a === 'string' && a.length > 0 && !a.includes('\0') && path.isAbsolute(a) ? a : null;
+}
+
+// agoraMs vira parte do nome do backup: inteiro seguro não negativo.
+function agoraDe(opcoes) {
+  const ms = ehObjeto(opcoes) ? opcoes.agoraMs : undefined;
+  return Number.isSafeInteger(ms) && ms >= 0 ? ms : null;
+}
+
+// Leitura comum a consultar, aplicar e remover: argumentos, comando e arquivo.
+function preparar(opcoes, comAgora) {
+  const arquivo = arquivoDe(opcoes);
+  const agoraMs = comAgora ? agoraDe(opcoes) : 0;
+  if (arquivo === null || agoraMs === null) return falha('argumentos');
+  const p = statusLineProposta();
+  if (!p.ok) return p;
+  const lido = lerSettings(arquivo);
+  if (!lido.ok) return lido;
+  const settings = lido.existe ? lido.settings : {};
+  return { ok: true, arquivo, agoraMs, lido, settings, proposto: p.valor, ...plano(settings, p.valor) };
+}
+
+// O plano para o arquivo, sem gravar nada (o "mostrar antes de gravar" da
+// skill): { ok: true, acao, atual, proposto } ou a falha que o aplicar daria
+// ('settings-somente-leitura' só quando haveria o que gravar).
+export function consultarStatusline(opcoes) {
+  try {
+    const c = preparar(opcoes, false);
+    if (!c.ok) return c;
+    if (c.acao !== 'ja-instalado' && c.lido.existe && somenteLeitura(c.lido.info)) return falha('settings-somente-leitura');
+    return { ok: true, acao: c.acao, atual: c.atual, proposto: c.proposto };
+  } catch {
+    return falha('erro-interno');
+  }
+}
+
+// Instala a nossa statusLine. Conflito só é trocado com substituir === true
+// (spec 8.2: trocar a barra de outra ferramenta apaga a barra das sessões
+// abertas). Devolve { ok: true, acao: 'instalar' | 'substituir' |
+// 'ja-instalado', backup: caminho | null } ou { ok: false, motivo[, codigo] }.
+export function aplicarStatusline(opcoes) {
+  try {
+    const c = preparar(opcoes, true);
+    if (!c.ok) return c;
+    if (c.acao === 'ja-instalado') return { ok: true, acao: 'ja-instalado', backup: null };
+    if (c.acao === 'conflito' && opcoes.substituir !== true) return falha('conflito');
+    if (c.lido.existe && somenteLeitura(c.lido.info)) return falha('settings-somente-leitura');
+    const g = gravar(c.arquivo, c.lido, { ...c.settings, [CHAVE]: c.proposto }, c.agoraMs);
+    if (!g.ok) return g;
+    return { ok: true, acao: c.acao === 'conflito' ? 'substituir' : 'instalar', backup: g.backup };
+  } catch {
+    return falha('erro-interno');
+  }
+}
+
+// Desinstala: tira a statusLine só se for exatamente a nossa, com backup.
+// Outra barra: 'outra-barra', nada tocado. Sem statusLine ou sem arquivo:
+// { ok: true, acao: 'nao-instalado', backup: null }.
+export function removerStatusline(opcoes) {
+  try {
+    const c = preparar(opcoes, true);
+    if (!c.ok) return c;
+    if (c.acao === 'instalar') return { ok: true, acao: 'nao-instalado', backup: null };
+    if (c.acao === 'conflito') return falha('outra-barra');
+    if (somenteLeitura(c.lido.info)) return falha('settings-somente-leitura');
+    const { [CHAVE]: _removida, ...resto } = c.settings;
+    const g = gravar(c.arquivo, c.lido, resto, c.agoraMs);
+    return g.ok ? { ok: true, acao: 'remover', backup: g.backup } : g;
+  } catch {
+    return falha('erro-interno');
+  }
+}
