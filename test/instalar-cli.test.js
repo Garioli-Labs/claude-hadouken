@@ -307,12 +307,39 @@ test('HADOUKEN_HOME fora da lista de caracteres: caminho-inseguro, código 1, in
       const s = json(p);
       assert.equal(s.ok, false, rotulo);
       assert.equal(s.motivo, 'caminho-inseguro', rotulo);
-      assert.deepEqual(s.manual, MANUAL_MODELO, rotulo);
-      for (const termo of [/não aceita/, /"manual"/, /<pasta de dados>/, /nada foi alterado/]) assert.match(s.mensagem, termo, rotulo);
+      if (args.includes('--remover')) {
+        // Quem pediu para tirar não recebe instrução de acrescentar.
+        assert.equal(Object.hasOwn(s, 'manual'), false, rotulo);
+        for (const termo of [/não aceita/, /apague à mão/, /nada foi alterado/]) assert.match(s.mensagem, termo, rotulo);
+        assert.doesNotMatch(s.mensagem, /acrescente/, rotulo);
+      } else {
+        assert.deepEqual(s.manual, MANUAL_MODELO, rotulo);
+        for (const termo of [/não aceita/, /"manual"/, /<pasta de dados>/, /nada foi alterado/]) assert.match(s.mensagem, termo, rotulo);
+      }
       // Nem o caminho nem o trecho injetado aparecem, crus ou escapados.
       for (const eco of ['MARCA', 'INJETADO', 'Write-Output']) assert.ok(!p.stdout.includes(eco), `${rotulo} ${eco}`);
     }
   }
+  assert.deepEqual(nomes(), []);
+});
+
+test('nome recusado na própria pasta pessoal: manual com o marcador, arquivo diz qual settings.json, nada criado', () => {
+  const cp = (n) => String.fromCodePoint(n);
+  casaFalsa = path.join(dir, `casa x${cp(0x201d)}; Write-Output INJETADO; ${cp(0x201d)}`);
+  for (const args of [[], ['--aplicar'], ['--remover']]) {
+    // O helper sempre define HADOUKEN_HOME; aqui ele vale o que o padrão daria
+    // (~/.claude/hadouken na pasta pessoal falsa).
+    const p = rodar(args, { semSettings: true, env: { HADOUKEN_HOME: path.join(casaFalsa, '.claude', 'hadouken') } });
+    assert.equal(p.status, 1, args.join(' '));
+    const s = json(p);
+    assert.equal(s.motivo, 'caminho-inseguro');
+    // O manual nunca leva o caminho; o arquivo leva (é o settings.json a editar).
+    if (args.includes('--remover')) assert.equal(Object.hasOwn(s, 'manual'), false);
+    else assert.deepEqual(s.manual, MANUAL_MODELO);
+    assert.ok(!JSON.stringify(s.manual ?? null).includes('INJETADO'));
+    assert.equal(s.arquivo, path.join(casaFalsa, '.claude', 'settings.json'));
+  }
+  assert.equal(fs.existsSync(casaFalsa), false);
   assert.deepEqual(nomes(), []);
 });
 

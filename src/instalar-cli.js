@@ -89,23 +89,30 @@ function exibivel(atual) {
   return texto.length > MAX_ATUAL_CHARS ? `(statusLine atual com ${texto.length} caracteres; não exibida)` : atual;
 }
 
-function falhaSaida(motivo, arquivo = null, codigo = null) {
+// --remover com o caminho recusado: o instalador nunca pôs a barra ali e não
+// reconhece uma posta à mão, então não há o que acrescentar; só a remoção à mão.
+const MENSAGEM_REMOVER_INSEGURO = 'O caminho da pasta de dados do claude-hadouken tem caracteres que o instalador não aceita no comando da barra, então ele não instalou a barra neste settings.json e não reconhece uma posta à mão; nada foi alterado. Para tirá-la, apague à mão a chave statusLine do settings.json.';
+
+function falhaSaida(motivo, arquivo = null, codigo = null, remover = false) {
   const m = Object.hasOwn(MENSAGEM_MOTIVO, motivo) ? motivo : 'erro-interno';
-  const saida = { ok: false, motivo: m, mensagem: MENSAGEM_MOTIVO[m] };
+  const inseguroRemover = m === 'caminho-inseguro' && remover;
+  const saida = { ok: false, motivo: m, mensagem: inseguroRemover ? MENSAGEM_REMOVER_INSEGURO : MENSAGEM_MOTIVO[m] };
   if (arquivo !== null) saida.arquivo = arquivo;
   if (typeof codigo === 'string') saida.codigo = codigo;
   if (m === 'settings-link') {
     const p = statusLineProposta();
     if (p.ok) saida.manual = { statusLine: p.valor };
-  } else if (m === 'caminho-inseguro') {
-    // Com o marcador no lugar da pasta: o caminho recusado nunca é ecoado.
+  } else if (m === 'caminho-inseguro' && !inseguroRemover) {
+    // Com o marcador no lugar da pasta: o caminho recusado nunca entra no
+    // manual. O `arquivo` (qual settings.json editar) fica, e pode levar a
+    // pasta pessoal com o trecho recusado: é dado, e a skill o trata assim.
     saida.manual = { statusLine: statusLineManual() };
   }
   return saida;
 }
 
-function saidaDe(r, arquivo) {
-  if (!r.ok) return falhaSaida(r.motivo, arquivo, r.codigo);
+function saidaDe(r, arquivo, remover = false) {
+  if (!r.ok) return falhaSaida(r.motivo, arquivo, r.codigo, remover);
   return { ok: true, acao: r.acao, arquivo, backup: r.backup, mensagem: MENSAGEM_ACAO[r.acao] };
 }
 
@@ -118,7 +125,7 @@ function executar(args) {
   const alvo = arquivoSettings();
   if (!alvo.ok) return falhaSaida(alvo.motivo);
   const { arquivo } = alvo;
-  if (remover) return saidaDe(removerStatusline({ arquivo, agoraMs: Date.now() }), arquivo);
+  if (remover) return saidaDe(removerStatusline({ arquivo, agoraMs: Date.now() }), arquivo, true);
   if (aplicar) return saidaDe(aplicarStatusline({ arquivo, substituir, agoraMs: Date.now() }), arquivo);
   const r = consultarStatusline({ arquivo });
   if (!r.ok) return falhaSaida(r.motivo, arquivo, r.codigo);
