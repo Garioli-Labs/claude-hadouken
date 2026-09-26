@@ -7,6 +7,7 @@ import {
   aplicarStatusline,
   removerStatusline,
 } from './configuracao.js';
+import { dirDados, origemDados } from './base.js';
 import { regexOu } from './util.js';
 
 // Subcomando `instalar` da CLI (task-11-security.md A, D, E, F). A cli.js da
@@ -24,6 +25,9 @@ import { regexOu } from './util.js';
 // contexto do modelo pela skill: só rótulos fixos deste arquivo, números,
 // caminhos e o valor atual da statusLine do usuário, marcado como dado
 // (`aviso`), com todo caractere invisível ou de controle escapado como \u.
+// Toda saída ok traz também a pasta de dados que o comando da barra usa
+// (`pastaDados`) e de onde ela vem (`origemPastaDados`: 'HADOUKEN_HOME' ou
+// 'padrao').
 
 const FLAGS = new Set(['--aplicar', '--substituir', '--remover']);
 // A statusLine atual maior que isto (em JSON) não é despejada no contexto.
@@ -130,9 +134,17 @@ function falhaSaida(motivo, arquivo = null, codigo = null, remover = false) {
   return saida;
 }
 
+// A pasta de dados do comando da barra e de onde ela vem, para a skill
+// mostrar antes de gravar (revisão final de segurança, M-1): numa sessão com
+// HADOUKEN_HOME definida, a barra gravada no settings.json aponta para essa
+// pasta em todo projeto, e quem confirma precisa saber disso. Só nas saídas
+// ok: nelas o comando já foi montado, e a pasta passou por caminhoAceito
+// (configuracao.js); numa recusa o caminho nunca é ecoado.
+const pasta = () => ({ pastaDados: dirDados(), origemPastaDados: origemDados() });
+
 function saidaDe(r, arquivo, remover = false) {
   if (!r.ok) return falhaSaida(r.motivo, arquivo, r.codigo, remover);
-  return { ok: true, acao: r.acao, arquivo, backup: r.backup, mensagem: MENSAGEM_ACAO[r.acao] };
+  return { ok: true, acao: r.acao, arquivo, ...pasta(), backup: r.backup, mensagem: MENSAGEM_ACAO[r.acao] };
 }
 
 function executar(args) {
@@ -148,7 +160,7 @@ function executar(args) {
   if (aplicar) return saidaDe(aplicarStatusline({ arquivo, substituir, agoraMs: Date.now() }), arquivo);
   const r = consultarStatusline({ arquivo });
   if (!r.ok) return falhaSaida(r.motivo, arquivo, r.codigo);
-  return { ok: true, acao: r.acao, arquivo, atual: exibivel(r.atual), proposto: r.proposto, aviso: AVISO };
+  return { ok: true, acao: r.acao, arquivo, ...pasta(), atual: exibivel(r.atual), proposto: r.proposto, aviso: AVISO };
 }
 
 // Um ouvinte só, nunca acumulado: um EPIPE (quem lê fechou o pipe) vira
