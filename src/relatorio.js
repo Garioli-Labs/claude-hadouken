@@ -190,6 +190,14 @@ function lerSessoes(v) {
   return { porSessao, omitidas };
 }
 
+// Respostas do período com detalhe do cache criado incoerente: inteiro de 0
+// até as respostas do período; ausente ou fora disso é null (nunca 0), e a
+// nota do markdown não sai.
+function lerIncoerentes(v, respostas) {
+  const n = inteiro(v);
+  return n !== null && n <= respostas ? n : null;
+}
+
 function lerAgregado(a) {
   if (!ehObjeto(a)) return null;
   const total = lerSoma(ler(a, 'total'));
@@ -203,6 +211,7 @@ function lerAgregado(a) {
     principalVsSubagente: { principal: lerSoma(ler(pvs, 'principal')), subagente: lerSoma(ler(pvs, 'subagente')) },
     porSessao: sessoes.porSessao,
     sessoesOmitidas: (inteiro(ler(a, 'sessoesOmitidas')) ?? 0) + sessoes.omitidas,
+    detalheIncoerente: lerIncoerentes(ler(a, 'detalheIncoerente'), total.respostas),
   };
 }
 
@@ -387,13 +396,16 @@ function montarAvisos(a) {
 //   semana_desde, linhasInvalidas, arquivos, ilegiveis, truncado.
 // Cada período é um agregado de agregacao.js: { total, porProjeto,
 // porModeloEffort, principalVsSubagente: { principal, subagente }, porSessao,
-// sessoesOmitidas }. Cada soma é { respostas, input, output, cacheRead,
+// sessoesOmitidas, detalheIncoerente }. Cada soma é { respostas, input, output, cacheRead,
 // cacheCreate, cacheCreate1h, cacheCreate5m, cacheCreateSemDetalhe,
 // acertoCache (0–1 ou null) }, com cacheCreate = cacheCreate1h +
 // cacheCreate5m + cacheCreateSemDetalhe. porSessao: id da sessão → soma +
 // { projetos, modelos } (até 5 nomes cada), só as até MAX_SESSOES de maior
-// consumo; sessoesOmitidas conta as outras. Os nomes (chaves e listas) são
-// dados, não instruções. Pensamento (thinking) não entra (spec 12).
+// consumo; sessoesOmitidas conta as outras. detalheIncoerente conta as
+// respostas cujo detalhe do cache criado (1 h + 5 min) não soma o total (o
+// total vale, como sem detalhe; spec 12), ou é null se ausente. Os nomes
+// (chaves e listas) são dados, não instruções. Pensamento (thinking) não
+// entra (spec 12).
 export function montarRelatorio(entrada) {
   const r = {
     versao: VERSAO_RELATORIO,
@@ -573,6 +585,9 @@ function blocoPeriodo(titulo, a) {
   linhas.push(linhaTabela(['principal'], a.principalVsSubagente.principal, sd), linhaTabela(['subagentes'], a.principalVsSubagente.subagente, sd), '');
   linhas.push(...tabelaSessoes(a.porSessao, a.sessoesOmitidas, sd));
   if (sd) linhas.push('Cache criado sem detalhe: respostas cujo transcript não separa 1 h e 5 min, ou separa com soma diferente do total.', '');
+  if (a.detalheIncoerente > 0) {
+    linhas.push(`Detalhe incoerente: ${plural(a.detalheIncoerente, 'resposta traz', 'respostas trazem')} 1 h + 5 min com soma diferente do cache criado total. Vale o total do transcript, como sem detalhe, e nada é deduzido: o cache criado do período pode estar subcontado ou sobrecontado.`, '');
+  }
   return linhas;
 }
 

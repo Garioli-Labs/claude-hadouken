@@ -224,6 +224,45 @@ test('cache criado: getter que lança no detalhe derruba só o registro', () => 
   assert.deepEqual([a.total.cacheCreate, a.total.cacheCreate1h, a.total.cacheCreateSemDetalhe], [30, 30, 0]);
 });
 
+// M-2 da revisão do fix I-1: a resposta que traz o detalhe (os dois números
+// válidos) com soma diferente do total é contada em detalheIncoerente, sem
+// mudar soma nenhuma. Detalhe ausente, só um número ou número inválido é
+// "sem detalhe" comum e não conta.
+test('cache criado: detalhe presente que não soma o total conta em detalheIncoerente, sem deduzir token nenhum', () => {
+  assert.equal(agregar([], 0).detalheIncoerente, 0);
+  assert.equal(agregar('x', 0).detalheIncoerente, 0);
+  assert.equal(agregar([r({ cacheCreate: 0, cacheCreate1h: 9, cacheCreate5m: 0 })], Number.NaN).detalheIncoerente, 0);
+  const lanca = r({ cacheCreate: 0, cacheCreate1h: 9 });
+  Object.defineProperty(lanca, 'cacheCreate5m', { get() { throw new Error('x'); }, enumerable: true });
+  const a = agregar([
+    r({ projeto: 'ok', cacheCreate: 150, cacheCreate1h: 100, cacheCreate5m: 50 }),
+    r({ projeto: 'ok', cacheCreate: 0, cacheCreate1h: 0, cacheCreate5m: 0 }),
+    // Visto em transcripts reais (2026-09-26): total 0 com 1 h positivo.
+    r({ projeto: 'inc', cacheCreate: 0, cacheCreate1h: 58_716, cacheCreate5m: 0 }),
+    r({ projeto: 'inc', cacheCreate: 100, cacheCreate1h: 10, cacheCreate5m: 10 }),
+    r({ projeto: 'inc', cacheCreate: 100, cacheCreate1h: 100, cacheCreate5m: 1 }),
+    // Total inválido vale 0; o detalhe presente não soma 0.
+    r({ projeto: 'inc', cacheCreate: 'x', cacheCreate1h: 5, cacheCreate5m: 5 }),
+    r({ projeto: 'sem', cacheCreate: 70 }),
+    r({ projeto: 'sem', cacheCreate: 100, cacheCreate1h: 100, cacheCreate5m: null }),
+    r({ projeto: 'sem', cacheCreate: 100, cacheCreate1h: -1, cacheCreate5m: 101 }),
+    r({ projeto: 'sem', cacheCreate: 100, cacheCreate1h: '60', cacheCreate5m: 40 }),
+    r({ projeto: 'sem', cacheCreate: 100, cacheCreate1h: 99.5, cacheCreate5m: 0.5 }),
+    r({ ts: 1, cacheCreate: 0, cacheCreate1h: 9, cacheCreate5m: 0 }),
+    lanca,
+  ], 500);
+  assert.equal(a.detalheIncoerente, 4, 'as quatro respostas de inc, nenhuma de fora do período nem a que lança');
+  assert.equal(a.total.respostas, 11);
+  // Nada deduzido: o total de cada resposta incoerente vai inteiro para sem
+  // detalhe, e o número do detalhe não entra em soma nenhuma.
+  assert.deepEqual([a.total.cacheCreate, a.total.cacheCreate1h, a.total.cacheCreate5m, a.total.cacheCreateSemDetalhe], [820, 100, 50, 670]);
+  assert.deepEqual([a.porProjeto.inc.cacheCreate, a.porProjeto.inc.cacheCreate1h, a.porProjeto.inc.cacheCreate5m, a.porProjeto.inc.cacheCreateSemDetalhe], [200, 0, 0, 200]);
+  confereReparticao(a);
+  // A contagem é do período, não de cada soma.
+  for (const s of todasAsSomas(a)) assert.ok(!Object.hasOwn(s, 'detalheIncoerente'), JSON.stringify(s));
+  assert.equal(agregar([r({ cacheCreate: 0, cacheCreate1h: 58_716, cacheCreate5m: 0 })], 2000).detalheIncoerente, 0, 'fora do período');
+});
+
 // ---------------------------------------------------------------------------
 // Por sessão
 

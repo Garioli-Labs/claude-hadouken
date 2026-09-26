@@ -572,6 +572,45 @@ test('cache criado: 1 h e 5 min sempre; a coluna sem detalhe e a nota só no per
   assert.match(sete, /^\| `Demo` \| 3 \| 30 \| 600 \| 200 \| 3k \| 300 \| 98\.9% \|$/m);
 });
 
+// M-2 da revisão do fix I-1: as respostas com detalhe do cache criado que não
+// soma o total são contadas por período (detalheIncoerente) e citadas numa
+// nota só quando há alguma.
+test('cache criado: detalhe incoerente sai no JSON por período e numa nota do markdown só quando há', () => {
+  const r = montarRelatorio({
+    estado, agoraMs: agora, github,
+    claude: {
+      ...claude, semana_origem: 'janela_7d', semana_desde: agora - 2 * 86_400_000,
+      hoje: agregado({ detalheIncoerente: 2 }), sete_dias: agregado({ detalheIncoerente: 0 }), semana: agregado({ detalheIncoerente: 1 }),
+    },
+  });
+  assert.equal(r.claude.hoje.detalheIncoerente, 2);
+  assert.equal(r.claude.sete_dias.detalheIncoerente, 0);
+  assert.equal(r.claude.semana.detalheIncoerente, 1);
+  const nota = /^Detalhe incoerente: /m;
+  const texto = formatarMarkdown(r);
+  const hoje = texto.slice(texto.indexOf('### Hoje'), texto.indexOf('### Últimos 7 dias'));
+  const sete = texto.slice(texto.indexOf('### Últimos 7 dias'), texto.indexOf('### Janela semanal'));
+  const semana = texto.slice(texto.indexOf('### Janela semanal'));
+  assert.match(hoje, /^Detalhe incoerente: 2 respostas trazem 1 h \+ 5 min com soma diferente do cache criado total\. Vale o total do transcript, como sem detalhe, e nada é deduzido: o cache criado do período pode estar subcontado ou sobrecontado\.$/m);
+  assert.doesNotMatch(sete, nota);
+  assert.match(semana, /^Detalhe incoerente: 1 resposta traz 1 h \+ 5 min /m);
+  assert.equal(texto.match(/Detalhe incoerente/g).length, 2);
+  // Ausente é null (nunca 0), e fora do formato, ou acima das respostas do
+  // período (3 na soma do teste), também: nenhuma nota.
+  const semCampo = montarRelatorio({ estado, agoraMs: agora, claude, github });
+  assert.equal(semCampo.claude.hoje.detalheIncoerente, null);
+  assert.doesNotMatch(formatarMarkdown(semCampo), nota);
+  for (const ruim of [-1, 1.5, '2', Number.NaN, Number.POSITIVE_INFINITY, 4, 2 ** 60, {}, [], true]) {
+    const x = montarRelatorio({ estado, agoraMs: agora, github, claude: { ...claude, hoje: agregado({ detalheIncoerente: ruim }) } });
+    assert.equal(x.claude.hoje.detalheIncoerente, null, String(ruim));
+    assert.doesNotMatch(formatarMarkdown(x), nota, String(ruim));
+  }
+  // Período sem respostas: nenhuma nota, mesmo com contagem.
+  const vazio = { ...soma, respostas: 0, input: 0, output: 0, cacheRead: 0, acertoCache: null };
+  const zero = montarRelatorio({ estado, agoraMs: agora, github, claude: { ...claude, hoje: agregado({ total: vazio, detalheIncoerente: 0 }) } });
+  assert.doesNotMatch(formatarMarkdown(zero).slice(0, formatarMarkdown(zero).indexOf('### Últimos 7 dias')), nota);
+});
+
 test('soma incoerente (1 h + 5 min + sem detalhe ≠ total) ou no formato antigo é descartada, nunca impressa', () => {
   const incoerente = { ...soma, cacheCreate: 10, cacheCreate1h: 3, cacheCreate5m: 3, cacheCreateSemDetalhe: 3 };
   const antiga = { respostas: 3, input: 30, output: 300, thinking: 50, cacheRead: 2700, cacheCreate: 0, acertoCache: 0.989 };

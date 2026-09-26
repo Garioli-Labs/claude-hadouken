@@ -52,6 +52,7 @@ function resultadoVazio() {
     principalVsSubagente: { principal: vazia(), subagente: vazia() },
     porSessao: Object.create(null),
     sessoesOmitidas: 0,
+    detalheIncoerente: 0,
   };
 }
 
@@ -78,6 +79,10 @@ function rotulador(max) {
 // números válidos e eles somam exatamente o total; senão o total inteiro fica
 // em cacheCreateSemDetalhe (nunca se deduz a parte que falta). Assim, em toda
 // soma, cacheCreate = cacheCreate1h + cacheCreate5m + cacheCreateSemDetalhe.
+// Os dois números válidos com soma diferente do total (caso real: total 0 com
+// 58 716 em 1 h; spec 12) marcam o registro como `incoerente`: o total vale
+// do mesmo jeito, e a marca só é contada (detalheIncoerente), para o relatório
+// dizer que o cache criado do período pode não bater (M-2 da revisão do fix I-1).
 function lerRegistro(r, desdeMs, rot) {
   if (r === null || typeof r !== 'object') return null;
   const ts = r.ts;
@@ -86,7 +91,8 @@ function lerRegistro(r, desdeMs, rot) {
   const cacheCreate = tokens(r.cacheCreate);
   const h1 = r.cacheCreate1h;
   const m5 = r.cacheCreate5m;
-  const comDetalhe = contagemValida(h1) && contagemValida(m5) && h1 + m5 === cacheCreate;
+  const presente = contagemValida(h1) && contagemValida(m5);
+  const comDetalhe = presente && h1 + m5 === cacheCreate;
   return {
     projeto: rot.projeto(r.projeto),
     sessao: rot.sessao(r.sessionId),
@@ -100,6 +106,7 @@ function lerRegistro(r, desdeMs, rot) {
     cacheCreate1h: comDetalhe ? h1 : 0,
     cacheCreate5m: comDetalhe ? m5 : 0,
     cacheCreateSemDetalhe: comDetalhe ? 0 : cacheCreate,
+    incoerente: presente && !comDetalhe,
   };
 }
 
@@ -147,9 +154,11 @@ function fecharSessoes(sessoes) {
 // modelo·effort (— quando ausente ou fora da lista fixa), por principal ×
 // subagente e por sessão (— quando o registro não traz sessionId; cada sessão
 // com os seus projetos e modelos, e só as MAX_SESSOES de maior consumo, com
-// o resto contado em sessoesOmitidas). `registros` que não é lista, ou
-// `desdeMs` que não é número finito, devolvem o agregado vazio. Registro
-// ilegível ou com `ts` inválido é pulado; contagem de tokens inválida vale 0.
+// o resto contado em sessoesOmitidas). `detalheIncoerente` conta as respostas
+// do período com o detalhe do cache criado presente e soma diferente do total
+// (nenhum token muda por isso). `registros` que não é lista, ou `desdeMs` que
+// não é número finito, devolvem o agregado vazio. Registro ilegível ou com
+// `ts` inválido é pulado; contagem de tokens inválida vale 0.
 // `porProjeto`, `porModeloEffort` e `porSessao` não têm protótipo. Nunca
 // lança.
 export function agregar(registros, desdeMs) {
@@ -162,6 +171,7 @@ export function agregar(registros, desdeMs) {
       let v;
       try { v = lerRegistro(registros[i], desdeMs, rot); } catch { v = null; }
       if (v === null) continue;
+      if (v.incoerente) a.detalheIncoerente++;
       somar(a.total, v);
       somar((a.porProjeto[v.projeto] ??= vazia()), v);
       somar((a.porModeloEffort[v.modeloEffort] ??= vazia()), v);

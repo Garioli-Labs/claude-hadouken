@@ -374,6 +374,23 @@ test('por sessão e cache criado 1 h / 5 min de ponta a ponta, sem pensamento no
   assert.match(texto, /cache criado sem detalhe/);
 });
 
+test('detalhe incoerente do cache criado de ponta a ponta: contado por período, nota no markdown, nada deduzido', async () => {
+  config(JSON.stringify({ repos: [] }));
+  transcript('proj-a/s1.jsonl', [
+    linhaUso('ok1', { detalhe: [300, 200] }),
+    linhaUso('inc1', { detalhe: [0, 58_716] }),
+    linhaUso('inc2', { detalhe: [100, 100] }),
+    linhaUso('sem1'),
+  ]);
+  for (const vez of ['frio', 'quente']) {
+    const r = (await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home })).relatorio;
+    for (const p of ['hoje', 'sete_dias', 'semana']) assert.equal(r.claude[p].detalheIncoerente, 2, `${vez} ${p}`);
+    const t = r.claude.hoje.total;
+    assert.deepEqual([t.cacheCreate, t.cacheCreate1h, t.cacheCreate5m, t.cacheCreateSemDetalhe], [2000, 300, 200, 1500], vez);
+    assert.match(formatarMarkdown(r), /^Detalhe incoerente: 2 respostas trazem 1 h \+ 5 min /m, vez);
+  }
+});
+
 test('config.json inválido: aviso fixo e o origin do cwd no lugar', { skip: !temGit && 'git ausente' }, async () => {
   config('{"repos": ["a/b; rm"]}');
   const repo = path.join(home, 'repo');
