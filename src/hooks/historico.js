@@ -74,9 +74,11 @@ function modeloLimpo(model) {
 // at (agora), session_id, cwd (do stdin do SessionEnd, saneado, 200 pontos de
 // código), model e effort (da sessão em estado.json, achada por Object.hasOwn
 // no estado validado), five_hour e seven_day (as janelas validadas do
-// instantâneo), leitura_at (o `at` desse instantâneo, para o relatório saber a
-// idade da leitura) e reason (da lista, senão 'outro'). Campo que não passa
-// vira null. Nunca lança.
+// instantâneo, cada uma com o `at` da própria leitura, ou at null quando
+// estado.json está no formato antigo, de um `at` só), leitura_at (o `at`
+// desse instantâneo, o da leitura mais antiga entre as janelas, para o
+// relatório saber a idade da leitura) e reason (da lista, senão 'outro').
+// Campo que não passa vira null. Nunca lança.
 export function registroHistorico({ entrada, estadoBruto, sessionId, agoraMs } = {}) {
   const registro = {
     at: numeroFinito(agoraMs) && Math.abs(agoraMs) <= DATA_MAX_MS ? new Date(agoraMs).toISOString() : null,

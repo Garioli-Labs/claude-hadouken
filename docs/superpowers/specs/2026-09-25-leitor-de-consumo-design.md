@@ -101,8 +101,8 @@ Cada unidade é um módulo com um arquivo, uma responsabilidade e testes própri
   {
     "versao": 1,
     "at": "2026-09-25T18:02:11Z",
-    "five_hour": { "used_percentage": 42, "resets_at": 1790000000 },
-    "seven_day": { "used_percentage": 48, "resets_at": 1790400000 },
+    "five_hour": { "used_percentage": 42, "resets_at": 1790000000, "at": "2026-09-25T18:02:11Z" },
+    "seven_day": { "used_percentage": 48, "resets_at": 1790400000, "at": "2026-09-25T18:05:40Z" },
     "sessoes": {
       "<session_id>": { "at": "...", "model": "Opus 5.5", "effort": "high", "cwd": "...", "context_pct": 31, "cache_hit": 0.975 }
     }
@@ -112,7 +112,8 @@ Cada unidade é um módulo com um arquivo, uma responsabilidade e testes própri
 - Gravação atômica: escreve em arquivo temporário no mesmo diretório e renomeia. No Windows, rename pode falhar com `EPERM`/`EBUSY` se outro processo estiver lendo: até 3 tentativas com 20 ms de intervalo; se todas falharem, desiste sem erro visível (a próxima atualização grava).
 - Leitura: JSON inválido, versão desconhecida ou arquivo ausente → `{ ok: false, motivo }`.
 - Sessões com `at` de mais de 24 h são removidas na gravação.
-- **Dado velho:** `at` com mais de 1 h → leitores tratam como "sem leitura".
+- **Dado velho:** cada janela tem o `at` da última leitura real dela; janela com `at` de mais de 1 h → leitores tratam essa janela como "sem leitura". O `at` do topo é o mais antigo das janelas (idade mostrada pelo relatório; versões anteriores do plugin só leem esse).
+- **Mescla por janela:** leitura menor da mesma janela não baixa a guardada (a sessão ociosa não desfaz a leitura fresca), mas só enquanto o `at` da guardada tem até 1 h: um valor alto (plantado, ou de outra conta) segura no máximo 1 h depois da última leitura real dele, mesmo com a outra janela sendo lida. Arquivo do formato anterior (um `at` só, no topo): as janelas são exibidas pelo `at` do topo e nunca seguram leitura nova (I-2 da revisão final).
 
 ### 6.3 `alerta` (puro)
 

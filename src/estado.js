@@ -198,6 +198,46 @@ function janela(j) {
   return { used_percentage: usado, resets_at: reset };
 }
 
+// Janela guardada em estado.json (I-2 da revisão final, N-6 do ledger): a de
+// `janela` mais o `at` da última leitura real DESTA janela, em ISO canônico.
+// Cada janela envelhece pelo próprio `at` (limitesValidos) e só segura leitura
+// menor enquanto ele tem até LIMITE_VELHO_MS (mantemGuardada). Antes as duas
+// dividiam o `at` do topo, e a janela segurada ganhava `at` novo sempre que a
+// outra entrava: um valor alto ficava até a janela virar (5 h ou 7 dias).
+// Formato de antes (`at` próprio ausente ou null): a janela vale com o `at` do
+// topo (`tTopo`, já validado; null a descarta), fica com at null e nunca
+// segura leitura nenhuma, porque aquele `at` pode ter sido renovado pela outra
+// janela. Assim o arquivo antigo nunca estende uma retenção, e a primeira
+// leitura válida da janela a substitui. `at` próprio presente e inválido (não
+// textual, ilegível ou mais de 5 min no futuro, como depois de o relógio
+// voltar) descarta a janela. Devolve { used_percentage, resets_at, at } ou null.
+function janelaGuardada(j, tTopo, agoraMs) {
+  const base = janela(j);
+  if (base === null) return null;
+  const bruto = Object.hasOwn(j, 'at') ? j.at : undefined;
+  if (bruto === undefined || bruto === null) return tTopo === null ? null : { ...base, at: null };
+  const t = instante(bruto, agoraMs);
+  return t === null ? null : { ...base, at: new Date(t).toISOString() };
+}
+
+// Instante (ms) da leitura de uma janela guardada: o próprio `at`, ou o do
+// topo para a janela do formato de antes.
+const leituraDe = (j, tTopo) => (j.at === null ? tTopo : Date.parse(j.at));
+
+// `at` do topo: a leitura mais antiga entre as janelas guardadas (null sem
+// janela nenhuma). É a idade que o relatório mostra e o `at` que uma versão
+// anterior do plugin, que só conhece o do topo, usa para as duas janelas: com
+// a mais antiga, as duas erram para o lado de "sem leitura", nunca para um
+// valor velho exibido como atual.
+function atDoTopo(janelas, tTopo) {
+  let menor = null;
+  for (const j of janelas) {
+    const t = j === null ? null : leituraDe(j, tTopo);
+    if (numeroFinito(t) && (menor === null || t < menor)) menor = t;
+  }
+  return menor === null ? null : new Date(menor).toISOString();
+}
+
 // O mesmo validador serve à sessão nova (stdin) e às lidas do disco.
 function sessaoValida(bruta, agoraMs) {
   if (!ehObjeto(bruta)) return null;
@@ -252,17 +292,19 @@ function sessaoDaEntrada(e, agoraIso, agoraMs) {
 }
 
 // Estado lido do disco (ou de qualquer origem) reconstruído só com campos que
-// passam no schema; versão desconhecida ou formato errado → null. Um `at`
-// inválido ou mais de 5 min no futuro descarta os limites da conta; cada
-// sessão é validada à parte. `sessoes` volta sem protótipo. Nunca lança.
+// passam no schema; versão desconhecida ou formato errado → null. Cada janela
+// passa por janelaGuardada (o próprio `at`, ou o do topo no formato de antes;
+// `at` inválido ou mais de 5 min no futuro a descarta) e o `at` do topo é
+// refeito por atDoTopo, nunca copiado do arquivo; cada sessão é validada à
+// parte. `sessoes` volta sem protótipo. Nunca lança.
 export function validarEstado(valor, agoraMs) {
   try {
     if (!ehObjeto(valor) || valor.versao !== VERSAO || !numeroFinito(agoraMs)) return null;
     const estado = estadoVazio();
-    const t = instante(valor.at, agoraMs);
-    const f5 = t === null ? null : janela(valor.five_hour);
-    const f7 = t === null ? null : janela(valor.seven_day);
-    if (f5 || f7) Object.assign(estado, { at: new Date(t).toISOString(), five_hour: f5, seven_day: f7 });
+    const tTopo = instante(valor.at, agoraMs);
+    estado.five_hour = janelaGuardada(valor.five_hour, tTopo, agoraMs);
+    estado.seven_day = janelaGuardada(valor.seven_day, tTopo, agoraMs);
+    estado.at = atDoTopo([estado.five_hour, estado.seven_day], tTopo);
     estado.sessoes = juntarSessoes(sessoesValidas(valor.sessoes, agoraMs), null);
     return estado;
   } catch {
@@ -284,10 +326,18 @@ export function validarEstado(valor, agoraMs) {
 // conta, ou outro CLAUDE_CONFIG_DIR) e entra: vale a leitura mais recente.
 // Limite conhecido: duas sessões simultâneas em duas contas alternam o
 // snapshot (a última leitura ganha) até o estado ser separado por conta.
-// Só é consultada com snapshot fresco; o velho é substituído inteiro
-// (atualizarEstado, fix round 3).
+// Só segura com a leitura própria da guardada fresca (fix round 3, por janela
+// desde I-2): com o `at` DESTA janela a mais de LIMITE_VELHO_MS, ou sem `at`
+// próprio (formato de antes), qualquer leitura válida dela entra. Um valor
+// plantado ou de outra conta segura no máximo 1 h depois da última leitura
+// real, mesmo com a outra janela entrando a cada leitura. A folga de relógio
+// de instante (`at` até 5 min no futuro, que cobre a barra que tomou o agora
+// antes de outra gravar) pode somar no máximo 5 min a essa hora; relógio que
+// volta mais que isso descarta a janela, e a leitura nova entra.
 function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
   if (!ehObjeto(guardada) || !numeroFinito(guardada.resets_at) || !numeroFinito(guardada.used_percentage)) return false;
+  const lidaEm = typeof guardada.at === 'string' ? instante(guardada.at, agoraMs) : null;
+  if (lidaEm === null || agoraMs - lidaEm > LIMITE_VELHO_MS) return false;
   const agoraS = agoraMs / 1000;
   if (guardada.resets_at <= agoraS || guardada.resets_at > agoraS + duracaoS + TOLERANCIA_JANELA_S) return false;
   if (nova.resets_at <= agoraS) return true;
@@ -297,11 +347,13 @@ function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
 }
 
 // Junta a entrada da statusline ao estado gravado e regrava `estado.json`.
-// Cada janela da leitura nova passa por mantemGuardada. Se ao menos uma entrou,
-// `at` vira agora e a janela que não veio na leitura fica null: nenhum valor
-// de leitura antiga ganha o `at` novo sem ter sido comparado. Se nenhuma
-// entrou (sem leitura válida, ou só leituras velhas), o instantâneo anterior
-// fica como está, com seu `at`. Devolve o
+// Cada janela da leitura nova passa por mantemGuardada. A que entra ganha
+// `at` = agora; a segurada fica com o próprio `at`, que só uma leitura real
+// dela renova (I-2). Se ao menos uma entrou, a janela que não veio na leitura
+// fica null: nenhum valor guardado sobrevive a uma leitura de agora sem ter
+// sido comparado. Se nenhuma entrou (sem leitura válida, ou só leituras
+// seguradas), o instantâneo anterior fica como está, cada janela com seu `at`.
+// O `at` do topo é sempre atDoTopo das janelas gravadas. Devolve o
 // estado mesmo quando a gravação falha, para a barra seguir mostrando a
 // leitura atual. Sem diretório de dados (dirDados() null) não faz I/O e
 // devolve motivo 'sem_diretorio'. Nunca lança.
@@ -319,23 +371,20 @@ export function atualizarEstado(entrada, agoraMs) {
     const estado = estadoVazio();
     const novas = {};
     let entrou = false;
-    // A mescla por janela só protege snapshot fresco (fix round 3). Com `at`
-    // a mais de LIMITE_VELHO_MS (a mesma régua de limitesValidos, que já não
-    // o exibe), qualquer leitura válida substitui as duas janelas e `at` anda:
-    // um valor plantado ou de outra conta segura no máximo 1 h, e a leitura
-    // velha de uma sessão ociosa só ganha quando ninguém leu nada na última
-    // hora, e aí é o melhor dado que há.
-    const tAnterior = instante(anterior.at, agoraMs);
-    const fresco = tAnterior !== null && agoraMs - tAnterior <= LIMITE_VELHO_MS;
+    // A mescla por janela só protege a guardada com leitura própria fresca
+    // (mantemGuardada, a mesma régua de limitesValidos, que já não exibe a
+    // janela velha): a leitura velha de uma sessão ociosa só ganha quando
+    // ninguém leu aquela janela na última hora, e aí é o melhor dado que há.
     for (const k of JANELAS) {
       const nova = janela(rl[k]);
-      const fica = fresco && nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
-      novas[k] = fica ? anterior[k] : nova;
+      const fica = nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
+      if (fica) novas[k] = anterior[k];
+      else novas[k] = nova === null ? null : { ...nova, at: agoraIso };
       if (nova !== null && !fica) entrou = true;
     }
     // Janela ausente na leitura vira null só quando outra entrou (a leitura é
-    // de agora); se nada entrou, o snapshot guardado fica inteiro, com seu at.
-    if (entrou) Object.assign(estado, { at: agoraIso, ...novas });
+    // de agora); se nada entrou, o snapshot guardado fica inteiro, com seus at.
+    if (entrou) Object.assign(estado, { at: atDoTopo([novas.five_hour, novas.seven_day], null), ...novas });
     else Object.assign(estado, { at: anterior.at, five_hour: anterior.five_hour, seven_day: anterior.seven_day });
     estado.sessoes = juntarSessoes(Object.entries(anterior.sessoes), sessaoDaEntrada(e, agoraIso, agoraMs));
     const r = gravarJsonAtomico(arq, estado);
@@ -345,19 +394,21 @@ export function atualizarEstado(entrada, agoraMs) {
   }
 }
 
-// Limites da conta que podem ser mostrados agora: leitura com no máximo
-// LIMITE_VELHO_MS de idade (e não mais que 5 min no futuro), só janelas que
-// passam no schema e cujo reset ainda não chegou. Nada válido → null. Nunca
-// devolve resets_at ausente ou não finito. Nunca lança.
+// Limites da conta que podem ser mostrados agora: cada janela envelhece pelo
+// próprio `at` (janelaGuardada; no formato de antes, o do topo), com no
+// máximo LIMITE_VELHO_MS de idade (e não mais que 5 min no futuro), passa no
+// schema e tem reset ainda por vir. Devolve cópias só com used_percentage e
+// resets_at. Nada válido → null. Nunca devolve resets_at ausente ou não
+// finito. Nunca lança.
 export function limitesValidos(estado, agoraMs) {
   try {
     if (!ehObjeto(estado) || estado.versao !== VERSAO || !numeroFinito(agoraMs)) return null;
-    const t = instante(estado.at, agoraMs);
-    if (t === null || agoraMs - t > LIMITE_VELHO_MS) return null;
+    const tTopo = instante(estado.at, agoraMs);
     const limites = {};
     for (const k of JANELAS) {
-      const j = janela(estado[k]);
-      if (j !== null && j.resets_at * 1000 > agoraMs) limites[k] = j;
+      const j = janelaGuardada(estado[k], tTopo, agoraMs);
+      if (j === null || agoraMs - leituraDe(j, tTopo) > LIMITE_VELHO_MS || j.resets_at * 1000 <= agoraMs) continue;
+      limites[k] = { used_percentage: j.used_percentage, resets_at: j.resets_at };
     }
     return limites.five_hour || limites.seven_day ? limites : null;
   } catch {
