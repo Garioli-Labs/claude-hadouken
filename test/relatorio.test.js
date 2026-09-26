@@ -493,6 +493,58 @@ test('sessões: entrada com mais de MAX_SESSOES chaves lê só as primeiras e co
   assert.ok(!(`id-${MAX_SESSOES}` in r.claude.semana.porSessao));
 });
 
+// Revisão final de qualidade: a conta das sessões omitidas (a do agregado
+// mais as chaves além de MAX_SESSOES, e no markdown mais as linhas além da
+// tabela) para em Number.MAX_SAFE_INTEGER, sempre inteiro seguro.
+test('sessões: a conta das omitidas para em Number.MAX_SAFE_INTEGER, no JSON e no markdown', () => {
+  const demais = {};
+  for (let i = 0; i < MAX_SESSOES + 7; i++) demais[`id-${i}`] = sessao();
+  const r = montarRelatorio({
+    estado, agoraMs: agora, github,
+    claude: { ...claude, hoje: agregado({ porSessao: demais, sessoesOmitidas: Number.MAX_SAFE_INTEGER - 2 }) },
+  });
+  assert.equal(r.claude.hoje.sessoesOmitidas, Number.MAX_SAFE_INTEGER);
+  const texto = formatarMarkdown(r);
+  assert.match(texto, new RegExp(`^Mais ${Number.MAX_SAFE_INTEGER} sessões fora da tabela\\.$`, 'm'));
+  const r2 = montarRelatorio({ estado, agoraMs: agora, github, claude: { ...claude, hoje: agregado({ sessoesOmitidas: Number.MAX_SAFE_INTEGER }) } });
+  assert.equal(r2.claude.hoje.sessoesOmitidas, Number.MAX_SAFE_INTEGER);
+  assert.match(formatarMarkdown(r2), new RegExp(`^Mais ${Number.MAX_SAFE_INTEGER} sessões fora da tabela\\.$`, 'm'));
+});
+
+// Revisão final de qualidade: os nomes de uma sessão são procurados só nas
+// primeiras MAX_CHAVES (5000) posições da lista, seja qual for o tipo dos
+// itens: lista enorme e esparsa, ou só de não-textos, não prende o relatório.
+test('sessões: lista de nomes enorme e esparsa é olhada até MAX_CHAVES posições e volta rápido', { timeout: 20_000 }, () => {
+  const esparsa = [];
+  esparsa.length = 2 ** 32 - 1;
+  let lidas = 0;
+  const contada = new Proxy(new Array(50_000_000), {
+    get(alvo, k, rec) {
+      if (typeof k === 'string' && /^\d+$/.test(k)) lidas++;
+      return Reflect.get(alvo, k, rec);
+    },
+  });
+  const inicio = performance.now();
+  const r = montarRelatorio({
+    estado, agoraMs: agora, github,
+    claude: { ...claude, hoje: agregado({ porSessao: { a: sessao({ projetos: esparsa, modelos: contada }) } }) },
+  });
+  const ms = performance.now() - inicio;
+  assert.deepEqual(r.claude.hoje.porSessao.a.projetos, []);
+  assert.deepEqual(r.claude.hoje.porSessao.a.modelos, []);
+  assert.equal(lidas, 5000, 'só as primeiras MAX_CHAVES posições');
+  assert.ok(ms < 2000, `${ms} ms`);
+  // A fronteira: a posição MAX_CHAVES - 1 é lida, a MAX_CHAVES não.
+  const naoTextos = new Array(6000).fill(7);
+  naoTextos[4999] = 'Dentro';
+  naoTextos[5000] = 'Fora';
+  const r2 = montarRelatorio({
+    estado, agoraMs: agora, github,
+    claude: { ...claude, hoje: agregado({ porSessao: { a: sessao({ projetos: naoTextos }) } }) },
+  });
+  assert.deepEqual(r2.claude.hoje.porSessao.a.projetos, ['Dentro']);
+});
+
 test('malicioso: ids de sessão, projetos e modelos da sessão com escapes, bidi, texto enorme e __proto__ saem saneados', () => {
   const ESC = '\x1b';
   const hostis = [

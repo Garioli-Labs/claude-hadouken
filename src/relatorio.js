@@ -61,6 +61,9 @@ const NOMES_CHAVE = Object.freeze({ __proto__: null, outro: 'outro', em_andament
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const proprio = (o, k) => (Object.hasOwn(o, k) ? o[k] : undefined);
 const inteiro = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);
+// Soma de duas contagens inteiras seguras que para em
+// Number.MAX_SAFE_INTEGER: acima disso o número deixa de ser exato.
+const somaSegura = (a, b) => Math.min(a + b, Number.MAX_SAFE_INTEGER);
 const finito = (n) => typeof n === 'number' && Number.isFinite(n);
 const nomeDe = (mapa, k) => (typeof k === 'string' && Object.hasOwn(mapa, k) ? mapa[k] : null);
 
@@ -146,12 +149,15 @@ const rotuloSessao = (k) => sanear(k, MAX_NOME) ?? SEM;
 const rotuloNomeModelo = (k) => sanear(k.replace(GLIFOS_BARRA, ''), MAX_NOME) ?? SEM;
 
 // Até MAX_ROTULOS_SESSAO nomes de uma lista, saneados, sem repetir, na ordem
-// dela; o que não é texto é pulado. Lista ilegível → o que já foi lido.
+// dela; o que não é texto é pulado. Só as primeiras MAX_CHAVES posições são
+// olhadas, seja qual for o tipo dos itens: lista enorme e esparsa, ou só de
+// não-textos, não prende o relatório. Lista ilegível → o que já foi lido.
 function lerRotulos(v, rotulo) {
   const saida = [];
   try {
     if (!Array.isArray(v)) return saida;
-    for (let i = 0; i < v.length && saida.length < MAX_ROTULOS_SESSAO; i++) {
+    const fim = Math.min(v.length, MAX_CHAVES);
+    for (let i = 0; i < fim && saida.length < MAX_ROTULOS_SESSAO; i++) {
       const t = v[i];
       if (typeof t !== 'string') continue;
       const nome = rotulo(t);
@@ -210,7 +216,7 @@ function lerAgregado(a) {
     porModeloEffort: lerMapa(ler(a, 'porModeloEffort'), rotuloModelo),
     principalVsSubagente: { principal: lerSoma(ler(pvs, 'principal')), subagente: lerSoma(ler(pvs, 'subagente')) },
     porSessao: sessoes.porSessao,
-    sessoesOmitidas: (inteiro(ler(a, 'sessoesOmitidas')) ?? 0) + sessoes.omitidas,
+    sessoesOmitidas: somaSegura(inteiro(ler(a, 'sessoesOmitidas')) ?? 0, sessoes.omitidas),
     detalheIncoerente: lerIncoerentes(ler(a, 'detalheIncoerente'), total.respostas),
   };
 }
@@ -565,7 +571,7 @@ function tabelaSessoes(mapa, omitidas, semDetalhe) {
   for (const [id, s] of linhas.slice(0, MAX_LINHAS_SESSOES)) {
     saida.push(linhaTabela([`\`${id}\``, listaNomes(s.projetos), listaNomes(s.modelos)], s, semDetalhe));
   }
-  const fora = Math.max(0, linhas.length - MAX_LINHAS_SESSOES) + omitidas;
+  const fora = somaSegura(Math.max(0, linhas.length - MAX_LINHAS_SESSOES), omitidas);
   if (fora > 0) saida.push('', `Mais ${plural(fora, 'sessão', 'sessões')} fora da tabela.`);
   saida.push('');
   return saida;
