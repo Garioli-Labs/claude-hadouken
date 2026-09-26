@@ -305,8 +305,8 @@ test('precisaGravar: at guardado velho, no futuro ou inválido regrava, mesmo co
   const casos = {
     'seis minutos': iso(AGORA - 6 * 60_000),
     'mais de 1 h': iso(AGORA - 2 * H),
-    // Relógio que voltou: regravar traz o at para agora, e a decisão D nunca
-    // passa de 1 h por causa do salto.
+    // Relógio que voltou: regravar traz o at para agora. Um salto para trás
+    // ainda pode deslocar a decisão D (residual aceito, ver task-7-security).
     'um minuto no futuro': iso(AGORA + 60_000),
     'dez minutos no futuro': iso(AGORA + 10 * 60_000),
     'ontem': 'ontem',

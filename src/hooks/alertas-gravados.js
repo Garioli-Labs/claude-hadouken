@@ -29,9 +29,11 @@ import { LIMITE_VELHO_MS } from '../estado.js';
 // regrava alertas.json quando a memória muda ou quando o `at` guardado tem
 // AT_RENOVAR_MS (5 min) ou mais (precisaGravar). Assim o `at` fica até 5 min
 // atrás da última conferência, e a decisão D passa a valer depois de 55 a
-// 60 min de silêncio em vez de 60 exatos: sempre mais cedo, nunca mais tarde,
-// então o pior caso é uma faixa restritiva anunciada de novo, nunca uma
-// descida falsa. Folga aceita pelo controlador.
+// 60 min de silêncio em vez de 60 exatos: com relógio estável, sempre mais cedo,
+// nunca mais tarde, e o pior caso é uma faixa restritiva anunciada de novo.
+// Um relógio que volta para trás já podia atrasar a decisão D antes desta
+// regra; a folga de até 5 min desloca essa janela sem alargá-la. Folga aceita
+// pelo controlador.
 //
 // A lista de faixas espelha alerta.js (que as mantém privadas); o teste
 // "aceita toda faixa que alerta.js produz" prende as duas juntas.

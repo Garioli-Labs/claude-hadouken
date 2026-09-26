@@ -29,8 +29,8 @@ const JANELAS = ['five_hour', 'seven_day'];
 // e não segura leitura nenhuma na mescla.
 const DURACAO_S = { five_hour: 5 * 3600, seven_day: 7 * 86_400 };
 
-// O_NONBLOCK (onde existe) impede que um FIFO posto no lugar do arquivo entre o
-// stat e o open trave a barra; em arquivo regular não muda nada. No Windows a
+// O_NONBLOCK (onde existe) impede que um FIFO posto no lugar do arquivo trave
+// o open (o tipo é conferido depois, pelo fstat); em arquivo regular não muda nada. No Windows a
 // constante não existe e o open de um pipe nomeado não bloqueia.
 const ABRIR_LEITURA = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 const PEDACO_LEITURA = 65_536;
