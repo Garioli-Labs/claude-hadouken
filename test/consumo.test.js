@@ -26,7 +26,11 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-const agora = Date.now();
+// Meio-dia local de hoje, fixo: "hoje" começa na meia-noite local de
+// `agora`, e com Date.now() uma execução iniciada logo depois da meia-noite
+// punha a resposta de `agora - 1 s` no dia anterior. As respostas ficam até
+// 12 h à frente do relógio, dentro da tolerância de 1 dia do indexador.
+const agora = new Date().setHours(12, 0, 0, 0);
 const DIA = 86_400_000;
 const iso = (ms) => new Date(ms).toISOString();
 const arqConfig = () => path.join(process.env.HADOUKEN_HOME, ARQ_CONFIG);
@@ -61,7 +65,11 @@ test('config.json válido: até 20 repos que passam na regex da Task 9', () => {
 
 test('malicioso: config.json fora do formato é ignorado inteiro, com o aviso fixo', () => {
   const casos = {
-    proto: '{"__proto__": {"repos": ["evil/x"]}}',
+    numero: '42',
+    nulo: 'null',
+    textoNaRaiz: '"o/r"',
+    reposNulo: '{"repos": null}',
+    reposObjeto: '{"repos": {"0": "o/r", "length": 1}}',
     vinteEUm: JSON.stringify({ repos: Array.from({ length: 21 }, (_, i) => `o/r${i}`) }),
     naoTexto: JSON.stringify({ repos: ['o/r', 42] }),
     injecao: JSON.stringify({ repos: ['a/b; rm -rf ~'] }),
@@ -79,6 +87,23 @@ test('malicioso: config.json fora do formato é ignorado inteiro, com o aviso fi
   fs.rmSync(arqConfig());
   fs.mkdirSync(arqConfig());
   assert.deepEqual(reposDaConfig(arqConfig()), { repos: null, avisos: [AVISO_CONFIG] }, 'pasta no lugar do arquivo');
+});
+
+// Decisão do controlador (fix round 1): objeto sem `repos` próprio não é
+// arquivo quebrado, é config sem repos (pode ter só limiares). O `__proto__`
+// do JSON.parse é chave própria comum e nunca é lida.
+test('config.json sem `repos` próprio: sem aviso, o origin decide (vazio, só limiares, __proto__)', () => {
+  const casos = {
+    vazio: '{}',
+    soLimiares: JSON.stringify({ limiares: { cinco_horas: 80 } }),
+    proto: '{"__proto__": {"repos": ["evil/x"]}}',
+    protoEOutra: '{"__proto__": {"repos": ["evil/x"]}, "outra": 1}',
+  };
+  for (const [nome, texto] of Object.entries(casos)) {
+    config(texto);
+    assert.deepEqual(reposDaConfig(arqConfig()), { repos: null, avisos: [] }, nome);
+  }
+  assert.equal({}.repos, undefined, 'Object.prototype intocado');
 });
 
 // ------------------------------------------------------------ origin
@@ -209,6 +234,24 @@ test('config.json inválido: aviso fixo e o origin do cwd no lugar', { skip: !te
   assert.deepEqual(r.relatorio.avisos, [AVISO_CONFIG]);
   assert.deepEqual(Object.keys(r.relatorio.github), ['o/r']);
   assert.ok(chamadas.every((ep) => !ep.includes('rm')));
+});
+
+test('config.json sem `repos` próprio: o relatório usa o origin do cwd, sem aviso, e evil/x nunca chega ao gh', { skip: !temGit && 'git ausente' }, async () => {
+  const repo = path.join(home, 'repo');
+  fs.mkdirSync(repo);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:o/r.git'], { cwd: repo });
+  const casos = { vazio: '{}', soLimiares: JSON.stringify({ limiares: {} }), proto: '{"__proto__": {"repos": ["evil/x"]}}' };
+  for (const [nome, texto] of Object.entries(casos)) {
+    config(texto);
+    // Sem o cache do GitHub do caso anterior: cada caso chama o gh.
+    fs.rmSync(path.join(process.env.HADOUKEN_HOME, 'github-cache.json'), { force: true });
+    const chamadas = [];
+    const r = await gerarRelatorio({ agoraMs: agora, gh: ghFalso(chamadas), raizTranscripts: raiz, cwd: repo });
+    assert.deepEqual(r.relatorio.avisos, [], nome);
+    assert.deepEqual(Object.keys(r.relatorio.github), ['o/r'], nome);
+    assert.ok(chamadas.length > 0 && chamadas.every((ep) => ep.startsWith('repos/o/r/') && !ep.includes('evil')), `${nome}: ${chamadas.join(' ')}`);
+  }
 });
 
 test('transcripts: raiz ausente, raiz sem nada recente e raiz ligada (junção ou link) são motivos distintos', async (t) => {

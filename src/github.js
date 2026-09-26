@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { dirDados, gravarJsonAtomico, instante, lerJson } from './estado.js';
+import { resolverExecutavel } from './executavel.js';
 
 // Leitor do consumo de GitHub Actions para o /consumo (spec 6.7; 8.1 S2, S5,
 // S9; addendum de segurança da Task 9). O plugin existe para economizar
@@ -250,6 +251,17 @@ function opcoesExecutor(opcoes) {
   }
 }
 
+// Programa que o executor roda (fix round 1 da Task 10, Critical 1): caminho
+// absoluto como veio (os testes injetam o próprio node); nome solto
+// resolvido pelo PATH, por caminho absoluto, nunca pelo cwd (executavel.js);
+// caminho relativo com pasta, que dependeria do cwd, é recusado. null → 'gh
+// ausente', sem criar processo.
+function programa(executavel) {
+  if (path.isAbsolute(executavel)) return executavel;
+  if (/[\\/]/.test(executavel)) return null;
+  return resolverExecutavel(executavel);
+}
+
 // Só um AbortSignal de verdade chega ao execFile; qualquer outra coisa é
 // ignorada (o execFile lançaria com um objeto que só parece um sinal).
 function sinalValido(sinal) {
@@ -260,8 +272,10 @@ function sinalValido(sinal) {
   }
 }
 
-// Executor do gh: `execFile`, nunca um shell; argumentos passados como lista,
-// literais. Timeout de 15 s, saída de até 8 MB, janela oculta no Windows,
+// Executor do gh: `execFile`, nunca um shell, com o gh do PATH por caminho
+// absoluto (nunca um gh plantado no cwd, que é o repo do usuário); sem gh
+// fora do cwd, 'gh ausente'. Argumentos passados como lista, literais.
+// Timeout de 15 s, saída de até 8 MB, janela oculta no Windows,
 // stdin fechado, ambiente com MSYS_NO_PATHCONV=1 e sem variáveis que mudem a
 // saída. Recebe (args, sinal): abortar o sinal (o prazo da coleta) mata o gh.
 // O abort passa pelo spawn, que manda SIGTERM (o execFile não repassa
@@ -286,11 +300,16 @@ export function criarExecutorGh(opcoes) {
         resolve(falha('tempo esgotado'));
         return;
       }
+      const exe = programa(executavel);
+      if (exe === null) {
+        resolve(falha('gh ausente'));
+        return;
+      }
       // O gh só lê, então pode morrer sem aviso. killSignal vale só para o
       // timeout do execFile: SIGKILL, mesmo que o gh ignore SIGTERM. O abort
       // não usa killSignal e é escalado para SIGKILL no callback abaixo. No
       // Windows todo sinal é TerminateProcess.
-      const filho = execFile(executavel, [...args], {
+      const filho = execFile(exe, [...args], {
         env: ambienteGh(), timeout: timeoutMs, maxBuffer, windowsHide: true, encoding: 'utf8', shell: false,
         killSignal: 'SIGKILL', signal, ...(cwd === undefined ? {} : { cwd }),
       }, (erro, stdout, stderr) => {

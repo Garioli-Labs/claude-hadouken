@@ -26,11 +26,11 @@ const ESCRITA_MAX_MS = 10_000;
 
 // Escapa no JSON o que um terminal ou o modelo leriam como controle:
 // formato (bidi, largura zero, tags), uso privado, não atribuídos,
-// separadores de linha e parágrafo e C1. O JSON.stringify já escapa C0 e
-// surrogates soltos; estes ficam em \uXXXX (par de surrogates acima de FFFF).
-// Os nomes já chegam saneados; isto é a última barreira. Pode lançar só se o
-// valor não for serializável (o chamador trata).
-const ESCAPAR = /[\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\u0080-\u009f]/gu;
+// separadores de linha e parágrafo, DEL e C1. O JSON.stringify já escapa C0
+// e surrogates soltos; estes ficam em \uXXXX (par de surrogates acima de
+// FFFF). Os nomes já chegam saneados; isto é a última barreira. Pode lançar
+// só se o valor não for serializável (o chamador trata).
+const ESCAPAR = /[\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\u007f-\u009f]/gu;
 const hex4 = (u) => `\\u${u.toString(16).padStart(4, '0')}`;
 export function jsonSeguro(valor) {
   return JSON.stringify(valor, null, 2).replace(ESCAPAR, (c) => {

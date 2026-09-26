@@ -21,7 +21,9 @@ const novoTmp = (prefixo = 'hdk cli ç ') => {
   tmps.push(d);
   return d;
 };
-after(() => { for (const d of tmps) fs.rmSync(d, { recursive: true, force: true }); });
+// Um executável que acabou de sair ainda pode estar preso no Windows por
+// alguns milissegundos: a remoção tenta de novo.
+after(() => { for (const d of tmps) fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
 
 function capturar() {
   const saidas = [];
@@ -121,10 +123,11 @@ test('instalar: import que falta dentro do módulo, ou módulo sem a função, �
   }
 });
 
-test('jsonSeguro: invisíveis, bidi, separadores, uso privado e C1 saem escapados e o JSON continua o mesmo', () => {
-  const cru = `a\u{202E}b\u{2028}c\u{E000}d\u{9B}e\u{E0041}f\u{200B}g·—ç`;
+test('jsonSeguro: invisíveis, bidi, separadores, uso privado, DEL e C1 saem escapados e o JSON continua o mesmo', () => {
+  const cru = `a\u{202E}b\u{2028}c\u{E000}d\u{9B}e\u{E0041}f\u{200B}g\u{7F}h·—ç`;
   const texto = jsonSeguro({ k: cru });
-  assert.doesNotMatch(texto, /[\u{202E}\u{2028}\u{E000}\u{9B}\u{200B}]|[\u{E0000}-\u{E007F}]/u);
+  assert.doesNotMatch(texto, /[\u{202E}\u{2028}\u{E000}\u{9B}\u{200B}\u{7F}]|[\u{E0000}-\u{E007F}]/u);
+  assert.match(texto, /g\\u007fh/, 'DEL vira \\u007f');
   assert.match(texto, /·—ç/, 'texto visível fica como está');
   assert.deepEqual(JSON.parse(texto), { k: cru });
   assert.match(texto, /^\{\n {2}"k"/, 'indentado com 2 espaços');
@@ -167,20 +170,25 @@ function rodarFilho(args, { env, cwd }) {
   });
 }
 
+// Uma resposta de 60 s atrás; devolve o instante dela (ms).
 function transcriptRecente(raiz) {
   const dir = path.join(raiz, 'proj-a');
   fs.mkdirSync(dir, { recursive: true });
+  const ts = Date.now() - 60_000;
   fs.writeFileSync(path.join(dir, 's.jsonl'), `${JSON.stringify({
-    type: 'assistant', requestId: 'r1', sessionId: 'sess-1', cwd: 'C:/Projetos DEV/Demo Proj', timestamp: new Date(Date.now() - 60_000).toISOString(),
+    type: 'assistant', requestId: 'r1', sessionId: 'sess-1', cwd: 'C:/Projetos DEV/Demo Proj', timestamp: new Date(ts).toISOString(),
     effort: 'high', isSidechain: false,
     message: { id: 'm1', model: 'claude-opus-5', usage: { input_tokens: 10, output_tokens: 100, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500 } },
   })}\n`);
+  return ts;
 }
+
+const diaLocal = (ms) => new Date(ms).toDateString();
 
 test('filho: consumo em markdown e em JSON; argumentos a mais nunca aparecem na saída', async () => {
   const { env, casa } = ambienteCli();
   config(env, []);
-  transcriptRecente(path.join(casa, '.claude', 'projects'));
+  const ts = transcriptRecente(path.join(casa, '.claude', 'projects'));
   const md = await rodarFilho(['consumo', '--evil', '$(x)'], { env, cwd: casa });
   assert.equal(md.codigo, 0, md.err);
   assert.equal(md.err, '');
@@ -189,9 +197,15 @@ test('filho: consumo em markdown e em JSON; argumentos a mais nunca aparecem na 
   assert.match(md.out, /Nenhum repo configurado/);
   const json = await rodarFilho(['consumo', '--json', '--evil', '$(x)'], { env, cwd: casa });
   assert.equal(json.codigo, 0, json.err);
+  const fim = Date.now();
   const r = JSON.parse(json.out);
   assert.equal(r.versao, 1);
-  assert.equal(r.claude.hoje.total.respostas, 1);
+  assert.equal(r.claude.semana.total.respostas, 1);
+  // O filho lê o relógio entre `ts` e `fim`. "Hoje" começa na meia-noite
+  // local desse instante: se `ts` e `fim` caem no mesmo dia local, a resposta
+  // é de hoje; se a execução cruzou a meia-noite, pode ter ficado de ontem.
+  if (diaLocal(ts) === diaLocal(fim)) assert.equal(r.claude.hoje.total.respostas, 1);
+  else assert.ok([0, 1].includes(r.claude.hoje.total.respostas), String(r.claude.hoje.total.respostas));
   for (const s of [md.out, json.out]) assert.doesNotMatch(s, /--evil|\$\(x\)/);
   const uso = await rodarFilho(['--json', 'consumo'], { env, cwd: casa });
   assert.equal(uso.codigo, 1);
@@ -218,14 +232,24 @@ test('filho: raiz de transcripts ligada (junção ou link) é "raiz recusada", n
 
 // Sentinela: um "gh" que é o próprio node, primeiro (e único) no PATH, e que
 // roda o arquivo `api` do cwd do CLI. No Windows o execFile acha gh.exe, então
-// a sentinela é um hard link (ou cópia) do node.exe; no POSIX, um link
-// simbólico chamado gh.
+// a sentinela é um hard link (ou cópia) de uma cópia temporária do node.exe:
+// um link do node.exe que roda este teste (possível com um node portátil)
+// não pode ser apagado no after enquanto o teste roda (EPERM). No POSIX, um
+// link simbólico chamado gh.
+let nodeTemporario = null;
 function sentinela(scriptApi) {
   const bin = novoTmp('hdk bin ');
   const nome = path.join(bin, process.platform === 'win32' ? 'gh.exe' : 'gh');
   try {
-    if (process.platform === 'win32') fs.linkSync(process.execPath, nome);
-    else fs.symlinkSync(process.execPath, nome);
+    if (process.platform === 'win32') {
+      if (nodeTemporario === null) {
+        nodeTemporario = path.join(novoTmp('hdk node '), 'node.exe');
+        fs.copyFileSync(process.execPath, nodeTemporario);
+      }
+      fs.linkSync(nodeTemporario, nome);
+    } else {
+      fs.symlinkSync(process.execPath, nome);
+    }
   } catch {
     fs.copyFileSync(process.execPath, nome);
     fs.chmodSync(nome, 0o755);

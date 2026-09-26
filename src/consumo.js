@@ -1,9 +1,10 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { agregar } from './agregacao.js';
 import { ARQ_ESTADO, dirDados, lerJson, limitesValidos, validarEstado } from './estado.js';
+import { resolverExecutavel } from './executavel.js';
 import { coletarGithub, repoValido } from './github.js';
 import {
   AVISO_CONFIG, CLAUDE_ILEGIVEIS, CLAUDE_RAIZ_RECUSADA, CLAUDE_SEM_HOME, CLAUDE_SEM_RECENTES,
@@ -24,7 +25,9 @@ const PRAZO_GITHUB_MAX_MS = 600_000;
 const SEMANA_MS = 7 * 86_400_000;
 const ORIGIN_MAX = 512;
 const GIT_TIMEOUT_MS = 5000;
+const GIT_ESPERA_KILL_MS = 1000;
 const GIT_MAX_BUFFER = 64 * 1024;
+const ARGS_ORIGIN = Object.freeze(['-c', 'core.fsmonitor=', '--no-optional-locks', 'remote', 'get-url', 'origin']);
 // Só as três formas do github.com, sem credencial, porta, barra final nem
 // espaço; o dono/repo capturado ainda passa pela regex da Task 9.
 const ORIGIN = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/\s]+\/[^/\s]+?)(?:\.git)?$/;
@@ -61,26 +64,36 @@ function faltaArquivo(arquivo) {
   }
 }
 
-// Só { repos: [até 20 textos que passam na regex da Task 9] }; outras chaves
-// são ignoradas (a spec reserva o arquivo também para limiares).
+const INVALIDO = Symbol('invalido');
+
+// Repos de um config.json já lido, com três saídas:
+// - raiz que não é objeto (ou é lista) → INVALIDO: arquivo quebrado;
+// - objeto sem `repos` próprio → null: config sem repos (a spec reserva o
+//   arquivo também para limiares), o origin decide. O `__proto__` que o
+//   JSON.parse cria é chave própria comum e nunca é lida;
+// - `repos` próprio → a cópia da lista, se tiver até 20 textos que passam na
+//   regex da Task 9; senão INVALIDO.
+// Outras chaves são ignoradas.
 function reposValidos(v) {
-  if (v === null || typeof v !== 'object' || Array.isArray(v) || !Object.hasOwn(v, 'repos')) return null;
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return INVALIDO;
+  if (!Object.hasOwn(v, 'repos')) return null;
   const r = v.repos;
-  if (!Array.isArray(r) || r.length > CONFIG_MAX_REPOS) return null;
-  for (let i = 0; i < r.length; i++) if (!repoValido(r[i])) return null;
+  if (!Array.isArray(r) || r.length > CONFIG_MAX_REPOS) return INVALIDO;
+  for (let i = 0; i < r.length; i++) if (!repoValido(r[i])) return INVALIDO;
   return r.slice();
 }
 
-// Repos do config.json: { repos, avisos }. Arquivo ausente → repos null sem
-// aviso (o origin decide). Qualquer outra coisa fora do formato (JSON
-// inválido, acima de 64 KiB, pasta, sem `repos`, mais de 20, um item que não
-// passa na regex) ignora o arquivo inteiro, com o aviso fixo. Nunca lança.
+// Repos do config.json: { repos, avisos }. Arquivo ausente, ou objeto sem
+// `repos` próprio → repos null sem aviso (o origin decide). Arquivo quebrado
+// (JSON inválido, acima de 64 KiB, pasta, raiz que não é objeto) ou `repos`
+// fora do formato (não lista, mais de 20, um item que não passa na regex)
+// ignora o arquivo inteiro, com o aviso fixo. Nunca lança.
 export function reposDaConfig(arquivo) {
   try {
     const lido = lerJson(arquivo, CONFIG_MAX_BYTES);
     if (!lido.ok) return lido.motivo === 'ausente' && faltaArquivo(arquivo) ? { repos: null, avisos: [] } : { repos: null, avisos: [AVISO_CONFIG] };
     const repos = reposValidos(lido.valor);
-    return repos === null ? { repos: null, avisos: [AVISO_CONFIG] } : { repos, avisos: [] };
+    return repos === INVALIDO ? { repos: null, avisos: [AVISO_CONFIG] } : { repos, avisos: [] };
   } catch {
     return { repos: null, avisos: [AVISO_CONFIG] };
   }
@@ -107,25 +120,72 @@ function ambienteGit() {
 }
 
 // Repo do origin do git em `cwd` (ou no cwd do processo): [dono/repo] ou [].
-// execFile sem shell, com fsmonitor desligado (um repo hostil não roda hook),
-// sem locks opcionais, janela oculta, 5 s e 64 KiB. Nunca rejeita.
+// O git é o do PATH, por caminho absoluto, nunca um plantado no cwd
+// (executavel.js); sem git fora do cwd, []. spawn sem shell, com fsmonitor
+// desligado (um repo hostil não roda hook), sem locks opcionais, janela
+// oculta, stdin no dispositivo nulo (nenhum git fica esperando entrada) e
+// stderr descartado (um git falador não apaga o origin). É spawn, e não
+// execFile, porque o execFile não repassa `stdio` ao spawn (Node 20 e 24) e
+// sempre acumula o stderr. Prazo de 5 s e stdout de até 64 KiB: passou de
+// um deles, SIGKILL, e a promessa só resolve depois que o git saiu, ou 1 s
+// depois do SIGKILL se ele não sair (processo preso em E/S do kernel não
+// morre; o CLI sai com process.exit() assim mesmo). Nunca rejeita.
 export function lerOrigin(cwd) {
   return new Promise((resolve) => {
+    let feito = false;
+    let relogio = null;
+    const fim = (repos) => {
+      if (feito) return;
+      feito = true;
+      if (relogio !== null) clearTimeout(relogio);
+      resolve(repos);
+    };
     try {
+      const git = resolverExecutavel('git');
+      if (git === null) {
+        fim([]);
+        return;
+      }
       const dir = typeof cwd === 'string' && cwd !== '' ? cwd : process.cwd();
-      execFile('git', ['-c', 'core.fsmonitor=', '--no-optional-locks', 'remote', 'get-url', 'origin'], {
-        cwd: dir, env: ambienteGit(), timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, windowsHide: true,
-        shell: false, encoding: 'utf8', killSignal: 'SIGKILL',
-      }, (erro, stdout) => {
-        if (erro || typeof stdout !== 'string') {
-          resolve([]);
+      const filho = spawn(git, ARGS_ORIGIN, {
+        cwd: dir, env: ambienteGit(), windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      let saiu = false;
+      let abortado = false;
+      let total = 0;
+      const partes = [];
+      const abortar = () => {
+        if (abortado) return;
+        abortado = true;
+        if (saiu) {
+          fim([]);
           return;
         }
-        const repo = repoDoOrigin(stdout.replace(/\r?\n$/, ''));
-        resolve(repo === null ? [] : [repo]);
+        filho.once('exit', () => fim([]));
+        clearTimeout(relogio);
+        relogio = setTimeout(() => fim([]), GIT_ESPERA_KILL_MS);
+        try { filho.kill('SIGKILL'); } catch { fim([]); }
+      };
+      relogio = setTimeout(abortar, GIT_TIMEOUT_MS);
+      filho.on('exit', () => { saiu = true; });
+      filho.on('error', () => fim([]));
+      filho.stdout.on('error', () => { /* o close ou o prazo decidem */ });
+      filho.stdout.on('data', (pedaco) => {
+        if (total > GIT_MAX_BUFFER) return;
+        total += pedaco.length;
+        if (total > GIT_MAX_BUFFER) abortar();
+        else partes.push(pedaco);
+      });
+      filho.on('close', (codigo) => {
+        if (codigo !== 0 || total > GIT_MAX_BUFFER) {
+          fim([]);
+          return;
+        }
+        const repo = repoDoOrigin(Buffer.concat(partes).toString('utf8').replace(/\r?\n$/, ''));
+        fim(repo === null ? [] : [repo]);
       });
     } catch {
-      resolve([]);
+      fim([]);
     }
   });
 }
@@ -210,7 +270,8 @@ async function coletarRepos(dir, { gh, cwd, prazoMs }, agoraMs) {
 
 // Relatório do /consumo: { ok: true, relatorio } (JSON de montarRelatorio) ou
 // { ok: false, motivo }. Opções (todas opcionais, para os testes e para a
-// medição): agoraMs, gh (executor; padrão o gh do PATH), raizTranscripts
+// medição): agoraMs, gh (executor; padrão o gh do PATH, por caminho
+// absoluto, nunca o do cwd), raizTranscripts
 // (padrão <CLAUDE_CONFIG_DIR>/projects ou ~/.claude/projects), cwd (onde
 // procurar o origin) e prazoGithubMs (padrão 10 s, passado explicitamente ao
 // coletor). Transcripts e GitHub rodam em paralelo. Nunca rejeita.
