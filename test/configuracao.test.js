@@ -16,6 +16,7 @@ import {
   MAX_SETTINGS_BYTES,
   MAX_BACKUPS,
 } from '../src/configuracao.js';
+import { absolutoCompleto } from '../src/base.js';
 
 // Instalador da statusline (spec 8.1 S7 e 8.2; task-11-security.md). O
 // settings.json guarda permissões, hooks e às vezes segredos em `env`: é a
@@ -156,9 +157,34 @@ test('arquivoSettings: sem HADOUKEN_SETTINGS nem CLAUDE_CONFIG_DIR usa <home>/.c
   });
 });
 
-test('arquivoSettings: HADOUKEN_SETTINGS relativo vira absoluto', () => {
-  process.env.HADOUKEN_SETTINGS = path.join('rel', 'settings.json');
-  assert.deepEqual(arquivoSettings(), { ok: true, arquivo: path.resolve('rel', 'settings.json') });
+// Revisão final de segurança, M-1: HADOUKEN_SETTINGS vale fora dos testes
+// também, então só como caminho absoluto completo; qualquer outro valor recusa
+// e nunca cai no CLAUDE_CONFIG_DIR nem no settings.json da home.
+const SETTINGS_INVALIDOS = ['', ' ', '\t', path.join('rel', 'settings.json'), `.${path.sep}settings.json`, '~/settings.json',
+  ...(process.platform === 'win32' ? ['\\hdk\\settings.json', '/hdk/settings.json', 'C:settings.json', 'C:'] : [' /hdk/settings.json'])];
+
+test('arquivoSettings: HADOUKEN_SETTINGS que não é caminho absoluto completo é hadouken-settings-invalido, nunca o padrão', () => {
+  semHadoukenSettings(() => {
+    for (const cfg of [undefined, path.join(dir, 'cfg')]) {
+      if (cfg === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = cfg;
+      for (const valor of SETTINGS_INVALIDOS) {
+        process.env.HADOUKEN_SETTINGS = valor;
+        assert.deepEqual(arquivoSettings(), { ok: false, motivo: 'hadouken-settings-invalido' }, `${JSON.stringify(valor)} ${cfg}`);
+      }
+    }
+  });
+  assert.deepEqual(nomes(), []);
+});
+
+test('arquivoSettings: HADOUKEN_SETTINGS absoluto completo vale, normalizado', () => {
+  const absolutos = process.platform === 'win32'
+    ? ['C:\\hdk\\settings.json', 'c:/hdk/./x/../settings.json', '\\\\servidor\\pasta\\settings.json']
+    : ['/hdk/settings.json', '/hdk/./x/../settings.json'];
+  for (const valor of absolutos) {
+    process.env.HADOUKEN_SETTINGS = valor;
+    assert.deepEqual(arquivoSettings(), { ok: true, arquivo: path.resolve(valor) }, valor);
+  }
 });
 
 // Formas absolutas de cada sistema; path.isAbsolute decide, sem I/O.
@@ -233,19 +259,16 @@ const ACEITOS = [
 ];
 
 test('comando: pastas pessoais comuns, acentos latinos e ( ) + , @ ~ são aceitos', () => {
-  // Nada é lido nem gravado. No POSIX, "C:/..." é relativo e resolve contra o
-  // cwd, posto na pasta temporária (só caracteres aceitos).
-  const cwd = process.cwd();
-  process.chdir(dir);
-  try {
-    for (const home of ACEITOS) {
-      process.env.HADOUKEN_HOME = home;
-      const alvo = alvoDe(home);
-      assert.ok(alvo.endsWith(`${home}/bin/statusline.mjs`), alvo);
-      assert.deepEqual(comandoStatusline(), { ok: true, comando: `node "${alvo}"` }, home);
-    }
-  } finally {
-    process.chdir(cwd);
+  // Nada é lido nem gravado. HADOUKEN_HOME só vale como caminho absoluto
+  // completo (revisão final de segurança, M-1): a forma do outro sistema
+  // ("C:/..." no POSIX, "/home/..." no Windows) vai dentro da pasta
+  // temporária (só caracteres aceitos), em vez de ser resolvida contra o cwd.
+  for (const home of ACEITOS) {
+    const absoluto = absolutoCompleto(home) ? home : path.join(dir, home);
+    process.env.HADOUKEN_HOME = absoluto;
+    const alvo = alvoDe(absoluto);
+    assert.ok(alvo.endsWith(`${home}/bin/statusline.mjs`), alvo);
+    assert.deepEqual(comandoStatusline(), { ok: true, comando: `node "${alvo}"` }, home);
   }
 });
 
@@ -320,6 +343,30 @@ test('barra invertida no Windows é separador: vira / e o comando é aceito', { 
   assert.equal(r.ok, true);
   assert.ok(!r.comando.includes('\\'));
   assert.ok(r.comando.endsWith('/a/b/bin/statusline.mjs"'));
+});
+
+// Revisão final de segurança, M-1: HADOUKEN_HOME definida sem caminho
+// absoluto completo não vira a pasta padrão; o instalador recusa antes de ler
+// ou gravar qualquer coisa.
+const HOME_INVALIDOS = ['', ' ', 'rel-dados', `.${path.sep}dados`, '~/dados',
+  ...(process.platform === 'win32' ? ['\\dados', '/dados', 'C:dados'] : [' /dados'])];
+
+test('HADOUKEN_HOME que não é caminho absoluto completo: pasta-dados-invalida em tudo, sem I/O', () => {
+  const original = bonito({ permissions: { allow: [] }, statusLine: { type: 'command', command: 'outra' } });
+  fs.writeFileSync(arq, original);
+  const recusa = { ok: false, motivo: 'pasta-dados-invalida' };
+  for (const valor of HOME_INVALIDOS) {
+    process.env.HADOUKEN_HOME = valor;
+    const rotulo = JSON.stringify(valor);
+    assert.deepEqual(comandoStatusline(), recusa, rotulo);
+    assert.deepEqual(statusLineProposta(), recusa, rotulo);
+    assert.deepEqual(planejarStatusline({}), recusa, rotulo);
+    assert.deepEqual(consultarStatusline({ arquivo: arq }), recusa, rotulo);
+    assert.deepEqual(aplicarStatusline({ arquivo: arq, substituir: true, agoraMs: 1 }), recusa, rotulo);
+    assert.deepEqual(removerStatusline({ arquivo: arq, agoraMs: 1 }), recusa, rotulo);
+  }
+  assert.equal(lerTexto(), original);
+  assert.deepEqual(nomes(), ['settings.json']);
 });
 
 test('sem home: sem-diretorio em comando, planejar e aplicar, sem I/O', () => {

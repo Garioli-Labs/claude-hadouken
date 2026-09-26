@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -54,28 +54,58 @@ function semChaves(ambiente, nomesChave) {
 // `semSettings` o filho não tem HADOUKEN_SETTINGS e a pasta pessoal (HOME e
 // USERPROFILE) é a `casaFalsa`, que nunca é criada: se a ordem dos caminhos
 // errar, o alvo cai na pasta temporária, nunca no settings.json de verdade.
-function rodar(args, { env = {}, antes = '', depois = '', semSettings = false, cwd = RAIZ } = {}) {
+// Um valor undefined em `env` tira a variável. Sem HADOUKEN_HOME (a pasta
+// padrão da pasta pessoal) e com um HADOUKEN_SETTINGS fora da pasta
+// temporária (inválido de propósito), a pasta pessoal tem de ser a casa falsa.
+function ambienteDe({ env, semSettings }) {
   const fora = ['HADOUKEN_HOME', 'HADOUKEN_SETTINGS', 'CLAUDE_CONFIG_DIR', ...(semSettings ? ['HOME', 'USERPROFILE'] : [])];
   const ambiente = semChaves({ ...process.env }, fora);
   const alvo = semSettings ? { HOME: casaFalsa, USERPROFILE: casaFalsa } : { HADOUKEN_SETTINGS: arq };
   Object.assign(ambiente, { HADOUKEN_HOME: homeDados }, alvo, env);
-  assert.ok(ambiente.HADOUKEN_HOME, 'HADOUKEN_HOME definido');
+  for (const [k, v] of Object.entries(ambiente)) if (v === undefined) delete ambiente[k];
+  const casaNaTemp = typeof ambiente.HOME === 'string' && ambiente.HOME.startsWith(dir)
+    && typeof ambiente.USERPROFILE === 'string' && ambiente.USERPROFILE.startsWith(dir);
+  if (ambiente.HADOUKEN_HOME === undefined) assert.ok(casaNaTemp, 'sem HADOUKEN_HOME, só com a casa falsa');
   if (semSettings) {
     assert.equal(ambiente.HADOUKEN_SETTINGS, undefined);
-    assert.ok(ambiente.HOME.startsWith(dir) && ambiente.USERPROFILE.startsWith(dir), 'pasta pessoal na pasta temporária');
+    assert.ok(casaNaTemp, 'pasta pessoal na pasta temporária');
     const cfg = ambiente.CLAUDE_CONFIG_DIR;
     if (typeof cfg === 'string' && path.isAbsolute(cfg)) assert.ok(cfg.startsWith(dir), 'CLAUDE_CONFIG_DIR na pasta temporária');
-  } else {
-    assert.ok(ambiente.HADOUKEN_SETTINGS, 'HADOUKEN_SETTINGS definido');
-    assert.ok(ambiente.HADOUKEN_SETTINGS.startsWith(dir), 'settings na pasta temporária');
+  } else if (typeof ambiente.HADOUKEN_SETTINGS === 'string' && ambiente.HADOUKEN_SETTINGS.startsWith(dir)) {
     if (REAL !== null) assert.notEqual(path.resolve(ambiente.HADOUKEN_SETTINGS).toLowerCase(), path.resolve(REAL).toLowerCase());
+  } else {
+    assert.ok(typeof ambiente.HADOUKEN_SETTINGS === 'string' && casaNaTemp, 'HADOUKEN_SETTINGS fora da pasta temporária só com a casa falsa');
   }
-  const script = `${antes}\nimport { instalar } from ${JSON.stringify(URL_CLI)};\nawait instalar(process.argv.slice(1));\n${depois}`;
-  const p = spawnSync(process.execPath, ['--input-type=module', '-e', script, '--', ...args], {
-    env: ambiente, encoding: 'utf8', timeout: 15_000, cwd,
+  return ambiente;
+}
+
+const argumentosDe = (args, antes, depois) => ['--input-type=module', '-e',
+  `${antes}\nimport { instalar } from ${JSON.stringify(URL_CLI)};\nawait instalar(process.argv.slice(1));\n${depois}`, '--', ...args];
+
+function rodar(args, { env = {}, antes = '', depois = '', semSettings = false, cwd = RAIZ } = {}) {
+  const p = spawnSync(process.execPath, argumentosDe(args, antes, depois), {
+    env: ambienteDe({ env, semSettings }), encoding: 'utf8', timeout: 15_000, cwd,
   });
   assert.equal(p.error, undefined, String(p.error));
   return p;
+}
+
+// O mesmo rodar, sem bloquear: os casos de um valor rodam juntos (em série,
+// cada processo custa cerca de meio segundo no Windows). Quem chama confere o
+// error de cada resultado.
+function rodarJunto(args, { env = {}, antes = '', depois = '', semSettings = false, cwd = RAIZ } = {}) {
+  const ambiente = ambienteDe({ env, semSettings });
+  return new Promise((resolve) => {
+    const filho = spawn(process.execPath, argumentosDe(args, antes, depois), {
+      env: ambiente, cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, timeout: 15_000,
+    });
+    let stdout = '';
+    let stderr = '';
+    filho.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });
+    filho.stderr.setEncoding('utf8').on('data', (d) => { stderr += d; });
+    filho.on('error', (error) => resolve({ error, status: null, stdout, stderr }));
+    filho.on('close', (status) => resolve({ error: undefined, status, stdout, stderr }));
+  });
 }
 
 const json = (p) => JSON.parse(p.stdout);
@@ -179,6 +209,77 @@ test('CLAUDE_CONFIG_DIR relativo ou vazio: config-dir-invalido, código 1, nada 
     }
   }
   assert.deepEqual(nomes(), []);
+});
+
+// Revisão final de segurança, M-1: HADOUKEN_HOME e HADOUKEN_SETTINGS valem
+// fora dos testes também, então só como caminho absoluto completo. Os valores
+// levam uma marca: ela nunca aparece na saída, e nenhuma pasta nasce onde o
+// valor cairia resolvido contra o cwd.
+const MARCA = 'MARCAhdk';
+const INVALIDOS = ['', ' ', MARCA, `.${path.sep}${MARCA}`, `~/${MARCA}`,
+  ...(process.platform === 'win32' ? [`\\${MARCA}`, `/${MARCA}`, `C:${MARCA}`] : [` /${MARCA}`])];
+
+test('HADOUKEN_HOME que não é caminho absoluto completo: pasta-dados-invalida, código 1, nada gravado em lugar nenhum', async () => {
+  const cwd = path.join(dir, 'cwd');
+  fs.mkdirSync(cwd);
+  const texto = bonito({ a: 1, statusLine: { type: 'command', command: 'outra' } });
+  fs.writeFileSync(arq, texto);
+  const conjuntos = [[], ['--aplicar'], ['--aplicar', '--substituir'], ['--remover']];
+  for (const valor of INVALIDOS) {
+    const env = { HADOUKEN_HOME: valor, HOME: casaFalsa, USERPROFILE: casaFalsa };
+    const resultados = await Promise.all(conjuntos.map((args) => rodarJunto(args, { env, cwd })));
+    for (const [i, args] of conjuntos.entries()) {
+      const rotulo = `${JSON.stringify(valor)} ${args.join(' ')}`;
+      const p = resultados[i];
+      assert.equal(p.error, undefined, `${rotulo}: ${p.error}`);
+      assert.equal(p.status, 1, rotulo);
+      assert.equal(p.stderr, '', rotulo);
+      const s = json(p);
+      assert.equal(s.ok, false, rotulo);
+      assert.equal(s.motivo, 'pasta-dados-invalida', rotulo);
+      for (const termo of [/HADOUKEN_HOME/, /caminho absoluto completo/, /pasta padrão não é usada/, /nada foi alterado/]) {
+        assert.match(s.mensagem, termo, rotulo);
+      }
+      assert.equal(s.arquivo, arq, rotulo);
+      assert.equal(Object.hasOwn(s, 'manual'), false, rotulo);
+      assert.ok(!p.stdout.includes(MARCA), rotulo);
+      if (valor.trim() !== '') assert.equal(fs.existsSync(path.resolve(cwd, valor)), false, rotulo);
+    }
+  }
+  assert.equal(lerTexto(), texto);
+  assert.deepEqual(nomes(), ['cwd', 'settings.json']);
+  assert.deepEqual(fs.readdirSync(cwd), []);
+  assert.equal(fs.existsSync(casaFalsa), false);
+});
+
+test('HADOUKEN_SETTINGS que não é caminho absoluto completo: hadouken-settings-invalido, código 1, nunca o settings.json padrão', async () => {
+  const cwd = path.join(dir, 'cwd');
+  fs.mkdirSync(cwd);
+  const cfg = path.join(dir, 'cfg');
+  // Nem com um CLAUDE_CONFIG_DIR válido o instalador cai nele.
+  const casos = [[[], {}], [['--aplicar'], {}], [['--remover'], {}], [['--aplicar'], { CLAUDE_CONFIG_DIR: cfg }]];
+  for (const valor of INVALIDOS) {
+    const envDe = (extra) => ({ HADOUKEN_SETTINGS: valor, HOME: casaFalsa, USERPROFILE: casaFalsa, ...extra });
+    const resultados = await Promise.all(casos.map(([args, extra]) => rodarJunto(args, { env: envDe(extra), cwd })));
+    for (const [i, [args, extra]] of casos.entries()) {
+      const rotulo = `${JSON.stringify(valor)} ${args.join(' ')} ${JSON.stringify(extra)}`;
+      const p = resultados[i];
+      assert.equal(p.error, undefined, `${rotulo}: ${p.error}`);
+      assert.equal(p.status, 1, rotulo);
+      assert.equal(p.stderr, '', rotulo);
+      const s = json(p);
+      assert.equal(s.ok, false, rotulo);
+      assert.equal(s.motivo, 'hadouken-settings-invalido', rotulo);
+      for (const termo of [/HADOUKEN_SETTINGS/, /caminho absoluto completo/, /nada foi alterado/]) assert.match(s.mensagem, termo, rotulo);
+      assert.equal(Object.hasOwn(s, 'arquivo'), false, rotulo);
+      assert.ok(!p.stdout.includes(MARCA), rotulo);
+      if (valor.trim() !== '') assert.equal(fs.existsSync(path.resolve(cwd, valor)), false, rotulo);
+    }
+  }
+  // Nem a casa falsa (o settings.json padrão) nem o CLAUDE_CONFIG_DIR nascem.
+  assert.equal(fs.existsSync(casaFalsa), false);
+  assert.deepEqual(nomes(), ['cwd']);
+  assert.deepEqual(fs.readdirSync(cwd), []);
 });
 
 test('HADOUKEN_SETTINGS vence CLAUDE_CONFIG_DIR na CLI', () => {

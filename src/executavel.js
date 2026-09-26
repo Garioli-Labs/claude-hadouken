@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { absolutoCompleto } from './base.js';
 
 // Caminho absoluto de um executável pelo PATH, nunca pelo cwd (fix round 1
 // da Task 10, Critical 1). Um nome solto no execFile/spawn é procurado pelo
@@ -27,12 +28,13 @@ import path from 'node:path';
 const WIN = process.platform === 'win32';
 // Nome simples: começa por letra ou dígito, sem separador de pasta nem ":".
 const NOME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
 
 // Caminho absoluto completo: no Windows, com unidade ou UNC. Um caminho
 // enraizado sem unidade (\dir\gh.exe) é completado pelo libuv com a unidade
-// do cwd e por isso não conta como absoluto aqui.
-export const absolutoCompleto = (p) => (typeof p === 'string' && (WIN ? COMPLETO_WIN.test(p) : p.startsWith('/')));
+// do cwd e por isso não conta como absoluto aqui. A regra mora em base.js,
+// onde dirDados também a usa (HADOUKEN_HOME), e sai reexportada daqui para
+// github.js e os testes: uma regra só.
+export { absolutoCompleto };
 const CACHE_MAX = 32;
 const cache = new Map();
 
@@ -53,7 +55,7 @@ function entradas(valor) {
     let e = cru;
     if (WIN && e.length >= 2 && e.startsWith('"') && e.endsWith('"')) e = e.slice(1, -1);
     if (e === '' || e.includes('\0')) continue;
-    if (WIN ? !COMPLETO_WIN.test(e) : !e.startsWith('/')) continue;
+    if (!absolutoCompleto(e)) continue;
     lista.push(e);
   }
   return lista;

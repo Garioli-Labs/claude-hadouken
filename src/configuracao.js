@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  apagar, dirDados, erroComCodigo, esperar, fechar, RENOMEAR_ESPERA_MS, RENOMEAR_TENTATIVAS, renomearDeNovo,
-  varrerTmpVelhos,
+  apagar, caminhoDoAmbiente, dirDados, erroComCodigo, esperar, fechar, origemDados, RENOMEAR_ESPERA_MS,
+  RENOMEAR_TENTATIVAS, renomearDeNovo, varrerTmpVelhos,
 } from './base.js';
 import { DIR_BIN } from './shim.js';
 
@@ -149,7 +149,12 @@ const codigoDe = (e) => (typeof e?.code === 'string' && /^E[A-Z0-9]{1,20}$/.test
 const somenteLeitura = (info) => (Number(info.mode) & 0o200) === 0;
 
 // Caminho do settings.json que o Claude Code lê, nesta ordem:
-// 1. HADOUKEN_SETTINGS (testes), resolvido contra o cwd;
+// 1. HADOUKEN_SETTINGS, quando definida: vale sempre que está no ambiente,
+//    não só nos testes, e só como caminho absoluto completo
+//    (caminhoDoAmbiente, de base.js). Definida com qualquer outro valor
+//    (relativo, "\dir" ou "C:dir" no Windows, vazio, só espaços):
+//    'hadouken-settings-invalido', nunca os itens 2 e 3, porque quem a
+//    definiu pediu outro arquivo;
 // 2. <CLAUDE_CONFIG_DIR>/settings.json quando essa variável está definida e é
 //    um caminho absoluto: com ela o Claude Code guarda ali settings, sessões e
 //    plugins. Definida mas relativa, vazia ou só espaços (nada disso é
@@ -168,7 +173,10 @@ const somenteLeitura = (info) => (Number(info.mode) & 0o200) === 0;
 export function arquivoSettings() {
   try {
     const configurado = process.env.HADOUKEN_SETTINGS;
-    if (configurado) return { ok: true, arquivo: path.resolve(configurado) };
+    if (configurado !== undefined) {
+      const arquivo = caminhoDoAmbiente(configurado);
+      return arquivo === null ? falha('hadouken-settings-invalido') : { ok: true, arquivo };
+    }
     const pastaConfig = process.env.CLAUDE_CONFIG_DIR;
     if (pastaConfig !== undefined) {
       return path.isAbsolute(pastaConfig) ? { ok: true, arquivo: path.join(pastaConfig, 'settings.json') } : falha('config-dir-invalido');
@@ -181,14 +189,16 @@ export function arquivoSettings() {
 }
 
 // Comando da barra: node "<dirDados>/bin/statusline.mjs" com barras normais.
-// Motivos: 'sem-diretorio' (sem home) e 'caminho-inseguro' (algum caractere
+// Motivos: 'pasta-dados-invalida' (HADOUKEN_HOME definida sem caminho
+// absoluto completo: nunca a pasta padrão no lugar), 'sem-diretorio' (sem
+// home) e 'caminho-inseguro' (algum caractere
 // fora da lista de caminhoAceito, conferida depois da troca de separador: no
 // POSIX um \ num nome de pasta continua \ e recusa). O comando só é montado
 // depois da conferência.
 export function comandoStatusline() {
   try {
     const dir = dirDados();
-    if (dir === null) return falha('sem-diretorio');
+    if (dir === null) return falha(origemDados() === 'HADOUKEN_HOME' ? 'pasta-dados-invalida' : 'sem-diretorio');
     const alvo = path.join(dir, DIR_BIN, SHIM_BARRA).split(path.sep).join('/');
     if (!caminhoAceito(alvo)) return falha('caminho-inseguro');
     return { ok: true, comando: comandoPara(alvo) };

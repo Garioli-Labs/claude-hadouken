@@ -6,7 +6,10 @@ import path from 'node:path';
 // diretório de dados e validador de id de sessão, mais o validador de
 // instante que os dados em disco usam. Fica fora de estado.js para que a
 // barra de uma sessão não registrada não carregue a camada de estado inteira;
-// estado.js reexporta os três. Moram aqui também as partes da escrita atômica
+// estado.js reexporta os três. Com o diretório de dados vêm o teste de
+// caminho absoluto completo que ele aplica a HADOUKEN_HOME (absolutoCompleto,
+// que executavel.js reexporta) e a origem da pasta (origemDados, para o
+// instalador). Moram aqui também as partes da escrita atômica
 // que estado.js, shim.js e configuracao.js dividem (a varredura limitada de
 // temporários varrerTmpVelhos, a política de retentativa do rename e quatro
 // ajudantes pequenos; nada disso é reexportado): o caminho curto nunca as
@@ -30,21 +33,64 @@ const ID_SESSAO = /^[A-Za-z0-9_-]{1,64}$/;
 
 const numeroFinito = (n) => typeof n === 'number' && Number.isFinite(n);
 
-// Diretório de dados, sempre absoluto: HADOUKEN_HOME (resolvido contra o cwd
-// no momento da chamada, para que caminhos derivados, como shims e o comando
-// da statusline, não dependam do cwd de quem os usa depois) ou
-// ~/.claude/hadouken. Sem home conhecida (os.homedir() lança ou não devolve
-// caminho absoluto) devolve null, nunca um diretório compartilhado: todo
+const WIN = process.platform === 'win32';
+const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
+
+// Caminho absoluto completo: no POSIX, começa por /; no Windows, com letra de
+// unidade (C:\ ou C:/) ou UNC (\\servidor\...). Um caminho enraizado sem
+// unidade (\dir) e um "C:dir" dependem da unidade e do diretório correntes e
+// não contam. Nunca lança. Mora aqui, e não em executavel.js (que o
+// reexporta para o PATH e o gh), porque dirDados o usa no caminho curto da
+// barra e dos hooks, que não carregam executavel.js.
+export const absolutoCompleto = (p) => (typeof p === 'string' && (WIN ? COMPLETO_WIN.test(p) : p.startsWith('/')));
+
+// Caminho vindo de uma variável de ambiente do plugin (HADOUKEN_HOME e
+// HADOUKEN_SETTINGS): só um caminho absoluto completo sem NUL vale, e sai
+// normalizado por path.resolve, que com ele nunca consulta o cwd. O valor não
+// é aparado nem tem ~ expandido (o shell já expandiu ao exportar). Qualquer
+// outro valor (relativo, "\dir" ou "C:dir" no Windows, vazio, só espaços) dá
+// null, e quem chama nunca o troca pelo caminho padrão. Nunca lança.
+export function caminhoDoAmbiente(valor) {
+  try {
+    return absolutoCompleto(valor) && !valor.includes('\0') ? path.resolve(valor) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Diretório de dados, sempre absoluto: HADOUKEN_HOME ou ~/.claude/hadouken.
+// HADOUKEN_HOME vale sempre que está no ambiente, não só nos testes (o
+// ambiente da sessão é confiável; SECURITY.md), mas só como caminho absoluto
+// completo (caminhoDoAmbiente). Definida com qualquer outro valor, inclusive
+// vazio, dá null e nunca cai para ~/.claude/hadouken: quem a definiu pediu
+// outra pasta, e um valor relativo seria resolvido contra o cwd, o repo
+// aberto, espalhando estado, índice e shims dentro dele (revisão final de
+// segurança, M-1). Sem home conhecida (os.homedir() lança ou não devolve
+// caminho absoluto) também dá null, nunca um diretório compartilhado. Todo
 // chamador trata null como "sem leitura" e não faz I/O (contrato de T6, T7 e
-// T10). Nunca lança.
+// T10); o instalador recusa, com o motivo que origemDados separa. Nunca
+// lança.
 export function dirDados() {
   try {
     const configurado = process.env.HADOUKEN_HOME;
-    if (configurado) return path.resolve(configurado);
+    if (configurado !== undefined) return caminhoDoAmbiente(configurado);
     const home = os.homedir();
     return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'hadouken') : null;
   } catch {
     return null;
+  }
+}
+
+// De onde vem a pasta de dados: 'HADOUKEN_HOME' quando a variável está
+// definida (valendo ou não), senão 'padrao'. O instalador mostra a origem
+// antes de gravar e, com dirDados() null, separa 'pasta-dados-invalida' (a
+// variável definida sem caminho absoluto completo) de 'sem-diretorio' (sem
+// home). Nunca lança.
+export function origemDados() {
+  try {
+    return process.env.HADOUKEN_HOME === undefined ? 'padrao' : 'HADOUKEN_HOME';
+  } catch {
+    return 'padrao';
   }
 }
 

@@ -287,6 +287,31 @@ test('filho: com HADOUKEN_TESTE_GH=ausente o gh do PATH nunca roda (controle pos
   assert.match(r2.out, /`o\/r`: indisponível: gh ausente/);
 });
 
+// Revisão final de segurança, M-1: HADOUKEN_TESTE_GH vale fora dos testes
+// também, e só com o valor exato "ausente". Um caminho de programa nele
+// (absoluto ou relativo ao cwd) nunca roda, e outra grafia de "ausente" não
+// desliga nada: o gh continua saindo do PATH. As duas sentinelas anotam o
+// argv0 com que foram chamadas.
+test('filho: HADOUKEN_TESTE_GH com caminho de programa ou outra grafia é ignorado; o gh sai do PATH', async () => {
+  const marcador = path.join(novoTmp('hdk marca '), 'marcador');
+  const script = `require('fs').appendFileSync(${JSON.stringify(marcador)}, process.argv0 + '\\n');\n`;
+  const doPath = sentinela(script);
+  const injetado = sentinela(script);
+  const exeInjetado = path.join(injetado.bin, process.platform === 'win32' ? 'gh.exe' : 'gh');
+  const mesmaPasta = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+  for (const valor of [exeInjetado, path.relative(doPath.cwd, exeInjetado), 'AUSENTE', ' ausente']) {
+    fs.rmSync(marcador, { force: true });
+    const { env } = ambienteCli({ HADOUKEN_TESTE_GH: valor });
+    config(env, ['o/r']);
+    const r = await rodarFilho(['consumo'], { env: soPath(env, doPath.bin), cwd: doPath.cwd });
+    assert.equal(r.codigo, 0, `${valor}: ${r.err}`);
+    assert.doesNotMatch(r.out, /gh ausente/, valor);
+    const chamadas = fs.existsSync(marcador) ? fs.readFileSync(marcador, 'utf8').split('\n').filter(Boolean) : [];
+    assert.ok(chamadas.length > 0, `${valor}: o gh do PATH rodou`);
+    for (const c of chamadas) assert.ok(mesmaPasta(path.dirname(c), doPath.bin), `${valor}: rodou ${c}`);
+  }
+});
+
 test('filho: gh que nunca responde não segura o CLI; o prazo de 10 s fecha a coleta e o processo sai', async () => {
   const { bin, cwd } = sentinela('setInterval(() => {}, 1000);\n');
   const { env } = ambienteCli();

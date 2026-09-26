@@ -58,12 +58,14 @@ export const _reservas = Object.freeze({
   ESCAPAR: Object.freeze({ fonte: ESCAPAR_FONTE, flags: 'gu', reserva: ESCAPAR_RESERVA }),
 });
 
-// Gancho só de teste (documentado no relatório da Task 10): com
-// HADOUKEN_TESTE_GH=ausente o coletor recebe um executor que responde
-// 'gh ausente' sem criar processo nenhum. Os testes do CLI em processo filho
-// o usam (e provam, com uma sentinela no PATH, que o gh de verdade não roda);
-// a medição de desempenho o usa para isolar os transcripts. Qualquer outro
-// valor é ignorado e o gh do PATH é usado.
+// HADOUKEN_TESTE_GH=ausente (o valor exato, documentado no relatório da
+// Task 10): o coletor recebe um executor que responde 'gh ausente' sem criar
+// processo nenhum, e a seção GitHub do relatório sai indisponível. Os testes
+// do CLI em processo filho o usam (e provam, com uma sentinela no PATH, que o
+// gh de verdade não roda), mas nada o restringe a eles: vale sempre que está
+// no ambiente da sessão, que é confiável (SECURITY.md). Qualquer outro valor,
+// inclusive um caminho de programa, absoluto ou não, é ignorado: o gh segue
+// resolvido pelo PATH (executavel.js), e o valor nunca vira programa.
 function ghDeTeste() {
   return process.env.HADOUKEN_TESTE_GH === 'ausente' ? async () => ({ ok: false, motivo: 'gh ausente' }) : undefined;
 }
