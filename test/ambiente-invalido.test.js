@@ -25,19 +25,38 @@ const RAIZ = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 // seria achada por ela (e apagada no fim).
 const MARCA = `hdk-marca-${process.pid}`;
 // Nenhum é caminho absoluto completo. No Windows, "\x" e "/x" pegam a unidade
-// do cwd e "C:x" o diretório corrente da unidade C.
+// do cwd e "C:x" o diretório corrente da unidade C. Um UNC só com servidor
+// (\\x, //x, \\x\) o path.win32 também resolve contra a unidade do cwd (E:\x
+// com o cwd em E:, C:\x com ele em C:; revisão final de segurança, M-B). Os
+// caminhos de dispositivo (\\?\ e \\.\) não valem, nem com unidade: o
+// prefixo sozinho o path.win32 também resolve contra o cwd, um .. depois
+// dele tira a unidade do lugar, e o shim da barra não roda dali.
+const UNC_SO_SERVIDOR = WIN ? ['\\\\x', '//x', '\\\\x\\', '\\\\x\\\\', '\\\\x/', '\\/x', '/\\x', '\\\\x\\\\\\'] : [];
+const DISPOSITIVO = WIN
+  ? ['\\\\?\\', '\\\\.\\', '\\\\?', '\\\\?\\x', '\\\\.\\pipe\\x', '\\\\?\\GLOBALROOT\\x', '\\\\?\\C:', '\\\\?\\C:x',
+    '\\\\?\\UNC\\srv', '\\\\?\\UNC\\srv\\', '\\\\?\\C:\\..', '\\\\?\\C:\\x\\..\\..', '\\\\.\\C:\\..\\..',
+    '\\\\?\\UNC\\srv\\pasta\\..', '\\\\?\\UNC\\srv\\..\\x', '\\\\.\\..', '\\\\?\\..',
+    '\\\\?\\C:\\hdk\\dados', '//?/C:/hdk/dados', '\\\\?/C:\\hdk', '\\\\.\\C:\\hdk', '//./C:/hdk',
+    '\\\\?\\UNC\\servidor\\pasta\\dados', '\\\\?\\unc\\servidor\\pasta', '\\\\.\\UNC\\servidor\\pasta\\dados']
+  : [];
 const INVALIDOS = [
   '', ' ', '\t', MARCA, `.${path.sep}${MARCA}`, `..${path.sep}${MARCA}`, `~/${MARCA}`, '~',
   ...(WIN ? [`\\${MARCA}`, `/${MARCA}`, `C:${MARCA}`, 'C:', ` C:\\${MARCA}`] : [` /${MARCA}`]),
+  ...UNC_SO_SERVIDOR, ...DISPOSITIVO,
 ];
 // Os que rodam também nos processos filhos (cada um custa quatro processos).
+// Os UNC só com servidor levam a marca no nome do servidor: aceito, um deles
+// poria a pasta em <unidade do cwd>:\<marca>, que semRastro procura.
 const INVALIDOS_FILHO = [
   '', ' ', MARCA, `.${path.sep}${MARCA}`, `~/${MARCA}`,
-  ...(WIN ? [`\\${MARCA}`, `/${MARCA}`, `C:${MARCA}`] : [` /${MARCA}`]),
+  ...(WIN ? [`\\${MARCA}`, `/${MARCA}`, `C:${MARCA}`, `\\\\${MARCA}`, `//${MARCA}`, `\\\\${MARCA}\\`] : [` /${MARCA}`]),
 ];
 const ABSOLUTOS = WIN
-  ? ['C:\\hdk\\dados', 'c:/hdk/./x/../dados', 'D:\\Dados do Usuário\\hdk', '\\\\servidor\\pasta\\dados']
+  ? ['C:\\hdk\\dados', 'c:/hdk/./x/../dados', 'D:\\Dados do Usuário\\hdk', '\\\\servidor\\pasta\\dados',
+    '\\\\servidor\\pasta', '//servidor/pasta/dados', '\\\\servidor\\\\pasta\\dados', '\\\\servidor\\pasta\\..\\..\\dados']
   : ['/hdk/dados', '/hdk/./x/../dados', '/home/usuário/hdk dados'];
+// Um cwd qualquer, diferente do de verdade: o resultado não pode mudar com ele.
+const OUTRO_CWD = WIN ? 'Q:\\hdk-outro-cwd' : '/hdk-outro-cwd';
 
 const tmps = [];
 const suspeitos = new Set();
@@ -84,9 +103,33 @@ test('dirDados: HADOUKEN_HOME absoluto completo vale, normalizado e sem depender
   for (const v of ABSOLUTOS) {
     comHome(v, () => {
       assert.equal(dirDados(), path.resolve(v), v);
+      assert.equal(path.resolve(OUTRO_CWD, v), dirDados(), `${v}: o mesmo com outro cwd`);
       assert.ok(!dirDados().includes(`${path.sep}.${path.sep}`), v);
       assert.equal(origemDados(), 'HADOUKEN_HOME', v);
     });
+  }
+});
+
+// M-B: com o cwd no repo e depois no temporário (em geral, unidades
+// diferentes), um UNC só com servidor nunca dá pasta, nem a que o path.win32
+// montaria na unidade do cwd (<unidade>:\x).
+test('dirDados: UNC só com servidor nunca vira pasta na unidade do cwd', { skip: !WIN && 'regra do win32' }, () => {
+  const cwdAntes = process.cwd();
+  try {
+    for (const cwd of [RAIZ, os.tmpdir()]) {
+      process.chdir(cwd);
+      for (const v of UNC_SO_SERVIDOR) {
+        const rotulo = `${cwd} ${JSON.stringify(v)}`;
+        const naUnidade = path.resolve(v);
+        comHome(v, () => {
+          assert.equal(dirDados(), null, rotulo);
+          assert.notEqual(dirDados(), naUnidade, rotulo);
+        });
+        assert.equal(caminhoDoAmbiente(v), null, rotulo);
+      }
+    }
+  } finally {
+    process.chdir(cwdAntes);
   }
 });
 
@@ -188,6 +231,26 @@ test('HADOUKEN_HOME inválido: os três hooks e a barra ficam mudos e não grava
       assert.equal(r.stderr, '', rotulo);
     }
     semRastro(c, valor, JSON.stringify(valor));
+  }
+});
+
+// Caminho de dispositivo que aponta para uma pasta de verdade (a casa do
+// cenário): recusado do mesmo jeito, e nada é gravado nela. Aceito, os hooks
+// gravariam lá, mas a barra instalada, que roda pelo shim, quebraria.
+test('HADOUKEN_HOME com caminho de dispositivo para uma pasta real: hooks e barra mudos, nada gravado', { skip: !WIN && 'regra do win32' }, async () => {
+  for (const prefixo of ['\\\\?\\', '\\\\.\\', '//?/']) {
+    const c = cenario('');
+    c.env.HADOUKEN_HOME = `${prefixo}${path.join(c.casa, 'dados')}`;
+    const resultados = await Promise.all(SCRIPTS.map(([script, entrada]) => rodarJunto(c, script, entrada())));
+    for (const [i, [script]] of SCRIPTS.entries()) {
+      const rotulo = `${prefixo} ${script}`;
+      const r = resultados[i];
+      assert.equal(r.error, undefined, rotulo);
+      assert.equal(r.status, 0, `${rotulo}: ${r.stderr}`);
+      assert.equal(r.stdout, '', rotulo);
+      assert.equal(r.stderr, '', rotulo);
+    }
+    for (const d of [c.casa, c.tmp, c.cwd]) assert.deepEqual(fs.readdirSync(d), [], `${prefixo}: ${d}`);
   }
 });
 

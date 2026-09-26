@@ -46,25 +46,42 @@ export const DATA_MAX_MS = 8.64e15;
 export const codigoErro = (e, padrao) => (typeof e?.code === 'string' ? e.code : padrao);
 
 const WIN = process.platform === 'win32';
-const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
+// Caminho completo no Windows: com letra de unidade (C:\ ou C:/) ou UNC com
+// servidor e compartilhamento (\\servidor\compartilhamento, barras \ ou /).
+// Revisão final de segurança, M-B: um UNC só com servidor (\\x, //x, \\x\) o
+// path.win32 resolve contra a unidade do cwd (E:\x com o cwd em E:, C:\x com
+// ele em C:), então o compartilhamento é obrigatório. Os caminhos de
+// dispositivo (\\?\ e \\.\, também com /; servidor "?" ou "." seguido de
+// barra) ficam de fora, qualquer que seja o resto: o prefixo sozinho o
+// path.win32 também resolve contra o cwd, um .. depois dele tira a unidade ou
+// o compartilhamento do lugar (\\?\C:\.. vira \\?\), e o Node não roda o shim
+// da barra a partir deles (a leitura do caminho real do script principal
+// falha com EISDIR na raiz do dispositivo, no Node 20 e no 24).
+const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}(?![?.][\\/])[^\\/]+[\\/]+[^\\/])/;
 
-// Caminho absoluto completo: no POSIX, começa por /; no Windows, com letra de
-// unidade (C:\ ou C:/) ou UNC (\\servidor\...). Um caminho enraizado sem
-// unidade (\dir) e um "C:dir" dependem da unidade e do diretório correntes e
-// não contam. Nunca lança. Mora aqui, e não em executavel.js (que o
-// reexporta para o PATH e o gh), porque dirDados o usa no caminho curto da
-// barra e dos hooks, que não carregam executavel.js.
+// Caminho absoluto completo: no POSIX, começa por /; no Windows, casa com
+// COMPLETO_WIN. Um caminho enraizado sem unidade (\dir) e um "C:dir"
+// dependem da unidade e do diretório correntes e não contam. Nunca lança.
+// Mora aqui, e não em executavel.js (que o reexporta para o PATH e o gh),
+// porque dirDados o usa no caminho curto da barra e dos hooks, que não
+// carregam executavel.js.
 export const absolutoCompleto = (p) => (typeof p === 'string' && (WIN ? COMPLETO_WIN.test(p) : p.startsWith('/')));
 
 // Caminho vindo de uma variável de ambiente do plugin (HADOUKEN_HOME e
 // HADOUKEN_SETTINGS): só um caminho absoluto completo sem NUL vale, e sai
-// normalizado por path.resolve, que com ele nunca consulta o cwd. O valor não
-// é aparado nem tem ~ expandido (o shell já expandiu ao exportar). Qualquer
-// outro valor (relativo, "\dir" ou "C:dir" no Windows, vazio, só espaços) dá
-// null, e quem chama nunca o troca pelo caminho padrão. Nunca lança.
+// normalizado por path.resolve. Com a unidade ou o servidor e o
+// compartilhamento já no valor, o path.resolve não tem o que completar com o
+// cwd; e o resultado passa de novo por absolutoCompleto, então quem chama
+// nunca recebe um caminho que dependa do cwd. O valor não é aparado nem tem ~
+// expandido (o shell já expandiu ao exportar). Qualquer outro valor
+// (relativo, vazio, só espaços; no Windows também "\dir", "C:dir", UNC só com
+// servidor e caminho de dispositivo) dá null, e quem chama nunca o troca pelo
+// caminho padrão. Nunca lança.
 export function caminhoDoAmbiente(valor) {
   try {
-    return absolutoCompleto(valor) && !valor.includes('\0') ? path.resolve(valor) : null;
+    if (!absolutoCompleto(valor) || valor.includes('\0')) return null;
+    const resolvido = path.resolve(valor);
+    return absolutoCompleto(resolvido) ? resolvido : null;
   } catch {
     return null;
   }

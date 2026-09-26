@@ -406,3 +406,32 @@ test('resolverExecutavel: guarda o resultado por processo (nome, PATH e cwd); PA
   assert.equal(await resolver({ PATH: d, cwd: novoTmp('hdk cache3 ') }), outro, 'cwd novo: procura de novo');
   assert.equal(await resolver({ PATH: d, cwd: d }), null, 'e a entrada que virou o cwd é pulada');
 });
+
+// Revisão final de segurança, M-B: uma entrada do PATH que é UNC só com
+// servidor (\\x) é pulada sem nenhuma consulta. Antes, \\x + gh.exe virava
+// \\x\gh.exe e o statSync perguntava ao servidor x pela rede (segundos). Uma
+// entrada com caminho de dispositivo (\\?\C:\..., \\.\C:\...) também é
+// pulada: a mesma regra de base.js, que não aceita esses caminhos.
+test('resolverExecutavel (Windows): entradas UNC só com servidor e de dispositivo são puladas sem consulta', { skip: !win && 'regra do win32' }, async () => {
+  const d = novoTmp('hdk unc ');
+  const arq = colocar(d, 'gh.exe');
+  const servidor = `hdk-srv-${process.pid}`;
+  const soServidor = [`\\\\${servidor}`, `//${servidor}`, `\\\\${servidor}\\`, `\\\\${servidor}\\\\`];
+  const dispositivo = [`\\\\?\\${d}`, `\\\\.\\${d}`];
+  const consultados = [];
+  const statOriginal = fs.statSync;
+  fs.statSync = (p, ...resto) => {
+    consultados.push(String(p));
+    return statOriginal(p, ...resto);
+  };
+  let r;
+  try {
+    r = await resolver({ PATH: juntar(...soServidor, ...dispositivo, d) });
+  } finally {
+    fs.statSync = statOriginal;
+  }
+  assert.equal(r, arq, 'a entrada completa depois delas acha');
+  assert.deepEqual(consultados.filter((p) => p.toLowerCase().includes(servidor)), [], 'nenhuma consulta ao servidor');
+  assert.deepEqual(consultados.filter((p) => /^[\\/]{2}[?.][\\/]/.test(p)), [], 'nenhuma consulta por caminho de dispositivo');
+  assert.equal(await resolver({ PATH: juntar(...dispositivo) }), null, 'só com elas: null');
+});

@@ -10,10 +10,12 @@ import { absolutoCompleto } from './base.js';
 // usuário, que pode ser hostil: um git.exe ou gh.exe plantado nele rodaria,
 // sem shell nenhum. Por isso git e gh só rodam pelo caminho que sai daqui:
 // - só entradas absolutas do PATH; no Windows, só com letra de unidade
-//   (C:\...) ou UNC (\\servidor\...): "C:rel" e "\raiz" dependem do
-//   diretório corrente e ficam de fora, como vazia, "." e relativas. Um par
-//   de aspas em volta da entrada é tirado no Windows, como o próprio Windows
-//   faz;
+//   (C:\...) ou UNC com servidor e compartilhamento
+//   (\\servidor\compartilhamento\...): "C:rel" e "\raiz" dependem do
+//   diretório corrente e ficam de fora, como vazia, "." e relativas; um UNC
+//   só com servidor (\\x) e um caminho de dispositivo (\\?\C:\..., \\.\...)
+//   também, sem nenhuma consulta ao disco ou à rede. Um par de aspas em volta
+//   da entrada é tirado no Windows, como o próprio Windows faz;
 // - a entrada que é o cwd do processo é pulada: comparada resolvida (sem
 //   diferença de caixa no Windows) e, se tiver o executável, também pelo
 //   realpath (link, junção, nome curto 8.3);
@@ -29,11 +31,12 @@ const WIN = process.platform === 'win32';
 // Nome simples: começa por letra ou dígito, sem separador de pasta nem ":".
 const NOME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-// Caminho absoluto completo: no Windows, com unidade ou UNC. Um caminho
-// enraizado sem unidade (\dir\gh.exe) é completado pelo libuv com a unidade
-// do cwd e por isso não conta como absoluto aqui. A regra mora em base.js,
-// onde dirDados também a usa (HADOUKEN_HOME), e sai reexportada daqui para
-// github.js e os testes: uma regra só.
+// Caminho absoluto completo: no Windows, com unidade ou UNC com servidor e
+// compartilhamento. Um caminho enraizado sem unidade (\dir\gh.exe) é
+// completado pelo libuv com a unidade do cwd e por isso não conta como
+// absoluto aqui. A regra mora em base.js, onde dirDados também a usa
+// (HADOUKEN_HOME), e sai reexportada daqui para github.js e os testes: uma
+// regra só.
 export { absolutoCompleto };
 const CACHE_MAX = 32;
 const cache = new Map();
@@ -62,9 +65,10 @@ function entradas(valor) {
 }
 
 // Limite conhecido: o cwd escrito como UNC de loopback (\\localhost\C$\...,
-// \\127.0.0.1\C$, \\?\UNC\localhost\C$) não é reconhecido como o cwd, porque o
-// realpath mantém a forma UNC. Só chega aqui por uma entrada que o próprio
-// usuário pôs no PATH.
+// \\127.0.0.1\C$) não é reconhecido como o cwd, porque o realpath mantém a
+// forma UNC. Só chega aqui por uma entrada que o próprio usuário pôs no PATH.
+// (A forma de dispositivo, \\?\UNC\localhost\C$, nem entra: absolutoCompleto
+// a recusa.)
 const chaveDir = (d) => (WIN ? path.resolve(d).toLowerCase() : path.resolve(d));
 
 function realOuNull(d) {
