@@ -570,7 +570,15 @@ test('prompt-submit malicioso: histórico e sessões forjados em estado.json só
     '__proto__': `{"__proto__": {"five_hour": {"resets_at": ${agoraS() + 3600}, "faixa": "60"}, "seven_day": null}}`,
     'texto puro': INSTRUCAO,
     'grande': JSON.stringify({ s1: { five_hour: null, seven_day: { resets_at: agoraS() + 3600, faixa: '24h' } }, x: 'y'.repeat(1_100_000) }),
+    // No formato e acima do teto de 1 MiB: sem o teto, a memória forjada de s1
+    // (faixa 60 já anunciada nesta janela) calaria o aviso, e a regravação
+    // guardaria as 256 últimas sessões.
+    'grande no formato': JSON.stringify({
+      ...Object.fromEntries(Array.from({ length: 15_000 }, (_, i) => [`sessao-${i}`, { five_hour: null, seven_day: { resets_at: agoraS() + 3600, faixa: '24h' } }])),
+      s1: { five_hour: { resets_at: estado.five_hour.resets_at, faixa: '60' }, seven_day: null },
+    }),
   };
+  assert.ok(Buffer.byteLength(hostis['grande no formato']) > 1_048_576, 'acima do teto de leitura');
   for (const [nome, conteudo] of Object.entries(hostis)) {
     fs.writeFileSync(arqProjecao, conteudo);
     const t = contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit');

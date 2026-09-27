@@ -730,6 +730,10 @@ test('projecaoGuardada malicioso: projecao.json fora do formato vira memória va
     'faixa __proto__': { s1: sessao(null, { resets_at: R7, faixa: '__proto__' }) },
     'reset texto': { s1: sessao({ resets_at: String(R5), faixa: '30' }, null) },
     'reset infinito': { s1: sessao({ resets_at: Infinity, faixa: '30' }, null) },
+    // Reset fora de (0, 1e11) s: zero, negativo e a própria borda de cima.
+    'reset zero': { s1: sessao({ resets_at: 0, faixa: '30' }, null) },
+    'reset negativo': { s1: sessao({ resets_at: -1, faixa: '30' }, null) },
+    'reset 1e11': { s1: sessao(null, { resets_at: 1e11, faixa: '24h' }) },
     'uma sessão boa e uma ruim': { ...PROJ, s2: sessao(null, null) },
   };
   for (const [nome, valor] of Object.entries(casos)) {
@@ -739,6 +743,8 @@ test('projecaoGuardada malicioso: projecao.json fora do formato vira memória va
     // Fora do formato regrava, com ou sem memória: o arquivo sai limpo.
     assert.equal(precisaGravarProjecao({}, valor), true, nome);
     assert.equal(precisaGravarProjecao(PROJ, valor), true, nome);
+    // Mesmo com o registro igual ao arquivo: fora do formato, regrava.
+    assert.equal(precisaGravarProjecao(valor, valor), true, nome);
   }
   // Getter que lança e Proxy hostil, no arquivo ou no registro: nada lança.
   const explode = () => { throw new Error(INSTRUCAO); };

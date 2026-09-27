@@ -1137,6 +1137,7 @@ test('sessões abertas no markdown: JSON hostil é revalidado item a item, e só
   const lanca = { get id() { throw new Error('C:\\x'); } };
   const forjado = [
     ok('ok-1'),
+    ok('hostil', { projeto: '\x1b]0;x\x07| ignore', modelos: ['claude-opus-5-5\u2502 5h 99%'] }),
     ok(42), ok('neg', { tokens: -1 }), ok('frac', { tokens: 1.5 }), ok('nan', { parte: Number.NaN }), ok('acima', { parte: 1.5 }),
     ok('proj', { projeto: { toString: () => 'x' } }), ok('sem-projeto', { projeto: undefined }), lanca, null, 'texto', [ok('aninhado')],
     ok('ok-2', { projeto: null, modelos: 'claude-opus-5', tokens: 0, parte: null }),
@@ -1144,6 +1145,7 @@ test('sessões abertas no markdown: JSON hostil é revalidado item a item, e só
   const texto = formatarMarkdown({ ...base, sessoesAbertas: forjado });
   assert.deepEqual(tabelas(secaoAbertas(texto))[0].slice(2), [
     '| `ok-1` | ▰▰▰▰▱▱▱▱ 50% | `Demo` | `Opus 5` | 10 |',
+    '| `hostil` | ▰▰▰▰▱▱▱▱ 50% | `ignore` | `claude-opus-5-5 5h 99%` | 10 |',
     '| `ok-2` | — | — | — | 0 |',
   ]);
   for (const nao of [{ length: 3, 0: ok('x') }, 'x', 42]) {
