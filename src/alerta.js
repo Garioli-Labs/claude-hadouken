@@ -134,9 +134,22 @@ function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs }
 
 // Spec v0.2.0 §12 (avisos ao Claude): `previsao` (preverEstouro de
 // previsao.js) e `sessoesAtivas` (sessoesAtivas de estado.js) alimentam o
-// aviso de projeção, guardado por sessão em `projecao`; sem eles, nenhum aviso
-// de projeção.
-export function avaliarAlertas({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAtivas }) {
+// aviso de projeção, guardado por sessão em `projecao` (o hook de prompt o
+// guarda em projecao.json, fora de alertas.json; ver hooks/alertas-gravados.js);
+// sem eles, nenhum aviso de projeção. Nunca lança (restrição global do
+// plano v0.2.0): entrada ilegível (sem objeto, getter que lança, Proxy) não
+// dá aviso nenhum e devolve memória vazia, o lado seguro de
+// alertas-gravados.js (a faixa atual é anunciada de novo, nunca uma descida
+// falsa).
+export function avaliarAlertas(entrada) {
+  try {
+    return avaliar(entrada);
+  } catch {
+    return { linhas: [], novos: { five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} } };
+  }
+}
+
+function avaliar({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAtivas }) {
   const ant = anteriores ?? ALERTAS_VAZIO;
   const novos = {
     five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura }, projecao: { ...ant.projecao },
@@ -181,14 +194,21 @@ export function avaliarAlertas({ limites, anteriores, sessionId, agoraMs, previs
     novos.seven_day = { resets_at: f7.resets_at, faixa };
   }
 
-  const guardada = Object.hasOwn(novos.projecao, sessionId) ? novos.projecao[sessionId] : null;
-  const projecao = avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs });
-  linhas.push(...projecao.linhas);
-  // Só mexe na memória quando ela muda: a sessão alterada vai para o fim da
-  // ordem, de onde alertasParaGravar corta o teto.
-  if (JSON.stringify(projecao.memoria) !== JSON.stringify(guardada)) {
-    delete novos.projecao[sessionId];
-    if (projecao.memoria !== null) novos.projecao[sessionId] = projecao.memoria;
+  // O aviso de projeção por último e à parte: previsão ou memória de
+  // projeção ilegível (getter que lança, Proxy) cala só esse aviso e deixa a
+  // memória da sessão como estava; os avisos de faixa acima saem igual.
+  try {
+    const guardada = Object.hasOwn(novos.projecao, sessionId) ? novos.projecao[sessionId] : null;
+    const projecao = avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs });
+    // Só mexe na memória quando ela muda: a sessão alterada vai para o fim da
+    // ordem, de onde projecaoParaGravar (hooks/alertas-gravados.js) corta o teto.
+    if (JSON.stringify(projecao.memoria) !== JSON.stringify(guardada)) {
+      delete novos.projecao[sessionId];
+      if (projecao.memoria !== null) novos.projecao[sessionId] = projecao.memoria;
+    }
+    linhas.push(...projecao.linhas);
+  } catch {
+    // Nenhum aviso de projeção.
   }
   return { linhas, novos };
 }

@@ -186,6 +186,19 @@ test('anteriores null é aceito como estado vazio', () => {
   assert.deepEqual(r.linhas, ['5h em 82%: serializar — sem Workflow nem subagentes em paralelo.']);
   const s = avaliar(null, null);
   assert.deepEqual(s.linhas, ['Consumo sem leitura: rode /usage.']);
+  // Entrada ilegível (nenhuma, getter que lança, Proxy): nenhuma exceção,
+  // nenhum aviso e memória vazia, o lado seguro.
+  const explode = () => { throw new Error('hostil'); };
+  const hostil = new Proxy({}, { get: explode, ownKeys: explode, getOwnPropertyDescriptor: explode, has: explode });
+  const vazio = { linhas: [], novos: { five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} } };
+  assert.deepEqual(avaliarAlertas(), vazio);
+  assert.deepEqual(avaliarAlertas(null), vazio);
+  assert.deepEqual(avaliarAlertas(hostil), vazio);
+  assert.deepEqual(avaliar(Object.defineProperty({}, 'five_hour', { get: explode, enumerable: true }), null), vazio);
+  assert.deepEqual(avaliar(limites(82, 50), { ...ALERTAS_VAZIO, sem_leitura: hostil }), vazio);
+  assert.deepEqual(avaliar(limites(82, 50), { ...ALERTAS_VAZIO, projecao: hostil }), vazio);
+  // A memória vazia devolvida é nova a cada chamada, nunca ALERTAS_VAZIO.
+  assert.notEqual(avaliarAlertas().novos.sem_leitura, avaliarAlertas().novos.sem_leitura);
 });
 
 test('anteriores nunca é mutado', () => {
@@ -359,6 +372,26 @@ test('projeção fora do lugar não avisa: no reset ou depois, no passado, não 
   const sem = avaliarAlertas({ limites: null, anteriores: r1.novos, sessionId: 's1', agoraMs: agora, previsao: { five_hour: agora + 5 * MIN }, sessoesAtivas: 3 });
   assert.deepEqual(sem.linhas, ['Consumo sem leitura: rode /usage.']);
   assert.deepEqual(sem.novos.projecao, r1.novos.projecao);
+  // Previsão ou memória de projeção hostil (getter que lança, Proxy): nenhuma
+  // exceção e nenhum aviso de projeção; o aviso de faixa sai igual e a memória
+  // da sessão fica como estava.
+  const explode = () => { throw new Error('hostil'); };
+  const proxy = new Proxy({}, { get: explode, ownKeys: explode, getOwnPropertyDescriptor: explode, has: explode });
+  const faixa82 = '5h em 82%: serializar — sem Workflow nem subagentes em paralelo.';
+  const comHostil = (previsao, anteriores) => avaliarAlertas({
+    limites: limites(82, 50), anteriores, sessionId: 's1', agoraMs: agora, previsao, sessoesAtivas: 3,
+  });
+  for (const previsao of [Object.defineProperty({}, 'five_hour', { get: explode, enumerable: true }), proxy]) {
+    const r = comHostil(previsao, r1.novos);
+    assert.deepEqual(r.linhas, [faixa82]);
+    assert.deepEqual(r.novos.projecao, r1.novos.projecao);
+    assert.deepEqual(r.novos.five_hour, { resets_at: reset5, faixa: 'serializar' });
+  }
+  for (const memoria of [proxy, { get five_hour() { throw new Error('hostil'); }, seven_day: null }]) {
+    const r = comHostil({ five_hour: agora + 20 * MIN }, { ...ALERTAS_VAZIO, projecao: { s1: memoria } });
+    assert.deepEqual(r.linhas, [faixa82]);
+    assert.equal(r.novos.projecao.s1, memoria);
+  }
 });
 
 test('projeção: a sessão cuja memória muda vai para o fim; a que não muda fica no lugar; anteriores intacto', () => {

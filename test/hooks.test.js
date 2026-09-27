@@ -283,9 +283,11 @@ test('prompt-submit injeta uma vez ao subir de faixa', () => {
   const texto = contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit');
   assert.match(texto, LINHA_SERIALIZAR);
   mudo(rodar('prompt-submit.js', prompt(), home));
-  // Gravou a memória com at e só os campos fixos.
+  // Gravou a memória com at e só os campos fixos, o formato exato da v0.1.0;
+  // sem aviso de projeção, projecao.json não nasce.
   const memoria = JSON.parse(fs.readFileSync(path.join(home, 'alertas.json'), 'utf8'));
-  assert.deepEqual(Object.keys(memoria), ['at', 'five_hour', 'seven_day', 'sem_leitura', 'projecao']);
+  assert.deepEqual(Object.keys(memoria), ['at', 'five_hour', 'seven_day', 'sem_leitura']);
+  assert.equal(fs.existsSync(path.join(home, 'projecao.json')), false);
   assert.ok(Math.abs(Date.parse(memoria.at) - Date.now()) < 60_000);
   assert.equal(memoria.five_hour.faixa, 'serializar');
 });
@@ -414,6 +416,8 @@ test('prompt-submit malicioso: alertas.json adulterado nunca vira contexto nem l
     'sem_leitura hostil': JSON.stringify({ at: new Date().toISOString(), five_hour: null, seven_day: null, sem_leitura: { s1: INSTRUCAO, constructor: INSTRUCAO } }),
     'texto puro': INSTRUCAO,
     'grande': JSON.stringify({ at: new Date().toISOString(), five_hour: { resets_at: r5, faixa: 'serializar' }, seven_day: null, sem_leitura: {}, x: 'y'.repeat(1_100_000) }),
+    // A projeção não mora em alertas.json: a chave a mais está fora do formato.
+    'chave projecao': JSON.stringify({ at: new Date().toISOString(), five_hour: { resets_at: r5, faixa: 'serializar' }, seven_day: null, sem_leitura: {}, projecao: {} }),
   };
   for (const [nome, conteudo] of Object.entries(casos)) {
     const home = novoHome();
@@ -425,7 +429,7 @@ test('prompt-submit malicioso: alertas.json adulterado nunca vira contexto nem l
     assert.match(texto, LINHA_SERIALIZAR, nome);
     assert.ok(semTextoDeFora(texto), nome);
     const regravado = JSON.parse(fs.readFileSync(path.join(home, 'alertas.json'), 'utf8'));
-    assert.deepEqual(Object.keys(regravado), ['at', 'five_hour', 'seven_day', 'sem_leitura', 'projecao'], nome);
+    assert.deepEqual(Object.keys(regravado), ['at', 'five_hour', 'seven_day', 'sem_leitura'], nome);
     assert.ok(!JSON.stringify(regravado).includes('Ignore'), nome);
   }
   // Pasta no lugar de alertas.json: anuncia, não lança, a pasta fica.
@@ -516,12 +520,16 @@ test('prompt-submit: previsão de estouro da 5h avisa a 60 e a 30 min, uma vez c
   gravarComHistorico(home, { p5: 60, h5: SUBINDO_1, sessoes });
   assert.match(contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit'), LINHA_PROJECAO_3);
   mudo(rodar('prompt-submit.js', prompt(), home));
-  const memoria = JSON.parse(fs.readFileSync(path.join(home, 'alertas.json'), 'utf8'));
-  assert.equal(memoria.projecao.s1.five_hour.faixa, '60');
+  // A memória da projeção vai para projecao.json; alertas.json fica no formato
+  // exato da v0.1.0, que um hook da v0.1.0 ainda aberto aceita.
+  const lerMemoria = (nome) => JSON.parse(fs.readFileSync(path.join(home, nome), 'utf8'));
+  assert.deepEqual(lerMemoria('projecao.json'), { s1: { five_hour: { resets_at: lerMemoria('alertas.json').five_hour.resets_at, faixa: '60' }, seven_day: null } });
+  assert.deepEqual(Object.keys(lerMemoria('alertas.json')), ['at', 'five_hour', 'seven_day', 'sem_leitura']);
   // 2 pontos por minuto: 100% em 20 min, a faixa de 30 avisa uma vez.
   gravarComHistorico(home, { p5: 60, h5: [[-8, 44], [-6, 48], [-4, 52], [-2, 56], [0, 60]], sessoes });
   assert.match(contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit'), LINHA_PROJECAO_3);
   mudo(rodar('prompt-submit.js', prompt(), home));
+  assert.equal(lerMemoria('projecao.json').s1.five_hour.faixa, '30');
   // Sozinha: sem o parêntese.
   const so = novoHome();
   registrar(so, 's1');
@@ -549,8 +557,35 @@ test('prompt-submit malicioso: histórico e sessões forjados em estado.json só
   const texto = contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit');
   // Pontos no futuro, velhos, fora de 0–100 ou de texto saem; as sessões
   // falsas param no teto de 50, e id inválido não conta.
-  assert.match(texto, /^hadouken: no ritmo atual \(50 sessões ativas\), 5h chega a 100% às \d\d:\d\d, antes do reset das \d\d:\d\d\. Reduza o paralelismo ou serialize\.$/);
+  const LINHA_50 = /^hadouken: no ritmo atual \(50 sessões ativas\), 5h chega a 100% às \d\d:\d\d, antes do reset das \d\d:\d\d\. Reduza o paralelismo ou serialize\.$/;
+  assert.match(texto, LINHA_50);
   assert.ok(semTextoDeFora(texto), texto);
+  // projecao.json adulterado vira memória vazia sem erro: o aviso sai de novo,
+  // só com números, e o arquivo é regravado limpo.
+  const arqProjecao = path.join(home, 'projecao.json');
+  const hostis = {
+    'faixa instrução': JSON.stringify({ s1: { five_hour: { resets_at: agoraS() + 3600, faixa: INSTRUCAO }, seven_day: null } }),
+    'id instrução': JSON.stringify({ [INSTRUCAO]: { five_hour: null, seven_day: { resets_at: agoraS() + 3600, faixa: '24h' } } }),
+    '__proto__': `{"__proto__": {"five_hour": {"resets_at": ${agoraS() + 3600}, "faixa": "60"}, "seven_day": null}}`,
+    'texto puro': INSTRUCAO,
+    'grande': JSON.stringify({ s1: { five_hour: null, seven_day: { resets_at: agoraS() + 3600, faixa: '24h' } }, x: 'y'.repeat(1_100_000) }),
+  };
+  for (const [nome, conteudo] of Object.entries(hostis)) {
+    fs.writeFileSync(arqProjecao, conteudo);
+    const t = contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit');
+    assert.match(t, LINHA_50, nome);
+    assert.ok(semTextoDeFora(t), nome);
+    const regravado = JSON.parse(fs.readFileSync(arqProjecao, 'utf8'));
+    assert.deepEqual(Object.keys(regravado), ['s1'], nome);
+    assert.ok(!JSON.stringify(regravado).includes('Ignore'), nome);
+  }
+  // Pasta no lugar de projecao.json: avisa, não lança, a pasta fica.
+  fs.rmSync(arqProjecao);
+  fs.mkdirSync(arqProjecao);
+  const r = rodar('prompt-submit.js', prompt(), home);
+  assert.equal(r.status, 0);
+  assert.match(contexto(r, 'UserPromptSubmit'), LINHA_50);
+  assert.ok(fs.lstatSync(arqProjecao).isDirectory());
 });
 
 // --- SessionEnd --------------------------------------------------------------

@@ -22,7 +22,11 @@ import { sessaoAtiva, renovarSessao } from '../ativas.js';
 //
 // alertas.json só é regravado quando a memória muda ou quando o `at` guardado
 // tem 5 min ou mais (precisaGravar, M2): o prompt comum não cria arquivo nem
-// renomeia nada.
+// renomeia nada. A memória do aviso de projeção mora em projecao.json, fora
+// de alertas.json, que fica no formato exato da v0.1.0 para o hook da v0.1.0
+// de uma sessão aberta antes da atualização aceitar tudo o que este grava
+// (hooks/alertas-gravados.js); projecao.json só é criado ou regravado quando
+// a memória de projeção muda (precisaGravarProjecao).
 
 rodarHook(async (entrada) => {
   if (entrada === null || !Object.hasOwn(entrada, 'session_id')) return;
@@ -35,7 +39,10 @@ rodarHook(async (entrada) => {
   const [
     { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, gravarJsonAtomico, sessoesAtivas },
     { avaliarAlertas },
-    { ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar },
+    {
+      ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar,
+      ARQ_PROJECAO, projecaoGuardada, projecaoParaGravar, precisaGravarProjecao,
+    },
     { preverEstouro },
   ] = await Promise.all([
     import('../estado.js'),
@@ -54,10 +61,18 @@ rodarHook(async (entrada) => {
   const lidoAlertas = lerJson(arqAlertas, ALERTAS_MAX_BYTES);
   const guardado = lidoAlertas.ok ? lidoAlertas.valor : null;
   const { anteriores, atMs } = alertasGuardados(guardado, agoraMs);
-  const { linhas, novos } = avaliarAlertas({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAtivas: ativas });
+  const arqProjecao = join(dir, ARQ_PROJECAO);
+  const lidoProjecao = lerJson(arqProjecao, ALERTAS_MAX_BYTES);
+  const projecaoLida = lidoProjecao.ok ? lidoProjecao.valor : null;
+  const { linhas, novos } = avaliarAlertas({
+    limites, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
+    previsao, sessoesAtivas: ativas,
+  });
   // `at` só anda quando a memória foi conferida contra uma leitura válida
   // (decisão D): sem leitura, fica o at lido.
   const registro = alertasParaGravar(novos, limites ? agoraMs : atMs);
   if (precisaGravar(registro, guardado, agoraMs)) gravarJsonAtomico(arqAlertas, registro);
+  const registroProjecao = projecaoParaGravar(novos.projecao);
+  if (precisaGravarProjecao(registroProjecao, projecaoLida)) gravarJsonAtomico(arqProjecao, registroProjecao);
   emitirContexto('UserPromptSubmit', linhas.join('\n'));
 });

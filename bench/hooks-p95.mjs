@@ -21,20 +21,30 @@
 // - estado.json holds 50 sessions (its cap, all active), both rate-limit
 //   windows and a full history (90 points over 3 h, spec v0.2.0 §12.8) whose
 //   7d forecast lands about 18.6 h ahead, inside the 24 h projection band;
-// - alertas.json holds both windows, 256 sem_leitura entries and 256 projecao
-//   entries (both caps);
+// - alertas.json holds both windows and 256 sem_leitura entries (its cap), in
+//   the exact v0.1.0 format;
+// - projecao.json holds 256 projection entries of other sessions (its cap);
+//   the settling prompt adds the measured session's 7d projection and pushes
+//   the oldest entry out, so it stays at 256;
 // - the shims in <home>/bin/ are already in sync with this checkout;
 // - stdin is a realistic hook payload.
+// Every `at` in estado.json is re-anchored to the clock before each round, so
+// the active sessions and the full history never age out during a long run.
 // Scenarios:
 // - prompt hook registered, in two rows. Both run the gate, renew, read the
-//   state and the alert memory, and evaluate.
-//   - "unchanged" is the common prompt: the memory is what this fixture
-//     evaluates to, with an `at` 1 min old, so the hook writes nothing.
-//   - "writes" has the same memory with an `at` 10 min old, so the hook
-//     rewrites alertas.json atomically (Task 7 review M2: the memory is
-//     rewritten only when it changes or its `at` is 5 min old or more).
-//   Each row plants its memory before the timed spawn and checks afterwards
-//   that the file was left alone, or rewritten, as it claims.
+//   state and both memory files (alertas.json and projecao.json), and
+//   evaluate.
+//   - "unchanged" is the common prompt: both files hold what this fixture
+//     evaluates to, alertas.json with an `at` 1 min old, so the hook writes
+//     nothing and prints nothing.
+//   - "writes" is the heaviest prompt: alertas.json with an `at` 10 min old
+//     and projecao.json without the measured session's entry (still 256
+//     entries), so the hook announces the 7d projection again and rewrites
+//     both files atomically (Task 7 review M2: alertas.json is rewritten only
+//     when it changes or its `at` is 5 min old or more; projecao.json only
+//     when it changes).
+//   Each row plants both files before the timed spawn and checks afterwards
+//   that each one was left alone, or rewritten, as it claims.
 // - prompt hook unregistered: gate only; loads neither estado.js nor alerta.js.
 // - SessionStart: register, shim sync, state line.
 // - SessionEnd registered (gate, read state, append one history line) and
@@ -79,9 +89,11 @@ function embaralhar(lista) {
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench hooks '));
 try {
   const { registrarSessao, DIR_ATIVAS } = await importar('ativas.js');
-  const { atualizarEstado, ARQ_ESTADO, HISTORICO_MAX, HISTORICO_PASSO_MS } = await importar('estado.js');
+  const {
+    atualizarEstado, ARQ_ESTADO, HISTORICO_MAX, HISTORICO_PASSO_MS, validarEstado, sessoesAtivas,
+  } = await importar('estado.js');
   const { sincronizarShims } = await importar('shim.js');
-  const { ARQ_ALERTAS } = await importar('hooks/alertas-gravados.js');
+  const { ARQ_ALERTAS, ARQ_PROJECAO, PROJECAO_MAX } = await importar('hooks/alertas-gravados.js');
   const { ARQ_HISTORICO } = await importar('hooks/historico.js');
 
   const agora = Date.now();
@@ -142,13 +154,14 @@ try {
     five_hour: { resets_at: s + 3600, faixa: 'ok' },
     seven_day: { resets_at: s + 3 * 86400, faixa: 'economico' },
     sem_leitura: semLeitura,
-    projecao,
   }, null, 2));
+  fs.writeFileSync(path.join(home, ARQ_PROJECAO), JSON.stringify(projecao, null, 2));
   const nAtivas = fs.readdirSync(path.join(home, DIR_ATIVAS)).length;
   const estado = JSON.parse(fs.readFileSync(path.join(home, ARQ_ESTADO), 'utf8'));
   const nSessoes = Object.keys(estado.sessoes).length;
   const pontosHistorico = estado.historico.length;
   const bytesAlertas = fs.statSync(path.join(home, ARQ_ALERTAS)).size;
+  const bytesProjecao = fs.statSync(path.join(home, ARQ_PROJECAO)).size;
 
   // Hook output: nothing, or one JSON object with the event's context.
   let linhaInicio = '';
@@ -177,15 +190,47 @@ try {
     throw new Error(`fixture: worst case missing from the settling prompt ${JSON.stringify(avisos)}`);
   }
   const memoriaEstavel = JSON.parse(fs.readFileSync(arqAlertas, 'utf8'));
-  let memoriaPlantada = '';
-  const plantarMemoria = (idadeMs) => () => {
-    memoriaPlantada = JSON.stringify({ ...memoriaEstavel, at: new Date(Date.now() - idadeMs).toISOString() }, null, 2);
-    fs.writeFileSync(arqAlertas, memoriaPlantada);
+  if (Object.keys(memoriaEstavel).join() !== 'at,five_hour,seven_day,sem_leitura') {
+    throw new Error(`fixture: alertas.json out of the v0.1.0 format: ${Object.keys(memoriaEstavel)}`);
+  }
+  const arqProjecao = path.join(home, ARQ_PROJECAO);
+  const projecaoEstavel = JSON.parse(fs.readFileSync(arqProjecao, 'utf8'));
+  if (Object.keys(projecaoEstavel).length !== PROJECAO_MAX || !Object.hasOwn(projecaoEstavel, uuid(0))) {
+    throw new Error(`fixture: projecao.json holds ${Object.keys(projecaoEstavel).length} entries after settling, expected ${PROJECAO_MAX} with the measured session`);
+  }
+  // The same 256 entries without the measured session: the oldest seeded id
+  // (pushed out by the settling prompt) back in front.
+  const { [uuid(0)]: alvoProjecao, ...outrasProjecoes } = projecaoEstavel;
+  const projecaoSemAlvo = { [uuid(2000)]: projecao[uuid(2000)], ...outrasProjecoes };
+  if (alvoProjecao?.seven_day?.faixa !== '24h' || Object.keys(projecaoSemAlvo).length !== PROJECAO_MAX) {
+    throw new Error('fixture: unexpected projection memory after settling');
+  }
+  // Planted with a trailing newline, which the hook's writer never adds, so any
+  // rewrite changes the bytes (alertas.json also gets a new `at`).
+  const plantadas = { alertas: '', projecao: '' };
+  const plantarMemoria = (idadeMs, projecaoPlantada) => () => {
+    plantadas.alertas = `${JSON.stringify({ ...memoriaEstavel, at: new Date(Date.now() - idadeMs).toISOString() }, null, 2)}\n`;
+    plantadas.projecao = `${JSON.stringify(projecaoPlantada, null, 2)}\n`;
+    fs.writeFileSync(arqAlertas, plantadas.alertas);
+    fs.writeFileSync(arqProjecao, plantadas.projecao);
+  };
+  const conferirGravacao = (nome, arq, plantada, esperaGravar) => {
+    const gravou = fs.readFileSync(arq, 'utf8') !== plantada;
+    if (gravou !== esperaGravar) throw new Error(`${nome}: ${path.basename(arq)} was ${gravou ? '' : 'not '}rewritten`);
   };
   const memoriaGravada = (nome, esperaGravar) => (out) => {
-    semSaida(nome)(out);
-    const gravou = fs.readFileSync(arqAlertas, 'utf8') !== memoriaPlantada;
-    if (gravou !== esperaGravar) throw new Error(`${nome}: alertas.json was ${gravou ? '' : 'not '}rewritten`);
+    if (esperaGravar) {
+      // The 7d projection announced again, as in the settling prompt.
+      const aviso = contexto(nome, 'UserPromptSubmit')(out);
+      if (!/^hadouken: no ritmo atual \(50 sess\u00f5es ativas\), 7d chega a 100% [^\n]+$/.test(aviso)) {
+        throw new Error(`${nome}: unexpected context ${JSON.stringify(aviso)}`);
+      }
+      if (!Object.hasOwn(JSON.parse(fs.readFileSync(arqProjecao, 'utf8')), uuid(0))) throw new Error(`${nome}: projection memory not stored`);
+    } else {
+      semSaida(nome)(out);
+    }
+    conferirGravacao(nome, arqAlertas, plantadas.alertas, esperaGravar);
+    conferirGravacao(nome, arqProjecao, plantadas.projecao, esperaGravar);
   };
 
   const cenarios = [
@@ -194,7 +239,7 @@ try {
       nome: 'prompt reg. unchanged',
       argv: [hook('prompt-submit.js')],
       stdin: stdinPrompt,
-      preparar: plantarMemoria(60_000),
+      preparar: plantarMemoria(60_000, projecaoEstavel),
       conferir: memoriaGravada('prompt reg. unchanged', false),
       alvo: true,
     },
@@ -203,7 +248,7 @@ try {
       nome: 'prompt reg. writes',
       argv: [hook('prompt-submit.js')],
       stdin: stdinPrompt,
-      preparar: plantarMemoria(10 * 60_000),
+      preparar: plantarMemoria(10 * 60_000, projecaoSemAlvo),
       conferir: memoriaGravada('prompt reg. writes', true),
       alvo: true,
     },
@@ -230,9 +275,34 @@ try {
     c.conferir(r.stdout);
     return ms;
   }
-  for (let i = 0; i < WARMUPS; i++) for (const c of embaralhar(cenarios)) rodar(c);
+  // The worst case stays live for the whole run, however long it takes: before
+  // every round each `at` in estado.json moves forward by the time elapsed
+  // since the fixture was built, so the 50 sessions stay inside the 5 min
+  // active window and the 90 history points inside the 3 h horizon. Checked
+  // with the hooks' own validation, untimed.
+  const arqEstado = path.join(home, ARQ_ESTADO);
+  const estadoBase = JSON.parse(fs.readFileSync(arqEstado, 'utf8'));
+  function reancorar() {
+    const agoraRodada = Date.now();
+    const desvio = agoraRodada - agora;
+    const mover = (o) => { if (typeof o?.at === 'string') o.at = new Date(Date.parse(o.at) + desvio).toISOString(); };
+    const e = structuredClone(estadoBase);
+    for (const o of [e, e.five_hour, e.seven_day, ...Object.values(e.sessoes), ...e.historico]) mover(o);
+    fs.writeFileSync(arqEstado, JSON.stringify(e, null, 2));
+    const valido = validarEstado(e, agoraRodada);
+    if (valido?.historico?.length !== HISTORICO_MAX || sessoesAtivas(valido, agoraRodada, uuid(0)) !== nSessoes) {
+      throw new Error('fixture: the worst case decayed');
+    }
+  }
+  for (let i = 0; i < WARMUPS; i++) {
+    reancorar();
+    for (const c of embaralhar(cenarios)) rodar(c);
+  }
   const tempos = new Map(cenarios.map((c) => [c, []]));
-  for (let i = 0; i < RUNS; i++) for (const c of embaralhar(cenarios)) tempos.get(c).push(rodar(c));
+  for (let i = 0; i < RUNS; i++) {
+    reancorar();
+    for (const c of embaralhar(cenarios)) tempos.get(c).push(rodar(c));
+  }
 
   const historico = fs.readFileSync(path.join(home, ARQ_HISTORICO), 'utf8').split('\n').filter(Boolean);
   const esperadas = WARMUPS + RUNS;
@@ -253,12 +323,12 @@ try {
       alvoP95Ms: ALVO_P95_MS,
       rodadas: RUNS,
       aquecimento: WARMUPS,
-      fixture: { ativas: nAtivas, sessoes: nSessoes, pontosHistorico, bytesAlertas, linhasHistorico: historico.length },
+      fixture: { ativas: nAtivas, sessoes: nSessoes, pontosHistorico, bytesAlertas, bytesProjecao, linhasHistorico: historico.length },
       linhas: cenarios.map((c) => ({ id: c.id, nome: c.nome, alvo: c.alvo, ...resumo(tempos.get(c)) })),
     }));
   } else {
     console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
-    console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions and ${pontosHistorico} history points in estado.json, alertas.json ${bytesAlertas} B with 256 sem_leitura and 256 projecao entries`);
+    console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions and ${pontosHistorico} history points in estado.json, alertas.json ${bytesAlertas} B with 256 sem_leitura entries, projecao.json ${bytesProjecao} B with ${PROJECAO_MAX} entries`);
     console.log(`runs: ${RUNS} interleaved rounds after ${WARMUPS} shared warm-up rounds, spawn to exit`);
     for (const c of cenarios) {
       const r = resumo(tempos.get(c));
