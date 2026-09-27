@@ -8287,3 +8287,5 @@ Antes (Step 1, depois da Task 8) e depois (Step 11, depois da Task 9), p50/p95 e
 | `node -e ""` (bench dos hooks) | 69,6 / 82,1 | 69,8 / 85,1 |
 
 Todas as linhas de barra e de hook ficam dentro da meta do Windows (p95 ≤ 250 ms). Suíte inteira depois da Task 9: `# tests 781`, `# fail 0`.
+
+Contexto sem o viés de local (depois das decisões, `8497390`): a v0.1.0 (`726f3b0`) contra a v0.2.0 final, as duas raízes na mesma pasta de rascunho, 200 pares, piso p50 72,0 ms. Barra registrada: mediana(B − A) +6,3 ms, B mais rápido em 25 % dos pares, `regression` (p50 108,3 → 112,8 ms, p95 125,6 → 137,0 ms). Prompt registrado: +6,8 ms, 19 %, `regression` (p50 107,0 → 113,5, p95 123,8 → 132,9). Barra não registrada: −0,5 ms, 51 %, `neutral`. Prompt não registrado: −2,8 ms, 63 %, `gain` (o C-A). O custo da seção 12 nos caminhos registrados é de uns 6 a 7 ms no p50, não os 3,4 e 3,5 ms do Step 3, que tinha o viés a favor de B; continua longe da meta de 250 ms, mas a spec §1 pede "sem ficar mais lentos": fica para o controlador.
