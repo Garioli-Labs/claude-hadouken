@@ -8289,3 +8289,57 @@ Antes (Step 1, depois da Task 8) e depois (Step 11, depois da Task 9), p50/p95 e
 Todas as linhas de barra e de hook ficam dentro da meta do Windows (p95 ≤ 250 ms). Suíte inteira depois da Task 9: `# tests 781`, `# fail 0`.
 
 Contexto sem o viés de local (depois das decisões, `8497390`): a v0.1.0 (`726f3b0`) contra a v0.2.0 final, as duas raízes na mesma pasta de rascunho, 200 pares, piso p50 72,0 ms. Barra registrada: mediana(B − A) +6,3 ms, B mais rápido em 25 % dos pares, `regression` (p50 108,3 → 112,8 ms, p95 125,6 → 137,0 ms). Prompt registrado: +6,8 ms, 19 %, `regression` (p50 107,0 → 113,5, p95 123,8 → 132,9). Barra não registrada: −0,5 ms, 51 %, `neutral`. Prompt não registrado: −2,8 ms, 63 %, `gain` (o C-A). O custo da seção 12 nos caminhos registrados é de uns 6 a 7 ms no p50, não os 3,4 e 3,5 ms do Step 3, que tinha o viés a favor de B; continua longe da meta de 250 ms, mas a spec §1 pede "sem ficar mais lentos": fica para o controlador.
+
+**2026-09-27, Task 9b: de onde vêm os ms dos caminhos registrados (Windows 11, Node 24.18, i7-7700HQ).** Ordem do Sr. Garioli: "otimize o desempenho ao máximo, sem perda de qualidade"; a spec §1 pede "sem ficar mais lentos". Antes, o Minor da revisão (`3cb8d1c`): quando A tem a seção 12 e a sonda de texto diz que B não tem, o `bench/ab-raizes.mjs` importa o `estado.js` de B para confirmar e lança se a sonda errou, em vez de pular a conferência da saída de B. Provado com 1 par: B = v0.1.0 roda (rc 0); B com `sessoesAtivas` exportado por um `export { }` no fim do arquivo para com "the §12 text probe missed root B's §12" (rc 1); as duas raízes com a seção 12 rodam (rc 0). Medição de 03:56 a 04:29; antes de cada A/B, `checar-piso.mjs` deu "máquina parada" na primeira tentativa (p50 do `node -e ""` entre 70,4 e 74,1 ms).
+
+Atribuição. Cópias de rascunho da v0.1.0 (`726f3b0`) e da v0.2.0 (`src/` igual desde `8497390`) com marcas `performance.now()` inseridas por trecho e um preload `--import` que grava as marcas e, por `module.registerHooks`, o resolve e o load de cada módulo; a fixture é o pior caso do A/B (50 sessões, 90 pontos de histórico, 999 registros, reancorado a cada rodada); 100 rodadas, ordem sorteada, mediana de cada trecho em ms (as medianas dos trechos não somam exatamente a do total).
+
+| Trecho | barra: v0.1.0 → v0.2.0 | prompt: v0.1.0 → v0.2.0 |
+|---|---:|---:|
+| partida do Node até o preload | 41,86 → 41,95 (+0,09) | 41,97 → 41,94 (−0,03) |
+| módulo de entrada e imports estáticos | 6,40 → 4,51 (−1,89) | 9,81 → 8,21 (−1,60) |
+| leitura do stdin | 6,29 → 5,43 (−0,87) | 4,06 → 4,13 (+0,07) |
+| gate de registro | 1,06 → 1,04 (−0,02) | 1,00 → 1,00 (0,00) |
+| imports depois do gate | 5,14 → 10,56 (+5,42) | 5,49 → 8,85 (+3,36) |
+| leitura do `estado.json` | 3,09 → 3,38 (+0,28) | 1,59 → 2,04 (+0,45) |
+| validação | 1,98 → 2,38 (+0,39) | 3,22 → 4,55 (+1,33) |
+| mescla do histórico | 0,31 → 1,29 (+0,98) | — |
+| gravação atômica (JSON, tmp, rename, varredura) | 3,05 → 3,19 (+0,14) | 0,27 → 0,40 (+0,13) |
+| previsão e contagem de ativas | 0,16 → 1,08 (+0,92) | 0,11 → 0,98 (+0,87) |
+| leitura de `alertas.json` | — | 1,57 → 1,61 (+0,05) |
+| leitura de `projecao.json` | — | — → 1,07 (+1,07) |
+| avaliação de alertas e projeção | — | 0,40 → 0,92 (+0,51) |
+| montagem da barra | 1,18 → 1,46 (+0,28) | — |
+| saída até o `exit` | 1,04 → 0,20 (−0,84) | 0,97 → 0,19 (−0,78) |
+| total dentro do processo | 72,29 → 76,82 (+4,53) | 71,26 → 76,65 (+5,38) |
+| relógio de parede do spawn | 113,91 → 117,55 (+3,64) | 111,63 → 117,01 (+5,38) |
+
+Leitura. Cada módulo custa perto de 0,3 ms de resolve, 0,3 ms de leitura e a compilação; a avaliação do corpo é desprezível, menos a do `util.js` (0,6 ms, as classes `\p{C}` e `\p{M}`). Nos imports da barra (+5,42): o `util.js` que o C-A tirou de antes do gate (uns 1,8 ms, compensados pelos −1,89 da linha do módulo de entrada), `barrinha.js` (0,8 a 1,0), `previsao.js` (perto de 1,0) e o crescimento de `estado.js` (+5,7 KB), `formato.js` (+3,2 KB), `alerta.js` (+5,5 KB) e `base.js`, com as arestas de import novas (perto de 1,6). Nos do prompt (+3,36): o `util.js` realocado (1,6 a 2,2, compensados pelos −1,60), `previsao.js` (1,0 a 1,4) e crescimento (perto de 0,3). Do resto, a mescla do histórico é 0,27 ms de `historicoDepois` e o mais é um coletor de lixo que mudou de trecho; a primeira formatação de data (fuso, perto de 1,3 ms) cai no trecho que formata primeiro, o que explica boa parte dos +1,33 da validação do prompt; cada `openSync` custa perto de 1,1 ms, e é isso a leitura nova de `projecao.json`; o primeiro stream de stdio custa perto de 4 ms nas duas versões. O coletor de lixo é o mesmo nas duas (`--trace-gc`, 20 rodadas: 2 scavenges de perto de 0,8 ms). Em resumo, a diferença registrada é o trabalho da seção 12 (dois módulos novos e três maiores, histórico, previsão, contagem de ativas, aviso de projeção), menos o que o C-A economizou no stdin e na saída.
+
+Candidatas que mantêm toda validação, saneamento, teto, gravação atômica e gate, sem mudar byte de saída. A/B de 200 pares na mesma pasta de rascunho, A = v0.2.0 de HEAD, B = HEAD com a mudança; a aceitação pede `gain` duas vezes no cenário-alvo, então uma primeira execução sem `gain` já recusa.
+
+| Execução | barra registrada | barra não registrada | prompt registrado | prompt não registrado |
+|---|---:|---:|---:|---:|
+| O1, ouvinte de erro do stdout na hora de escrever, 1 (piso 74,1) | +0,2 ms, 49 %, neutral | −1,0 ms, 58 %, neutral | +0,6 ms, 48 %, neutral | −0,2 ms, 52 %, neutral |
+| O2, `estado.json` compacto, 1 (piso 72,5) | 0,0 ms, 50 %, neutral | −0,8 ms, 53 %, neutral | −0,4 ms, 53 %, neutral | +0,1 ms, 49 %, neutral |
+
+- **O1 recusado.** O `process.stdout.on('error', …)` saiu do topo de `statusline.js` e de `hooks/comum.js` e foi para logo antes de cada escrita, para não criar o stream de stdout antes do stdin. O custo do primeiro stdio só muda de lugar: o stdin o paga de qualquer jeito.
+- **O2 recusado.** `gravarJsonAtomico(arq, estado, { compacto: true })` em `atualizarEstado` (a v0.1.0 lê igual, é `JSON.parse`). Serializar os 19,8 KB indentados custa 0,26 ms; tirar a indentação não aparece no A/B.
+- **O3 (carregar `previsao.js` só com 3 pontos ou mais) não construído.** No pior caso do A/B (90 pontos) e em toda sessão com 3 pontos ou mais o módulo carrega de qualquer jeito, e o `import()` dinâmico paga o mesmo resolve, leitura e compilação do estático; o ganho só existiria nos primeiros minutos de uma sessão, fora dos cenários-alvo.
+- **Juntar `barrinha.js` a `formato.js` (menos um módulo, 0,8 a 1,0 ms) bloqueado** por `test/casa-unica.test.js`, que fixa `barrinha.js` como casa única de `CASAS`, `CHEIA`, `VAZIA`, `MARCA`, `PONTOS_POR_CASA` e `barrinha`; mudar o teste de contrato não é desta task.
+- **Classes de `util.js` compiladas no primeiro uso: sem ganho.** O `sanear` roda em todo caminho registrado (`sessaoValida`), então os 0,6 ms só mudam de lugar.
+
+Propostas para o Sr. Garioli (mudam semântica ou regra, nenhuma implementada):
+
+1. Não regravar o `estado.json` quando só o `at` mudaria: perto de 3,1 a 3,4 ms por redesenho idêntico (JSON 0,26, tmp 0,94, rename 0,89, varredura 1,10). Custo: o `at` deixa de ser o instante do último redesenho, e leituras e sessões expiram até o intervalo escolhido antes da janela de 5 min; a fixture redesenha com a mesma entrada e superestima o ganho de uso real.
+2. Ler o stdin pelo descritor (`fs.readSync(0)`) em vez do stream: perto de 2 a 3 ms em todos os caminhos (o primeiro stream de stdio custa perto de 4 ms). Custo: `readSync` num pipe que nunca fecha bloqueia; manter o prazo e o teto de 1 MiB do `lerStdin` pede um redesenho que nunca bloqueie.
+3. Espaçar a varredura de `.tmp` velhos: perto de 1,1 ms por gravação. Custo: enfraquece a regra de higiene O-1.
+
+v0.1.0 (`726f3b0`) contra a v0.2.0 de HEAD, as duas raízes na mesma pasta de rascunho, 200 pares:
+
+| Execução | barra registrada | barra não registrada | prompt registrado | prompt não registrado |
+|---|---:|---:|---:|---:|
+| 1 (piso 70,4) | +5,0 ms, 28 %, regression | −1,8 ms, 65 %, gain | +5,6 ms, 28 %, regression | −2,0 ms, 63 %, gain |
+| 2 (piso 72,9) | +5,5 ms, 27 %, regression | −2,1 ms, 61 %, gain | +5,5 ms, 27 %, regression | −3,0 ms, 66 %, gain |
+
+Os p50 registrados foram de 110,1 e 108,5 para 114,9 e 113,7 ms na barra e de 110,1 e 109,0 para 115,6 e 113,2 ms no prompt; os p95, de 136,2 e 132,0 para 137,4 e 140,8 na barra e de 134,6 e 130,1 para 138,4 e 139,4 no prompt, longe da meta de 250 ms. Nenhuma otimização aceita, nenhuma mudança em `src/` ou `test/`; os +5,0 a +5,6 ms são o custo da seção 12 com todas as regras de pé, e o que ainda sobra para cortar depende das três propostas acima. Suíte inteira depois da Task 9b: `ℹ tests 781`, `ℹ pass 750`, `ℹ skipped 31`, `ℹ fail 0`.
