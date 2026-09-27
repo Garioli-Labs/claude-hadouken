@@ -2,6 +2,6 @@
   "name": "claude-hadouken",
   "owner": { "name": "Garioli Labs" },
   "plugins": [
-    { "name": "claude-hadouken", "source": "./", "description": "Usage-aware pacing for Claude Code.", "version": "0.1.0" }
+    { "name": "claude-hadouken", "source": "./", "description": "Usage-aware pacing for Claude Code.", "version": "0.2.0" }
   ]
 }
