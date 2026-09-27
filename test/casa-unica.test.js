@@ -7,14 +7,16 @@ import * as base from '../src/base.js';
 import * as util from '../src/util.js';
 import * as alerta from '../src/alerta.js';
 import { LINHA_SEM_LEITURA } from '../src/hooks/linha-estado.js';
+import * as barrinha from '../src/barrinha.js';
 import { jsonSeguro as jsonSeguroComandos, _reservas as reservasComandos } from '../src/comandos.js';
 import { _reservas as reservasInstalar } from '../src/instalar-cli.js';
 
 // Uma casa só para os ajudantes que se repetiam (follow-up da revisão final
 // de qualidade): numeroFinito, DATA_MAX_MS, codigoErro e somaSegura em base.js;
 // janelaValida, GLIFOS_BARRA e jsonSeguro em util.js; a linha fixa de "sem
-// leitura" em alerta.js. Como o teste da política de rename (base.test.js),
-// este barra a cópia nova pelo texto de src/.
+// leitura" em alerta.js; os glifos e a conta da barrinha em barrinha.js
+// (v0.2.0). Como o teste da política de rename (base.test.js), este barra a
+// cópia nova pelo texto de src/.
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));
 
@@ -55,6 +57,14 @@ test('os ajudantes divididos só são definidos na casa deles', () => {
     ['jsonSeguro', 'util.js', definicao('jsonSeguro')],
     ['escaparInvisiveis', null, definicao('escaparInvisiveis')],
     ['texto da linha sem leitura', 'alerta.js', /Consumo sem leitura/g],
+    ['CASAS', 'barrinha.js', definicao('CASAS')],
+    ['CHEIA', 'barrinha.js', definicao('CHEIA')],
+    ['VAZIA', 'barrinha.js', definicao('VAZIA')],
+    ['MARCA', 'barrinha.js', definicao('MARCA')],
+    ['PONTOS_POR_CASA', 'barrinha.js', definicao('PONTOS_POR_CASA')],
+    ['barrinha', 'barrinha.js', definicao('barrinha')],
+    // A conta das casas escrita de novo com o número.
+    ['literal 12.5', null, /\b12\.5\b/g],
   ];
   const excecoes = new Set(['consumo.js: codigoErro']);
   const achados = [];
