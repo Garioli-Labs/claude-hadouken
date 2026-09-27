@@ -638,14 +638,21 @@ const rotulosModelo = (chaves) => semEmpate(chaves, chaveCurta, chaveLonga);
 // Ids de sessão curtos (spec v0.2.0 §6.4), sobre os ids exibidos: os 8
 // primeiros pontos de código; os que empatam com outro nesse tamanho mostram
 // 12, e os que ainda empatam, o id inteiro. Por ponto de código, para nunca
-// partir um par surrogate. Ids distintos saem distintos.
+// partir um par surrogate. Ids distintos saem distintos. Entrada que não é
+// lista (ou lista que lança ao ser lida) dá []; item que não é texto sai
+// como —, sem entrar no desempate dos outros. Nunca lança.
 export function idsCurtos(ids) {
-  const pontos = ids.map((id) => Array.from(id));
-  const prefixos = (n) => pontos.map((p) => p.slice(0, n).join(''));
-  const p8 = prefixos(8);
-  const p12 = prefixos(12);
-  const unico = (lista, i) => lista.every((x, j) => j === i || x !== lista[i]);
-  return ids.map((id, i) => (unico(p8, i) ? p8[i] : unico(p12, i) ? p12[i] : id));
+  if (!Array.isArray(ids)) return [];
+  try {
+    const pontos = ids.map((id) => (typeof id === 'string' ? Array.from(id) : null));
+    const prefixos = (n) => pontos.map((p) => (p === null ? null : p.slice(0, n).join('')));
+    const p8 = prefixos(8);
+    const p12 = prefixos(12);
+    const unico = (lista, i) => lista.every((x, j) => j === i || x !== lista[i]);
+    return ids.map((id, i) => (pontos[i] === null ? SEM : unico(p8, i) ? p8[i] : unico(p12, i) ? p12[i] : id));
+  } catch {
+    return [];
+  }
 }
 
 // Linhas [nome, soma] de maior consumo primeiro (pesoConsumo: entrada + cache

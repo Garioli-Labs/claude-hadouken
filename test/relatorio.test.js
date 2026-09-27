@@ -976,6 +976,13 @@ test('idsCurtos: 8 pontos de código, 12 no empate, inteiro se ainda empatar; nu
   assert.deepEqual(idsCurtos([u(1), 'a1b2c3d4-999', u(3), 'ffee0011-x']), [u(1), 'a1b2c3d4-999', u(3), 'ffee0011']);
   assert.deepEqual(idsCurtos(['😀'.repeat(9), `${'😀'.repeat(8)}x`, 'ção1234567', 'ção1234568']), ['😀'.repeat(9), `${'😀'.repeat(8)}x`, 'ção1234567', 'ção1234568']);
   assert.deepEqual(idsCurtos([`${'😀'.repeat(8)}-a`, 'ção12345-b']), ['😀'.repeat(8), 'ção12345']);
+  // Entrada hostil (exportada nunca lança): não lista dá []; item que não é
+  // texto sai —, sem mudar o desempate dos outros; lista que lança ao ser lida dá [].
+  for (const v of [null, undefined, 42, 'abc', {}, new Map()]) assert.deepEqual(idsCurtos(v), [], String(v));
+  assert.deepEqual(idsCurtos([null, undefined, 42, {}, ['x'], 'abc12345678']), ['—', '—', '—', '—', '—', 'abc12345']);
+  const armadilha = ['a'];
+  Object.defineProperty(armadilha, 0, { get() { throw new Error('getter'); } });
+  assert.deepEqual(idsCurtos(armadilha), []);
   // Propriedade: rótulos distintos, cada um prefixo (por ponto de código) do
   // seu id, sem surrogate solto. Gerador fixo, para o teste ser o mesmo.
   const SOLTO = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u;

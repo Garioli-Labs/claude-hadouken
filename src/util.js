@@ -140,9 +140,11 @@ export function milhar(n) {
 
 // Número finito de 0 até 1e21 (fora disso, toFixed sairia em notação
 // científica) com `casas` decimais, vírgula e milhar na parte inteira; outro
-// valor vira —. Nunca lança com `casas` de 0 a 100.
+// valor vira —, e `casas` que não é inteiro de 0 a 100 (o limite de toFixed)
+// também. Nunca lança.
 export function decimal(n, casas) {
   if (!numeroFinito(n) || n < 0 || n >= 1e21) return SEM_VALOR;
+  if (!Number.isInteger(casas) || casas < 0 || casas > 100) return SEM_VALOR;
   const [int, frac] = n.toFixed(casas).split('.');
   const agrupado = int.replace(GRUPOS_MILHAR, ' ');
   return frac === undefined ? agrupado : `${agrupado},${frac}`;
@@ -150,10 +152,12 @@ export function decimal(n, casas) {
 
 // Tokens do relatório: até 999 inteiro; k sem casa; M com uma casa; a partir
 // de 999,95M (que arredondaria para "1000,0M") G com duas. Da mesma forma,
-// a partir de 999 500 o k daria "1000k" e vira M.
+// a partir de 999 500 o k daria "1000k" e vira M. Fração abaixo de 999,5
+// arredonda para o inteiro (999,4 → "999"; 999,5 já é "1k"); negativo vira —,
+// como em milhar. Nunca lança.
 export function formatarTokens(n) {
-  if (!numeroFinito(n)) return SEM_VALOR;
-  if (n < 1_000) return String(n);
+  if (!numeroFinito(n) || n < 0) return SEM_VALOR;
+  if (n < 999.5) return String(Math.round(n));
   if (n < 999_500) return `${Math.round(n / 1_000)}k`;
   if (n < 999_950_000) return `${decimal(n / 1_000_000, 1)}M`;
   return `${decimal(n / 1_000_000_000, 2)}G`;

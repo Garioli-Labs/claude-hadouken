@@ -66,6 +66,10 @@ test('formatarTokens nas fronteiras k/M/G', () => {
   ];
   for (const [n, texto] of casos) assert.equal(formatarTokens(n), texto, String(n));
   for (const v of [Number.NaN, Infinity, -Infinity, undefined, '1000', 1n]) assert.equal(formatarTokens(v), '—', String(v));
+  // §6.2 "até 999 inteiro": fração arredonda, sem ponto decimal; negativo é —.
+  const fracoes = [[0.4, '0'], [12.6, '13'], [999.4, '999'], [999.5, '1k'], [-0, '0']];
+  for (const [n, texto] of fracoes) assert.equal(formatarTokens(n), texto, String(n));
+  for (const v of [-5, -0.5, -1_000, -2_000_000_000]) assert.equal(formatarTokens(v), '—', String(v));
 });
 
 test('milhar e decimal: espaço no milhar, vírgula na casa decimal, — fora do domínio', () => {
@@ -75,6 +79,9 @@ test('milhar e decimal: espaço no milhar, vírgula na casa decimal, — fora do
   const decimais = [[0, 1, '0,0'], [97.1, 1, '97,1'], [22.68, 2, '22,68'], [1_234.5, 2, '1 234,50'], [0.62, 2, '0,62'], [5, 0, '5'], [999_999.99, 2, '999 999,99']];
   for (const [n, casas, texto] of decimais) assert.equal(decimal(n, casas), texto, `${n} ${casas}`);
   for (const v of [-0.5, Number.NaN, Infinity, 1e21, '1', null]) assert.equal(decimal(v, 2), '—', String(v));
+  // casas fora de 0 a 100 (ou não inteiro) é —, nunca RangeError.
+  for (const c of [-1, 101, 1.5, Number.NaN, Infinity, '2', null, undefined, 2n]) assert.equal(decimal(1, c), '—', String(c));
+  assert.equal(decimal(1, 100), `1,${'0'.repeat(100)}`);
 });
 
 // sanear: fixtures sinteticas de texto malicioso (spec 8.1, S2/S3).
