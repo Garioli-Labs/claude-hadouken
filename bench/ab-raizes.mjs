@@ -1,12 +1,28 @@
 // A/B wall time of two plugin roots, paired and interleaved, from spawn to
 // exit. Zero dependencies. Usage:
 //
-//   node bench/ab-raizes.mjs <rootA> <rootB> [pairs] [--json]     (default 200 pairs after 10 warm-up rounds)
+//   node bench/ab-raizes.mjs <rootA> <rootB> [pairs] [--json] [--allow-different-folders]
+//   (default 200 pairs after 10 warm-up rounds)
 //
-// Each root is a plugin tree with package.json and src/: for example the base
-// commit extracted outside the repo with
-//   git archive <commit> package.json src | tar -x -C <dir>
-// as A, and the working tree as B. Plan v0.2.0, Task 9: an optimisation is
+// Each root is a plugin tree with package.json and src/, and the two roots
+// must be sibling folders in the same parent folder (so on the same volume):
+// where the files sit moves the timings on its own. In Task 9 of plan v0.2.0
+// an A/A run with identical sources, A in a temporary folder and B the working
+// tree of the repo, favoured B by 0.7 to 4.5 ms, above the 1.0 ms threshold
+// below; with both copies in one folder it was neutral on every scenario. So
+// never the working tree against a temporary copy: extract both side by side,
+// for example
+//   mkdir -p <parent>/a <parent>/b
+//   git archive <base> package.json src | tar -x -C <parent>/a
+//   git archive <commit> package.json src | tar -x -C <parent>/b
+// (for uncommitted changes, `tar -c package.json src | tar -x -C <parent>/b`
+// run in the working tree). Roots whose parent folders differ, compared after
+// resolving links and 8.3 names and without case on Windows, are refused with
+// exit code 2 and no verdict; --allow-different-folders measures them anyway,
+// with a warning on stderr, a WARNING line in the report and
+// "mesmaPasta": false in --json. Each child gets 15 s; one that has not exited
+// by then is killed and the run fails with the scenario's name, no verdict.
+// Plan v0.2.0, Task 9: an optimisation is
 // kept only if B beats A on the scenario it targets and no scenario regresses,
 // in two independent runs:
 // - gain: median of the paired differences (B - A) <= -1.0 ms and B faster in
@@ -47,13 +63,16 @@ import { pathToFileURL } from 'node:url';
 
 const argumentos = process.argv.slice(2);
 const SAIDA_JSON = argumentos.includes('--json');
-const posicionais = argumentos.filter((a) => a !== '--json');
+const PASTAS_DIFERENTES = '--allow-different-folders';
+const PERMITIR_PASTAS = argumentos.includes(PASTAS_DIFERENTES);
+const posicionais = argumentos.filter((a) => a !== '--json' && a !== PASTAS_DIFERENTES);
 const PARES = Number.parseInt(posicionais[2] ?? '200', 10);
 const WARMUPS = 10;
 const LIMIAR_MS = 1.0;
 const MAIORIA = 0.55;
+const PRAZO_FILHO_MS = 15_000;
 if (posicionais.length < 2 || posicionais.length > 3 || !Number.isInteger(PARES) || PARES < 1) {
-  console.error('usage: node bench/ab-raizes.mjs <rootA> <rootB> [pairs] [--json]');
+  console.error(`usage: node bench/ab-raizes.mjs <rootA> <rootB> [pairs] [--json] [${PASTAS_DIFERENTES}]`);
   process.exit(2);
 }
 const raizes = posicionais.slice(0, 2).map((r) => path.resolve(r));
@@ -66,6 +85,21 @@ for (const raiz of raizes) {
   }
 }
 const [raizA, raizB] = raizes;
+// Both roots in the same parent folder (see the header).
+const pastaMae = (raiz) => {
+  const p = path.dirname(fs.realpathSync.native(raiz));
+  return process.platform === 'win32' ? p.toLowerCase() : p;
+};
+const MESMA_PASTA = pastaMae(raizA) === pastaMae(raizB);
+const AVISO_PASTAS = `roots in different parent folders (${path.dirname(raizA)} and ${path.dirname(raizB)}): `
+  + `the location alone can move the timings by more than the ${LIMIAR_MS.toFixed(1)} ms threshold (Task 9 A/A control)`;
+if (!MESMA_PASTA) {
+  if (!PERMITIR_PASTAS) {
+    console.error(`refused, no verdict: ${AVISO_PASTAS}. Put both roots in one parent folder, or pass ${PASTAS_DIFERENTES} to measure anyway.`);
+    process.exit(2);
+  }
+  console.error(`WARNING: ${AVISO_PASTAS}; measuring anyway (${PASTAS_DIFERENTES}).`);
+}
 const importar = (raiz, arq) => import(pathToFileURL(path.join(raiz, 'src', arq)).href);
 
 // Fisher-Yates on a copy.
@@ -84,7 +118,8 @@ try {
   const homeB = path.join(tmp, 'home B');
   fs.mkdirSync(homeA);
   const { registrarSessao } = await importar(raizA, 'ativas.js');
-  const { atualizarEstado, ARQ_ESTADO } = await importar(raizA, 'estado.js');
+  const estadoA = await importar(raizA, 'estado.js');
+  const { atualizarEstado, ARQ_ESTADO } = estadoA;
 
   const agora = Date.now();
   const s = Math.floor(agora / 1000);
@@ -142,10 +177,21 @@ try {
   fs.cpSync(homeA, homeB, { recursive: true, preserveTimestamps: true });
 
   // The worst case stays live for the whole run (see the header).
+  // Only one estado.js runs in this process for the check: root A's, already
+  // loaded for the fixture, and root B's only when A is from before §12.
+  // Whether a root not loaded here has §12 comes from a text probe of its
+  // src/estado.js, cross-checked against root A's loaded module.
   const temSecao12 = (m) => typeof m?.validarEstado === 'function' && typeof m?.sessoesAtivas === 'function' && Number.isInteger(m?.HISTORICO_MAX);
-  const estadoA = await importar(raizA, 'estado.js');
-  const estadoB = await importar(raizB, 'estado.js');
-  const conferidor = temSecao12(estadoA) ? estadoA : temSecao12(estadoB) ? estadoB : null;
+  const SONDA_SECAO12 = [/^export function validarEstado\(/m, /^export function sessoesAtivas\(/m, /^export const HISTORICO_MAX = /m];
+  const sondaSecao12 = (raiz) => {
+    const fonte = fs.readFileSync(path.join(raiz, 'src', 'estado.js'), 'utf8');
+    return SONDA_SECAO12.every((re) => re.test(fonte));
+  };
+  const secao12A = temSecao12(estadoA);
+  if (sondaSecao12(raizA) !== secao12A) throw new Error('bench: the §12 text probe disagrees with root A\'s estado.js; update SONDA_SECAO12');
+  const estadoB = secao12A ? null : await importar(raizB, 'estado.js');
+  const secao12B = estadoB === null ? sondaSecao12(raizB) : temSecao12(estadoB);
+  const conferidor = secao12A ? estadoA : secao12B ? estadoB : null;
   const arqsEstado = [homeA, homeB].map((h) => path.join(h, ARQ_ESTADO));
   const estadoBase = JSON.parse(fs.readFileSync(arqsEstado[0], 'utf8'));
   function reancorar() {
@@ -195,13 +241,19 @@ try {
     return env;
   };
   const lados = [
-    { nome: 'A', raiz: raizA, env: ambiente(homeA), secao12: temSecao12(estadoA) },
-    { nome: 'B', raiz: raizB, env: ambiente(homeB), secao12: temSecao12(estadoB) },
+    { nome: 'A', raiz: raizA, env: ambiente(homeA), secao12: secao12A },
+    { nome: 'B', raiz: raizB, env: ambiente(homeB), secao12: secao12B },
   ];
   function rodar(c, lado) {
     const t0 = process.hrtime.bigint();
-    const r = spawnSync(process.execPath, [path.join(lado.raiz, 'src', ...c.arq)], { input: c.stdin, env: lado.env, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [path.join(lado.raiz, 'src', ...c.arq)], {
+      input: c.stdin, env: lado.env, encoding: 'utf8', timeout: PRAZO_FILHO_MS,
+    });
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    if (r.error?.code === 'ETIMEDOUT') {
+      throw new Error(`${c.nome} (${lado.nome}): no exit within ${PRAZO_FILHO_MS / 1000} s, child killed; no verdict`);
+    }
+    if (r.error) throw new Error(`${c.nome} (${lado.nome}): spawn failed: ${r.error.message}`);
     if (r.status !== 0 || r.stderr !== '') throw new Error(`${c.nome} (${lado.nome}): status ${r.status}, stderr ${JSON.stringify(r.stderr)}`);
     c.conferir(r.stdout, lado);
     return ms;
@@ -247,7 +299,7 @@ try {
   if (SAIDA_JSON) {
     console.log(JSON.stringify({
       bench: 'ab-raizes', plataforma: process.platform, node: process.version,
-      pares: PARES, aquecimento: WARMUPS, limiarMs: LIMIAR_MS, maioria: MAIORIA, linhas,
+      pares: PARES, aquecimento: WARMUPS, limiarMs: LIMIAR_MS, maioria: MAIORIA, mesmaPasta: MESMA_PASTA, linhas,
     }));
   } else {
     const fmt = (x) => x.toFixed(1).padStart(6);
@@ -255,6 +307,7 @@ try {
     console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
     console.log(`A: ${raizA}`);
     console.log(`B: ${raizB}`);
+    if (!MESMA_PASTA) console.log(`WARNING: ${AVISO_PASTAS}; measured anyway (${PASTAS_DIFERENTES}), read the verdicts with that bias in mind`);
     console.log(`${PARES} interleaved pairs after ${WARMUPS} shared warm-up rounds; gain: median(B - A) <= -${LIMIAR_MS} ms and B faster in >= ${Math.round(MAIORIA * 100)}% of pairs`);
     for (const l of linhas) {
       console.log(`${l.nome.padEnd(26)} A p50=${fmt(l.a.p50)} p95=${fmt(l.a.p95)}  B p50=${fmt(l.b.p50)} p95=${fmt(l.b.p95)}  median(B-A)=${fmt(l.medianaDiferenca)} ms  B faster ${pct(l.bMaisRapido)}  ${l.veredito}`);

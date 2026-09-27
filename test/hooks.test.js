@@ -476,8 +476,9 @@ else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
   return { r, nomes: [...new Set(urls.map((u) => path.basename(fileURLToPath(u))))].sort() };
 }
 
-// Adendo E: o caminho até o gate só traz stdin (util.js), base.js e ativas.js;
-// estado.js, alerta.js e o resto só depois do gate.
+// Adendo E: o caminho até o gate só traz comum.js, base.js (stdin, dirDados e
+// idValido) e ativas.js; estado.js, alerta.js e o resto (util.js incluído) só
+// depois do gate.
 test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.js', () => {
   const home = novoHome();
   registrar(home, 'outra');
