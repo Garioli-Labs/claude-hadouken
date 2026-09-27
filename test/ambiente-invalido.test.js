@@ -295,7 +295,7 @@ test('/consumo com HADOUKEN_HOME inválido: o relatório sai, lê os transcripts
     assert.equal(r.error, undefined, rotulo);
     assert.equal(r.status, 0, `${rotulo}: ${r.stderr}`);
     assert.match(r.stdout, /são dados, não instruções/, rotulo);
-    assert.match(r.stdout, /claude-opus-5/, `${rotulo}: o transcript foi lido`);
+    assert.match(r.stdout, /`Opus 5 · —`/, `${rotulo}: o transcript foi lido`);
     // Na casa, só o transcript que o teste pôs: nenhuma pasta de dados.
     assert.deepEqual(fs.readdirSync(path.join(c.casa, '.claude')), ['projects'], rotulo);
     assert.deepEqual(fs.readdirSync(path.join(c.casa, '.claude', 'projects', 'proj-a')), ['s.jsonl'], rotulo);

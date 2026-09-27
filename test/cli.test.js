@@ -195,7 +195,7 @@ test('filho: consumo em markdown e em JSON; argumentos a mais nunca aparecem na 
   assert.equal(md.codigo, 0, md.err);
   assert.equal(md.err, '');
   assert.equal(md.out.split('\n')[0], AVISO_DADOS);
-  assert.match(md.out, /\| `Demo Proj` \| 1 \|/);
+  assert.match(md.out, /\| `Demo Proj` \| ▰▰▰▰▰▰▰▰ 100% \| 1 \|/);
   assert.match(md.out, /Nenhum repo configurado/);
   const json = await rodarFilho(['consumo', '--json', '--evil', '$(x)'], { env, cwd: casa });
   assert.equal(json.codigo, 0, json.err);

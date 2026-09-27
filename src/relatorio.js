@@ -1,9 +1,10 @@
 import { MAX_ROTULOS_SESSAO, MAX_SESSOES, pesoConsumo } from './agregacao.js';
 import { faixa5h, faixa7d } from './alerta.js';
+import { barrinha } from './barrinha.js';
 import { DATA_MAX_MS, numeroFinito, somaSegura } from './base.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
-import { diaHora, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, sanear } from './util.js';
+import { decimal, diaHora, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, janelaValida, milhar, sanear } from './util.js';
 
 // Relatório do /consumo (spec 6.8; 8.1 S1, S2, S5; addendum da Task 10, A).
 // Puro: recebe o estado lido, os agregados de transcripts e o resumo do
@@ -436,51 +437,74 @@ export function montarRelatorio(entrada) {
 
 // ------------------------------------------------------------------ markdown
 
-const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
-const numero = (n) => (inteiro(n) === null ? SEM : String(n));
+// Números do markdown (spec v0.2.0 §6.2): inteiros com milhar separado por
+// espaço, vírgula decimal, tokens em k/M/G (formatarTokens). O --json não
+// passa por aqui e segue com os números crus.
+const plural = (n, um, varios) => `${milhar(n)} ${n === 1 ? um : varios}`;
+const numero = (n) => (inteiro(n) === null ? SEM : milhar(n));
 const tokens = (n) => (inteiro(n) === null ? SEM : formatarTokens(n));
 // Piso em uma casa; o epsilon só absorve o resíduo do produto em ponto
 // flutuante (0.29 * 1000 = 289.99999999999997).
-const pctCache = (a) => (numeroFinito(a) && a >= 0 && a <= 1 ? `${(Math.floor(a * 1000 + 1e-6) / 10).toFixed(1)}%` : SEM);
-const duasCasas = (n) => (numeroFinito(n) ? String(Math.round(n * 100) / 100) : SEM);
-const gib = (n) => (inteiro(n) === null ? SEM : `${(n / GIB).toFixed(2)} GB`);
+const pctCache = (a) => (numeroFinito(a) && a >= 0 && a <= 1 ? `${decimal(Math.floor(a * 1000 + 1e-6) / 10, 1)}%` : SEM);
+const duasCasas = (n) => (numeroFinito(n) ? decimal(Math.round(n * 100) / 100, 2) : SEM);
+const gib = (n) => (inteiro(n) === null ? SEM : `${decimal(n / GIB, 2)} GB`);
 const epochS = (iso) => {
   const t = typeof iso === 'string' ? Date.parse(iso) : Number.NaN;
   return Number.isFinite(t) ? t / 1000 : null;
 };
 
-function linha5h(f) {
-  const u = ler(f, 'used_percentage');
-  const r = ler(f, 'resets_at');
+// Painel de limites (spec v0.2.0 §6.1), dentro de um bloco de código para o
+// markdown não comer os espaços do alinhamento. Cada linha é [rótulo,
+// barrinha, percentuais, reset, modo]: só números validados (janelaValida, o
+// schema de estado.js, e o esperado em 0–100), barrinhas e rótulos das listas
+// fixas. Nada do dado externo entra no bloco, então três crases nunca o
+// fecham antes da hora. Janela que não passa vira null e sai como "5h  —".
+function colunas5h(f) {
+  const j = janelaValida({ used_percentage: ler(f, 'used_percentage'), resets_at: ler(f, 'resets_at') });
   const nome = nomeDe(NOMES_5H, ler(f, 'faixa'));
-  if (!numeroFinito(u) || u < 0 || !numeroFinito(r) || nome === null) return `5h ${SEM}`;
-  return `5h ${Math.floor(u)}% (faixa ${nome}); reset ${horaLocal(r)}.`;
+  if (j === null || nome === null) return null;
+  const u = j.used_percentage;
+  return ['5h', barrinha(u), `${Math.floor(u)}%`, `reset ${horaLocal(j.resets_at)}`, nome];
 }
 
-function linha7d(f) {
-  const u = ler(f, 'used_percentage');
-  const r = ler(f, 'resets_at');
+function colunas7d(f) {
+  const j = janelaValida({ used_percentage: ler(f, 'used_percentage'), resets_at: ler(f, 'resets_at') });
   const esperado = ler(f, 'esperado');
   const nome = nomeDe(NOMES_7D, ler(f, 'modo'));
-  if (!numeroFinito(u) || u < 0 || !numeroFinito(r) || !numeroFinito(esperado) || esperado < 0 || nome === null) return `7d ${SEM}`;
-  return `7d ${Math.floor(u)}% usado vs ${Math.floor(esperado)}% esperado; reset ${diaHora(r)} — modo ${nome}.`;
+  if (j === null || !numeroFinito(esperado) || esperado < 0 || esperado > 100 || nome === null) return null;
+  const u = j.used_percentage;
+  return ['7d', barrinha(u, { marca: esperado }), `${Math.floor(u)}% / ${Math.floor(esperado)}%`, `reset ${diaHora(j.resets_at)}`, nome];
 }
 
-// Idade das leituras. `janelas`: [nome, janela do JSON, linha impressa] das
-// duas; só conta a idade de uma janela cuja linha saiu (não "—"). Uma frase só
-// quando as mostradas têm a mesma idade (ou só uma tem idade); com idades
-// diferentes, cada uma com a sua. Sem idade por janela (JSON de antes), a do
-// topo.
+const ESPACO_PAINEL = '  ';
+
+// Linhas do painel: cada coluna, menos a última (modo), preenchida até a mais
+// larga entre as linhas válidas, para nenhuma linha terminar em espaço. Os
+// glifos da barrinha e os acentos dos rótulos são uma unidade UTF-16 cada, então
+// o length é a largura.
+function painel(linhas) {
+  const validas = linhas.filter(([, c]) => c !== null).map(([, c]) => c);
+  const larguras = [0, 1, 2, 3].map((i) => Math.max(0, ...validas.map((c) => c[i].length)));
+  return linhas.map(([rotulo, c]) => (c === null
+    ? `${rotulo}${ESPACO_PAINEL}${SEM}`
+    : c.map((t, i) => (i < c.length - 1 ? t.padEnd(larguras[i]) : t)).join(ESPACO_PAINEL)));
+}
+
+// Idade das leituras. `janelas`: [nome, janela do JSON, se a linha do painel
+// saiu] das duas; só conta a idade de uma janela cuja linha saiu (não "—").
+// Uma frase só quando as mostradas têm a mesma idade (ou só uma tem idade);
+// com idades diferentes, cada uma com a sua. Sem idade por janela (JSON de
+// antes), a do topo.
 function linhaIdade(janelas, lim) {
   const idades = janelas
-    .filter(([nome, , linha]) => linha !== `${nome} ${SEM}`)
+    .filter(([, , saiu]) => saiu)
     .map(([nome, f]) => [nome, inteiro(ler(f, 'idade_min'))])
     .filter(([, i]) => i !== null);
   if (idades.length === 2 && idades[0][1] !== idades[1][1]) {
-    return `Leitura de ${idades[0][1]} min atrás (${idades[0][0]}) e de ${idades[1][1]} min atrás (${idades[1][0]}).`;
+    return `Leitura de ${milhar(idades[0][1])} min atrás (${idades[0][0]}) e de ${milhar(idades[1][1])} min atrás (${idades[1][0]}).`;
   }
   const idade = idades.length > 0 ? idades[0][1] : inteiro(ler(lim, 'idade_min'));
-  return idade === null ? null : `Leitura de ${idade} min atrás.`;
+  return idade === null ? null : `Leitura de ${milhar(idade)} min atrás.`;
 }
 
 function blocoLimites(o) {
@@ -489,11 +513,11 @@ function blocoLimites(o) {
   if (ehObjeto(lim)) {
     const f5 = ler(lim, 'five_hour');
     const f7 = ler(lim, 'seven_day');
-    const l5 = linha5h(f5);
-    const l7 = linha7d(f7);
-    linhas.push(l5, l7);
-    const idade = linhaIdade([['5h', f5, l5], ['7d', f7, l7]], lim);
-    if (idade !== null) linhas.push(idade);
+    const c5 = colunas5h(f5);
+    const c7 = colunas7d(f7);
+    linhas.push('```', ...painel([['5h', c5], ['7d', c7]]), '```');
+    const idade = linhaIdade([['5h', f5, c5 !== null], ['7d', f7, c7 !== null]], lim);
+    if (idade !== null) linhas.push('', idade);
     return linhas;
   }
   const motivo = ler(o, 'limites_motivo');
@@ -504,6 +528,12 @@ function blocoLimites(o) {
 }
 
 const comparar = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+// Alinhamento das colunas (spec v0.2.0 §6.2): nome à esquerda, número à
+// direita.
+const TEXTO = '---';
+const NUMERO = '---:';
+const PARTE = Object.freeze(['parte do total', NUMERO]);
 
 // Colunas de tokens de toda tabela. O cache criado sai em duas colunas, 1 h e
 // 5 min, no lugar do total: as duas somam o total quando todo transcript do
@@ -521,12 +551,14 @@ function celulas(s, semDetalhe) {
     ...(semDetalhe ? [tokens(s.cacheCreateSemDetalhe)] : []), tokens(s.cacheRead), tokens(s.output), pctCache(s.acertoCache),
   ];
 }
-// `primeiras`: as células de nome que abrem a linha (uma, ou três na tabela
-// de sessões).
+// `primeiras`: as células que abrem a linha (nome e parte, ou, na tabela de
+// sessões, id, parte, projeto e modelos).
 const linhaTabela = (primeiras, s, semDetalhe) => `| ${[...primeiras, ...celulas(s, semDetalhe)].join(' | ')} |`;
-function cabecalho(titulos, semDetalhe) {
-  const todas = [...titulos, ...colunas(semDetalhe)];
-  return [`| ${todas.join(' | ')} |`, `|${'---|'.repeat(todas.length)}`];
+// `iniciais`: as colunas [título, alinhamento] que abrem a tabela; as de
+// tokens vêm depois, todas à direita.
+function cabecalho(iniciais, semDetalhe) {
+  const todas = [...iniciais, ...colunas(semDetalhe).map((t) => [t, NUMERO])];
+  return [`| ${todas.map(([t]) => t).join(' | ')} |`, `|${todas.map(([, a]) => `${a}|`).join('')}`];
 }
 
 // true se alguma soma do período tem cache criado sem detalhe: decide a
@@ -539,18 +571,100 @@ function temSemDetalhe(a) {
   return somas.some((s) => s !== null && s.cacheCreateSemDetalhe > 0);
 }
 
+// Tokens de uma soma para a parte do total (spec v0.2.0 §6.3): entrada +
+// cache criado + cache lido + saída, sem pensamento, parando em
+// Number.MAX_SAFE_INTEGER (somaSegura).
+const tokensDaSoma = (s) => somaSegura(somaSegura(somaSegura(s.input, s.cacheCreate), s.cacheRead), s.output);
+
+// Célula "parte do total": barrinha e porcentagem inteira por piso, a conta
+// em BigInt para ser exata até MAX_SAFE_INTEGER. Parte acima de 0 e abaixo de
+// 1% mostra "<1%" com a barrinha de 1 (uso real nunca some); parte 0 mostra
+// 0% e a barrinha vazia; total 0, soma ausente ou parte maior que o total
+// (entrada incoerente) mostram —.
+function celulaParte(s, total) {
+  if (s === null || total === null) return SEM;
+  const p = tokensDaSoma(s);
+  const t = tokensDaSoma(total);
+  if (t <= 0 || p > t) return SEM;
+  const piso = Number((BigInt(p) * 100n) / BigInt(t));
+  if (piso === 0 && p > 0) return `${barrinha(1)} <1%`;
+  return `${barrinha(Math.min(100, (p / t) * 100))} ${piso}%`;
+}
+
+// Nomes curtos de modelo (spec v0.2.0 §6.4): só o padrão abaixo, ancorado
+// nas duas pontas e aplicado ao nome já saneado; qualquer outro nome sai como
+// veio. Só apresentação: a chave, as somas e o --json não mudam. Sem a flag
+// g, exec não guarda estado entre chamadas.
+const MODELO_CURTO = /^claude-(opus|sonnet|haiku|fable)-(\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?$/;
+const FAMILIAS = Object.freeze({ __proto__: null, opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' });
+
+// "claude-opus-5-5-20260901" → "Opus 5.5"; "claude-sonnet-5" → "Sonnet 5";
+// outro texto volta igual. Nunca lança.
+export function nomeCurtoModelo(nome) {
+  const m = typeof nome === 'string' ? MODELO_CURTO.exec(nome) : null;
+  if (m === null) return nome;
+  return m[3] === undefined ? `${FAMILIAS[m[1]]} ${m[2]}` : `${FAMILIAS[m[1]]} ${m[2]}.${m[3]}`;
+}
+
+// Rótulos de exibição de uma lista de nomes distintos: o curto de cada um,
+// menos quando dois ou mais da lista dão o mesmo curto; esses saem na forma
+// longa (claude-opus-5-5 e claude-opus-5-5-20260901 nunca viram duas linhas
+// "Opus 5.5" iguais). Um nome fora do padrão tem curto igual ao longo, então
+// um rótulo longo nunca repete o curto de outra linha.
+function semEmpate(nomes, curto, longo) {
+  const curtos = nomes.map((n) => curto(n));
+  const vezes = new Map();
+  for (const c of curtos) vezes.set(c, (vezes.get(c) ?? 0) + 1);
+  return nomes.map((n, i) => (vezes.get(curtos[i]) > 1 ? longo(n) : curtos[i]));
+}
+
+// Chave modelo·effort do JSON (rotuloModelo): o modelo nunca tem ·
+// (GLIFOS_BARRA), então o último · separa o effort. Exibição com espaços em
+// volta: "Opus 5.5 · xhigh".
+function partesChave(k) {
+  const i = k.lastIndexOf('·');
+  return i < 0 ? [k, SEM] : [k.slice(0, i), k.slice(i + 1)];
+}
+const chaveLonga = (k) => {
+  const [m, e] = partesChave(k);
+  return `${m} · ${e}`;
+};
+const chaveCurta = (k) => {
+  const [m, e] = partesChave(k);
+  return `${nomeCurtoModelo(m)} · ${e}`;
+};
+const rotulosModelo = (chaves) => semEmpate(chaves, chaveCurta, chaveLonga);
+
+// Ids de sessão curtos (spec v0.2.0 §6.4), sobre os ids exibidos: os 8
+// primeiros pontos de código; os que empatam com outro nesse tamanho mostram
+// 12, e os que ainda empatam, o id inteiro. Por ponto de código, para nunca
+// partir um par surrogate. Ids distintos saem distintos.
+export function idsCurtos(ids) {
+  const pontos = ids.map((id) => Array.from(id));
+  const prefixos = (n) => pontos.map((p) => p.slice(0, n).join(''));
+  const p8 = prefixos(8);
+  const p12 = prefixos(12);
+  const unico = (lista, i) => lista.every((x, j) => j === i || x !== lista[i]);
+  return ids.map((id, i) => (unico(p8, i) ? p8[i] : unico(p12, i) ? p12[i] : id));
+}
+
 // Linhas [nome, soma] de maior consumo primeiro (pesoConsumo: entrada + cache
-// criado + saída), empate pelo nome.
+// criado + saída), empate pelo nome. A ordem é a da v0.1.0; a parte do total
+// conta também o cache lido.
 const ordenar = (mapa) => Object.keys(mapa)
   .map((k) => [k, mapa[k]])
   .sort((a, b) => pesoConsumo(b[1]) - pesoConsumo(a[1]) || comparar(a[0], b[0]));
 
-// Tabela por nome: as MAX_LINHAS de maior consumo; o resto é só contado.
-function tabela(mapa, titulo, um, varios, semDetalhe) {
+// Tabela por nome: as MAX_LINHAS de maior consumo, com a parte do total do
+// período; o resto é só contado. `exibir` troca a lista de nomes mostrados
+// pelos rótulos (os nomes curtos de modelo); por padrão, o próprio nome.
+function tabela(mapa, titulo, um, varios, semDetalhe, total, exibir = (nomes) => nomes) {
   const linhas = ordenar(mapa);
   if (linhas.length === 0) return [];
-  const saida = cabecalho([titulo], semDetalhe);
-  for (const [nome, s] of linhas.slice(0, MAX_LINHAS)) saida.push(linhaTabela([`\`${nome}\``], s, semDetalhe));
+  const mostradas = linhas.slice(0, MAX_LINHAS);
+  const rotulos = exibir(mostradas.map(([nome]) => nome));
+  const saida = cabecalho([[titulo, TEXTO], PARTE], semDetalhe);
+  mostradas.forEach(([, s], i) => saida.push(linhaTabela([`\`${rotulos[i]}\``, celulaParte(s, total)], s, semDetalhe)));
   if (linhas.length > MAX_LINHAS) saida.push('', `Mais ${plural(linhas.length - MAX_LINHAS, um, varios)} fora da tabela.`);
   saida.push('');
   return saida;
@@ -558,16 +672,19 @@ function tabela(mapa, titulo, um, varios, semDetalhe) {
 
 const listaNomes = (nomes) => (nomes.length === 0 ? SEM : nomes.map((n) => `\`${n}\``).join(', '));
 
-// Tabela de sessões: as MAX_LINHAS_SESSOES de maior consumo, com o projeto e
-// os modelos de cada uma; as outras (as da lista e as que o agregado já
-// cortou) são só contadas.
-function tabelaSessoes(mapa, omitidas, semDetalhe) {
+// Tabela de sessões: as MAX_LINHAS_SESSOES de maior consumo, com a parte do
+// total do período (não do top), o projeto e os modelos de cada uma; as
+// outras (as da lista e as que o agregado já cortou) são só contadas.
+function tabelaSessoes(mapa, omitidas, semDetalhe, total) {
   const linhas = ordenar(mapa);
   if (linhas.length === 0) return [];
-  const saida = cabecalho(['Sessão', 'projeto', 'modelos'], semDetalhe);
-  for (const [id, s] of linhas.slice(0, MAX_LINHAS_SESSOES)) {
-    saida.push(linhaTabela([`\`${id}\``, listaNomes(s.projetos), listaNomes(s.modelos)], s, semDetalhe));
-  }
+  const mostradas = linhas.slice(0, MAX_LINHAS_SESSOES);
+  const ids = idsCurtos(mostradas.map(([id]) => id));
+  const saida = cabecalho([['Sessão', TEXTO], PARTE, ['projeto', TEXTO], ['modelos', TEXTO]], semDetalhe);
+  mostradas.forEach(([, s], i) => {
+    const modelos = semEmpate(s.modelos, nomeCurtoModelo, (n) => n);
+    saida.push(linhaTabela([`\`${ids[i]}\``, celulaParte(s, total), listaNomes(s.projetos), listaNomes(modelos)], s, semDetalhe));
+  });
   const fora = somaSegura(Math.max(0, linhas.length - MAX_LINHAS_SESSOES), omitidas);
   if (fora > 0) saida.push('', `Mais ${plural(fora, 'sessão', 'sessões')} fora da tabela.`);
   saida.push('');
@@ -582,11 +699,12 @@ function blocoPeriodo(titulo, a) {
     return linhas;
   }
   const sd = temSemDetalhe(a);
-  linhas.push(...tabela(a.porProjeto, 'Projeto', 'projeto', 'projetos', sd));
-  linhas.push(...tabela(a.porModeloEffort, 'Modelo·effort', 'modelo', 'modelos', sd));
-  linhas.push(...cabecalho(['Origem'], sd));
-  linhas.push(linhaTabela(['principal'], a.principalVsSubagente.principal, sd), linhaTabela(['subagentes'], a.principalVsSubagente.subagente, sd), '');
-  linhas.push(...tabelaSessoes(a.porSessao, a.sessoesOmitidas, sd));
+  const { principal, subagente } = a.principalVsSubagente;
+  linhas.push(...tabela(a.porProjeto, 'Projeto', 'projeto', 'projetos', sd, t));
+  linhas.push(...tabela(a.porModeloEffort, 'Modelo·effort', 'modelo', 'modelos', sd, t, rotulosModelo));
+  linhas.push(...cabecalho([['Origem', TEXTO], PARTE], sd));
+  linhas.push(linhaTabela(['principal', celulaParte(principal, t)], principal, sd), linhaTabela(['subagentes', celulaParte(subagente, t)], subagente, sd), '');
+  linhas.push(...tabelaSessoes(a.porSessao, a.sessoesOmitidas, sd, t));
   if (sd) linhas.push('Cache criado sem detalhe: respostas cujo transcript não separa 1 h e 5 min, ou separa com soma diferente do total.', '');
   if (a.detalheIncoerente > 0) {
     linhas.push(`Detalhe incoerente: ${plural(a.detalheIncoerente, 'resposta traz', 'respostas trazem')} 1 h + 5 min com soma diferente do cache criado total. Vale o total do transcript, como sem detalhe, e nada é deduzido: o cache criado do período pode estar subcontado ou sobrecontado.`, '');
@@ -621,8 +739,8 @@ function blocoClaude(o) {
   return linhas;
 }
 
-// "push 1, schedule 1": chaves da lista fixa, na ordem dela.
-const listaContagens = (mapa) => Object.keys(mapa).map((k) => `${nomeDe(NOMES_CHAVE, k) ?? k} ${mapa[k]}`).join(', ');
+// "push 1 500, schedule 20": chaves da lista fixa, na ordem dela.
+const listaContagens = (mapa) => Object.keys(mapa).map((k) => `${nomeDe(NOMES_CHAVE, k) ?? k} ${milhar(mapa[k])}`).join(', ');
 const contagens = (mapa) => {
   const l = listaContagens(mapa);
   return l === '' ? '' : ` (${l})`;
@@ -632,7 +750,7 @@ function linhasRepo(nome, v) {
   if (Object.hasOwn(v, 'indisponivel')) return [`- \`${nome}\`: indisponível: ${nomeDe(EXPLICACAO, v.indisponivel) ?? v.indisponivel}`];
   const vis = v.publico === null ? `visibilidade ${SEM}` : v.publico ? 'público' : 'privado';
   const m = v.minutos30;
-  const api = v.totalApi30 !== null && v.runs30.total !== null && v.totalApi30 > v.runs30.total ? `; a API lista ${v.totalApi30} em 30d` : '';
+  const api = v.totalApi30 !== null && v.runs30.total !== null && v.totalApi30 > v.runs30.total ? `; a API lista ${milhar(v.totalApi30)} em 30d` : '';
   const linhas = [
     `- \`${nome}\` (${vis})`,
     `  - execuções 7d: ${numero(v.runs7.total)}${contagens(v.runs7.porEvento)}; 30d: ${numero(v.runs30.total)}${contagens(v.runs30.porEvento)}${api}`,

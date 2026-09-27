@@ -370,7 +370,7 @@ test('por sessão e cache criado 1 h / 5 min de ponta a ponta, sem pensamento no
   assert.equal(hoje.sessoesOmitidas, 0);
   assert.doesNotMatch(JSON.stringify(r), /thinking/);
   const texto = formatarMarkdown(r);
-  assert.match(texto, /^\| `sess-a` \| `Demo Proj` \| `claude-opus-5` \| 2 \| 20 \| 400 \| 600 \| 0 \| 2k \| 200 \| /m);
+  assert.match(texto, /^\| `sess-a` \| ▰▰▰▰▱▱▱▱ 50% \| `Demo Proj` \| `Opus 5` \| 2 \| 20 \| 400 \| 600 \| 0 \| 2k \| 200 \| /m);
   assert.match(texto, /cache criado sem detalhe/);
 });
 

@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizarEffort, horaLocal, diaHora, formatarTokens, sanear, EFFORTS_VALIDOS, effortValido } from '../src/util.js';
+import { normalizarEffort, horaLocal, diaHora, formatarTokens, milhar, decimal, sanear, EFFORTS_VALIDOS, effortValido } from '../src/util.js';
 
 test('normalizarEffort aceita string, objeto e ausência', () => {
   assert.equal(normalizarEffort('high'), 'high');
@@ -49,19 +49,32 @@ test('horaLocal e diaHora devolvem — sem epoch válido', () => {
   }
 });
 
+// Números do /consumo em markdown (spec v0.2.0 §6.2): vírgula decimal, milhar
+// com espaço, k sem casa, M com uma, G com duas a partir de 999,95M.
 test('formatarTokens', () => {
   assert.equal(formatarTokens(999), '999');
   assert.equal(formatarTokens(850_000), '850k');
-  assert.equal(formatarTokens(1_234_567), '1.2M');
+  assert.equal(formatarTokens(1_234_567), '1,2M');
   assert.equal(formatarTokens(null), '—');
 });
 
-test('formatarTokens nas fronteiras k/M', () => {
-  assert.equal(formatarTokens(999), '999');
-  assert.equal(formatarTokens(1_000), '1k');
-  assert.equal(formatarTokens(999_499), '999k');
-  assert.equal(formatarTokens(999_500), '1.0M');
-  assert.equal(formatarTokens(999_999), '1.0M');
+test('formatarTokens nas fronteiras k/M/G', () => {
+  const casos = [
+    [0, '0'], [999, '999'], [1_000, '1k'], [999_499, '999k'], [999_500, '1,0M'], [999_999, '1,0M'],
+    [1_060_000, '1,1M'], [999_949_999, '999,9M'], [999_950_000, '1,00G'], [2_980_000_000, '2,98G'],
+    [Number.MAX_SAFE_INTEGER, '9 007 199,25G'],
+  ];
+  for (const [n, texto] of casos) assert.equal(formatarTokens(n), texto, String(n));
+  for (const v of [Number.NaN, Infinity, -Infinity, undefined, '1000', 1n]) assert.equal(formatarTokens(v), '—', String(v));
+});
+
+test('milhar e decimal: espaço no milhar, vírgula na casa decimal, — fora do domínio', () => {
+  const inteiros = [[0, '0'], [7, '7'], [999, '999'], [1_000, '1 000'], [19_628, '19 628'], [1_234_567, '1 234 567'], [Number.MAX_SAFE_INTEGER, '9 007 199 254 740 991']];
+  for (const [n, texto] of inteiros) assert.equal(milhar(n), texto, String(n));
+  for (const v of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN, Infinity, '12', null, undefined, 1n]) assert.equal(milhar(v), '—', String(v));
+  const decimais = [[0, 1, '0,0'], [97.1, 1, '97,1'], [22.68, 2, '22,68'], [1_234.5, 2, '1 234,50'], [0.62, 2, '0,62'], [5, 0, '5'], [999_999.99, 2, '999 999,99']];
+  for (const [n, casas, texto] of decimais) assert.equal(decimal(n, casas), texto, `${n} ${casas}`);
+  for (const v of [-0.5, Number.NaN, Infinity, 1e21, '1', null]) assert.equal(decimal(v, 2), '—', String(v));
 });
 
 // sanear: fixtures sinteticas de texto malicioso (spec 8.1, S2/S3).

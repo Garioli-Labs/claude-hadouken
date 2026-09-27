@@ -126,12 +126,37 @@ export function diaHora(epochS) {
   return `${DIAS[d.getDay()]} ${horaLocal(epochS)}`;
 }
 
+// Números do /consumo em markdown (spec v0.2.0 §6.2): milhar separado por
+// espaço ("19 628") e vírgula decimal ("97,1"). Só o relatório os usa; a
+// barra mostra percentuais inteiros e o --json, os números crus.
+const GRUPOS_MILHAR = /\B(?=(\d{3})+(?!\d))/g;
+
+// Inteiro seguro e não negativo com milhar separado por espaço; outro valor
+// vira —. Nunca lança.
+export function milhar(n) {
+  if (!Number.isSafeInteger(n) || n < 0) return SEM_VALOR;
+  return String(n).replace(GRUPOS_MILHAR, ' ');
+}
+
+// Número finito de 0 até 1e21 (fora disso, toFixed sairia em notação
+// científica) com `casas` decimais, vírgula e milhar na parte inteira; outro
+// valor vira —. Nunca lança com `casas` de 0 a 100.
+export function decimal(n, casas) {
+  if (!numeroFinito(n) || n < 0 || n >= 1e21) return SEM_VALOR;
+  const [int, frac] = n.toFixed(casas).split('.');
+  const agrupado = int.replace(GRUPOS_MILHAR, ' ');
+  return frac === undefined ? agrupado : `${agrupado},${frac}`;
+}
+
+// Tokens do relatório: até 999 inteiro; k sem casa; M com uma casa; a partir
+// de 999,95M (que arredondaria para "1000,0M") G com duas. Da mesma forma,
+// a partir de 999 500 o k daria "1000k" e vira M.
 export function formatarTokens(n) {
   if (!numeroFinito(n)) return SEM_VALOR;
-  // A partir de 999 500 o arredondamento em k daria "1000k": vira M.
-  if (n >= 999_500) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
+  if (n < 1_000) return String(n);
+  if (n < 999_500) return `${Math.round(n / 1_000)}k`;
+  if (n < 999_950_000) return `${decimal(n / 1_000_000, 1)}M`;
+  return `${decimal(n / 1_000_000_000, 2)}G`;
 }
 
 // Glifos que a própria barra usa (separador, reset, effort; formato.js) e os
