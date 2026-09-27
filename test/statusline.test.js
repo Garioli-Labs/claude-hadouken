@@ -414,5 +414,38 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   const dentro = modulosCarregados(home, JSON.stringify(entradaValida()));
   assert.equal(dentro.r.status, 0, dentro.r.stderr);
   assert.match(dentro.r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
-  assert.deepEqual(dentro.nomes, ['alerta.js', 'ativas.js', 'barrinha.js', 'base.js', 'estado.js', 'formato.js', 'ritmo.js', 'statusline.js', 'util.js']);
+  assert.deepEqual(dentro.nomes, ['alerta.js', 'ativas.js', 'barrinha.js', 'base.js', 'estado.js', 'formato.js', 'previsao.js', 'ritmo.js', 'statusline.js', 'util.js']);
+});
+
+// Sessões simultâneas de ponta a ponta (spec v0.2.0 §12.3 e §12.4): duas
+// outras sessões com a barra redesenhada no último minuto e o histórico de
+// 5h subindo 1 ponto por minuto.
+test('sessões simultâneas: 3 sessões e a previsão de estouro da 5h na barra', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const agora = Date.now();
+  const s = Math.floor(agora / 1000);
+  const iso = (ms) => new Date(ms).toISOString();
+  const janela = (used, resetsAt) => ({ used_percentage: used, resets_at: resetsAt, at: iso(agora - 2 * 60_000) });
+  const historico = [-8, -6, -4, -2].map((m) => ({ at: iso(agora + m * 60_000), h5: 74 + m, d7: null }));
+  fs.writeFileSync(path.join(home, 'estado.json'), JSON.stringify({
+    versao: 1, at: iso(agora - 2 * 60_000), five_hour: janela(72, s + 3600), seven_day: janela(20, s + 86400),
+    sessoes: { s2: { at: iso(agora - 60_000) }, s3: { at: iso(agora - 30_000) }, s4: { at: iso(agora - 6 * 60_000) } },
+    historico,
+  }));
+  const entrada = entradaValida();
+  entrada.rate_limits.five_hour = { used_percentage: 74, resets_at: s + 3600 };
+  const r = rodar(JSON.stringify(entrada), home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^Opus 5\.5 │ 3 sessões │ 5h ▰▰▰▰▰▰▱▱ 74% ↻\d\d:\d\d →100% \d\d:\d\d │ 7d /);
+  assert.ok(!r.stdout.includes('\x1b'));
+  const gravado = JSON.parse(fs.readFileSync(path.join(home, 'estado.json'), 'utf8'));
+  assert.equal(gravado.historico.length, 5);
+  assert.equal(gravado.historico[4].h5, 74);
+  // Sozinha e sem histórico: nem o trecho de sessões nem a seta.
+  const so = novoHome();
+  registrar(so, 's1');
+  const r1 = rodar(JSON.stringify(entradaValida()), so);
+  assert.match(r1.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10% ↻\d\d:\d\d │ 7d /);
+  assert.equal(r1.stdout.includes('→'), false);
 });

@@ -69,8 +69,12 @@ export function inclinacao(pontos) {
 function preverJanela(historico, coluna, alcance, janela, agoraMs) {
   if (janela === null || typeof janela !== 'object') return null;
   const usado = janela.used_percentage;
-  const resetMs = janela.resets_at * 1000;
-  if (!numeroFinito(usado) || usado < 0 || usado >= 100 || !numeroFinito(resetMs) || resetMs <= agoraMs) return null;
+  const resetS = janela.resets_at;
+  // resets_at é conferido antes da conta: texto, booleano, lista ou objeto
+  // com valueOf virariam número na multiplicação.
+  if (!numeroFinito(usado) || usado < 0 || usado >= 100 || !numeroFinito(resetS)) return null;
+  const resetMs = resetS * 1000;
+  if (!numeroFinito(resetMs) || resetMs <= agoraMs) return null;
   const pontos = [];
   for (const p of historico) {
     if (p === null || typeof p !== 'object') continue;

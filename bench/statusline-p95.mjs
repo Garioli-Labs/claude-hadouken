@@ -15,7 +15,9 @@
 // Worst-case disk state, built in a temporary HADOUKEN_HOME that is removed at
 // the end:
 // - the measured session is registered, alongside 999 other registration files;
-// - estado.json holds 50 sessions (its cap) and both rate-limit windows;
+// - estado.json holds 50 sessions (its cap, all active: the bar shows
+//   "50 sessões"), both rate-limit windows and a full history (90 points over
+//   3 h, spec v0.2.0 §12.8) that rises fast enough for a 7d forecast on the bar;
 // - stdin is a realistic, complete statusline payload.
 // Scenarios: registered (gate, merge, atomic write, render), unregistered (gate
 // only, prints nothing), the same two through the stable shim
@@ -60,7 +62,7 @@ function embaralhar(lista) {
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench '));
 try {
   const { registrarSessao, DIR_ATIVAS } = await importar('ativas.js');
-  const { atualizarEstado, ARQ_ESTADO } = await importar('estado.js');
+  const { atualizarEstado, ARQ_ESTADO, HISTORICO_MAX, HISTORICO_PASSO_MS } = await importar('estado.js');
   const { sincronizarShims, DIR_BIN } = await importar('shim.js');
 
   const agora = Date.now();
@@ -94,6 +96,16 @@ try {
     }
     if (!registrarSessao(uuid(0), agora).ok) throw new Error('fixture: register target failed');
     for (let i = 49; i >= 0; i--) atualizarEstado(entrada(uuid(i)), agora - i * 1000);
+    // Full history (spec v0.2.0 §12.8): 90 points 2 min apart, the newest 30 s
+    // ago, both windows rising (5h 0.125 and 7d 0.035 points per minute), so
+    // the 7d forecast lands about 18.6 h ahead, before its reset.
+    const arqEstado = path.join(home, ARQ_ESTADO);
+    const cheio = JSON.parse(fs.readFileSync(arqEstado, 'utf8'));
+    cheio.historico = Array.from({ length: HISTORICO_MAX }, (_, k) => {
+      const i = HISTORICO_MAX - 1 - k;
+      return { at: new Date(agora - 30_000 - i * HISTORICO_PASSO_MS).toISOString(), h5: 42 - i * 0.25, d7: 61 - i * 0.07 };
+    });
+    fs.writeFileSync(arqEstado, JSON.stringify(cheio, null, 2));
     const r = sincronizarShims(repo);
     if (!r.ok) throw new Error(`fixture: shim sync failed: ${r.motivo}`);
   } finally {
@@ -103,14 +115,17 @@ try {
   const nAtivas = fs.readdirSync(path.join(home, DIR_ATIVAS)).length;
   const estado = JSON.parse(fs.readFileSync(path.join(home, ARQ_ESTADO), 'utf8'));
   const nSessoes = Object.keys(estado.sessoes).length;
+  const nHistorico = estado.historico.length;
 
   // The caller's NO_COLOR decides whether the bar is coloured; the check strips
-  // the only escapes the bar may carry (the fixed colour codes).
-  const PREFIXO_BARRA = 'Opus 5.5\u00b7high \u2502 5h \u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1 42%';
+  // the only escapes the bar may carry (the fixed colour codes). The sessions
+  // segment is optional: a long run outlives the 5 min that keep the other 49
+  // sessions active.
+  const PREFIXO_BARRA = /^Opus 5\.5\u00b7high \u2502 (?:\d+ sess\u00f5es \u2502 )?5h \u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1 42%/;
   const CORES_FIXAS = /\x1b\[(?:3[123]|0)m/g;
   let barra = '';
   const barraCerta = (nome) => (out) => {
-    if (!out.replace(CORES_FIXAS, '').startsWith(PREFIXO_BARRA)) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
+    if (!PREFIXO_BARRA.test(out.replace(CORES_FIXAS, ''))) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
     barra = out;
   };
   const semSaida = (nome) => (out) => {
@@ -137,6 +152,12 @@ try {
     return ms;
   }
   for (let i = 0; i < WARMUPS; i++) for (const c of embaralhar(cenarios)) rodar(c);
+  // Seconds after the fixture, the bar must show the worst case it was built
+  // for: 50 active sessions and a forecast.
+  const aquecida = barra.replace(CORES_FIXAS, '');
+  if (!aquecida.includes(' 50 sess\u00f5es \u2502 ') || !aquecida.includes(' \u2192100% ')) {
+    throw new Error(`fixture: worst case missing from the bar ${JSON.stringify(barra)}`);
+  }
   const tempos = new Map(cenarios.map((c) => [c, []]));
   for (let i = 0; i < RUNS; i++) for (const c of embaralhar(cenarios)) tempos.get(c).push(rodar(c));
 
@@ -157,12 +178,12 @@ try {
       rodadas: RUNS,
       aquecimento: WARMUPS,
       cor: !process.env.NO_COLOR,
-      fixture: { ativas: nAtivas, sessoes: nSessoes, bytesEstado },
+      fixture: { ativas: nAtivas, sessoes: nSessoes, historico: nHistorico, bytesEstado },
       linhas: cenarios.map((c) => ({ id: c.id, nome: c.nome, alvo: c.alvo, ...resumo(tempos.get(c)) })),
     }));
   } else {
     console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
-    console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions in estado.json (${bytesEstado} B)`);
+    console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions and ${nHistorico} history points in estado.json (${bytesEstado} B)`);
     console.log(`runs: ${RUNS} interleaved rounds after ${WARMUPS} shared warm-up rounds, spawn to exit; colour ${process.env.NO_COLOR ? 'off (NO_COLOR)' : 'on'}`);
     for (const c of cenarios) {
       const r = resumo(tempos.get(c));

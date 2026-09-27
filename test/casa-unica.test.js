@@ -53,7 +53,7 @@ test('os ajudantes divididos só são definidos na casa deles', () => {
     // como a de transcripts.js, é outra coisa e não conta).
     ['função janela', null, /(?:^|[^\w.$])function\s+janela\s*\(|(?:^|[^\w.$])(?:const|let|var)\s+janela\s*=\s*(?:function\b|\(?\w*\)?\s*=>)/gm],
     ['GLIFOS_BARRA', 'util.js', definicao('GLIFOS_BARRA')],
-    ['classe dos glifos da barra', 'util.js', /\[│↻·▰▱┃\]/gu],
+    ['classe dos glifos da barra', 'util.js', /\[│↻·▰▱┃→\]/gu],
     ['jsonSeguro', 'util.js', definicao('jsonSeguro')],
     ['escaparInvisiveis', null, definicao('escaparInvisiveis')],
     ['texto da linha sem leitura', 'alerta.js', /Consumo sem leitura/g],
@@ -175,7 +175,7 @@ test('janelaValida: o schema de estado.js, cópia só com os dois campos, cada u
 // conferida contra as constantes de barrinha.js.
 test('glifos da barrinha só em barrinha.js, e GLIFOS_BARRA tira os três', () => {
   const GLIFO = /[▰▱┃]|\\u(?:25b[01]|2503)|\\u\{0*(?:25b[01]|2503)\}|0x0*(?:25b[01]|2503)\b|\b(?:9648|9649|9475)\b/giu;
-  const CLASSE = '[│↻·▰▱┃]';
+  const CLASSE = '[│↻·▰▱┃→]';
   const achados = [];
   for (const arq of listarJs(SRC)) {
     const rel = path.relative(SRC, arq).split(path.sep).join('/');

@@ -1,11 +1,16 @@
 import { faixa5h, faixa7d } from './alerta.js';
 import { barrinha } from './barrinha.js';
+// Teto do trecho de sessões ativas (spec v0.2.0 §12.4): o de estado.sessoes,
+// cuja casa única é estado.js; o outro nome o separa do MAX_SESSOES de
+// agregacao.js. Import estático sem custo para o gate: formato.js só é
+// carregado depois dele, no mesmo Promise.all que já carrega estado.js.
+import { MAX_SESSOES as MAX_SESSOES_ATIVAS } from './estado.js';
 import { horaLocal, diaHora, effortValido, GLIFOS_BARRA, janelaValida, numeroFinito, sanear } from './util.js';
 
 // Linha da barra de status. Todo dado externo passa por aqui antes do terminal
 // (spec 8.1, S2/S3): o nome do modelo passa por `sanear`; o effort vem de lista
-// fixa; o resto são números validados, barrinhas (barrinha.js) e rótulos do
-// código. As únicas sequências ANSI da saída são as quatro cores abaixo, e só
+// fixa; o resto são números validados, barrinhas (barrinha.js), horários
+// formatados e rótulos do código. As únicas sequências ANSI da saída são as quatro cores abaixo, e só
 // com `cor === true`.
 
 const COR = { verde: '\x1b[32m', amarelo: '\x1b[33m', vermelho: '\x1b[31m', fim: '\x1b[0m' };
@@ -34,6 +39,10 @@ const pct = (x) => `${Math.floor(x)}%`;
 // mostraria 56% depois do piso; a barrinha usa o mesmo valor.
 const emPontos = (r) => Math.round(r * 1e6) / 1e4;
 
+// Previsão de estouro (spec v0.2.0 §12.3) que pode aparecer: instante em ms
+// depois de agora e antes do reset da janela; o resto é null.
+const estouro = (ms, resetsAt, agoraMs) => (numeroFinito(ms) && numeroFinito(agoraMs) && ms > agoraMs && ms < resetsAt * 1000 ? ms : null);
+
 // "rótulo barrinha resto" (spec v0.2.0 §5): a barrinha usa o valor antes do
 // piso. Quem chama já validou o valor em [0, 100]; se mesmo assim barrinha
 // devolver null, o trecho sai sem ela, como na v0.1.0.
@@ -42,16 +51,21 @@ function indicador(rotulo, valor, resto, marca) {
   return b === null ? `${rotulo} ${resto}` : `${rotulo} ${b} ${resto}`;
 }
 
-// Monta a linha "modelo·effort │ 5h │ 7d │ ctx │ cache", cada indicador com a
-// sua barrinha (spec v0.2.0 §5). `limites` é a saída de
+// Monta a linha "modelo·effort │ N sessões │ 5h │ 7d │ ctx │ cache", cada
+// indicador com a sua barrinha (spec v0.2.0 §5). `limites` é a saída de
 // limitesValidos (ou null); `agoraMs` alimenta o ritmo de 7 dias; `cor` liga as
 // cores só se for exatamente true. Campo ausente ou fora do schema vira "—".
-// Nunca lança: uma falha interna devolve '' (spec 6.4, linha vazia).
+// Spec v0.2.0 §12: `sessoesAtivas` (sessoesAtivas de estado.js) põe o trecho
+// "N sessões" logo depois do modelo, sem cor; `previsao` (preverEstouro de
+// previsao.js) põe "→100% HH:MM" depois do reset da janela, em vermelho, só
+// com o instante antes do reset. Nunca lança: uma falha interna devolve ''
+// (spec 6.4, linha vazia).
 export function formatarBarra(opcoes) {
   try {
-    const { entrada, limites, agoraMs, cor } = opcoes ?? {};
+    const { entrada, limites, agoraMs, cor, previsao, sessoesAtivas } = opcoes ?? {};
     const e = ehObjeto(entrada) ? entrada : {};
     const l = ehObjeto(limites) ? limites : {};
+    const p = ehObjeto(previsao) ? previsao : {};
     const ligado = cor === true;
 
     const saneado = sanear(ehObjeto(e.model) ? e.model.display_name : undefined, MAX_MODELO);
@@ -59,6 +73,10 @@ export function formatarBarra(opcoes) {
     // A mesma lista que estado.js usa ao gravar a sessão (util.EFFORTS_VALIDOS).
     const effort = effortValido(e.effort);
     const partes = [effort ? `${nome}·${effort}` : nome];
+    // Trecho de sessões ativas (spec v0.2.0 §12.4): só um inteiro de 2 até o
+    // teto de estado.sessoes; com 1 (a própria) o trecho não aparece.
+    const n = sessoesAtivas;
+    if (Number.isInteger(n) && n >= 2 && n <= MAX_SESSOES_ATIVAS) partes.push(`${n} sessões`);
 
     // Cada janela passa de novo por janelaValida (util.js), o schema de
     // estado.js: quem chama já passa a saída de limitesValidos, e a checagem
@@ -67,7 +85,9 @@ export function formatarBarra(opcoes) {
     const f5 = janelaValida(l.five_hour);
     if (f5) {
       const u = f5.used_percentage;
-      partes.push(pinta(indicador('5h', u, `${pct(u)} ↻${horaLocal(f5.resets_at)}`), COR_5H[faixa5h(u)], ligado));
+      const quando = estouro(p.five_hour, f5.resets_at, agoraMs);
+      const alerta = quando === null ? '' : ` ${pinta(`→100% ${horaLocal(quando / 1000)}`, 'vermelho', ligado)}`;
+      partes.push(pinta(indicador('5h', u, `${pct(u)} ↻${horaLocal(f5.resets_at)}`), COR_5H[faixa5h(u)], ligado) + alerta);
     } else {
       partes.push(`5h ${SEM_VALOR}`);
     }
@@ -78,7 +98,9 @@ export function formatarBarra(opcoes) {
     if (f7 && numeroFinito(agoraMs)) {
       const u = f7.used_percentage;
       const { faixa, esperado } = faixa7d({ usado: u, resetsAt: f7.resets_at, agoraMs });
-      partes.push(pinta(indicador('7d', u, `${pct(u)}/${pct(esperado)}${ROTULO_7D[faixa]} ↻${diaHora(f7.resets_at)}`, esperado), COR_7D[faixa], ligado));
+      const quando = estouro(p.seven_day, f7.resets_at, agoraMs);
+      const alerta = quando === null ? '' : ` ${pinta(`→100% ${diaHora(quando / 1000)}`, 'vermelho', ligado)}`;
+      partes.push(pinta(indicador('7d', u, `${pct(u)}/${pct(esperado)}${ROTULO_7D[faixa]} ↻${diaHora(f7.resets_at)}`, esperado), COR_7D[faixa], ligado) + alerta);
     } else {
       partes.push(`7d ${SEM_VALOR}`);
     }

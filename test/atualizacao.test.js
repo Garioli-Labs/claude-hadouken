@@ -109,6 +109,9 @@ function fotografar(dir) {
 }
 
 const NOVA = /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10% ↻\d\d:\d\d │ 7d [▰▱┃]{9} 20%\//;
+// Spec v0.2.0 §12.4: com a barra da outra sessão redesenhada nos últimos
+// 5 min, o trecho conta as duas.
+const NOVA_DUAS = /^Opus 5\.5 │ 2 sessões │ 5h ▰▱▱▱▱▱▱▱ 10% ↻\d\d:\d\d │ 7d [▰▱┃]{9} 20%\//;
 
 test('atualização: sessão registrada troca de visual no próximo SessionStart da versão nova; não registrada segue muda', () => {
   const home = novaPasta('hdk atualiza ç ');
@@ -124,7 +127,7 @@ test('atualização: sessão registrada troca de visual no próximo SessionStart
   // shim. s1, já registrada, passa ao visual novo no próximo redesenho.
   sessionStart(home, RAIZ, 's2');
   assert.match(barra(home, 's1'), NOVA);
-  assert.match(barra(home, 's2'), NOVA);
+  assert.match(barra(home, 's2'), NOVA_DUAS);
   const antes = fotografar(home);
   assert.equal(barra(home, 's3'), '', 's3 segue sem barra depois da atualização');
   assert.deepEqual(fotografar(home), antes, 's3 não grava nada na pasta de dados');
@@ -141,6 +144,6 @@ test('atualização: sessão registrada troca de visual no próximo SessionStart
 
   // O próximo SessionStart (qualquer origem) volta à versão nova.
   sessionStart(home, RAIZ, 's1', 'resume');
-  assert.match(barra(home, 's1'), NOVA);
+  assert.match(barra(home, 's1'), NOVA_DUAS);
   assert.equal(barra(home, 's3'), '');
 });

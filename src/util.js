@@ -163,14 +163,15 @@ export function formatarTokens(n) {
   return `${decimal(n / 1_000_000_000, 2)}G`;
 }
 
-// Glifos que a própria barra usa (separador, reset, effort; formato.js) e os
-// da barrinha (cheia, vazia e marca; barrinha.js, v0.2.0). Um nome com eles
-// forjaria segmentos ("Opus │ 5h 3% ↻09:00"), um effort ou uma barrinha com
-// marca falsa, e o · da chave modelo·effort do relatório é só o que ele põe:
+// Glifos que a própria barra usa (separador, reset, effort e previsão de
+// estouro; formato.js) e os da barrinha (cheia, vazia e marca; barrinha.js,
+// v0.2.0). Um nome com eles forjaria segmentos ("Opus │ 5h 3% ↻09:00"), uma
+// previsão ("→100% 14:40"), um effort ou uma barrinha com marca falsa, e o ·
+// da chave modelo·effort do relatório é só o que ele põe:
 // a barra, o histórico e o relatório os tiram antes de exibir ou gravar.
 // Regex global e compartilhada: só com replace, que começa do zero e deixa o
 // lastIndex em 0 (test e exec andariam com ele de uma chamada para outra).
-export const GLIFOS_BARRA = /[│↻·▰▱┃]/gu;
+export const GLIFOS_BARRA = /[│↻·▰▱┃→]/gu;
 
 // Compila `fonte` com `flags` ou, se o Node recusar a expressão, devolve
 // `reserva`, uma regex já compilada. Um Node compilado sem ICU (tabela de

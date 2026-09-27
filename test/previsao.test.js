@@ -119,4 +119,10 @@ test('entradas hostis nunca lançam e dão as duas null', () => {
   ];
   for (const c of casos) assert.deepEqual(preverEstouro(c), vazio);
   assert.deepEqual(preverEstouro({ get historico() { throw new Error('x'); } }), vazio);
+  // resets_at fora do schema (texto, booleano, lista, objeto com valueOf) nunca
+  // vira número por coerção: com o mesmo histórico subindo, sem previsão.
+  assert.equal(preverEstouro({ historico: subindo, limites: lim5(74), agoraMs: agora }).five_hour, agora + 26 * MIN);
+  for (const resetS of [String(agoraS + 3600), true, [agoraS + 3600], { valueOf: () => agoraS + 3600 }]) {
+    assert.deepEqual(preverEstouro({ historico: subindo, limites: lim5(74, resetS), agoraMs: agora }), vazio, JSON.stringify(resetS));
+  }
 });

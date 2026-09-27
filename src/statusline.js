@@ -35,15 +35,20 @@ async function principal() {
   // Só depois do gate: sessão vencida ou desconhecida nunca é revivida. Grava
   // no máximo uma vez por hora (RENOVAR_APOS_MS), não a cada redesenho.
   renovarSessao(entrada.session_id, agoraMs);
-  const [{ atualizarEstado, limitesValidos }, { formatarBarra }] = await Promise.all([
+  const [{ atualizarEstado, limitesValidos, sessoesAtivas }, { formatarBarra }, { preverEstouro }] = await Promise.all([
     import('./estado.js'),
     import('./formato.js'),
+    import('./previsao.js'),
   ]);
   const { estado } = atualizarEstado(entrada, agoraMs);
   const limites = limitesValidos(estado, agoraMs);
+  // Spec v0.2.0 §12: a previsão vem do histórico que atualizarEstado acabou de
+  // gravar, e a contagem, das sessões dele (esta inclusa).
+  const previsao = preverEstouro({ historico: estado.historico, limites, agoraMs });
+  const ativas = sessoesAtivas(estado, agoraMs, entrada.session_id);
   // no-color.org: NO_COLOR presente e não vazio desliga as cores.
   const cor = !process.env.NO_COLOR;
-  process.stdout.write(formatarBarra({ entrada, limites, agoraMs, cor }));
+  process.stdout.write(formatarBarra({ entrada, limites, agoraMs, cor, previsao, sessoesAtivas: ativas }));
 }
 
 principal().catch(() => {}).finally(() => { process.exitCode = 0; });

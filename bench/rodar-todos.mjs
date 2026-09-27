@@ -184,7 +184,7 @@ function notas(resultados) {
     `- n: rodadas medidas, com os cenários de cada bench intercalados em ordem aleatória, depois de ${finito(s?.aquecimento) ? s.aquecimento : 5} rodadas de aquecimento descartadas; tempo do spawn à saída do processo, como o Claude Code roda a barra e os hooks.`,
   ];
   if (s?.fixture && h?.fixture) {
-    saida.push(`- Fixture da barra e dos hooks: ${s.fixture.ativas} arquivos de registro em ativas/, ${s.fixture.sessoes} sessões em estado.json (${s.fixture.bytesEstado} B), alertas.json com ${h.fixture.bytesAlertas} B; cor da barra ${s.cor ? 'ligada' : 'desligada (NO_COLOR)'}.`);
+    saida.push(`- Fixture da barra e dos hooks: ${s.fixture.ativas} arquivos de registro em ativas/, ${s.fixture.sessoes} sessões e ${s.fixture.historico ?? 0} pontos de histórico em estado.json (${s.fixture.bytesEstado} B), alertas.json com ${h.fixture.bytesAlertas} B; cor da barra ${s.cor ? 'ligada' : 'desligada (NO_COLOR)'}.`);
   }
   if (t) {
     const iguais = t.incrementalIgualCheio === true ? 'sim' : 'não';

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatarBarra } from '../src/formato.js';
+import { diaHora, horaLocal } from '../src/util.js';
 
 const H = 3600_000;
 const reset7 = 1_800_000_000;
@@ -95,6 +96,7 @@ test('display_name sem os glifos da barra e da barrinha: nunca forja segmento, e
     ['Opus ▰▰▰▱ 5h┃', 'Opus 5h'],
     ['▰▰▰▰┃▱▱▱▱ 99%', '99%'],
     ['Op┃us', 'Op us'],
+    ['Opus →100% 09:00', 'Opus 100% 09:00'],
   ];
   for (const [nome, esperado] of casos) {
     for (const cor of [false, true]) {
@@ -109,9 +111,11 @@ test('display_name sem os glifos da barra e da barrinha: nunca forja segmento, e
       assert.equal((limpa.match(/[▰▱]/g) ?? []).length, 32, limpa);
       assert.equal((limpa.match(/┃/g) ?? []).length, 1, limpa);
       assert.equal(limpa.split(' │ ')[0].match(/[▰▱┃]/), null, limpa);
+      // Sem previsão passada, nenhuma seta: o nome nunca forja uma (§12.3).
+      assert.equal(limpa.includes('→'), false, limpa);
     }
   }
-  const soGlifos = barra({ model: { display_name: ' │ ↻ · ▰ ▱ ┃ ' } });
+  const soGlifos = barra({ model: { display_name: ' │ ↻ · ▰ ▱ ┃ → ' } });
   assert.ok(soGlifos.startsWith('—·high │ 5h '), soGlifos);
   const semEffort = formatarBarra({ entrada: { model: { display_name: 'Opus·max' } }, limites: null, agoraMs: agora, cor: false });
   assert.equal(semEffort, 'Opus max │ 5h — │ 7d — │ ctx — │ cache —');
@@ -296,4 +300,65 @@ test('formatarBarra nunca lança', () => {
   assert.equal(formatarBarra({ entrada: armadilha, limites, agoraMs: agora, cor: false }), '');
   const limitesArmados = { get five_hour() { throw new Error('getter'); } };
   assert.equal(formatarBarra({ entrada, limites: limitesArmados, agoraMs: agora, cor: false }), '');
+});
+
+// ---------------------------------------------------------------------------
+// Sessões simultâneas (spec v0.2.0 §12.3 e §12.4).
+
+const MIN = 60_000;
+
+test('sessões ativas (§12.4): trecho logo depois do modelo, só de 2 a 50, sem cor', () => {
+  for (const cor of [false, true]) {
+    const s = formatarBarra({ entrada, limites, agoraMs: agora, cor, sessoesAtivas: 3 });
+    assert.ok(s.startsWith('Opus 5.5·high │ 3 sessões │ '), JSON.stringify(s));
+    assert.equal(s.split(' │ ').length, 6);
+    assertLinhaSegura(s, cor);
+  }
+  assert.ok(barra({}, { sessoesAtivas: 2 }).startsWith(`Opus 5.5·high │ 2 sessões │ 5h ${B5} 42%`));
+  assert.ok(barra({}, { sessoesAtivas: 50 }).startsWith(`Opus 5.5·high │ 50 sessões │ 5h ${B5} 42%`));
+  for (const n of [1, 0, -2, 51, 2.5, '3', Number.NaN, Infinity, null, undefined, [3], { valueOf: () => 3 }]) {
+    assert.ok(barra({}, { sessoesAtivas: n }).startsWith(`Opus 5.5·high │ 5h ${B5} 42%`), String(n));
+  }
+});
+
+test('previsão (§12.3): →100% depois do reset da janela, em vermelho; 7d com o dia', () => {
+  const p5 = agora + 26 * MIN;
+  const p7 = agora + 30 * H;
+  const previsao = { five_hour: p5, seven_day: p7 };
+  const s = formatarBarra({ entrada, limites, agoraMs: agora, cor: false, previsao });
+  const partes = s.split(' │ ');
+  assert.equal(partes.length, 5);
+  assert.equal(partes[1], `5h ${B5} 42% ↻${horaLocal(agoraS + 3600)} →100% ${horaLocal(p5 / 1000)}`);
+  assert.equal(partes[2], `7d ${B7} 61%/50% econ ↻${diaHora(reset7)} →100% ${diaHora(p7 / 1000)}`);
+  const c = formatarBarra({ entrada, limites, agoraMs: agora, cor: true, previsao });
+  assert.ok(c.includes(` ↻${horaLocal(agoraS + 3600)}\x1b[0m \x1b[31m→100% ${horaLocal(p5 / 1000)}\x1b[0m │ `), JSON.stringify(c));
+  assert.ok(c.includes(` ↻${diaHora(reset7)}\x1b[0m \x1b[31m→100% ${diaHora(p7 / 1000)}\x1b[0m │ \x1b[32mctx`), JSON.stringify(c));
+  assertLinhaSegura(c, true);
+  // O exemplo da spec, em hora local: 74% com reset às 15:30 e previsão para 14:40.
+  const exemplo = formatarBarra({
+    entrada: {}, agoraMs: new Date(2026, 8, 26, 14, 14).getTime(), cor: false,
+    limites: { five_hour: { used_percentage: 74, resets_at: new Date(2026, 8, 26, 15, 30).getTime() / 1000 } },
+    previsao: { five_hour: new Date(2026, 8, 26, 14, 40).getTime() },
+  });
+  assert.equal(exemplo.split(' │ ')[1], '5h ▰▰▰▰▰▰▱▱ 74% ↻15:30 →100% 14:40');
+  const junto = formatarBarra({ entrada, limites, agoraMs: agora, cor: false, previsao, sessoesAtivas: 3 });
+  assert.match(junto, /^Opus 5\.5·high │ 3 sessões │ 5h \S+ 42% ↻\d\d:\d\d →100% \d\d:\d\d │ 7d /);
+});
+
+test('previsão fora do lugar não aparece: no passado, no reset ou depois, não finita, sem janela', () => {
+  const r5 = (agoraS + 3600) * 1000;
+  for (const five_hour of [agora, agora - 1, r5, r5 + 1, Number.NaN, Infinity, '1', null, undefined, {}]) {
+    assert.equal(barra({}, { previsao: { five_hour } }).includes('→'), false, String(five_hour));
+  }
+  assert.ok(barra({}, { previsao: { five_hour: r5 - 1 } }).includes(' →100% '));
+  assert.ok(barra({}, { previsao: { seven_day: reset7 * 1000 - 1 } }).includes(' →100% '));
+  assert.equal(barra({}, { previsao: { seven_day: reset7 * 1000 } }).includes('→'), false);
+  for (const previsao of [null, 'x', 42, [agora + MIN]]) assert.equal(barra({}, { previsao }).includes('→'), false);
+  const valida = { five_hour: agora + MIN, seven_day: agora + MIN };
+  const semJanela = formatarBarra({ entrada, limites: null, agoraMs: agora, cor: false, previsao: valida });
+  assert.equal(semJanela.includes('→'), false, semJanela);
+  const semAgora = formatarBarra({ entrada, limites, agoraMs: Number.NaN, cor: false, previsao: valida });
+  assert.equal(semAgora.includes('→'), false, semAgora);
+  const armada = { get five_hour() { throw new Error('getter'); } };
+  assert.equal(typeof formatarBarra({ entrada, limites, agoraMs: agora, cor: false, previsao: armada }), 'string');
 });
