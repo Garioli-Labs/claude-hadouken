@@ -774,15 +774,15 @@ Nenhuma falha ou lentidão do plugin pode travar o Claude. As metas são medidas
 | Operação | Meta | Medido |
 |---|---|---|
 | Barra de status (processo inteiro), Windows | p95 ≤ 250 ms | 135 ms |
-| Barra de status (processo inteiro), Linux/macOS | p95 ≤ 150 ms | Linux 55 ms · macOS 88 ms |
+| Barra de status (processo inteiro), Linux/macOS | p95 ≤ 150 ms | Linux 49 ms · macOS 48 ms |
 | Hook antes de cada prompt, Windows | p95 ≤ 250 ms | 168 ms |
-| Hook antes de cada prompt, Linux/macOS | p95 ≤ 150 ms | Linux 54 ms · macOS 55 ms |
+| Hook antes de cada prompt, Linux/macOS | p95 ≤ 150 ms | Linux 56 ms · macOS 50 ms |
 | Hook de início de sessão, Windows | p95 ≤ 250 ms | 166 ms |
-| Hook de início de sessão, Linux/macOS | p95 ≤ 150 ms | Linux 58 ms · macOS 60 ms |
+| Hook de início de sessão, Linux/macOS | p95 ≤ 150 ms | Linux 57 ms · macOS 51 ms |
 | Hook de fim de sessão, Windows | p95 ≤ 250 ms | 143 ms |
-| Hook de fim de sessão, Linux/macOS | p95 ≤ 150 ms | Linux 47 ms · macOS 49 ms |
-| `/claude-hadouken:consumo`, índice já montado | ≤ 2 s | Windows 411 ms · Linux 224 ms · macOS 147 ms |
-| `/claude-hadouken:consumo`, índice do zero | ≤ 15 s | Windows 1,95 s · Linux 808 ms · macOS 781 ms |
+| Hook de fim de sessão, Linux/macOS | p95 ≤ 150 ms | Linux 46 ms · macOS 44 ms |
+| `/claude-hadouken:consumo`, índice já montado | ≤ 2 s | Windows 411 ms · Linux 207 ms · macOS 169 ms |
+| `/claude-hadouken:consumo`, índice do zero | ≤ 15 s | Windows 1,95 s · Linux 834 ms · macOS 623 ms |
 
 - Medido em 27/09/2026, p95 do pior cenário de cada linha: Windows num Intel Core i7-7700HQ (8 núcleos lógicos, Node 24) com a máquina parada; Linux e macOS nos runners do GitHub Actions (`ubuntu-latest` e `macos-latest`, Node 24), job `bench` do CI.
 - A barra e os hooks são medidos em 100 execuções, do início ao fim do processo, com o disco no pior caso: 1 000 sessões registradas, o estado no teto de 50 sessões e o histórico de leituras cheio (90 pontos); nos hooks, também as duas memórias de avisos cheias (`alertas.json` e `projecao.json`, esta com as projeções de 256 sessões). O pior caso é refeito antes de cada rodada, para valer a medição inteira.

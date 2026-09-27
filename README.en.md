@@ -780,15 +780,15 @@ No plugin failure or slowness may stall Claude. Targets are measured, not assume
 | Operation | Target | Measured |
 |---|---|---|
 | Status bar (whole process), Windows | p95 ≤ 250 ms | 135 ms |
-| Status bar (whole process), Linux/macOS | p95 ≤ 150 ms | Linux 55 ms · macOS 88 ms |
+| Status bar (whole process), Linux/macOS | p95 ≤ 150 ms | Linux 49 ms · macOS 48 ms |
 | Hook before each prompt, Windows | p95 ≤ 250 ms | 168 ms |
-| Hook before each prompt, Linux/macOS | p95 ≤ 150 ms | Linux 54 ms · macOS 55 ms |
+| Hook before each prompt, Linux/macOS | p95 ≤ 150 ms | Linux 56 ms · macOS 50 ms |
 | Session start hook, Windows | p95 ≤ 250 ms | 166 ms |
-| Session start hook, Linux/macOS | p95 ≤ 150 ms | Linux 58 ms · macOS 60 ms |
+| Session start hook, Linux/macOS | p95 ≤ 150 ms | Linux 57 ms · macOS 51 ms |
 | Session end hook, Windows | p95 ≤ 250 ms | 143 ms |
-| Session end hook, Linux/macOS | p95 ≤ 150 ms | Linux 47 ms · macOS 49 ms |
-| `/claude-hadouken:consumo`, index already built | ≤ 2 s | Windows 411 ms · Linux 224 ms · macOS 147 ms |
-| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | Windows 1.95 s · Linux 808 ms · macOS 781 ms |
+| Session end hook, Linux/macOS | p95 ≤ 150 ms | Linux 46 ms · macOS 44 ms |
+| `/claude-hadouken:consumo`, index already built | ≤ 2 s | Windows 411 ms · Linux 207 ms · macOS 169 ms |
+| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | Windows 1.95 s · Linux 834 ms · macOS 623 ms |
 
 - Measured on 2026-09-27, p95 of the worst scenario in each row: Windows on an Intel Core i7-7700HQ (8 logical cores, Node 24) with the machine idle; Linux and macOS on GitHub Actions runners (`ubuntu-latest` and `macos-latest`, Node 24), the CI `bench` job.
 - The bar and the hooks are measured over 100 runs, from process start to exit, with a worst-case disk: 1,000 registered sessions, the state at its 50-session cap and a full reading history (90 points); for the hooks, both notice memories are full as well (`alertas.json` and `projecao.json`, the latter with the projections of 256 sessions). The worst case is rebuilt before every round, so it holds for the whole measurement.

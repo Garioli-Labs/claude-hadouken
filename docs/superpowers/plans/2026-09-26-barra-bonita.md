@@ -8455,3 +8455,32 @@ Números no README (`preencher_desempenho.py`, arredondados ao ms): barra 135, p
 Números das tarefas anteriores (dos relatórios delas): Task 6, bench da barra no Windows com a CPU a 13 %, p95 de 185,7 (registrada), 165,4 (não registrada), 184,7 (registrada pelo shim), 147,2 (não registrada pelo shim) e 97,8 ms (`node -e ""`). Task 7, rodada de correção, bench dos hooks com 400 rodadas e o pior caso vivo: p95 máximo de 161,5 ms, no SessionStart (as outras linhas estão no relatório da Task 7, "Fix round 1"). Task 8, p95 do `/consumo`: frio com repo 1826,8, quente com repo 393,9, frio sem repo 1768,9 e quente sem repo 422,3 ms; dentro do processo, sobre a fixture de 500 MB com 18 977 registros, a passada da última hora com todos os registros dentro da hora leva 6,96 ms, e o relatório com o markdown, com 200 sessões abertas, 2,43 ms. Task 9b: a entrada acima. As tabelas antes/depois da Task 9 e as decisões de C-A (aceito) e C-B (recusado) estão na entrada da Task 9; não se repetem aqui.
 
 Suíte inteira depois da Task 10: `# tests 781`, `# pass 750`, `# skipped 31`, `# fail 0` (o Node 24 imprime `ℹ`; os números são os mesmos). Nenhum flake.
+
+**2026-09-27, Task 11: desempenho de Linux e macOS pelo job `bench` do CI.** `main` em `7c20444`, execução `36325246356` do CI (disparada às 14:15 UTC), verde nas 8 pernas: `test` em ubuntu, windows e macos com Node 20 e 24 (6 pernas) e `bench` em ubuntu e macos (2 pernas). Os relatórios de `node bench/rodar-todos.mjs` saíram dos logs dos jobs `108636651320` (`bench (ubuntu-latest)`: Linux 6.17 no Azure, Intel Xeon Platinum 8370C, 4 núcleos lógicos, 15,6 GiB, Node 24.21.0, imagem ubuntu24 20260920.314.1, carga média de 1 min 0,38 no início e 0,92 no fim) e `108636651477` (`bench (macos-latest)`: Darwin 25.6.0 arm64, Apple M1 virtual, 3 núcleos lógicos, 7,0 GiB, Node 24.20.0, imagem macos26 20260907.0351.1, carga média de 1 min 27,53 no início e 13,32 no fim). Mesma fixture da Task 10 (100 rodadas na barra e nos hooks, pior caso reancorado antes de cada rodada), em ms:
+
+| medida | Linux p50 | Linux p95 | macOS p50 | macOS p95 | n |
+|---|---:|---:|---:|---:|---:|
+| statusline, sessão registrada (caminho completo) | 44,2 | 48,3 | 40,0 | 47,9 | 100 |
+| statusline, sessão registrada, via shim | 43,9 | 48,5 | 40,2 | 47,8 | 100 |
+| statusline, sessão não registrada (só o gate) | 32,4 | 36,4 | 32,5 | 38,0 | 100 |
+| statusline, sessão não registrada, via shim | 32,6 | 35,9 | 33,0 | 38,3 | 100 |
+| hook de prompt, sessão registrada, sem gravar | 47,4 | 54,3 | 41,1 | 47,7 | 100 |
+| hook de prompt, sessão registrada, grava alertas.json e projecao.json | 49,0 | 55,6 | 42,5 | 50,3 | 100 |
+| hook de prompt, sessão não registrada (só o gate) | 33,4 | 38,3 | 33,0 | 38,9 | 100 |
+| hook SessionStart | 48,9 | 56,5 | 43,4 | 50,6 | 100 |
+| hook SessionEnd, sessão registrada (anexa ao historico.jsonl) | 39,9 | 46,0 | 37,5 | 44,0 | 100 |
+| hook SessionEnd, sessão não registrada (só o gate) | 33,0 | 37,8 | 33,0 | 39,5 | 100 |
+| piso: `node -e ""` sem script | 24,0 | 26,3 | 27,3 | 32,7 | 100 |
+| índice de transcripts, frio | 702 | 702 | 676 | 676 | 1 |
+| índice de transcripts, quente sem mudança | 68 | 68 | 41 | 41 | 1 |
+| índice de transcripts, quente com +1 % | 95 | 95 | 62 | 62 | 1 |
+| `/consumo` quente (índice e cache do GitHub prontos) | 193,2 | 207,4 | 127,2 | 168,5 | 20 |
+| `/consumo` frio (sem índice nem cache do GitHub) | 777,1 | 834,3 | 591,8 | 622,6 | 5 |
+
+`/consumo` sem repo: Linux p95 frio 801,7 ms e quente 207,6 ms; macOS p95 frio 602,0 ms e quente 179,7 ms. Índice sobre 508,2 MB sintéticos em 216 arquivos; incremental igual à releitura completa nos dois. Duração: Linux barra 20 s, hooks 30 s, transcripts 3 s, `/consumo` 19 s; macOS 20 s, 29 s, 2 s e 14 s. Todas as linhas dentro das metas de Linux e macOS (150 ms na barra e nos hooks, 2 s e 15 s no `/consumo`). A carga alta do runner macOS no início (27,53 em 3 núcleos) não levou nenhuma linha para perto da meta.
+
+Números no README (`preencher_desempenho.py` no modo `ci`, arredondados ao ms, meio para cima): Linux barra 49, prompt 56, início 57, fim 46, `/consumo` quente 207 e frio 834; macOS barra 48, prompt 50, início 51, fim 44, `/consumo` quente 169 e frio 623. As células de Windows e a data da medição (27/09/2026, a mesma da execução do CI) ficaram como a Task 10 deixou. As células anteriores de Linux e macOS (Linux 55, 54, 58, 47, 224 e 808 ms; macOS 88, 55, 60, 49, 147 e 781 ms) não são uma medida pareada com esta; a comparação entre versões é o A/B da entrada da Task 9 (e da Task 9b), que não se repete aqui.
+
+Spec §1: a frase "sem ler dado novo nenhum" ganhou a exceção da seção 12 (histórico curto no `estado.json`, `projecao.json` e a chave `sessoesAbertas`), coerente com a emenda de 2026-09-27 no mesmo parágrafo e com o §2.
+
+Suíte inteira no Windows (Node 24.18) depois destas mudanças: `# tests 781`, `# pass 750`, `# skipped 31`, `# fail 0`. Nenhum flake.

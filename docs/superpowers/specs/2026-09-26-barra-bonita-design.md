@@ -4,7 +4,7 @@ Data: 2026-09-26. Pedido do Sr. Garioli, já usando a v0.1.0: "as porcentagens e
 
 ## 1. Objetivo e critérios de sucesso
 
-A barra de status e o `/consumo` em markdown ficam mais fáceis de ler de relance, sem ler dado novo nenhum e sem ficar mais lentos.
+A barra de status e o `/consumo` em markdown ficam mais fáceis de ler de relance, sem ler dado novo nenhum (a exceção é a seção 12: o histórico curto das leituras de limite no `estado.json`, a memória dos avisos de projeção no `projecao.json` e a chave `sessoesAbertas` no `--json`, tirada do índice de transcripts que já existia) e sem ficar mais lentos.
 
 > **Emenda de 2026-09-27 (revisão final):** "sem ficar mais lentos" é anterior à seção 12. As metas que valem são as da seção 8. A seção 12, acrescentada em 2026-09-26 a pedido do Sr. Garioli, custa cerca de 5 a 7 ms no p50 dos caminhos de sessão registrada (+5,0 a +6,8 ms na barra e no hook de prompt, em A/B pareado com a v0.1.0), custo medido e declarado no README; nos caminhos de sessão não registrada a v0.2.0 ficou igual ou mais rápida.
 
