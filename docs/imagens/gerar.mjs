@@ -115,18 +115,22 @@ function gravar(nome, svg) {
 // ------------------------------------------------------------------ barra
 
 // A entrada é o JSON que o Claude Code manda para a statusline; os limites são
-// o que estado.js devolveria depois de validar a leitura.
+// o que estado.js devolveria depois de validar a leitura. `extra` leva o que
+// a statusline passa além disso (spec v0.2.0 §12): sessoesAtivas (de
+// estado.js) e previsao (de previsao.js), com instantes em ms.
 const sessao = { model: { display_name: 'Opus 5.5' }, effort: 'high', context_window: { used_percentage: 37 }, prompt_cache: { hit_ratio: 0.92 } };
 const limites = (u5, u7) => ({
   five_hour: u5 === null ? null : { used_percentage: u5, resets_at: RESET_5H },
   seven_day: u7 === null ? null : { used_percentage: u7, resets_at: RESET_7D },
 });
-const barra = (entrada, lim) => formatarBarra({ entrada, limites: lim, agoraMs: AGORA_MS, cor: true });
+const barra = (entrada, lim, extra = {}) => formatarBarra({ entrada, limites: lim, agoraMs: AGORA_MS, cor: true, ...extra });
+const ESTOURO_5H = Date.parse('2026-09-26T13:10:00-03:00');
+const ESTOURO_7D = Date.parse('2026-09-27T18:00:00-03:00');
 
 const calma = barra(sessao, limites(42, 59));
 gravar('barra-calma.svg', janela({
   titulo: 'barra de status do Claude Code',
-  descricao: 'Barra de status do claude-hadouken: Opus 5.5·high, 5h 42% com reset às 15:30, 7d 59% usados contra 65% esperados com reset segunda 22:00, contexto 37%, cache 92%; tudo em verde.',
+  descricao: 'Barra de status do claude-hadouken: Opus 5.5·high; 5h com barrinha em 42% e reset às 15:30; 7d com barrinha em 59%, marca no esperado de 65% e reset segunda 22:00; contexto em 37% e acerto de cache em 92%, cada um com a sua barrinha; tudo em verde.',
   linhas: [deAnsi(calma)],
 }));
 
@@ -137,6 +141,11 @@ const estados = [
   ['# 7d mais de 10 pontos acima do esperado: econ (amarelo)', barra(sessao, limites(42, 78))],
   ['# 7d mais de 10 pontos abaixo do esperado: folga (verde)', barra(sessao, limites(42, 50))],
   ['# 7d em 90% ou mais, reset a mais de 24 h: só leitura (vermelho)', barra(sessao, limites(42, 91))],
+  ['# ctx em 85% ou mais: contexto quase cheio (vermelho)', barra({ ...sessao, context_window: { used_percentage: 88 } }, limites(42, 59))],
+  ['# acerto de cache entre 50% e 79% (amarelo)', barra({ ...sessao, prompt_cache: { hit_ratio: 0.64 } }, limites(42, 59))],
+  ['# 3 sessões abertas ao mesmo tempo: o trecho de sessões, logo depois do modelo', barra(sessao, limites(42, 59), { sessoesAtivas: 3 })],
+  ['# no ritmo atual, 5h chega a 100% às 13:10, antes do reset: previsão (vermelho)', barra(sessao, limites(82, 59), { sessoesAtivas: 3, previsao: { five_hour: ESTOURO_5H, seven_day: null } })],
+  ['# no ritmo atual, 7d chega a 100% no domingo às 18:00, antes do reset de segunda', barra(sessao, limites(42, 84), { previsao: { five_hour: null, seven_day: ESTOURO_7D } })],
   ['# sessão nova, antes da primeira resposta: ainda sem dado', barra({ model: { display_name: 'Opus 5.5' }, effort: 'high' }, null)],
 ];
 const linhasEstados = [];
@@ -146,7 +155,7 @@ for (const [i, [nota, linha]] of estados.entries()) {
 }
 gravar('barra-estados.svg', janela({
   titulo: 'a mesma barra em outras situações',
-  descricao: 'Sete estados da barra: 5h 74% em amarelo; 5h 82% em vermelho; 5h 93% em vermelho; 7d 78%/65% econ em amarelo; 7d 50%/65% folga em verde; 7d 91%/65% só leitura em vermelho; e uma sessão sem dado ainda, com travessões.',
+  descricao: 'Doze estados da barra, cada um com as barrinhas: 5h 74% em amarelo; 5h 82% em vermelho; 5h 93% em vermelho; 7d 78%/65% econ em amarelo; 7d 50%/65% folga em verde; 7d 91%/65% só leitura em vermelho; ctx 88% em vermelho; cache 64% em amarelo; 3 sessões abertas, com o trecho 3 sessões depois do modelo; 5h em 82% com a previsão de chegar a 100% às 13:10, em vermelho; 7d em 84% com a previsão de chegar a 100% no domingo às 18:00, em vermelho; e uma sessão sem dado ainda, com travessões e sem barrinha.',
   linhas: linhasEstados,
 }));
 
@@ -160,12 +169,16 @@ const passos = [
   ['# prompt seguinte, ainda em 76%: mesma faixa, nada é injetado', limites(76, 59)],
   ['# prompt com 5h em 83%', limites(83, 59)],
   ['# prompt com 7d em 78% (esperado 65%)', limites(83, 78)],
+  ['# 3 sessões ativas; no ritmo atual, 5h chega a 100% às 12:50 (daqui a 50 min)', limites(83, 78), { five_hour: Date.parse('2026-09-26T12:50:00-03:00'), seven_day: null }],
+  ['# prompt seguinte, previsão às 12:45: mesma faixa (60 min), nada é injetado', limites(83, 78), { five_hour: Date.parse('2026-09-26T12:45:00-03:00'), seven_day: null }],
+  ['# previsão às 12:25 (daqui a 25 min): faixa de 30 min, novo aviso', limites(83, 78), { five_hour: Date.parse('2026-09-26T12:25:00-03:00'), seven_day: null }],
 ];
 const linhasAvisos = [comentario('# início da sessão (SessionStart)'), simples(linhaEstado(limites(42, 59), AGORA_MS))];
 let anteriores = null;
 ({ novos: anteriores } = avaliarAlertas({ limites: limites(42, 59), anteriores, sessionId: 's1', agoraMs: AGORA_MS }));
-for (const [nota, lim] of passos) {
-  const { linhas, novos } = avaliarAlertas({ limites: lim, anteriores, sessionId: 's1', agoraMs: AGORA_MS });
+for (const [nota, lim, previsao] of passos) {
+  const extra = previsao ? { previsao, sessoesAtivas: 3 } : {};
+  const { linhas, novos } = avaliarAlertas({ limites: lim, anteriores, sessionId: 's1', agoraMs: AGORA_MS, ...extra });
   anteriores = novos;
   linhasAvisos.push([], comentario(nota));
   if (linhas.length === 0) linhasAvisos.push(simples('(nenhuma linha)', CORES.apagado));
@@ -173,7 +186,7 @@ for (const [nota, lim] of passos) {
 }
 gravar('avisos.svg', janela({
   titulo: 'o que o Claude recebe no contexto',
-  descricao: 'Linhas que o Claude recebe: o estado no início da sessão e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Um prompt na mesma faixa não gera linha.',
+  descricao: 'Linhas que o Claude recebe: o estado no início da sessão e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Depois, com 3 sessões ativas, o aviso de projeção: a 5h chega a 100% às 12:50, antes do reset das 15:30; na mesma faixa de 60 minutos nada se repete; a 25 minutos do estouro, um aviso novo. Um prompt na mesma faixa não gera linha.',
   linhas: linhasAvisos,
 }));
 
@@ -279,6 +292,13 @@ const relatorio = {
     'sua-org/outro-projeto': { indisponivel: 'HTTP 404' },
   },
   avisos: [],
+  // Sessões com resposta na última hora (spec v0.2.0 §12.6): tokens são
+  // entrada + cache criado + cache lido + saída; parte, a fração do total da
+  // hora, com piso em 3 casas.
+  sessoesAbertas: [
+    { id: S1, projeto: 'meu-projeto', modelos: ['claude-opus-5-5', 'claude-haiku-4-5'], tokens: 612_400, parte: 0.745 },
+    { id: S2, projeto: 'outro-projeto', modelos: ['claude-opus-5-5'], tokens: 208_900, parte: 0.254 },
+  ],
 };
 
 const markdown = formatarMarkdown(relatorio);
@@ -295,12 +315,13 @@ function alinhar(linhas) {
     const bloco = [];
     while (i < linhas.length && linhas[i].startsWith('|')) bloco.push(linhas[i++]);
     const celulas = bloco.map((l) => l.slice(1, -1).split(' | ').map((c) => c.trim()));
+    // A linha separadora (|---|---:|) diz o alinhamento de cada coluna: com
+    // ':' no fim, número (à direita); sem, texto (à esquerda).
+    const direita = bloco[1].slice(1, -1).split('|').map((c) => c.trim().endsWith(':'));
     const larg = celulas[0].map((_, c) => Math.max(...celulas.map((row, r) => (r === 1 ? 3 : largura(row[c] ?? '')))));
-    // Coluna de números (—, 42, 1.8M, 96.9%) alinha à direita; texto, à esquerda.
-    const numerica = larg.map((_, c) => celulas.slice(2).every((row) => /^(—|[\d.]+(k|M|%)?)$/.test(row[c] ?? '')));
     for (const [r, row] of celulas.entries()) {
-      if (r === 1) saida.push(`|${larg.map((w) => '-'.repeat(w + 2)).join('|')}|`);
-      else saida.push(`| ${row.map((c, k) => (numerica[k] ? c.padStart(larg[k]) : c.padEnd(larg[k]))).join(' | ')} |`);
+      if (r === 1) saida.push(`|${larg.map((w, k) => (direita[k] ? `${'-'.repeat(w + 1)}:` : '-'.repeat(w + 2))).join('|')}|`);
+      else saida.push(`| ${row.map((c, k) => (direita[k] ? c.padStart(larg[k]) : c.padEnd(larg[k]))).join(' | ')} |`);
     }
   }
   return saida;
@@ -308,19 +329,24 @@ function alinhar(linhas) {
 
 // Corta, para a imagem caber na largura do README: a tabela de sessões de hoje
 // e as tabelas dos dois períodos longos. Fica o título de cada período e uma
-// marca [...] no lugar do que saiu. O texto completo está em
-// relatorio-exemplo.md.
+// marca [...] no lugar do que saiu; a seção de sessões abertas fica inteira.
+// O texto completo está em relatorio-exemplo.md. A cerca ``` do painel de
+// limites também sai: é marcação, e o Claude Code mostra só o conteúdo do
+// bloco.
 function cortar(linhas) {
   const saida = [];
   let pulando = false;
+  let secao = '';
   for (const l of linhas) {
-    if (!pulando && l.startsWith('| Sessão ')) {
+    if (l === '```') continue;
+    if (!pulando && secao.startsWith('### Hoje') && l.startsWith('| Sessão ')) {
       pulando = true;
       saida.push('[… tabela Sessão: as 10 sessões de maior consumo, com projeto e modelos …]', '');
       continue;
     }
     if (l.startsWith('### ')) {
-      pulando = !l.startsWith('### Hoje');
+      secao = l;
+      pulando = !l.startsWith('### Hoje') && !l.startsWith('### Sessões abertas');
       saida.push(l);
       if (pulando) saida.push('', '[… as mesmas quatro tabelas, com os números deste período …]', '');
       continue;
@@ -336,7 +362,7 @@ function pintar(l) {
   if (l.startsWith('[…')) return comentario(l);
   if (l.startsWith('|')) {
     const segs = [];
-    for (const parte of l.split(/(\|)/)) if (parte !== '') segs.push({ texto: parte, cor: parte === '|' || /^-+$/.test(parte) ? CORES.borda : CORES.texto });
+    for (const parte of l.split(/(\|)/)) if (parte !== '') segs.push({ texto: parte, cor: parte === '|' || /^-+:?$/.test(parte) ? CORES.borda : CORES.texto });
     return segs;
   }
   if (l.startsWith('Os nomes de projeto')) return comentario(l);
@@ -346,6 +372,6 @@ function pintar(l) {
 const linhasRel = alinhar(cortar(markdown.split('\n')));
 gravar('relatorio.svg', janela({
   titulo: '/claude-hadouken:consumo',
-  descricao: 'Trecho do relatório /claude-hadouken:consumo: limites e ritmo, as quatro tabelas de hoje (projeto, modelo·effort, origem e sessão) com respostas, entrada, cache criado 1 h e 5 min, cache lido, saída e acerto de cache, e a seção do GitHub com execuções, conclusões, minutos por sistema e cache.',
+  descricao: 'Trecho do relatório /claude-hadouken:consumo: o painel de limites e ritmo com uma barrinha por janela, as duas sessões com resposta na última hora (parte do total da hora, projeto, modelos e tokens), as quatro tabelas de hoje (projeto, modelo·effort, origem e sessão) com a coluna parte do total em barrinha, respostas, entrada, cache criado 1 h e 5 min, cache lido, saída e acerto de cache, e a seção do GitHub com execuções, conclusões, minutos por sistema e cache.',
   linhas: linhasRel.map(pintar),
 }));

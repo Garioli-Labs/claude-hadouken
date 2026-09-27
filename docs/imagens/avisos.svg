@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1074" height="360" viewBox="0 0 1074 360" role="img" aria-label="Linhas que o Claude recebe: o estado no início da sessão e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Um prompt na mesma faixa não gera linha.">
-  <title>Linhas que o Claude recebe: o estado no início da sessão e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Um prompt na mesma faixa não gera linha.</title>
-  <rect x="0.5" y="0.5" width="1073" height="359" rx="8" fill="#0D1117" stroke="#30363D"/>
-  <path d="M0.5 34 V8.5 a8 8 0 0 1 8 -8 H1065.5 a8 8 0 0 1 8 8 V34 Z" fill="#161B22" stroke="#30363D"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1141" height="549" viewBox="0 0 1141 549" role="img" aria-label="Linhas que o Claude recebe: o estado no início da sessão e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Depois, com 3 sessões ativas, o aviso de projeção: a 5h chega a 100% às 12:50, antes do reset das 15:30; na mesma faixa de 60 minutos nada se repete; a 25 minutos do estouro, um aviso novo. Um prompt na mesma faixa não gera linha.">
+  <title>Linhas que o Claude recebe: o estado no início da sessão e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Depois, com 3 sessões ativas, o aviso de projeção: a 5h chega a 100% às 12:50, antes do reset das 15:30; na mesma faixa de 60 minutos nada se repete; a 25 minutos do estouro, um aviso novo. Um prompt na mesma faixa não gera linha.</title>
+  <rect x="0.5" y="0.5" width="1140" height="548" rx="8" fill="#0D1117" stroke="#30363D"/>
+  <path d="M0.5 34 V8.5 a8 8 0 0 1 8 -8 H1132.5 a8 8 0 0 1 8 8 V34 Z" fill="#161B22" stroke="#30363D"/>
   <circle cx="18" cy="17" r="5" fill="#484F58"/>
   <circle cx="34" cy="17" r="5" fill="#484F58"/>
   <circle cx="50" cy="17" r="5" fill="#484F58"/>
-  <text x="537" y="22" text-anchor="middle" font-family="ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="12" fill="#8B949E">o que o Claude recebe no contexto</text>
+  <text x="570.5" y="22" text-anchor="middle" font-family="ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="12" fill="#8B949E">o que o Claude recebe no contexto</text>
   <g font-family="ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="14">
     <text x="20" y="65" xml:space="preserve"><tspan fill="#8B949E"># início da sessão (SessionStart)</tspan></text>
     <text x="20" y="86" xml:space="preserve"><tspan fill="#E6EDF3">Consumo: 5h 42% (reset 15:30) · 7d 59% vs 65% esperado, modo normal; reset seg 22:00.</tspan></text>
@@ -21,5 +21,14 @@
     <text x="20" y="296" xml:space="preserve"></text>
     <text x="20" y="317" xml:space="preserve"><tspan fill="#8B949E"># prompt com 7d em 78% (esperado 65%)</tspan></text>
     <text x="20" y="338" xml:space="preserve"><tspan fill="#E6EDF3">7d 78% vs 65% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação.</tspan></text>
+    <text x="20" y="359" xml:space="preserve"></text>
+    <text x="20" y="380" xml:space="preserve"><tspan fill="#8B949E"># 3 sessões ativas; no ritmo atual, 5h chega a 100% às 12:50 (daqui a 50 min)</tspan></text>
+    <text x="20" y="401" xml:space="preserve"><tspan fill="#E6EDF3">hadouken: no ritmo atual (3 sessões ativas), 5h chega a 100% às 12:50, antes do reset das 15:30. Reduza o paralelismo ou serialize.</tspan></text>
+    <text x="20" y="422" xml:space="preserve"></text>
+    <text x="20" y="443" xml:space="preserve"><tspan fill="#8B949E"># prompt seguinte, previsão às 12:45: mesma faixa (60 min), nada é injetado</tspan></text>
+    <text x="20" y="464" xml:space="preserve"><tspan fill="#8B949E">(nenhuma linha)</tspan></text>
+    <text x="20" y="485" xml:space="preserve"></text>
+    <text x="20" y="506" xml:space="preserve"><tspan fill="#8B949E"># previsão às 12:25 (daqui a 25 min): faixa de 30 min, novo aviso</tspan></text>
+    <text x="20" y="527" xml:space="preserve"><tspan fill="#E6EDF3">hadouken: no ritmo atual (3 sessões ativas), 5h chega a 100% às 12:25, antes do reset das 15:30. Reduza o paralelismo ou serialize.</tspan></text>
   </g>
 </svg>

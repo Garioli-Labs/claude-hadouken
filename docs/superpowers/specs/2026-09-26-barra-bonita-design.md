@@ -51,8 +51,8 @@ barrinha(pct, { marca } = {}) -> string | null
   - `pct < 100` e o arredondamento dá 8: 7 casas (barra cheia só com 100%).
 - Exemplos: 0 → `▱▱▱▱▱▱▱▱`; 0,5 → `▱▱▱▱▱▱▱▱`; 1 → `▰▱▱▱▱▱▱▱`; 42 → `▰▰▰▱▱▱▱▱`; 59 → `▰▰▰▰▰▱▱▱`; 92 → `▰▰▰▰▰▰▰▱`; 99 → `▰▰▰▰▰▰▰▱`; 100 → `▰▰▰▰▰▰▰▰`.
 - `marca` (opcional, o esperado do ritmo, 0–100): o `┃` entra na fronteira `k = Math.round(marca / 12.5)` (0 a 8), isto é, depois das `k` primeiras casas. A barrinha com marca tem 9 colunas. `marca` inválida: sai sem marca.
-- Exemplos com marca 61 (`k = 5`): usado 59 → `▰▰▰▰▰┃▱▱▱`; usado 40 → `▰▰▰▱▱┃▱▱▱`; usado 80 → `▰▰▰▰▰┃▰▰▱`. Marca 0 → `┃▱▱▱▱▱▱▱▱`; marca 100 → `▰▰▰▰▰▰▰▰┃` com usado 100.
-- Os três glifos são de largura 1 (East Asian Width neutra, bloco Geometric Shapes e Box Drawing), como `│` e `↻` já usados.
+- Exemplos com marca 61 (`k = 5`): usado 59 → `▰▰▰▰▰┃▱▱▱`; usado 40 → `▰▰▰▱▱┃▱▱▱`; usado 80 → `▰▰▰▰▰┃▰▱▱` (80 ÷ 12,5 = 6,4, arredonda para 6 casas cheias). Marca 0 → `┃▱▱▱▱▱▱▱▱`; marca 100 → `▰▰▰▰▰▰▰▰┃` com usado 100.
+- Os três glifos ocupam 1 coluna nos terminais ocidentais, como `│` e `↻` já usados. `▰` e `▱` (bloco Geometric Shapes) têm East Asian Width neutra; `┃` (bloco Box Drawing) tem East Asian Width ambígua, como o `│` da v0.1.0: 1 coluna nos terminais ocidentais, e 2 num terminal configurado para tratar a largura ambígua como dupla (comum em locales do leste asiático).
 
 ## 5. Barra de status (`src/formato.js`)
 
@@ -129,7 +129,9 @@ Entradas continuam as da v0.1.0 (stdin da statusline, transcripts, estado, `gh a
 | Sequência ANSI nova vaza por cor nova | As cores de ctx e cache usam as mesmas quatro sequências de `COR`, só com `cor === true` | saída sem cor não tem `\x1b` |
 | Bloco de código do painel quebrado por conteúdo externo (três crases) | O painel só tem números e rótulos do código | teste do painel com estado malicioso |
 
-Nenhuma superfície nova de rede, arquivo, variável de ambiente ou comando.
+Nenhuma superfície nova de rede, variável de ambiente ou comando. Arquivo novo, só um: o `projecao.json`, na pasta de dados, com a memória dos avisos de projeção (§12.5). Ele segue as regras do `alertas.json`: teto de leitura de 1 MB, formato exato ou memória vazia, no máximo 256 sessões, gravação atômica só quando muda, e nunca é criado vazio. Existe porque a v0.1.0 valida o `alertas.json` com formato estrito: uma chave `projecao` nele faria uma sessão ainda na v0.1.0 (aberta antes da atualização) tratar o arquivo como inválido e regravá-lo, e as duas versões repetiriam avisos uma à outra (decisão do controlador na rodada de correção da Task 7 do plano; com o arquivo separado, 0 repetições na ida e volta medida).
+
+**Regra de compatibilidade:** dado novo vai sempre para um arquivo novo, nunca para uma chave nova num arquivo que uma versão anterior valida com formato estrito.
 
 ## 8. Performance
 
@@ -191,7 +193,7 @@ Fato que orienta o desenho: as porcentagens de 5h e 7d que o Claude Code entrega
   - dispara quando a previsão de 5h fica a 60 minutos ou menos e antes do reset; de novo quando fica a 30 minutos ou menos;
   - texto: `hadouken: no ritmo atual (3 sessões ativas), 5h chega a 100% às 14:40, antes do reset das 15:30. Reduza o paralelismo ou serialize.`; com 1 sessão, sem o parêntese;
   - para 7d: dispara quando a previsão cai antes do reset e a 24 horas ou menos, com o mesmo texto para 7d.
-- Deduplicação como os avisos existentes: cada faixa (60, 30, 7d) dispara uma vez por janela e sessão; a previsão sair de faixa e voltar não repete o mesmo aviso na mesma janela.
+- Deduplicação como os avisos existentes: cada faixa (60, 30, 7d) dispara uma vez por janela e sessão; a previsão sair de faixa e voltar não repete o mesmo aviso na mesma janela. A memória dessa deduplicação fica num arquivo próprio, o `projecao.json` (§7).
 - Os avisos de faixa da v0.1.0 (70/80/90 e ±10 pontos) não mudam.
 
 ### 12.6 Parte de cada sessão no `/consumo`
@@ -207,6 +209,7 @@ Fato que orienta o desenho: as porcentagens de 5h e 7d que o Claude Code entrega
 | Sessões falsas em `estado.sessoes` inflando a contagem | Mesma validação de id e teto de 50 da v0.1.0; o número só aparece como inteiro | contagem nunca passa de 50; id inválido não conta |
 | Inclinação absurda (divisão por quase zero, relógio andando para trás) mostra hora sem sentido | Mínimo de 3 pontos em 6 minutos; inclinação ≤ 0 ou não finita descartada; previsão só se antes do reset | casos de borda |
 | Texto do aviso levando dado externo ao Claude | Aviso montado só com números validados e texto fixo | aviso com estado malicioso só tem números |
+| `projecao.json` adulterado (arquivo acima de 1 MB, chaves como `__proto__` ou `constructor`, tipos errados, faixa fora da lista, reset que não é número finito entre 0 e 10¹¹ s, texto com instrução) para calar ou forjar um aviso | Teto de leitura de 1 MB; formato exato, ids válidos, faixas da lista fixa, no máximo 256 sessões; fora disso a memória inteira vale como vazia (o lado seguro: o aviso sai de novo) até ser regravada limpa | memória de projeção fora do formato vira memória vazia e regrava; prompt com `projecao.json` hostil só avisa com números |
 | Nome de projeto ou modelo na tabela de sessões abertas | Mesma limpeza das outras tabelas (sanear, glifos da barra, nomes curtos) | nome malicioso sai limpo |
 
 ### 12.8 Performance
@@ -224,6 +227,7 @@ src/relatorio.js         painel, números, parte do total, nomes curtos, sessõe
 src/estado.js            histórico curto das leituras
 src/previsao.js          novo, puro: inclinação e previsão de estouro
 src/alerta.js            aviso projecao
+src/hooks/alertas-gravados.js   memória do aviso projecao, em projecao.json
 test/barrinha.test.js    novo
 test/fixtures/consumo-v0.1.0.json   referência do --json
 ```
