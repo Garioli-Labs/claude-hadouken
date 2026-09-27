@@ -401,7 +401,7 @@ else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
   return { r, nomes: [...new Set(urls.map((u) => path.basename(fileURLToPath(u))))].sort() };
 }
 
-// O caminho curto só traz base.js (dirDados e idValido, via ativas.js);
+// O caminho curto só traz base.js (lerStdin, dirDados e idValido) e ativas.js;
 // estado.js e formato.js (com alerta.js e ritmo.js) só depois do gate.
 test('gate antes dos imports: sessão não registrada não carrega estado.js nem formato.js', () => {
   const home = novoHome();
@@ -409,7 +409,7 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   const fora = modulosCarregados(home, JSON.stringify(entradaValida()));
   assert.equal(fora.r.status, 0, fora.r.stderr);
   assert.equal(fora.r.stdout, '');
-  assert.deepEqual(fora.nomes, ['ativas.js', 'base.js', 'statusline.js', 'util.js']);
+  assert.deepEqual(fora.nomes, ['ativas.js', 'base.js', 'statusline.js']);
   registrar(home, 's1');
   const dentro = modulosCarregados(home, JSON.stringify(entradaValida()));
   assert.equal(dentro.r.status, 0, dentro.r.stderr);

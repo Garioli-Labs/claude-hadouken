@@ -1,4 +1,4 @@
-import { lerStdin } from './util.js';
+import { lerStdin } from './base.js';
 import { sessaoAtiva, renovarSessao } from './ativas.js';
 
 // Script da statusline: o Claude Code o executa a cada atualização da barra,
@@ -6,9 +6,9 @@ import { sessaoAtiva, renovarSessao } from './ativas.js';
 // código 0, sem stack trace.
 //
 // Toda sessão aberta roda este script, registrada ou não (spec 8.2), então o
-// caminho até o gate carrega o mínimo: util.js e ativas.js (que traz base.js,
-// de onde vêm dirDados e idValido). estado.js, formato.js e o resto vêm por
-// import dinâmico depois do gate.
+// caminho até o gate carrega o mínimo: base.js (lerStdin, dirDados e
+// idValido) e ativas.js. estado.js, formato.js e o resto (util.js incluído)
+// vêm por import dinâmico depois do gate.
 
 // Se o Claude Code fechar o pipe antes da escrita, o EPIPE vira evento de
 // erro no stdout; sem ouvinte ele derrubaria o processo com código 1.

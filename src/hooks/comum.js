@@ -1,4 +1,4 @@
-import { lerStdin } from '../util.js';
+import { lerStdin } from '../base.js';
 
 // O que os três hooks do plugin (spec 6.5) têm em comum: ler o JSON do
 // stdin, escrever o contexto no formato do Claude Code e sair sempre com
@@ -6,7 +6,7 @@ import { lerStdin } from '../util.js';
 // Claude: qualquer falha termina calada.
 //
 // Este arquivo fica no caminho curto de todo hook (antes do gate de ativação,
-// spec 8.2), então só importa util.js.
+// spec 8.2), então só importa base.js (lerStdin).
 //
 // Prazos (spec 8.1, S9): só a leitura do stdin tem prazo próprio (1 s, em
 // lerStdin). O trabalho depois do gate é E/S síncrona sem prazo, porque o Node

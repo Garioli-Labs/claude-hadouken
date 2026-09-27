@@ -67,6 +67,8 @@ test('os ajudantes divididos só são definidos na casa deles', () => {
     ['literal 12.5', null, /\b12\.5\b/g],
     ['FAIXAS_CTX', 'formato.js', definicao('FAIXAS_CTX')],
     ['FAIXAS_CACHE', 'formato.js', definicao('FAIXAS_CACHE')],
+    ['lerStdin', 'base.js', definicao('lerStdin')],
+    ['STDIN_MAX_BYTES', 'base.js', definicao('STDIN_MAX_BYTES')],
   ];
   const excecoes = new Set(['consumo.js: codigoErro']);
   const achados = [];
@@ -102,6 +104,8 @@ test('as casas exportam os ajudantes, e quem os reexporta entrega o mesmo', () =
   assert.equal(reservasComandos.ESCAPAR, util.REGRA_JSON_SEGURO);
   assert.equal(reservasInstalar.INVISIVEL, util.REGRA_JSON_SEGURO);
   assert.equal(LINHA_SEM_LEITURA, alerta.LINHA_SEM_LEITURA);
+  assert.equal(typeof base.lerStdin, 'function');
+  assert.equal(util.lerStdin, base.lerStdin, 'util.js reexporta o lerStdin de base.js');
   assert.equal(alerta.LINHA_SEM_LEITURA, 'Consumo sem leitura: rode /usage.');
 });
 

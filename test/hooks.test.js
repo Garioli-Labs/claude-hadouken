@@ -484,7 +484,7 @@ test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.j
   gravarEstado(home, { p5: 82 });
   const fora = modulosCarregados('prompt-submit.js', home, prompt());
   mudo(fora.r);
-  assert.deepEqual(fora.nomes, ['ativas.js', 'base.js', 'comum.js', 'prompt-submit.js', 'util.js']);
+  assert.deepEqual(fora.nomes, ['ativas.js', 'base.js', 'comum.js', 'prompt-submit.js']);
   registrar(home, 's1');
   const dentro = modulosCarregados('prompt-submit.js', home, prompt());
   assert.match(contexto(dentro.r, 'UserPromptSubmit'), LINHA_SERIALIZAR);
@@ -496,7 +496,7 @@ test('session-end: sessão não registrada não carrega estado.js nem historico.
   registrar(home, 'outra');
   const fora = modulosCarregados('session-end.js', home, fim());
   mudo(fora.r);
-  assert.deepEqual(fora.nomes, ['ativas.js', 'base.js', 'comum.js', 'session-end.js', 'util.js']);
+  assert.deepEqual(fora.nomes, ['ativas.js', 'base.js', 'comum.js', 'session-end.js']);
 });
 
 // --- aviso de projeção (spec v0.2.0 §12.5 e §12.7) ---------------------------

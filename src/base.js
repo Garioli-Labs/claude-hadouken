@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 // O pouco que o caminho curto da barra precisa antes do gate (spec 8.2):
-// diretório de dados e validador de id de sessão, mais o validador de
+// leitura do stdin (lerStdin, desde a v0.2.0), diretório de dados e
+// validador de id de sessão, mais o validador de
 // instante que os dados em disco usam. Fica fora de estado.js para que a
 // barra de uma sessão não registrada não carregue a camada de estado inteira;
 // estado.js reexporta os três. Com o diretório de dados vêm o teste de
@@ -233,3 +234,69 @@ export const fechar = (fd) => { try { fs.closeSync(fd); } catch { /* já fechado
 // Erro com `code`, para uma recusa própria (EEXIST, 'tmp_invalido',
 // 'shim_invalido') seguir o mesmo caminho dos erros de sistema.
 export const erroComCodigo = (code) => Object.assign(new Error(code), { code });
+
+// ------------------------------------------------------------------ stdin
+// Leitura do stdin da barra e dos hooks (antes em util.js; util.js a
+// reexporta). Fica aqui porque roda antes do gate de ativação em toda sessão
+// aberta, registrada ou não.
+
+const STDIN_MAX_BYTES = 1_048_576;
+// Fica no stdin depois da leitura: um erro tardio (pipe quebrado depois do
+// 'end' ou do prazo) sem ouvinte viraria exceção e mataria o processo, que
+// precisa sair com código 0. Uma única instância, então nunca se acumula.
+const ignorarErroTardio = () => {};
+
+// Lê todo o stdin como UTF-8. Nunca bloqueia: com TTY devolve '' na hora; se o
+// 'end' não chegar em prazoMs, devolve o que já leu e solta o stdin. Acima de
+// maxBytes (1 MiB por padrão; spec 8.1, S9) para de acumular na hora e devolve
+// '', que quem chama trata como entrada inválida. Nunca rejeita.
+export function lerStdin(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES) {
+  return new Promise((resolve) => {
+    const entrada = process.stdin;
+    if (entrada.isTTY) {
+      resolve('');
+      return;
+    }
+    const teto = Number.isFinite(maxBytes) && maxBytes >= 0 ? maxBytes : STDIN_MAX_BYTES;
+    const partes = [];
+    let total = 0;
+    let terminado = false;
+    const terminar = (excedeu = false) => {
+      if (terminado) return;
+      terminado = true;
+      clearTimeout(prazo);
+      entrada.off('data', aoLer);
+      entrada.off('end', aoTerminar);
+      entrada.off('error', aoTerminar);
+      entrada.off('error', ignorarErroTardio);
+      entrada.on('error', ignorarErroTardio);
+      entrada.pause();
+      let texto = '';
+      if (excedeu) {
+        // Parado de dentro do 'data', o pipe volta a ler um tick depois do
+        // pause (o stream repõe o buffer) e segura o processo aberto enquanto
+        // o outro lado escrever: acima do teto o stdin é fechado de vez.
+        try { entrada.destroy(); } catch { /* já fechado */ }
+      } else {
+        try { texto = Buffer.concat(partes, total).toString('utf8'); } catch { texto = ''; }
+      }
+      partes.length = 0;
+      resolve(texto);
+    };
+    const aoTerminar = () => terminar(false);
+    // Bytes, não caracteres: o teto vale para o que chega pelo pipe.
+    const aoLer = (c) => {
+      const pedaco = typeof c === 'string' ? Buffer.from(c, 'utf8') : c;
+      total += pedaco.length;
+      if (total > teto) {
+        terminar(true);
+        return;
+      }
+      partes.push(pedaco);
+    };
+    const prazo = setTimeout(aoTerminar, prazoMs);
+    entrada.on('data', aoLer);
+    entrada.on('end', aoTerminar);
+    entrada.on('error', aoTerminar);
+  });
+}
