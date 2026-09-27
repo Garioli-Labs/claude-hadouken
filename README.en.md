@@ -579,7 +579,12 @@ claude plugin marketplace update claude-hadouken
 claude plugin update claude-hadouken@claude-hadouken
 ```
 
-The new version applies from the next session on; the session-start hook repoints the stable scripts in the data folder to it. The bar does not need to be reinstalled.
+The bar does not need to be reinstalled. The `statusLine` runs a stable script in the data folder (`bin/statusline.mjs`), and that script points to the plugin version loaded by the latest session start (opening, resuming, `/clear` and `/compact` all count as a start). In practice:
+
+- **Until some session starts on the new version**, every session stays on the previous one.
+- **Once a session starts on the new version**, every session that already showed the bar, including the ones opened before the update, switches to the new look on its next redraw. The change is visual only: the data, the state and the notices are the same.
+- **A `/clear` or `/compact` in a session still running the previous version** points the bar back to it while it is still on disk. If the previous version's folder has already been removed, the bar is empty, with no error, until the next session start. Opening or resuming a session fixes both cases.
+- **A session that never loaded the plugin** still shows no bar and writes nothing, before and after the update.
 
 ---
 

@@ -577,7 +577,12 @@ claude plugin marketplace update claude-hadouken
 claude plugin update claude-hadouken@claude-hadouken
 ```
 
-A versão nova vale a partir da próxima sessão; o hook de início de sessão reaponta os scripts estáveis da pasta de dados para ela. A barra não precisa ser reinstalada.
+A barra não precisa ser reinstalada. A `statusLine` chama um script estável da pasta de dados (`bin/statusline.mjs`), e esse script aponta para a versão do plugin que o último início de sessão carregou (abrir, retomar, `/clear` ou `/compact` contam como início). Na prática:
+
+- **Até alguma sessão começar com a versão nova**, todas seguem com a anterior.
+- **Começou uma sessão com a versão nova:** todas as sessões que já mostravam a barra, inclusive as abertas antes da atualização, passam ao visual novo no próximo redesenho. A mudança é só visual: os dados, o estado e os avisos são os mesmos.
+- **Um `/clear` ou `/compact` numa sessão que ainda roda a versão anterior** aponta a barra de volta para ela, enquanto ela estiver no disco. Se a pasta da versão anterior já tiver sido removida, a barra fica vazia, sem erro, até o próximo início de sessão. Abrir ou retomar uma sessão resolve os dois casos.
+- **Sessão que nunca carregou o plugin** continua sem barra e sem gravar nada, antes e depois da atualização.
 
 ---
 
