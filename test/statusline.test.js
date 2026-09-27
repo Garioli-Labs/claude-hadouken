@@ -66,7 +66,7 @@ test('sessão registrada imprime a barra e grava estado.json', () => {
   const r = rodar(JSON.stringify(entradaValida()), home);
   assert.equal(r.status, 0);
   assert.equal(r.stderr, '');
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
   assert.ok(!r.stdout.includes('\n'));
   assert.ok(!r.stdout.includes('\x1b'));
   assert.ok(fs.existsSync(path.join(home, 'estado.json')));
@@ -110,7 +110,7 @@ test('renovação: a barra renova registro de mais de 1 h e deixa o recente', ()
   let r = rodar(JSON.stringify(entradaValida()), home);
   const depois = Date.now();
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
   const renovado = mtime(arqAtiva(home, 's1'));
   assert.ok(renovado >= antes - 1000 && renovado <= depois + 1000, `${renovado} fora de [${antes}, ${depois}]`);
   // Registro de 10 min: a data não muda (sem escrita a cada redesenho).
@@ -118,12 +118,12 @@ test('renovação: a barra renova registro de mais de 1 h e deixa o recente', ()
   datar(arqAtiva(home, 's1'), recente);
   r = rodar(JSON.stringify(entradaValida()), home);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
   assert.equal(mtime(arqAtiva(home, 's1')), recente);
   // Quase 30 dias: ainda ativa, e a barra renova.
   datar(arqAtiva(home, 's1'), Date.now() - ATIVA_MAX_MS + 60_000);
   r = rodar(JSON.stringify(entradaValida()), home);
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
   assert.ok(mtime(arqAtiva(home, 's1')) >= antes);
   assert.deepEqual(fs.readdirSync(path.join(home, 'ativas')), [hex('s1')]);
 });
@@ -134,17 +134,18 @@ test('cores: só os códigos fixos, e nenhuma com NO_COLOR', () => {
   const stdin = JSON.stringify(entradaValida());
   const colorida = rodar(stdin, home, { NO_COLOR: undefined });
   assert.equal(colorida.status, 0);
-  assert.ok(colorida.stdout.includes('\x1b[32m5h 10%'), JSON.stringify(colorida.stdout));
+  assert.ok(colorida.stdout.includes('\x1b[32m5h ▰▱▱▱▱▱▱▱ 10%'), JSON.stringify(colorida.stdout));
   assert.doesNotMatch(colorida.stdout, ESC_ESTRANHO);
   const vazia = rodar(stdin, home, { NO_COLOR: '' });
   assert.equal(vazia.status, 0);
   assert.equal(vazia.stderr, '');
-  assert.ok(vazia.stdout.includes('\x1b[32m5h 10%'), 'NO_COLOR vazio não desliga (no-color.org)');
+  assert.ok(vazia.stdout.includes('\x1b[32m5h ▰▱▱▱▱▱▱▱ 10%'), 'NO_COLOR vazio não desliga (no-color.org)');
   assert.doesNotMatch(vazia.stdout, ESC_ESTRANHO);
   const sem = rodar(stdin, home, { NO_COLOR: '1' });
   assert.equal(sem.status, 0);
   assert.equal(sem.stderr, '');
-  assert.match(sem.stdout, /^Opus 5\.5 │ 5h 10% ↻/);
+  assert.match(sem.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10% ↻\d\d:\d\d │ 7d [▰▱┃]{9} 20%\/\d+%/);
+  assert.equal(sem.stdout.split('┃').length, 2, 'uma marca só, a da 7d');
   assert.ok(!sem.stdout.includes('\x1b'));
 });
 
@@ -266,7 +267,7 @@ test('stdin que nunca fecha: a barra sai no prazo curto e ainda imprime', async 
   const aberto = await cronometrar(home, false);
   assert.equal(aberto.codigo, 0, aberto.erro);
   assert.equal(aberto.erro, '');
-  assert.match(aberto.saida, /^Opus 5\.5 │ 5h 10% ↻/);
+  assert.match(aberto.saida, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10% ↻/);
   assert.ok(aberto.ms - base.ms < 700, `aberto ${aberto.ms.toFixed(0)} ms vs base ${base.ms.toFixed(0)} ms`);
 });
 
@@ -303,13 +304,13 @@ test('leitura velha de sessao ociosa nao baixa o snapshot da conta', () => {
   const limites = (p5, r5) => ({ five_hour: { used_percentage: p5, resets_at: r5 }, seven_day: { used_percentage: 1, resets_at: s + 6 * 86400 } });
   const b = rodar(JSON.stringify(entradaValida({ session_id: 'sessaoB', rate_limits: limites(85, s + 3600) })), home);
   assert.equal(b.status, 0, b.stderr);
-  assert.match(b.stdout, /5h 85%/);
+  assert.match(b.stdout, /5h ▰▰▰▰▰▰▰▱ 85%/);
   const estadoDe = () => validarEstado(lerJson(path.join(home, 'estado.json')).valor, Date.now());
   const vistoB = avaliarAlertas({ limites: limitesValidos(estadoDe(), Date.now()), anteriores: null, sessionId: 'sessaoB', agoraMs: Date.now() });
   assert.ok(vistoB.linhas.some((l) => /serializar/.test(l)), JSON.stringify(vistoB.linhas));
   const a = rodar(JSON.stringify(entradaValida({ session_id: 'sessaoA', rate_limits: limites(60, s + 3603) })), home);
   assert.equal(a.status, 0, a.stderr);
-  assert.match(a.stdout, /5h 85%/, 'a barra de A mostra o snapshot da conta, nao a propria leitura velha');
+  assert.match(a.stdout, /5h ▰▰▰▰▰▰▰▱ 85%/, 'a barra de A mostra o snapshot da conta, nao a propria leitura velha');
   const e = estadoDe();
   assert.equal(e.five_hour.used_percentage, 85);
   const depois = avaliarAlertas({ limites: limitesValidos(e, Date.now()), anteriores: vistoB.novos, sessionId: 'sessaoB', agoraMs: Date.now() });
@@ -367,7 +368,7 @@ test('sessão registrada muda só o estado.json: sem cache/ nem entrada nova', (
   const r = rodar(JSON.stringify(entradaValida()), home, { NODE_COMPILE_CACHE: undefined });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
   const depois = arvore(home);
   const ehEstado = (item) => item.startsWith('estado.json|');
   assert.deepEqual(depois.filter((i) => !ehEstado(i)), antes.filter((i) => !ehEstado(i)));
@@ -412,6 +413,6 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   registrar(home, 's1');
   const dentro = modulosCarregados(home, JSON.stringify(entradaValida()));
   assert.equal(dentro.r.status, 0, dentro.r.stderr);
-  assert.match(dentro.r.stdout, /^Opus 5\.5 │ 5h 10%/);
-  assert.deepEqual(dentro.nomes, ['alerta.js', 'ativas.js', 'base.js', 'estado.js', 'formato.js', 'ritmo.js', 'statusline.js', 'util.js']);
+  assert.match(dentro.r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
+  assert.deepEqual(dentro.nomes, ['alerta.js', 'ativas.js', 'barrinha.js', 'base.js', 'estado.js', 'formato.js', 'ritmo.js', 'statusline.js', 'util.js']);
 });

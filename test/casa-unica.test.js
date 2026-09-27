@@ -14,9 +14,9 @@ import { _reservas as reservasInstalar } from '../src/instalar-cli.js';
 // Uma casa só para os ajudantes que se repetiam (follow-up da revisão final
 // de qualidade): numeroFinito, DATA_MAX_MS, codigoErro e somaSegura em base.js;
 // janelaValida, GLIFOS_BARRA e jsonSeguro em util.js; a linha fixa de "sem
-// leitura" em alerta.js; os glifos e a conta da barrinha em barrinha.js
-// (v0.2.0). Como o teste da política de rename (base.test.js), este barra a
-// cópia nova pelo texto de src/.
+// leitura" em alerta.js; os glifos e a conta da barrinha em barrinha.js e as
+// faixas de ctx e cache em formato.js (v0.2.0). Como o teste da política de
+// rename (base.test.js), este barra a cópia nova pelo texto de src/.
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));
 
@@ -53,7 +53,7 @@ test('os ajudantes divididos só são definidos na casa deles', () => {
     // como a de transcripts.js, é outra coisa e não conta).
     ['função janela', null, /(?:^|[^\w.$])function\s+janela\s*\(|(?:^|[^\w.$])(?:const|let|var)\s+janela\s*=\s*(?:function\b|\(?\w*\)?\s*=>)/gm],
     ['GLIFOS_BARRA', 'util.js', definicao('GLIFOS_BARRA')],
-    ['classe dos glifos da barra', 'util.js', /\[│↻·\]/gu],
+    ['classe dos glifos da barra', 'util.js', /\[│↻·▰▱┃\]/gu],
     ['jsonSeguro', 'util.js', definicao('jsonSeguro')],
     ['escaparInvisiveis', null, definicao('escaparInvisiveis')],
     ['texto da linha sem leitura', 'alerta.js', /Consumo sem leitura/g],
@@ -65,6 +65,8 @@ test('os ajudantes divididos só são definidos na casa deles', () => {
     ['barrinha', 'barrinha.js', definicao('barrinha')],
     // A conta das casas escrita de novo com o número.
     ['literal 12.5', null, /\b12\.5\b/g],
+    ['FAIXAS_CTX', 'formato.js', definicao('FAIXAS_CTX')],
+    ['FAIXAS_CACHE', 'formato.js', definicao('FAIXAS_CACHE')],
   ];
   const excecoes = new Set(['consumo.js: codigoErro']);
   const achados = [];
@@ -163,4 +165,32 @@ test('janelaValida: o schema de estado.js, cópia só com os dois campos, cada u
   };
   assert.deepEqual(util.janelaValida(vira), { used_percentage: 42, resets_at: 1_800_000_000 });
   assert.equal(leituras, 1);
+});
+
+// v0.2.0 (spec §4 e §11): os três glifos da barrinha só aparecem em
+// barrinha.js, nem em literal, nem em escape (▰, \u{25b0}), nem em número
+// (0x25b0, 9648). A única exceção é a classe de GLIFOS_BARRA em util.js, que
+// precisa deles para tirá-los dos nomes (util.js não importa barrinha.js: a
+// statusline carrega util.js antes do gate de ativação, spec §8); a classe é
+// conferida contra as constantes de barrinha.js.
+test('glifos da barrinha só em barrinha.js, e GLIFOS_BARRA tira os três', () => {
+  const GLIFO = /[▰▱┃]|\\u(?:25b[01]|2503)|\\u\{0*(?:25b[01]|2503)\}|0x0*(?:25b[01]|2503)\b|\b(?:9648|9649|9475)\b/giu;
+  const CLASSE = '[│↻·▰▱┃]';
+  const achados = [];
+  for (const arq of listarJs(SRC)) {
+    const rel = path.relative(SRC, arq).split(path.sep).join('/');
+    if (rel === 'barrinha.js') continue;
+    let texto = fs.readFileSync(arq, 'utf8');
+    if (rel === 'util.js') {
+      assert.equal(texto.split(CLASSE).length, 2, 'util.js: a classe de GLIFOS_BARRA, uma vez');
+      texto = texto.replace(CLASSE, '');
+    }
+    const n = [...texto.matchAll(GLIFO)].length;
+    if (n > 0) achados.push(`${rel}: ${n}`);
+  }
+  assert.deepEqual(achados, []);
+  for (const g of [barrinha.CHEIA, barrinha.VAZIA, barrinha.MARCA]) {
+    assert.equal(`a${g}b`.replace(util.GLIFOS_BARRA, ' '), 'a b', g);
+  }
+  assert.equal(barrinha.CASAS, 8);
 });

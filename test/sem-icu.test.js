@@ -365,7 +365,7 @@ test('sem ICU: os três hooks e a barra carregam, saem com código 0 e sem stder
     rate_limits: { five_hour: { used_percentage: 10, resets_at: s + 3600 }, seven_day: { used_percentage: 20, resets_at: s + 86400 } },
   });
   ok(barra, 'statusline');
-  assert.match(barra.stdout, /^Opus 5\.5 │ 5h 10%/);
+  assert.match(barra.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
   const prompt = rodar('hooks/prompt-submit.js', { session_id: 's1', hook_event_name: 'UserPromptSubmit', cwd: raiz, prompt: 'oi' });
   ok(prompt, 'prompt-submit');
   if (prompt.stdout !== '') assert.equal(JSON.parse(prompt.stdout).hookSpecificOutput.hookEventName, 'UserPromptSubmit');

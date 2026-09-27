@@ -106,7 +106,7 @@ try {
 
   // The caller's NO_COLOR decides whether the bar is coloured; the check strips
   // the only escapes the bar may carry (the fixed colour codes).
-  const PREFIXO_BARRA = 'Opus 5.5\u00b7high \u2502 5h 42%';
+  const PREFIXO_BARRA = 'Opus 5.5\u00b7high \u2502 5h \u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1 42%';
   const CORES_FIXAS = /\x1b\[(?:3[123]|0)m/g;
   let barra = '';
   const barraCerta = (nome) => (out) => {
