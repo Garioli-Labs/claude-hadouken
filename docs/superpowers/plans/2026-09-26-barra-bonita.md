@@ -8247,3 +8247,43 @@ O sha256 de cada bloco é o do texto extraído (UTF-8, LF, com `\n` no fim), que
 Durante a execução entram aqui, com data: partida e chegada dos benches, as execuções do A/B e a decisão de C-A e C-B, a tabela de desempenho da v0.2.0 em Windows, Linux e macOS, o resultado do teste de ponta a ponta, o merge, o CI e a release.
 
 **2026-09-26, verificação do plano antes da execução (Windows, Node 24.18).** Numa cópia limpa de `726f3b0`, com este plano commitado por cima e cada bloco extraído daqui pelo `extrair-bloco.mjs`, os comandos das Tasks 1 a 8 e 10 rodaram como estão escritos e deram as contagens do plano (Task 1: vermelho `# fail 2`, verde 725; Task 2: vermelho 22 de 59, verde 728; Task 3: vermelho 5, verde 739; Task 4: 740; Task 5: vermelho 3 de 69, verde 758; Task 6: vermelho 9 de 52, verde 762; Task 7: vermelho 13 de 62, verde 775; Task 8: vermelho 8 de 77, verde 781). A Task 9 rodou nas quatro combinações: C-A aceito e recusado (vermelho 5 de 57, verde 781; recusado volta a `git status` vazio e 781) e, em cima de cada um, C-B aceito com `patch_cb_docs.py` (vermelho 3 de 52, verde 62 com 1 pulado, suíte 792) e C-B recusado com `patch_cb_rejeita.py` (781). Nas quatro, a Task 10 aplicou `t10-readme.diff` e `t10-security.diff` sem conflito, as imagens saíram com os sha256 do plano e a suíte ficou em 781 ou 792. `preencher_desempenho.py` conferido nos modos `windows` e `ci`. Benches e A/B só conferidos na sintaxe e no pior caso da fixture, com poucas rodadas: os números de verdade são os da execução. Esta verificação substitui a da primeira versão do plano, feita sobre `73937e9` antes da seção 12.
+
+**2026-09-27, Task 9: desempenho, C-A e C-B (Windows 11, Node 24.18, i7-7700HQ).** Antes de cada A/B e de cada bench, `checar-piso.mjs` disse "máquina parada" (p50 do `node -e ""` entre 68,9 e 77,6 ms, todas as vezes na primeira tentativa). O `bench/ab-raizes.mjs` (`cabd26c`) saiu do bloco do plano com duas mudanças pedidas pelo controlador: o veredito usa a mediana verdadeira das diferenças pareadas (com 200 pares, a média dos dois valores do meio; o bloco pegava o de baixo, que puxa para `gain`), e o pior caso é reancorado antes de cada rodada e conferido, como no `hooks-p95.mjs` (50 sessões ativas e 90 pontos de histórico; a barra de uma raiz com a seção 12 tem de mostrar `50 sessões` e a previsão da 7d em todo par).
+
+Controle de local. Numa execução A/A com o mesmo `src/` (A numa pasta de rascunho em `C:`, B na árvore do repo em `E:`), o local sozinho deu vantagem a B: mediana(B − A) de −2,4 ms na barra registrada e −4,5 ms no prompt registrado (os dois `gain`), −0,7 e −1,4 ms nas não registradas. Com as duas raízes na mesma pasta de rascunho, o A/A deu `neutral` nos quatro cenários (−0,0; 0,0; −0,8; +0,3 ms). Por isso as execuções que decidem têm as duas raízes na mesma pasta (B é uma cópia da árvore, conferida com `diff -r`); as execuções com B = árvore do repo, como o Step 7 e o Step 10 as escrevem, também estão na tabela.
+
+Contexto (Step 3, B = árvore do repo, com o viés acima; não decide nada): a v0.2.0 contra a v0.1.0 (`726f3b0`) deu +3,4 ms na barra registrada e +3,5 ms no prompt registrado (os dois `regression`: histórico, previsão e aviso de projeção), −1,9 ms na barra não registrada e −1,1 ms no prompt não registrado. Os p95 registrados subiram 1,9 e 1,8 ms, longe da meta de 250 ms.
+
+A/B de 200 pares: mediana(B − A), fração dos pares com B mais rápido e veredito. Cenários-alvo: C-A, as duas linhas não registradas; C-B, as duas registradas.
+
+| Execução | barra registrada | barra não registrada | prompt registrado | prompt não registrado |
+|---|---:|---:|---:|---:|
+| C-A, mesma pasta, 1 | +0,8 ms, 46 %, neutral | −1,3 ms, 59 %, gain | +0,9 ms, 47 %, neutral | −2,1 ms, 63 %, gain |
+| C-A, mesma pasta, 2 | −1,6 ms, 56 %, gain | −2,9 ms, 65 %, gain | +0,7 ms, 45 %, neutral | −2,8 ms, 66 %, gain |
+| C-A, B = repo, 1 | −3,1 ms, 64 %, gain | −3,7 ms, 67 %, gain | −2,5 ms, 63 %, gain | −5,3 ms, 73 %, gain |
+| C-A, B = repo, 2 | −3,2 ms, 63 %, gain | −3,5 ms, 68 %, gain | −4,5 ms, 73 %, gain | −4,3 ms, 75 %, gain |
+| C-B, mesma pasta, 1 | +7,2 ms, 22 %, regression | −0,6 ms, 54 %, neutral | +6,0 ms, 27 %, regression | +0,9 ms, 44 %, neutral |
+| C-B, mesma pasta, 2 | +6,6 ms, 27 %, regression | +0,4 ms, 47 %, neutral | +6,6 ms, 24 %, regression | −0,6 ms, 53 %, neutral |
+| C-B, B = repo, 1 | +5,5 ms, 30 %, regression | −1,0 ms, 56 %, neutral | +4,1 ms, 42 %, regression | −2,4 ms, 62 %, gain |
+| C-B, B = repo, 2 | +4,3 ms, 35 %, regression | −2,2 ms, 61 %, gain | +3,8 ms, 35 %, regression | −1,1 ms, 56 %, gain |
+
+Decisões. **C-A aceito** (`dba6ae5`): os dois cenários-alvo deram `gain` nas duas execuções da mesma pasta (−1,3 e −2,9 ms na barra, −2,1 e −2,8 ms no prompt) e também nas duas com B = repo, e nenhum cenário deu `regression` em nenhuma; `lerStdin` mora em `base.js`, e as listas de módulos antes do gate ficaram sem `util.js`. **C-B recusado**: os dois cenários-alvo deram `regression` nas quatro execuções (+6,6 a +7,2 ms na barra e +6,0 a +6,6 ms no prompt, na mesma pasta), mesmo com o viés a favor de B; o código saiu, e `test/statusline.test.js` fixa que a barra não cria `cache-compilacao/` (com o C-B aplicado, o teste falha).
+
+Antes (Step 1, depois da Task 8) e depois (Step 11, depois da Task 9), p50/p95 em ms, 100 rodadas de cada bench. Os benches não são pareados: a prova do C-A é o A/B acima; as diferenças nas linhas registradas são ruído.
+
+| Linha | antes | depois |
+|---|---:|---:|
+| barra registrada | 110,2 / 133,7 | 112,5 / 136,4 |
+| barra não registrada | 89,1 / 106,2 | 87,2 / 102,6 |
+| barra registrada pelo shim | 112,2 / 128,0 | 113,4 / 135,1 |
+| barra não registrada pelo shim | 90,0 / 107,3 | 91,4 / 102,5 |
+| `node -e ""` (bench da barra) | 71,9 / 85,4 | 70,5 / 81,4 |
+| prompt registrado, sem gravar | 113,6 / 130,0 | 113,5 / 130,1 |
+| prompt registrado, grava | 119,1 / 140,4 | 120,5 / 141,0 |
+| prompt não registrado | 89,9 / 105,3 | 87,8 / 101,9 |
+| SessionStart | 122,8 / 148,0 | 122,0 / 142,1 |
+| SessionEnd registrado | 100,9 / 115,8 | 100,5 / 122,1 |
+| SessionEnd não registrado | 89,4 / 104,7 | 88,5 / 106,2 |
+| `node -e ""` (bench dos hooks) | 69,6 / 82,1 | 69,8 / 85,1 |
+
+Todas as linhas de barra e de hook ficam dentro da meta do Windows (p95 ≤ 250 ms). Suíte inteira depois da Task 9: `# tests 781`, `# fail 0`.

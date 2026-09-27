@@ -359,13 +359,14 @@ test('sessão não registrada não escreve nada: árvore inteira igual e sem cac
 });
 
 // A barra de uma sessão registrada grava só o estado.json: nenhuma pasta nova
-// (o cache de compilação do Node foi medido sem ganho e retirado; voltar com
-// ele, ou com qualquer outra escrita, tem de ser decisão explícita).
+// (o cache de compilação do Node foi medido sem ganho e retirado na v0.1.0 e
+// de novo na Task 9 do plano v0.2.0, em cache-compilacao/; voltar com ele,
+// ou com qualquer outra escrita, tem de ser decisão explícita).
 test('sessão registrada muda só o estado.json: sem cache/ nem entrada nova', () => {
   const home = homePovoado();
   registrar(home, 's1');
   const antes = arvore(home);
-  const r = rodar(JSON.stringify(entradaValida()), home, { NODE_COMPILE_CACHE: undefined });
+  const r = rodar(JSON.stringify(entradaValida()), home, { NODE_COMPILE_CACHE: undefined, NODE_DISABLE_COMPILE_CACHE: undefined });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
   assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
@@ -375,6 +376,7 @@ test('sessão registrada muda só o estado.json: sem cache/ nem entrada nova', (
   assert.equal(depois.filter(ehEstado).length, 1);
   assert.notDeepEqual(depois.filter(ehEstado), antes.filter(ehEstado));
   assert.equal(fs.existsSync(path.join(home, 'cache')), false);
+  assert.equal(fs.existsSync(path.join(home, 'cache-compilacao')), false);
 });
 
 // Lista os módulos do plugin que o processo da barra carrega, por um gancho de
