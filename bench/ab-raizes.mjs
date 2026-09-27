@@ -177,10 +177,12 @@ try {
   fs.cpSync(homeA, homeB, { recursive: true, preserveTimestamps: true });
 
   // The worst case stays live for the whole run (see the header).
-  // Only one estado.js runs in this process for the check: root A's, already
-  // loaded for the fixture, and root B's only when A is from before §12.
-  // Whether a root not loaded here has §12 comes from a text probe of its
-  // src/estado.js, cross-checked against root A's loaded module.
+  // Root A's estado.js, already loaded for the fixture, does the check when it
+  // has §12. Root B's is loaded only when A lacks §12 or when a text probe of
+  // B's src/estado.js says B lacks it: a negative probe would switch B's
+  // output check off, so B's own module has to confirm it (a probe that
+  // misses §12 throws). A positive probe keeps the check on, and a wrong one
+  // fails there, loudly. The probe is also cross-checked against A's module.
   const temSecao12 = (m) => typeof m?.validarEstado === 'function' && typeof m?.sessoesAtivas === 'function' && Number.isInteger(m?.HISTORICO_MAX);
   const SONDA_SECAO12 = [/^export function validarEstado\(/m, /^export function sessoesAtivas\(/m, /^export const HISTORICO_MAX = /m];
   const sondaSecao12 = (raiz) => {
@@ -189,8 +191,12 @@ try {
   };
   const secao12A = temSecao12(estadoA);
   if (sondaSecao12(raizA) !== secao12A) throw new Error('bench: the §12 text probe disagrees with root A\'s estado.js; update SONDA_SECAO12');
-  const estadoB = secao12A ? null : await importar(raizB, 'estado.js');
-  const secao12B = estadoB === null ? sondaSecao12(raizB) : temSecao12(estadoB);
+  let estadoB = secao12A ? null : await importar(raizB, 'estado.js');
+  if (estadoB === null && !sondaSecao12(raizB)) {
+    estadoB = await importar(raizB, 'estado.js');
+    if (temSecao12(estadoB)) throw new Error('bench: the §12 text probe missed root B\'s §12; update SONDA_SECAO12');
+  }
+  const secao12B = estadoB === null ? true : temSecao12(estadoB);
   const conferidor = secao12A ? estadoA : secao12B ? estadoB : null;
   const arqsEstado = [homeA, homeB].map((h) => path.join(h, ARQ_ESTADO));
   const estadoBase = JSON.parse(fs.readFileSync(arqsEstado[0], 'utf8'));
