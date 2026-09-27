@@ -19,10 +19,23 @@ export const ARQ_ESTADO = 'estado.json';
 // Idade máxima de uma sessão guardada em estado.sessoes (poda de 24 h). O
 // registro de ativação tem vigência própria (ativas.js, ATIVA_MAX_MS).
 export const SESSAO_MAX_MS = 24 * 3_600_000;
+// Teto de estado.sessoes (ficam as mais recentes e a atual) e da contagem de
+// sessões ativas (sessoesAtivas). Casa única do número: quem mostra a
+// contagem importa daqui. Não é o MAX_SESSOES de agregacao.js (as sessões
+// por consumo do relatório).
+export const MAX_SESSOES = 50;
+// Sessão ativa (spec v0.2.0 §12.1): o `at` dela em estado.sessoes, que a barra
+// renova a cada atualização, tem no máximo isto de idade.
+export const ATIVA_RECENTE_MS = 5 * 60_000;
+// Histórico curto das leituras de limite (spec v0.2.0 §12.2): no máximo um
+// ponto a cada HISTORICO_PASSO_MS e HISTORICO_MAX pontos, nenhum com mais de
+// HISTORICO_IDADE_MS. Só a previsão de estouro (previsao.js) o lê.
+export const HISTORICO_MAX = 90;
+export const HISTORICO_PASSO_MS = 2 * 60_000;
+export const HISTORICO_IDADE_MS = 3 * 3_600_000;
 
 const VERSAO = 1;
 const MAX_BYTES_PADRAO = 1_048_576;
-const MAX_SESSOES = 50;
 const MAX_MODEL = 40;
 // cwd serve para exibir; nunca vira caminho de arquivo.
 const MAX_CWD = 200;
@@ -31,6 +44,11 @@ const JANELAS = ['five_hour', 'seven_day'];
 // duração + tolerância não pode ter vindo do servidor (relógio, arquivo mexido)
 // e não segura leitura nenhuma na mescla.
 const DURACAO_S = { five_hour: 5 * 3600, seven_day: 7 * 86_400 };
+// Coluna de cada janela nos pontos do histórico.
+const COLUNA = { five_hour: 'h5', seven_day: 'd7' };
+// Queda maior que isto em relação ao último ponto da janela é janela nova
+// (spec §12.2): a coluna é zerada.
+const QUEDA_TROCA = 1;
 
 // O_NONBLOCK (onde existe) impede que um FIFO posto no lugar do arquivo trave
 // o open (o tipo é conferido depois, pelo fstat); em arquivo regular não muda nada. No Windows a
@@ -184,7 +202,73 @@ function tmpDe(arquivo) {
 }
 
 function estadoVazio() {
-  return { versao: VERSAO, at: null, five_hour: null, seven_day: null, sessoes: Object.create(null) };
+  return { versao: VERSAO, at: null, five_hour: null, seven_day: null, sessoes: Object.create(null), historico: [] };
+}
+
+// Porcentagem de um ponto do histórico: null, ou número em [0, 100];
+// qualquer outra coisa é undefined (o ponto sai).
+const valorHistorico = (v) => (v === null ? null : numeroFinito(v) && v >= 0 && v <= 100 ? v : undefined);
+
+// Histórico lido do disco (spec §12.2 e §12.7), reconstruído só com pontos no
+// schema. Só os HISTORICO_MAX últimos itens da lista são olhados, então uma
+// lista gigante custa o mesmo que uma cheia. Cada ponto precisa de `at`
+// legível por instante (até 5 min no futuro) com no máximo HISTORICO_IDADE_MS
+// de idade, pelo menos HISTORICO_PASSO_MS depois do ponto aceito antes dele,
+// e h5 e d7 null ou em [0, 100], ao menos um deles número. O resto sai; o que
+// não é lista vira []. Chamado dentro do try de validarEstado.
+function historicoValido(bruto, agoraMs) {
+  if (!Array.isArray(bruto)) return [];
+  const pontos = [];
+  let anterior = -Infinity;
+  for (const p of bruto.slice(-HISTORICO_MAX)) {
+    if (!ehObjeto(p)) continue;
+    const t = instante(p.at, agoraMs);
+    if (t === null || agoraMs - t > HISTORICO_IDADE_MS || t - anterior < HISTORICO_PASSO_MS) continue;
+    const h5 = valorHistorico(p.h5);
+    const d7 = valorHistorico(p.d7);
+    if (h5 === undefined || d7 === undefined || (h5 === null && d7 === null)) continue;
+    pontos.push({ at: new Date(t).toISOString(), h5, d7 });
+    anterior = t;
+  }
+  return pontos;
+}
+
+// Último valor não nulo de uma coluna do histórico, ou null.
+function ultimoValor(pontos, coluna) {
+  for (let i = pontos.length - 1; i >= 0; i--) if (pontos[i][coluna] !== null) return pontos[i][coluna];
+  return null;
+}
+
+// Histórico depois de uma leitura (spec §12.2). `entraram` tem as janelas da
+// leitura que entraram agora (não seguradas por mantemGuardada). Para cada
+// uma, a coluna dela é zerada quando a guardada não existe, é de outra janela
+// (resets_at a mais de TOLERANCIA_JANELA_S) ou o valor novo está mais de
+// QUEDA_TROCA pontos abaixo do último ponto dela: a previsão nunca mistura
+// duas janelas. Ponto que fica sem valor nenhum sai. Depois, com ao menos uma
+// janela entrando e o último ponto a HISTORICO_PASSO_MS ou mais de agora (um
+// relógio que voltou espera), entra o ponto de agora, null na janela que não
+// entrou. Fica com os HISTORICO_MAX mais novos.
+function historicoDepois(anterior, entraram, agoraMs, agoraIso) {
+  let pontos = anterior.historico.map((p) => ({ ...p }));
+  for (const [k, nova] of Object.entries(entraram)) {
+    const guardada = anterior[k];
+    const ultimo = ultimoValor(pontos, COLUNA[k]);
+    const troca = guardada === null
+      || Math.abs(guardada.resets_at - nova.resets_at) > TOLERANCIA_JANELA_S
+      || (ultimo !== null && nova.used_percentage < ultimo - QUEDA_TROCA);
+    if (troca) for (const p of pontos) p[COLUNA[k]] = null;
+  }
+  pontos = pontos.filter((p) => p.h5 !== null || p.d7 !== null);
+  if (Object.keys(entraram).length === 0) return pontos;
+  const ultimoAt = pontos.length === 0 ? -Infinity : Date.parse(pontos[pontos.length - 1].at);
+  if (agoraMs - ultimoAt >= HISTORICO_PASSO_MS) {
+    pontos.push({
+      at: agoraIso,
+      h5: entraram.five_hour ? entraram.five_hour.used_percentage : null,
+      d7: entraram.seven_day ? entraram.seven_day.used_percentage : null,
+    });
+  }
+  return pontos.slice(-HISTORICO_MAX);
 }
 
 // Janela guardada em estado.json (I-2 da revisão final, N-6 do ledger): a de
@@ -286,7 +370,8 @@ function sessaoDaEntrada(e, agoraIso, agoraMs) {
 // passa por janelaGuardada (o próprio `at`, ou o do topo no formato de antes;
 // `at` inválido ou mais de 5 min no futuro a descarta) e o `at` do topo é
 // refeito por atDoTopo, nunca copiado do arquivo; cada sessão é validada à
-// parte. `sessoes` volta sem protótipo. Nunca lança.
+// parte, e o histórico passa por historicoValido. `sessoes` volta sem
+// protótipo. Nunca lança.
 export function validarEstado(valor, agoraMs) {
   try {
     if (!ehObjeto(valor) || valor.versao !== VERSAO || !numeroFinito(agoraMs)) return null;
@@ -296,6 +381,7 @@ export function validarEstado(valor, agoraMs) {
     estado.seven_day = janelaGuardada(valor.seven_day, tTopo, agoraMs);
     estado.at = atDoTopo([estado.five_hour, estado.seven_day], tTopo);
     estado.sessoes = juntarSessoes(sessoesValidas(valor.sessoes, agoraMs), null);
+    estado.historico = historicoValido(valor.historico, agoraMs);
     return estado;
   } catch {
     return null;
@@ -343,7 +429,8 @@ function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
 // fica null: nenhum valor guardado sobrevive a uma leitura de agora sem ter
 // sido comparado. Se nenhuma entrou (sem leitura válida, ou só leituras
 // seguradas), o instantâneo anterior fica como está, cada janela com seu `at`.
-// O `at` do topo é sempre atDoTopo das janelas gravadas. Devolve o
+// O `at` do topo é sempre atDoTopo das janelas gravadas, e o histórico ganha
+// o ponto desta leitura (historicoDepois). Devolve o
 // estado mesmo quando a gravação falha, para a barra seguir mostrando a
 // leitura atual. Sem diretório de dados (dirDados() null) não faz I/O e
 // devolve motivo 'sem_diretorio'. Nunca lança.
@@ -360,6 +447,7 @@ export function atualizarEstado(entrada, agoraMs) {
     const rl = ehObjeto(e.rate_limits) ? e.rate_limits : {};
     const estado = estadoVazio();
     const novas = {};
+    const entraram = {};
     let entrou = false;
     // A mescla por janela só protege a guardada com leitura própria fresca
     // (mantemGuardada, a mesma régua de limitesValidos, que já não exibe a
@@ -370,17 +458,46 @@ export function atualizarEstado(entrada, agoraMs) {
       const fica = nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
       if (fica) novas[k] = anterior[k];
       else novas[k] = nova === null ? null : { ...nova, at: agoraIso };
-      if (nova !== null && !fica) entrou = true;
+      if (nova !== null && !fica) {
+        entrou = true;
+        entraram[k] = nova;
+      }
     }
     // Janela ausente na leitura vira null só quando outra entrou (a leitura é
     // de agora); se nada entrou, o snapshot guardado fica inteiro, com seus at.
     if (entrou) Object.assign(estado, { at: atDoTopo([novas.five_hour, novas.seven_day], null), ...novas });
     else Object.assign(estado, { at: anterior.at, five_hour: anterior.five_hour, seven_day: anterior.seven_day });
     estado.sessoes = juntarSessoes(Object.entries(anterior.sessoes), sessaoDaEntrada(e, agoraIso, agoraMs));
+    estado.historico = historicoDepois(anterior, entraram, agoraMs, agoraIso);
     const r = gravarJsonAtomico(arq, estado);
     return r.ok ? { ok: true, estado } : { ok: false, motivo: r.motivo, estado };
   } catch {
     return { ok: false, motivo: 'inesperado', estado: estadoVazio() };
+  }
+}
+
+// Sessões ativas (spec §12.1): as de estado.sessoes com id válido e `at`
+// legível por instante (até 5 min no futuro) de no máximo ATIVA_RECENTE_MS,
+// mais `atual`, se for id válido e ainda não contado (a sessão que chama está
+// trabalhando agora, mesmo que a barra dela não tenha redesenhado nos últimos
+// minutos). Inteiro de 0 a MAX_SESSOES, o teto de estado.sessoes. Nunca lança.
+export function sessoesAtivas(estado, agoraMs, atual) {
+  try {
+    if (!numeroFinito(agoraMs)) return 0;
+    const sessoes = ehObjeto(estado) && ehObjeto(estado.sessoes) ? estado.sessoes : {};
+    let n = 0;
+    let contouAtual = false;
+    for (const [id, s] of Object.entries(sessoes)) {
+      if (!idValido(id) || !ehObjeto(s)) continue;
+      const t = instante(s.at, agoraMs);
+      if (t === null || agoraMs - t > ATIVA_RECENTE_MS) continue;
+      n++;
+      if (id === atual) contouAtual = true;
+    }
+    if (!contouAtual && idValido(atual)) n++;
+    return Math.min(n, MAX_SESSOES);
+  } catch {
+    return 0;
   }
 }
 

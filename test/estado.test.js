@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   dirDados, lerJson, gravarJsonAtomico, atualizarEstado, limitesValidos, validarEstado,
-  idValido, instante, LIMITE_VELHO_MS, SESSAO_MAX_MS, ARQ_ESTADO,
+  idValido, instante, LIMITE_VELHO_MS, MAX_SESSOES, SESSAO_MAX_MS, ARQ_ESTADO,
 } from '../src/estado.js';
 import { EFFORTS_VALIDOS, TOLERANCIA_JANELA_S } from '../src/util.js';
 import { formatarBarra } from '../src/formato.js';
@@ -381,6 +381,7 @@ test('no máximo 50 sessões, ficam as mais recentes e a atual', () => {
   gravarBruto(estadoBase({ sessoes }));
   atualizarEstado(entrada({ session_id: 'novo' }), agora + 1000);
   const ids = Object.keys(lerEstado().sessoes);
+  assert.equal(MAX_SESSOES, 50);
   assert.equal(ids.length, 50);
   assert.equal(ids[0], 'novo');
   for (let i = 0; i < 49; i++) assert.ok(ids.includes(`a${i}`), `a${i}`);
@@ -409,7 +410,7 @@ test('validarEstado canoniza at e devolve cópias só com campos conhecidos', ()
   assert.equal(v.at, iso(agora));
   assert.deepEqual(v.five_hour, { used_percentage: 42, resets_at: agoraS + 3600, at: iso(agora) });
   assert.equal(v.extra, undefined);
-  assert.deepEqual(Object.keys(v), ['versao', 'at', 'five_hour', 'seven_day', 'sessoes']);
+  assert.deepEqual(Object.keys(v), ['versao', 'at', 'five_hour', 'seven_day', 'sessoes', 'historico']);
 });
 
 test('limitesValidos devolve cópias validadas e nunca resets_at ausente', () => {
