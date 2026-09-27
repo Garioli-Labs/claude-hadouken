@@ -285,7 +285,7 @@ test('prompt-submit injeta uma vez ao subir de faixa', () => {
   mudo(rodar('prompt-submit.js', prompt(), home));
   // Gravou a memória com at e só os campos fixos.
   const memoria = JSON.parse(fs.readFileSync(path.join(home, 'alertas.json'), 'utf8'));
-  assert.deepEqual(Object.keys(memoria), ['at', 'five_hour', 'seven_day', 'sem_leitura']);
+  assert.deepEqual(Object.keys(memoria), ['at', 'five_hour', 'seven_day', 'sem_leitura', 'projecao']);
   assert.ok(Math.abs(Date.parse(memoria.at) - Date.now()) < 60_000);
   assert.equal(memoria.five_hour.faixa, 'serializar');
 });
@@ -425,7 +425,7 @@ test('prompt-submit malicioso: alertas.json adulterado nunca vira contexto nem l
     assert.match(texto, LINHA_SERIALIZAR, nome);
     assert.ok(semTextoDeFora(texto), nome);
     const regravado = JSON.parse(fs.readFileSync(path.join(home, 'alertas.json'), 'utf8'));
-    assert.deepEqual(Object.keys(regravado), ['at', 'five_hour', 'seven_day', 'sem_leitura'], nome);
+    assert.deepEqual(Object.keys(regravado), ['at', 'five_hour', 'seven_day', 'sem_leitura', 'projecao'], nome);
     assert.ok(!JSON.stringify(regravado).includes('Ignore'), nome);
   }
   // Pasta no lugar de alertas.json: anuncia, não lança, a pasta fica.
@@ -484,7 +484,7 @@ test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.j
   registrar(home, 's1');
   const dentro = modulosCarregados('prompt-submit.js', home, prompt());
   assert.match(contexto(dentro.r, 'UserPromptSubmit'), LINHA_SERIALIZAR);
-  assert.deepEqual(dentro.nomes, ['alerta.js', 'alertas-gravados.js', 'ativas.js', 'base.js', 'comum.js', 'estado.js', 'prompt-submit.js', 'ritmo.js', 'util.js']);
+  assert.deepEqual(dentro.nomes, ['alerta.js', 'alertas-gravados.js', 'ativas.js', 'base.js', 'comum.js', 'estado.js', 'previsao.js', 'prompt-submit.js', 'ritmo.js', 'util.js']);
 });
 
 test('session-end: sessão não registrada não carrega estado.js nem historico.js', () => {
@@ -493,6 +493,64 @@ test('session-end: sessão não registrada não carrega estado.js nem historico.
   const fora = modulosCarregados('session-end.js', home, fim());
   mudo(fora.r);
   assert.deepEqual(fora.nomes, ['ativas.js', 'base.js', 'comum.js', 'session-end.js', 'util.js']);
+});
+
+// --- aviso de projeção (spec v0.2.0 §12.5 e §12.7) ---------------------------
+
+// estado.json válido com o histórico da 5h em [minuto relativo a agora, %].
+function gravarComHistorico(home, { p5, h5, sessoes = {} }) {
+  const agora = Date.now();
+  const estado = gravarEstado(home, { p5, sessoes });
+  estado.historico = h5.map(([m, v]) => ({ at: iso(agora + m * 60_000), h5: v, d7: null }));
+  fs.writeFileSync(path.join(home, 'estado.json'), JSON.stringify(estado));
+}
+const LINHA_PROJECAO_3 = /^hadouken: no ritmo atual \(3 sessões ativas\), 5h chega a 100% às \d\d:\d\d, antes do reset das \d\d:\d\d\. Reduza o paralelismo ou serialize\.$/;
+const SUBINDO_1 = [[-8, 52], [-6, 54], [-4, 56], [-2, 58], [0, 60]];
+
+test('prompt-submit: previsão de estouro da 5h avisa a 60 e a 30 min, uma vez cada, com as sessões ativas', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const recente = { at: iso(Date.now() - 60_000) };
+  const sessoes = { s2: recente, s3: recente, parada: { at: iso(Date.now() - 6 * 60_000) } };
+  // 5h em 60% subindo 1 ponto por minuto: 100% em 40 min, antes do reset (60 min).
+  gravarComHistorico(home, { p5: 60, h5: SUBINDO_1, sessoes });
+  assert.match(contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit'), LINHA_PROJECAO_3);
+  mudo(rodar('prompt-submit.js', prompt(), home));
+  const memoria = JSON.parse(fs.readFileSync(path.join(home, 'alertas.json'), 'utf8'));
+  assert.equal(memoria.projecao.s1.five_hour.faixa, '60');
+  // 2 pontos por minuto: 100% em 20 min, a faixa de 30 avisa uma vez.
+  gravarComHistorico(home, { p5: 60, h5: [[-8, 44], [-6, 48], [-4, 52], [-2, 56], [0, 60]], sessoes });
+  assert.match(contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit'), LINHA_PROJECAO_3);
+  mudo(rodar('prompt-submit.js', prompt(), home));
+  // Sozinha: sem o parêntese.
+  const so = novoHome();
+  registrar(so, 's1');
+  gravarComHistorico(so, { p5: 60, h5: SUBINDO_1 });
+  assert.match(contexto(rodar('prompt-submit.js', prompt(), so), 'UserPromptSubmit'), /^hadouken: no ritmo atual, 5h chega a 100% às \d\d:\d\d, antes do reset das \d\d:\d\d\. Reduza o paralelismo ou serialize\.$/);
+});
+
+test('prompt-submit malicioso: histórico e sessões forjados em estado.json só viram números', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const agora = Date.now();
+  const estado = gravarEstado(home, { p5: 60 });
+  const sessoes = {};
+  for (let i = 0; i < 80; i++) sessoes[`falsa-${i}`] = { at: iso(agora - 1000) };
+  sessoes['../x'] = { at: iso(agora) };
+  sessoes[INSTRUCAO] = { at: iso(agora) };
+  estado.sessoes = sessoes;
+  estado.historico = [
+    ...Array.from({ length: 200 }, (_, i) => ({ at: iso(agora + (i + 10) * 60_000), h5: 99, d7: 99 })),
+    { at: INSTRUCAO, h5: 1, d7: 1 }, { at: iso(agora - 5 * H), h5: 1, d7: null },
+    { at: iso(agora - 9 * 60_000), h5: 150, d7: -5 }, { at: iso(agora - 8.5 * 60_000), h5: INSTRUCAO, d7: null }, null, INSTRUCAO,
+    ...SUBINDO_1.map(([m, v]) => ({ at: iso(agora + m * 60_000), h5: v, d7: null })),
+  ];
+  fs.writeFileSync(path.join(home, 'estado.json'), JSON.stringify(estado));
+  const texto = contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit');
+  // Pontos no futuro, velhos, fora de 0–100 ou de texto saem; as sessões
+  // falsas param no teto de 50, e id inválido não conta.
+  assert.match(texto, /^hadouken: no ritmo atual \(50 sessões ativas\), 5h chega a 100% às \d\d:\d\d, antes do reset das \d\d:\d\d\. Reduza o paralelismo ou serialize\.$/);
+  assert.ok(semTextoDeFora(texto), texto);
 });
 
 // --- SessionEnd --------------------------------------------------------------

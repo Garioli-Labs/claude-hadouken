@@ -18,8 +18,11 @@
 // Worst-case disk state, built in a temporary HADOUKEN_HOME that is removed at
 // the end:
 // - the measured session is registered, alongside 999 other registration files;
-// - estado.json holds 50 sessions (its cap) and both rate-limit windows;
-// - alertas.json holds both windows and 256 sem_leitura entries (its cap);
+// - estado.json holds 50 sessions (its cap, all active), both rate-limit
+//   windows and a full history (90 points over 3 h, spec v0.2.0 §12.8) whose
+//   7d forecast lands about 18.6 h ahead, inside the 24 h projection band;
+// - alertas.json holds both windows, 256 sem_leitura entries and 256 projecao
+//   entries (both caps);
 // - the shims in <home>/bin/ are already in sync with this checkout;
 // - stdin is a realistic hook payload.
 // Scenarios:
@@ -76,7 +79,7 @@ function embaralhar(lista) {
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench hooks '));
 try {
   const { registrarSessao, DIR_ATIVAS } = await importar('ativas.js');
-  const { atualizarEstado, ARQ_ESTADO } = await importar('estado.js');
+  const { atualizarEstado, ARQ_ESTADO, HISTORICO_MAX, HISTORICO_PASSO_MS } = await importar('estado.js');
   const { sincronizarShims } = await importar('shim.js');
   const { ARQ_ALERTAS } = await importar('hooks/alertas-gravados.js');
   const { ARQ_HISTORICO } = await importar('hooks/historico.js');
@@ -116,6 +119,14 @@ try {
     }
     if (!registrarSessao(uuid(0), agora).ok) throw new Error('fixture: register target failed');
     for (let i = 49; i >= 0; i--) atualizarEstado(barra(uuid(i)), agora - i * 1000);
+    // Full history (spec v0.2.0 §12.8), the same as in statusline-p95.mjs.
+    const arqEstado = path.join(home, ARQ_ESTADO);
+    const cheio = JSON.parse(fs.readFileSync(arqEstado, 'utf8'));
+    cheio.historico = Array.from({ length: HISTORICO_MAX }, (_, k) => {
+      const i = HISTORICO_MAX - 1 - k;
+      return { at: new Date(agora - 30_000 - i * HISTORICO_PASSO_MS).toISOString(), h5: 42 - i * 0.25, d7: 61 - i * 0.07 };
+    });
+    fs.writeFileSync(arqEstado, JSON.stringify(cheio, null, 2));
     const r = sincronizarShims(repo);
     if (!r.ok) throw new Error(`fixture: shim sync failed: ${r.motivo}`);
   } finally {
@@ -124,15 +135,19 @@ try {
   }
   const semLeitura = {};
   for (let i = 1000; i < 1256; i++) semLeitura[uuid(i)] = true;
+  const projecao = {};
+  for (let i = 2000; i < 2256; i++) projecao[uuid(i)] = { five_hour: null, seven_day: { resets_at: s + 3 * 86400, faixa: '24h' } };
   fs.writeFileSync(path.join(home, ARQ_ALERTAS), JSON.stringify({
     at: new Date(agora).toISOString(),
     five_hour: { resets_at: s + 3600, faixa: 'ok' },
     seven_day: { resets_at: s + 3 * 86400, faixa: 'economico' },
     sem_leitura: semLeitura,
+    projecao,
   }, null, 2));
   const nAtivas = fs.readdirSync(path.join(home, DIR_ATIVAS)).length;
   const estado = JSON.parse(fs.readFileSync(path.join(home, ARQ_ESTADO), 'utf8'));
   const nSessoes = Object.keys(estado.sessoes).length;
+  const pontosHistorico = estado.historico.length;
   const bytesAlertas = fs.statSync(path.join(home, ARQ_ALERTAS)).size;
 
   // Hook output: nothing, or one JSON object with the event's context.
@@ -151,12 +166,16 @@ try {
 
   const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo };
   // One untimed prompt settles the alert memory to what this fixture
-  // evaluates to (the 7d band of the seeded memory differs from the reading).
+  // evaluates to (the 7d band of the seeded memory differs from the reading,
+  // and the 7d projection is announced once, for 50 active sessions).
   const arqAlertas = path.join(home, ARQ_ALERTAS);
   const stdinPrompt = JSON.stringify(promptDe(uuid(0)));
   const acomodar = spawnSync(process.execPath, [hook('prompt-submit.js')], { input: stdinPrompt, env, encoding: 'utf8' });
   if (acomodar.status !== 0 || acomodar.stderr !== '') throw new Error(`fixture: settling prompt failed: ${acomodar.stderr}`);
-  vazioOuContexto('fixture', 'UserPromptSubmit')(acomodar.stdout);
+  const avisos = contexto('fixture', 'UserPromptSubmit')(acomodar.stdout);
+  if (!avisos.includes('hadouken: no ritmo atual (50 sess\u00f5es ativas), 7d chega a 100%')) {
+    throw new Error(`fixture: worst case missing from the settling prompt ${JSON.stringify(avisos)}`);
+  }
   const memoriaEstavel = JSON.parse(fs.readFileSync(arqAlertas, 'utf8'));
   let memoriaPlantada = '';
   const plantarMemoria = (idadeMs) => () => {
@@ -234,12 +253,12 @@ try {
       alvoP95Ms: ALVO_P95_MS,
       rodadas: RUNS,
       aquecimento: WARMUPS,
-      fixture: { ativas: nAtivas, sessoes: nSessoes, bytesAlertas, linhasHistorico: historico.length },
+      fixture: { ativas: nAtivas, sessoes: nSessoes, pontosHistorico, bytesAlertas, linhasHistorico: historico.length },
       linhas: cenarios.map((c) => ({ id: c.id, nome: c.nome, alvo: c.alvo, ...resumo(tempos.get(c)) })),
     }));
   } else {
     console.log(`node ${process.version} ${process.platform} ${os.arch()}, ${os.cpus()[0]?.model ?? 'cpu?'}`);
-    console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions in estado.json, alertas.json ${bytesAlertas} B with 256 sem_leitura entries`);
+    console.log(`fixture: ${nAtivas} registration files, ${nSessoes} sessions and ${pontosHistorico} history points in estado.json, alertas.json ${bytesAlertas} B with 256 sem_leitura and 256 projecao entries`);
     console.log(`runs: ${RUNS} interleaved rounds after ${WARMUPS} shared warm-up rounds, spawn to exit`);
     for (const c of cenarios) {
       const r = resumo(tempos.get(c));

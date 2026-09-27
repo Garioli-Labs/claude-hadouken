@@ -1,3 +1,10 @@
+// Teto do parêntese de sessões ativas no aviso de projeção (spec v0.2.0 §12,
+// avisos ao Claude): o de estado.sessoes, cuja casa única é estado.js; o
+// outro nome o separa do MAX_SESSOES de agregacao.js. Import estático sem
+// custo para o gate: todo caminho que carrega alerta.js já carrega estado.js
+// (o hook de prompt e a barra no mesmo Promise.all depois do gate, o
+// SessionStart, relatorio.js e hooks/alertas-gravados.js).
+import { MAX_SESSOES as MAX_SESSOES_ATIVAS } from './estado.js';
 import { calcularRitmo } from './ritmo.js';
 import { horaLocal, diaHora, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
 
@@ -10,6 +17,14 @@ const ORDEM_5H = ['ok', 'atencao', 'serializar', 'fechar'];
 const RESTRITIVAS_5H = new Set(['atencao', 'serializar', 'fechar']);
 const RESTRITIVAS_7D = new Set(['economico', 'so-leitura']);
 const SUSPENSAS = 'restrições anteriores suspensas';
+// Aviso de projeção (spec v0.2.0 §12, avisos ao Claude): faixas da distância
+// até o estouro previsto (previsao.js), da mais rasa para a mais funda, com o
+// limite de cada uma. Cada faixa dispara uma vez por janela e sessão.
+const FAIXAS_PROJECAO = Object.freeze({
+  five_hour: Object.freeze([['60', 60 * 60_000], ['30', 30 * 60_000]]),
+  seven_day: Object.freeze([['24h', DIA_MS]]),
+});
+const ROTULO_PROJECAO = Object.freeze({ five_hour: '5h', seven_day: '7d' });
 
 function mesmaJanela(guardada, resetsAt) {
   return Boolean(guardada)
@@ -18,7 +33,7 @@ function mesmaJanela(guardada, resetsAt) {
     && Math.abs(guardada.resets_at - resetsAt) <= TOLERANCIA_JANELA_S;
 }
 
-export const ALERTAS_VAZIO = Object.freeze({ five_hour: null, seven_day: null, sem_leitura: {} });
+export const ALERTAS_VAZIO = Object.freeze({ five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} });
 
 export function faixa5h(pct) {
   if (pct >= 90) return 'fechar';
@@ -69,9 +84,63 @@ function linha7d(faixa, usado, esperado, resetsAt) {
   }
 }
 
-export function avaliarAlertas({ limites, anteriores, sessionId, agoraMs }) {
+// A faixa de projeção de uma janela para a distância `faltaMs` (> 0) até o
+// estouro: a mais funda cujo limite a contém, ou null.
+function faixaProjecao(janela, faltaMs) {
+  let faixa = null;
+  for (const [nome, limite] of FAIXAS_PROJECAO[janela]) if (faltaMs <= limite) faixa = nome;
+  return faixa;
+}
+
+const profundidade = (janela, faixa) => FAIXAS_PROJECAO[janela].findIndex(([nome]) => nome === faixa);
+
+// A linha fixa do aviso de projeção: só rótulos do código, horários
+// formatados e o número de sessões ativas (spec v0.2.0 §12.7). 5h com a hora
+// local; 7d com dia da semana e hora, porque a previsão pode cair noutro dia.
+function linhaProjecao(janela, quandoMs, resetsAt, sessoes) {
+  const hora = janela === 'five_hour' ? horaLocal : diaHora;
+  const n = Number.isInteger(sessoes) && sessoes >= 2 && sessoes <= MAX_SESSOES_ATIVAS ? ` (${sessoes} sessões ativas)` : '';
+  return `hadouken: no ritmo atual${n}, ${ROTULO_PROJECAO[janela]} chega a 100% às ${hora(quandoMs / 1000)}, antes do reset das ${hora(resetsAt)}. Reduza o paralelismo ou serialize.`;
+}
+
+// Aviso de projeção da sessão (spec v0.2.0 §12, avisos ao Claude).
+// `guardada` é a memória da sessão ({ five_hour, seven_day }, cada uma
+// { resets_at, faixa } ou null) ou null. Janela sem leitura agora fica como está; janela nova esquece a faixa
+// da anterior; a linha sai só quando a faixa atual é mais funda que a
+// guardada na mesma janela, então sair de faixa e voltar não repete o aviso.
+// Devolve { linhas, memoria }, com memoria null quando as duas janelas ficam
+// sem faixa.
+function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs }) {
+  const linhas = [];
+  const memoria = { five_hour: guardada?.five_hour ?? null, seven_day: guardada?.seven_day ?? null };
+  const p = previsao !== null && typeof previsao === 'object' ? previsao : {};
+  for (const janela of ['five_hour', 'seven_day']) {
+    const f = limites[janela];
+    if (!f) continue;
+    const anterior = memoria[janela];
+    const mesma = mesmaJanela(anterior, f.resets_at);
+    const quando = p[janela];
+    const antesDoReset = numeroFinito(quando) && numeroFinito(agoraMs) && quando > agoraMs && quando < f.resets_at * 1000;
+    const faixa = antesDoReset ? faixaProjecao(janela, quando - agoraMs) : null;
+    if (faixa !== null && (!mesma || profundidade(janela, faixa) > profundidade(janela, anterior.faixa))) {
+      linhas.push(linhaProjecao(janela, quando, f.resets_at, sessoesAtivas));
+      memoria[janela] = { resets_at: f.resets_at, faixa };
+    } else if (!mesma) {
+      memoria[janela] = null;
+    }
+  }
+  return { linhas, memoria: memoria.five_hour || memoria.seven_day ? memoria : null };
+}
+
+// Spec v0.2.0 §12 (avisos ao Claude): `previsao` (preverEstouro de
+// previsao.js) e `sessoesAtivas` (sessoesAtivas de estado.js) alimentam o
+// aviso de projeção, guardado por sessão em `projecao`; sem eles, nenhum aviso
+// de projeção.
+export function avaliarAlertas({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAtivas }) {
   const ant = anteriores ?? ALERTAS_VAZIO;
-  const novos = { five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura } };
+  const novos = {
+    five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura }, projecao: { ...ant.projecao },
+  };
   const linhas = [];
 
   if (!limites || (!limites.five_hour && !limites.seven_day)) {
@@ -110,6 +179,16 @@ export function avaliarAlertas({ limites, anteriores, sessionId, agoraMs }) {
       linhas.push(linha7d(faixa, f7.used_percentage, esperado, f7.resets_at));
     }
     novos.seven_day = { resets_at: f7.resets_at, faixa };
+  }
+
+  const guardada = Object.hasOwn(novos.projecao, sessionId) ? novos.projecao[sessionId] : null;
+  const projecao = avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs });
+  linhas.push(...projecao.linhas);
+  // Só mexe na memória quando ela muda: a sessão alterada vai para o fim da
+  // ordem, de onde alertasParaGravar corta o teto.
+  if (JSON.stringify(projecao.memoria) !== JSON.stringify(guardada)) {
+    delete novos.projecao[sessionId];
+    if (projecao.memoria !== null) novos.projecao[sessionId] = projecao.memoria;
   }
   return { linhas, novos };
 }

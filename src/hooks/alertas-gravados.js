@@ -3,8 +3,9 @@ import { DATA_MAX_MS, idValido, instante, numeroFinito } from '../base.js';
 import { LIMITE_VELHO_MS } from '../estado.js';
 
 // Memória de alertas do hook UserPromptSubmit: <dirDados>/alertas.json, a
-// última faixa anunciada de cada janela e as sessões que já ouviram "sem
-// leitura". É entrada de avaliarAlertas (alerta.js), que só anuncia mudança
+// última faixa anunciada de cada janela, as sessões que já ouviram "sem
+// leitura" e, por sessão, a faixa de projeção já anunciada (spec v0.2.0 §12,
+// avisos ao Claude). É entrada de avaliarAlertas (alerta.js), que só anuncia mudança
 // de faixa. Spec 8.1, S1/S9: o arquivo é lido com teto de 1 MiB e só passa se
 // tiver exatamente o formato abaixo; fora dele, a memória é ALERTAS_VAZIO (o
 // lado seguro: a faixa atual é anunciada de novo, nunca uma descida falsa).
@@ -12,7 +13,13 @@ import { LIMITE_VELHO_MS } from '../estado.js';
 //   { "at": "<ISO>" | null,
 //     "five_hour": { "resets_at": <s>, "faixa": "ok|atencao|serializar|fechar" } | null,
 //     "seven_day": { "resets_at": <s>, "faixa": "normal|folga|economico|so-leitura" } | null,
-//     "sem_leitura": { "<session_id>": true, ... } }
+//     "sem_leitura": { "<session_id>": true, ... },
+//     "projecao": { "<session_id>": {
+//         "five_hour": { "resets_at": <s>, "faixa": "60|30" } | null,
+//         "seven_day": { "resets_at": <s>, "faixa": "24h" } | null }, ... } }
+//
+// `projecao` ausente ou null é memória vazia (o formato da v0.1.0 continua
+// válido); uma sessão com as duas janelas null está fora do formato.
 //
 // `at` é quando a memória foi conferida pela última vez contra uma leitura
 // válida. Decisão D do adendo da Task 7 (nota 2 da re-revisão 2 da Task 5):
@@ -23,7 +30,9 @@ import { LIMITE_VELHO_MS } from '../estado.js';
 // corte, a leitura antiga de uma sessão ociosa, que depois de 1 h sem leitura
 // fresca vira o snapshot (estado.js), faria o próximo prompt anunciar uma
 // descida que não aconteceu. `sem_leitura` continua valendo (uma linha por
-// sessão).
+// sessão), e `projecao` também: cada faixa de projeção dispara uma vez por
+// janela e sessão (spec v0.2.0 §12, avisos ao Claude), e a previsão nunca
+// anuncia descida.
 //
 // Regravação (M2 da revisão da Task 7, decisão do controlador): o prompt só
 // regrava alertas.json quando a memória muda ou quando o `at` guardado tem
@@ -47,6 +56,9 @@ export const ALERTAS_MAX_BYTES = 1_048_576;
 // e por isso saem primeiro. Ids reais são UUIDs, então na prática sai a mais
 // antiga (M3 da revisão da Task 7).
 export const SEM_LEITURA_MAX = 256;
+// No máximo PROJECAO_MAX sessões em projecao, pelo mesmo motivo; avaliarAlertas
+// põe no fim a sessão cuja memória mudou, e o corte tira o começo.
+export const PROJECAO_MAX = 256;
 // Idade do `at` guardado a partir da qual a memória é regravada mesmo sem
 // mudança, para o `at` andar (precisaGravar).
 export const AT_RENOVAR_MS = 5 * 60_000;
@@ -55,7 +67,11 @@ const FAIXAS = Object.freeze({
   five_hour: new Set(['ok', 'atencao', 'serializar', 'fechar']),
   seven_day: new Set(['normal', 'folga', 'economico', 'so-leitura']),
 });
-const CHAVES = new Set(['at', 'five_hour', 'seven_day', 'sem_leitura']);
+const FAIXAS_PROJECAO = Object.freeze({
+  five_hour: new Set(['60', '30']),
+  seven_day: new Set(['24h']),
+});
+const CHAVES = new Set(['at', 'five_hour', 'seven_day', 'sem_leitura', 'projecao']);
 const INVALIDO = Symbol('invalido');
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -91,9 +107,39 @@ function semLeituraGuardada(v) {
   return copia;
 }
 
-// O registro guardado, validado e sem esquecer nada: { at, f5, f7, semLeitura }
-// com `at` o texto guardado (ausente vira null), ou null se está fora do
-// formato. Pode lançar (getter hostil); quem chama captura.
+// Memória de projeção de uma sessão: objeto com exatamente five_hour e
+// seven_day, cada um janela guardada com faixa de projeção ou null, e ao
+// menos um não null → cópia; o resto → INVALIDO.
+function projecaoDaSessao(v) {
+  if (!ehObjeto(v)) return INVALIDO;
+  const chaves = Object.keys(v);
+  if (chaves.length !== 2 || !Object.hasOwn(v, 'five_hour') || !Object.hasOwn(v, 'seven_day')) return INVALIDO;
+  const f5 = janelaGuardada(v.five_hour, FAIXAS_PROJECAO.five_hour);
+  const f7 = janelaGuardada(v.seven_day, FAIXAS_PROJECAO.seven_day);
+  if (f5 === INVALIDO || f7 === INVALIDO || (f5 === null && f7 === null)) return INVALIDO;
+  return { five_hour: f5, seven_day: f7 };
+}
+
+// projecao guardada: ausente/null → {}; objeto em que toda chave própria é id
+// de sessão válido e todo valor passa em projecaoDaSessao → cópia; o resto →
+// INVALIDO (a memória inteira vira vazia: o lado seguro é anunciar de novo).
+function projecaoGuardada(v) {
+  if (v === undefined || v === null) return {};
+  if (!ehObjeto(v)) return INVALIDO;
+  const copia = {};
+  for (const [id, sessao] of Object.entries(v)) {
+    if (!idValido(id)) return INVALIDO;
+    const p = projecaoDaSessao(sessao);
+    if (p === INVALIDO) return INVALIDO;
+    copia[id] = p;
+  }
+  return copia;
+}
+
+// O registro guardado, validado e sem esquecer nada: { at, f5, f7,
+// semLeitura, projecao } com `at` o texto guardado (ausente vira null), ou
+// null se está fora do formato. Pode lançar (getter hostil); quem chama
+// captura.
 function validado(valor) {
   if (!ehObjeto(valor)) return null;
   for (const k of Object.keys(valor)) if (!CHAVES.has(k)) return null;
@@ -102,8 +148,9 @@ function validado(valor) {
   const f5 = janelaGuardada(proprio(valor, 'five_hour'), FAIXAS.five_hour);
   const f7 = janelaGuardada(proprio(valor, 'seven_day'), FAIXAS.seven_day);
   const semLeitura = semLeituraGuardada(proprio(valor, 'sem_leitura'));
-  if (f5 === INVALIDO || f7 === INVALIDO || semLeitura === INVALIDO) return null;
-  return { at, f5, f7, semLeitura };
+  const projecao = projecaoGuardada(proprio(valor, 'projecao'));
+  if (f5 === INVALIDO || f7 === INVALIDO || semLeitura === INVALIDO || projecao === INVALIDO) return null;
+  return { at, f5, f7, semLeitura, projecao };
 }
 
 // Memória lida do disco (o valor que lerJson devolveu, ou qualquer coisa) →
@@ -118,7 +165,9 @@ export function alertasGuardados(valor, agoraMs) {
     const atMs = g.at === null ? null : instante(g.at, agoraMs);
     const recente = atMs !== null && agoraMs - atMs <= LIMITE_VELHO_MS;
     return {
-      anteriores: { five_hour: recente ? g.f5 : null, seven_day: recente ? g.f7 : null, sem_leitura: g.semLeitura },
+      anteriores: {
+        five_hour: recente ? g.f5 : null, seven_day: recente ? g.f7 : null, sem_leitura: g.semLeitura, projecao: g.projecao,
+      },
       atMs,
     };
   } catch {
@@ -128,8 +177,8 @@ export function alertasGuardados(valor, agoraMs) {
 
 // O prompt precisa regravar alertas.json? `registro` é o que
 // alertasParaGravar devolveu; `valor`, o que lerJson leu (ou null). Não
-// regrava (false) só quando as duas faixas e sem_leitura (com a ordem) são
-// iguais às guardadas e o `at` não precisa andar: é o mesmo texto guardado (sem
+// regrava (false) só quando as duas faixas, sem_leitura e projecao (com a
+// ordem) são iguais às guardadas e o `at` não precisa andar: é o mesmo texto guardado (sem
 // leitura válida o `at` não anda, decisão D) ou o guardado é um instante
 // válido de menos de AT_RENOVAR_MS atrás, nunca no futuro. Guardado ausente,
 // fora do formato ou ilegível, `at` guardado velho, no futuro ou inválido, ou
@@ -139,8 +188,8 @@ export function precisaGravar(registro, valor, agoraMs) {
     if (!ehObjeto(registro)) return true;
     const g = validado(valor);
     if (g === null) return true;
-    const novo = JSON.stringify([registro.five_hour, registro.seven_day, registro.sem_leitura]);
-    if (novo !== JSON.stringify([g.f5, g.f7, g.semLeitura])) return true;
+    const novo = JSON.stringify([registro.five_hour, registro.seven_day, registro.sem_leitura, registro.projecao]);
+    if (novo !== JSON.stringify([g.f5, g.f7, g.semLeitura, g.projecao])) return true;
     if (registro.at === g.at) return false;
     const atMs = g.at === null ? null : instante(g.at, agoraMs);
     const idade = atMs === null ? Number.NaN : agoraMs - atMs;
@@ -153,14 +202,15 @@ export function precisaGravar(registro, valor, agoraMs) {
 // O que gravar em alertas.json depois de avaliarAlertas: só os campos fixos,
 // cada janela conferida de novo (fora do formato vira null), sem_leitura só
 // com ids válidos e no máximo SEM_LEITURA_MAX (o fim da ordem de enumeração,
-// onde avaliarAlertas acrescenta; ver SEM_LEITURA_MAX) e `at` = atMs em ISO
-// (null se inválido).
+// onde avaliarAlertas acrescenta; ver SEM_LEITURA_MAX), projecao só com as
+// sessões no formato e no máximo PROJECAO_MAX (também o fim) e `at` = atMs em
+// ISO (null se inválido).
 // Quem chama passa agora quando houve leitura válida e o atMs lido quando não
 // houve: memória que não foi conferida contra leitura nenhuma não fica mais
 // nova. Nunca lança.
 export function alertasParaGravar(novos, atMs) {
   const at = numeroFinito(atMs) && Math.abs(atMs) <= DATA_MAX_MS ? new Date(atMs).toISOString() : null;
-  const resultado = { at, five_hour: null, seven_day: null, sem_leitura: {} };
+  const resultado = { at, five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} };
   try {
     if (!ehObjeto(novos)) return resultado;
     for (const k of ['five_hour', 'seven_day']) {
@@ -172,8 +222,17 @@ export function alertasParaGravar(novos, atMs) {
       const ids = Object.keys(bruto).filter((id) => idValido(id) && bruto[id] === true);
       for (const id of ids.slice(-SEM_LEITURA_MAX)) resultado.sem_leitura[id] = true;
     }
+    const projecao = proprio(novos, 'projecao');
+    if (ehObjeto(projecao)) {
+      const sessoes = [];
+      for (const [id, sessao] of Object.entries(projecao)) {
+        const p = idValido(id) ? projecaoDaSessao(sessao) : INVALIDO;
+        if (p !== INVALIDO) sessoes.push([id, p]);
+      }
+      for (const [id, p] of sessoes.slice(-PROJECAO_MAX)) resultado.projecao[id] = p;
+    }
     return resultado;
   } catch {
-    return { at, five_hour: null, seven_day: null, sem_leitura: {} };
+    return { at, five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} };
   }
 }

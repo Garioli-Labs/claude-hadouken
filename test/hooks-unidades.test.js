@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { linhaEstado, linhaShimIndisponivel, linhaSemRegistro, LINHA_SEM_LEITURA } from '../src/hooks/linha-estado.js';
 import {
-  alertasGuardados, alertasParaGravar, precisaGravar, SEM_LEITURA_MAX, AT_RENOVAR_MS,
+  alertasGuardados, alertasParaGravar, precisaGravar, SEM_LEITURA_MAX, AT_RENOVAR_MS, PROJECAO_MAX,
 } from '../src/hooks/alertas-gravados.js';
 import {
   registroHistorico, anexarHistorico, ARQ_HISTORICO, ARQ_HISTORICO_VELHO, HISTORICO_MAX_BYTES,
@@ -128,7 +128,7 @@ test('linhas fixas de falha: só códigos conhecidos, o resto vira erro', () => 
 
 // --- memória de alertas ------------------------------------------------------
 
-const VAZIA = { five_hour: null, seven_day: null, sem_leitura: {} };
+const VAZIA = { five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} };
 const guardado = (extra = {}) => ({
   at: iso(AGORA - 60_000),
   five_hour: { resets_at: R5, faixa: 'serializar' },
@@ -143,6 +143,7 @@ test('alertasGuardados: registro válido e recente volta inteiro', () => {
       five_hour: { resets_at: R5, faixa: 'serializar' },
       seven_day: { resets_at: R7, faixa: 'economico' },
       sem_leitura: { s1: true, 'abc-DEF_9': true },
+      projecao: {},
     },
     atMs: AGORA - 60_000,
   });
@@ -172,7 +173,7 @@ test('alertasGuardados: aceita toda faixa que alerta.js produz', () => {
   const { novos } = avaliarAlertas({ limites: limites(85, 61), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: AGORA });
   const gravado = JSON.parse(JSON.stringify(alertasParaGravar(novos, AGORA)));
   assert.deepEqual(alertasGuardados(gravado, AGORA).anteriores, {
-    five_hour: novos.five_hour, seven_day: novos.seven_day, sem_leitura: {},
+    five_hour: novos.five_hour, seven_day: novos.seven_day, sem_leitura: {}, projecao: {},
   });
 });
 
@@ -227,7 +228,7 @@ test('alertasGuardados malicioso: fora do schema vira memória vazia, sem lança
 test('alertasGuardados: memória velha é recomeço, sem_leitura fica', () => {
   const velho = AGORA - LIMITE_VELHO_MS - 1;
   assert.deepEqual(alertasGuardados(guardado({ at: iso(velho) }), AGORA), {
-    anteriores: { five_hour: null, seven_day: null, sem_leitura: { s1: true, 'abc-DEF_9': true } },
+    anteriores: { five_hour: null, seven_day: null, sem_leitura: { s1: true, 'abc-DEF_9': true }, projecao: {} },
     atMs: velho,
   });
   // Na borda exata ainda vale.
@@ -262,7 +263,7 @@ test('alertasParaGravar: carimba at, só os campos fixos, sem_leitura limitado',
     five_hour: { resets_at: R5, faixa: 'atencao' }, seven_day: null, sem_leitura: { s1: true }, extra: INSTRUCAO,
   };
   assert.deepEqual(alertasParaGravar(novos, AGORA), {
-    at: iso(AGORA), five_hour: { resets_at: R5, faixa: 'atencao' }, seven_day: null, sem_leitura: { s1: true },
+    at: iso(AGORA), five_hour: { resets_at: R5, faixa: 'atencao' }, seven_day: null, sem_leitura: { s1: true }, projecao: {},
   });
   for (const at of [null, undefined, Number.NaN, Infinity, 9e15, '2026']) {
     assert.equal(alertasParaGravar(novos, at).at, null, String(at));
@@ -277,9 +278,9 @@ test('alertasParaGravar: carimba at, só os campos fixos, sem_leitura limitado',
   assert.equal(chaves[255], 's-299');
   // Janela fora do schema não é gravada.
   const ruim = alertasParaGravar({ five_hour: { resets_at: 'x', faixa: 'ok' }, seven_day: { resets_at: R7, faixa: INSTRUCAO }, sem_leitura: { '../x': true } }, AGORA);
-  assert.deepEqual(ruim, { at: iso(AGORA), five_hour: null, seven_day: null, sem_leitura: {} });
+  assert.deepEqual(ruim, { at: iso(AGORA), five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} });
   // Nunca lança.
-  assert.deepEqual(alertasParaGravar(null, AGORA), { at: iso(AGORA), five_hour: null, seven_day: null, sem_leitura: {} });
+  assert.deepEqual(alertasParaGravar(null, AGORA), { at: iso(AGORA), five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} });
 });
 
 // M2 da revisão da Task 7, decisão do controlador: alertas.json só é regravado
@@ -645,4 +646,109 @@ test('anexarHistorico: nunca lança', () => {
   const sumida = path.join(dir, 'sumida');
   assert.equal(anexarHistorico(sumida, { n: 1 }).ok, false);
   assert.equal(fs.existsSync(sumida), false);
+});
+
+// --- aviso de projeção (spec v0.2.0 §12.5 e §12.7) ---------------------------
+
+const PROJ = {
+  s1: { five_hour: { resets_at: R5, faixa: '30' }, seven_day: null },
+  'abc-DEF_9': { five_hour: null, seven_day: { resets_at: R7, faixa: '24h' } },
+};
+
+test('alertasGuardados: projecao válida volta inteira e sobrevive à memória velha', () => {
+  const r = alertasGuardados(guardado({ projecao: PROJ }), AGORA);
+  assert.deepEqual(r.anteriores.projecao, PROJ);
+  assert.equal(r.anteriores.five_hour.faixa, 'serializar');
+  // Memória de mais de 1 h: as faixas de 5h e 7d são esquecidas (decisão D);
+  // a projeção fica, porque cada faixa dela dispara uma vez por janela e sessão.
+  const velha = alertasGuardados(guardado({ at: iso(AGORA - LIMITE_VELHO_MS - 1), projecao: PROJ }), AGORA);
+  assert.equal(velha.anteriores.five_hour, null);
+  assert.deepEqual(velha.anteriores.projecao, PROJ);
+  // Ausente ou null: vazia, como no formato da v0.1.0.
+  assert.deepEqual(alertasGuardados(guardado(), AGORA).anteriores.projecao, {});
+  assert.deepEqual(alertasGuardados(guardado({ projecao: null }), AGORA).anteriores.projecao, {});
+});
+
+test('alertasGuardados: aceita toda faixa de projeção que alerta.js produz', () => {
+  const faixas = { five_hour: new Set(), seven_day: new Set() };
+  for (let m = 1; m <= 24 * 60; m += 1) {
+    const quando = AGORA + m * 60_000;
+    const { novos } = avaliarAlertas({
+      limites: limites(50, 50), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: AGORA, previsao: { five_hour: quando, seven_day: quando }, sessoesAtivas: 2,
+    });
+    const p = novos.projecao.s1;
+    if (p.five_hour) faixas.five_hour.add(p.five_hour.faixa);
+    if (p.seven_day) faixas.seven_day.add(p.seven_day.faixa);
+    const gravado = JSON.parse(JSON.stringify(alertasParaGravar(novos, AGORA)));
+    assert.deepEqual(alertasGuardados(gravado, AGORA).anteriores.projecao, novos.projecao, String(m));
+  }
+  assert.deepEqual([...faixas.five_hour].sort(), ['30', '60']);
+  assert.deepEqual([...faixas.seven_day], ['24h']);
+});
+
+test('alertasGuardados malicioso: projecao fora do formato vira memória vazia e regrava', () => {
+  const sessao = (five_hour, seven_day) => ({ five_hour, seven_day });
+  const j5 = { resets_at: R5, faixa: '30' };
+  const casos = {
+    'projecao texto': INSTRUCAO,
+    'projecao lista': [PROJ.s1],
+    'projecao número': 42,
+    'id de caminho': { '../x': PROJ.s1 },
+    'id __proto__': JSON.parse(`{"__proto__": ${JSON.stringify(PROJ.s1)}}`),
+    'id com instrução': { [INSTRUCAO]: PROJ.s1 },
+    'sessão texto': { s1: INSTRUCAO },
+    'sessão lista': { s1: [j5, null] },
+    'sessão sem seven_day': { s1: { five_hour: j5 } },
+    'sessão com chave a mais': { s1: { ...sessao(j5, null), nota: INSTRUCAO } },
+    'as duas null': { s1: sessao(null, null) },
+    'faixa fora da lista': { s1: sessao({ resets_at: R5, faixa: '45' }, null) },
+    'faixa de 7d na 5h': { s1: sessao({ resets_at: R5, faixa: '24h' }, null) },
+    'faixa de 5h na 7d': { s1: sessao(null, { resets_at: R7, faixa: '30' }) },
+    'faixa da v0.1.0': { s1: sessao({ resets_at: R5, faixa: 'serializar' }, null) },
+    'faixa número': { s1: sessao({ resets_at: R5, faixa: 30 }, null) },
+    'faixa instrução': { s1: sessao({ resets_at: R5, faixa: INSTRUCAO }, null) },
+    'reset texto': { s1: sessao({ resets_at: String(R5), faixa: '30' }, null) },
+    'reset infinito': { s1: sessao({ resets_at: Infinity, faixa: '30' }, null) },
+  };
+  const base = registroDe(guardado(), AGORA);
+  for (const [nome, projecao] of Object.entries(casos)) {
+    const valor = guardado({ projecao });
+    const r = alertasGuardados(valor, AGORA);
+    assert.deepEqual(r, { anteriores: VAZIA, atMs: null }, nome);
+    assert.ok(!JSON.stringify(r).includes('Ignore'), nome);
+    assert.equal(precisaGravar(base, valor, AGORA), true, nome);
+  }
+});
+
+test('alertasParaGravar: projecao só no formato e no máximo 256, o fim da ordem', () => {
+  assert.equal(PROJECAO_MAX, 256);
+  const muitas = {};
+  for (let i = 0; i < 300; i++) muitas[`s-${i}`] = { five_hour: null, seven_day: { resets_at: R7, faixa: '24h' } };
+  const chaves = Object.keys(alertasParaGravar({ ...VAZIA, projecao: muitas }, AGORA).projecao);
+  assert.equal(chaves.length, 256);
+  assert.equal(chaves[0], 's-44');
+  assert.equal(chaves[255], 's-299');
+  // Sessão fora do formato sai; as outras ficam.
+  const mista = {
+    s1: PROJ.s1, '../x': PROJ.s1, s2: { five_hour: null, seven_day: null },
+    s3: { five_hour: { resets_at: R5, faixa: INSTRUCAO }, seven_day: null }, 'abc-DEF_9': PROJ['abc-DEF_9'],
+  };
+  assert.deepEqual(alertasParaGravar({ ...VAZIA, projecao: mista }, AGORA).projecao, PROJ);
+  assert.deepEqual(alertasParaGravar({ ...VAZIA, projecao: INSTRUCAO }, AGORA).projecao, {});
+});
+
+test('precisaGravar: projecao mudada regrava; igual, com at recente, não', () => {
+  const valor = guardado({ projecao: PROJ });
+  const base = registroDe(valor, AGORA);
+  assert.equal(precisaGravar(base, valor, AGORA), false);
+  const mudancas = {
+    'faixa nova': { ...base, projecao: { ...PROJ, 'abc-DEF_9': { five_hour: { resets_at: R5, faixa: '60' }, seven_day: PROJ['abc-DEF_9'].seven_day } } },
+    'sessão a mais': { ...base, projecao: { ...PROJ, s2: PROJ.s1 } },
+    'sessão a menos': { ...base, projecao: { s1: PROJ.s1 } },
+    'outra ordem': { ...base, projecao: { 'abc-DEF_9': PROJ['abc-DEF_9'], s1: PROJ.s1 } },
+  };
+  for (const [nome, registro] of Object.entries(mudancas)) assert.equal(precisaGravar(registro, valor, AGORA), true, nome);
+  // Memória da v0.1.0 (sem projecao) contra registro com projecao vazia: igual.
+  const v010 = guardado();
+  assert.equal(precisaGravar(registroDe(v010, AGORA), v010, AGORA), false);
 });
