@@ -19,6 +19,11 @@
 //   "50 sessões"), both rate-limit windows and a full history (90 points over
 //   3 h, spec v0.2.0 §12.8) that rises fast enough for a 7d forecast on the bar;
 // - stdin is a realistic, complete statusline payload.
+// The worst case stays live for the whole run, however long it takes: before
+// every round (warm-up included) estado.json goes back to the fixture with
+// each `at` moved forward by the time elapsed since it was built, checked with
+// the bar's own validation, and every registered run must print "50 sessões"
+// and the 7d forecast (as bench/hooks-p95.mjs does for the hooks).
 // Scenarios: registered (gate, merge, atomic write, render), unregistered (gate
 // only, prints nothing), the same two through the stable shim
 // <home>/bin/statusline.mjs (what settings.json runs), and a bare `node -e ""`
@@ -62,7 +67,9 @@ function embaralhar(lista) {
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk bench '));
 try {
   const { registrarSessao, DIR_ATIVAS } = await importar('ativas.js');
-  const { atualizarEstado, ARQ_ESTADO, HISTORICO_MAX, HISTORICO_PASSO_MS } = await importar('estado.js');
+  const {
+    atualizarEstado, ARQ_ESTADO, HISTORICO_MAX, HISTORICO_PASSO_MS, validarEstado, sessoesAtivas,
+  } = await importar('estado.js');
   const { sincronizarShims, DIR_BIN } = await importar('shim.js');
 
   const agora = Date.now();
@@ -118,14 +125,16 @@ try {
   const nHistorico = estado.historico.length;
 
   // The caller's NO_COLOR decides whether the bar is coloured; the check strips
-  // the only escapes the bar may carry (the fixed colour codes). The sessions
-  // segment is optional: a long run outlives the 5 min that keep the other 49
-  // sessions active.
-  const PREFIXO_BARRA = /^Opus 5\.5\u00b7high \u2502 (?:\d+ sess\u00f5es \u2502 )?5h \u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1 42%/;
+  // the only escapes the bar may carry (the fixed colour codes). The worst case
+  // is re-anchored before every round (below), so every registered run must
+  // show all 50 sessions and the 7d forecast.
+  const PREFIXO_BARRA = /^Opus 5\.5\u00b7high \u2502 50 sess\u00f5es \u2502 5h \u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1 42%/;
+  const PREVISAO = ' \u2192100% ';
   const CORES_FIXAS = /\x1b\[(?:3[123]|0)m/g;
   let barra = '';
   const barraCerta = (nome) => (out) => {
-    if (!PREFIXO_BARRA.test(out.replace(CORES_FIXAS, ''))) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
+    const limpa = out.replace(CORES_FIXAS, '');
+    if (!PREFIXO_BARRA.test(limpa) || !limpa.includes(PREVISAO)) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
     barra = out;
   };
   const semSaida = (nome) => (out) => {
@@ -151,15 +160,32 @@ try {
     c.conferir(r.stdout);
     return ms;
   }
-  for (let i = 0; i < WARMUPS; i++) for (const c of embaralhar(cenarios)) rodar(c);
-  // Seconds after the fixture, the bar must show the worst case it was built
-  // for: 50 active sessions and a forecast.
-  const aquecida = barra.replace(CORES_FIXAS, '');
-  if (!aquecida.includes(' 50 sess\u00f5es \u2502 ') || !aquecida.includes(' \u2192100% ')) {
-    throw new Error(`fixture: worst case missing from the bar ${JSON.stringify(barra)}`);
+  // Before every round, estado.json goes back to the fixture with each `at`
+  // moved forward by the time elapsed since it was built, so the 50 sessions
+  // stay inside the 5 min active window and the 90 history points inside the
+  // 3 h horizon. Checked with the bar's own validation, untimed.
+  const arqEstado = path.join(home, ARQ_ESTADO);
+  function reancorar() {
+    const agoraRodada = Date.now();
+    const desvio = agoraRodada - agora;
+    const mover = (o) => { if (typeof o?.at === 'string') o.at = new Date(Date.parse(o.at) + desvio).toISOString(); };
+    const e = structuredClone(estado);
+    for (const o of [e, e.five_hour, e.seven_day, ...Object.values(e.sessoes), ...e.historico]) mover(o);
+    fs.writeFileSync(arqEstado, JSON.stringify(e, null, 2));
+    const valido = validarEstado(e, agoraRodada);
+    if (valido?.historico?.length !== HISTORICO_MAX || sessoesAtivas(valido, agoraRodada, uuid(0)) !== nSessoes) {
+      throw new Error('fixture: the worst case decayed');
+    }
+  }
+  for (let i = 0; i < WARMUPS; i++) {
+    reancorar();
+    for (const c of embaralhar(cenarios)) rodar(c);
   }
   const tempos = new Map(cenarios.map((c) => [c, []]));
-  for (let i = 0; i < RUNS; i++) for (const c of embaralhar(cenarios)) tempos.get(c).push(rodar(c));
+  for (let i = 0; i < RUNS; i++) {
+    reancorar();
+    for (const c of embaralhar(cenarios)) tempos.get(c).push(rodar(c));
+  }
 
   const quantil = (ordenados, p) => ordenados[Math.min(ordenados.length - 1, Math.ceil(p * ordenados.length) - 1)];
   const resumo = (lista) => {

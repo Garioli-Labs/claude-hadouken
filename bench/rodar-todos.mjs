@@ -112,7 +112,7 @@ const LINHAS_P95 = [
   ['statusline', 'nao-registrada', 'statusline, sessão não registrada (só o gate)', 'p95'],
   ['statusline', 'nao-registrada-shim', 'statusline, sessão não registrada, via shim', 'p95'],
   ['hooks', 'prompt-registrada-sem-gravar', 'hook de prompt, sessão registrada, sem gravar', 'p95'],
-  ['hooks', 'prompt-registrada-grava', 'hook de prompt, sessão registrada, grava alertas.json', 'p95'],
+  ['hooks', 'prompt-registrada-grava', 'hook de prompt, sessão registrada, grava alertas.json e projecao.json', 'p95'],
   ['hooks', 'prompt-nao-registrada', 'hook de prompt, sessão não registrada (só o gate)', 'p95'],
   ['hooks', 'session-start', 'hook SessionStart', 'p95'],
   ['hooks', 'session-end-registrada', 'hook SessionEnd, sessão registrada (anexa ao historico.jsonl)', 'p95'],
@@ -184,7 +184,7 @@ function notas(resultados) {
     `- n: rodadas medidas, com os cenários de cada bench intercalados em ordem aleatória, depois de ${finito(s?.aquecimento) ? s.aquecimento : 5} rodadas de aquecimento descartadas; tempo do spawn à saída do processo, como o Claude Code roda a barra e os hooks.`,
   ];
   if (s?.fixture && h?.fixture) {
-    saida.push(`- Fixture da barra e dos hooks: ${s.fixture.ativas} arquivos de registro em ativas/, ${s.fixture.sessoes} sessões e ${s.fixture.historico ?? 0} pontos de histórico em estado.json (${s.fixture.bytesEstado} B), alertas.json com ${h.fixture.bytesAlertas} B; cor da barra ${s.cor ? 'ligada' : 'desligada (NO_COLOR)'}.`);
+    saida.push(`- Fixture da barra e dos hooks: ${s.fixture.ativas} arquivos de registro em ativas/, ${s.fixture.sessoes} sessões e ${s.fixture.historico ?? 0} pontos de histórico em estado.json (${s.fixture.bytesEstado} B), alertas.json com ${h.fixture.bytesAlertas} B e projecao.json com ${h.fixture.bytesProjecao} B; cor da barra ${s.cor ? 'ligada' : 'desligada (NO_COLOR)'}.`);
   }
   if (t) {
     const iguais = t.incrementalIgualCheio === true ? 'sim' : 'não';
