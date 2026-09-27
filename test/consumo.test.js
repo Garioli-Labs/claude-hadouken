@@ -391,6 +391,31 @@ test('detalhe incoerente do cache criado de ponta a ponta: contado por período,
   }
 });
 
+test('sessões abertas de ponta a ponta: só a última hora, com o instante exato, e o subagente somado à sessão mãe', async () => {
+  config(JSON.stringify({ repos: [] }));
+  const HORA = 3_600_000;
+  transcript('proj-a/sess-a.jsonl', [
+    linhaUso('a1', { sessao: 'sess-a', ts: agora - 10 * 60_000 }),
+    linhaUso('a-velha', { sessao: 'sess-a', ts: agora - 2 * HORA }),
+  ]);
+  transcript('proj-a/sess-a/subagents/agent-x1.jsonl', [linhaUso('sub1', { sessao: 'sess-a', ts: agora - 5 * 60_000 })]);
+  transcript('proj-a/sess-b.jsonl', [linhaUso('b-fora', { sessao: 'sess-b', ts: agora - HORA - 1 })]);
+  transcript('proj-a/sess-c.jsonl', [linhaUso('c-limite', { sessao: 'sess-c', ts: agora - HORA, cwd: '/x/Outro', model: 'claude-sonnet-5' })]);
+  const r = (await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home })).relatorio;
+  // Cada resposta de linhaUso: 10 + 500 + 1000 + 100 = 1610 tokens; o
+  // subagente soma na sess-a, e a hora vale do instante exato em diante.
+  assert.deepEqual(r.sessoesAbertas, [
+    { id: 'sess-a', projeto: 'Demo Proj', modelos: ['claude-opus-5'], tokens: 3220, parte: 0.666 },
+    { id: 'sess-c', projeto: 'Outro', modelos: ['claude-sonnet-5'], tokens: 1610, parte: 0.333 },
+  ]);
+  assert.equal(r.claude.hoje.porSessao['sess-a'].respostas, 3, 'os períodos seguem com tudo');
+  assert.equal(r.claude.hoje.porSessao['sess-b'].respostas, 1);
+  assert.equal(Object.hasOwn(r.claude, 'abertas'), false);
+  const texto = formatarMarkdown(r);
+  assert.match(texto, /^\| `sess-a` \| ▰▰▰▰▰▱▱▱ 66% \| `Demo Proj` \| `Opus 5` \| 3k \|$/m);
+  assert.match(texto, /^\| `sess-c` \| ▰▰▰▱▱▱▱▱ 33% \| `Outro` \| `Sonnet 5` \| 2k \|$/m);
+});
+
 test('config.json inválido: aviso fixo e o origin do cwd no lugar', { skip: !temGit && 'git ausente' }, async () => {
   config('{"repos": ["a/b; rm"]}');
   const repo = path.join(home, 'repo');

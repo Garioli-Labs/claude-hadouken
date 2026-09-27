@@ -6,7 +6,8 @@ import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './esta
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
 import { decimal, diaHora, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, janelaValida, milhar, sanear } from './util.js';
 
-// Relatório do /consumo (spec 6.8; 8.1 S1, S2, S5; addendum da Task 10, A).
+// Relatório do /consumo (spec 6.8; 8.1 S1, S2, S5; addendum da Task 10, A;
+// sessões abertas da spec v0.2.0 §12.6).
 // Puro: recebe o estado lido, os agregados de transcripts e o resumo do
 // GitHub e devolve o JSON versionado (montarRelatorio) ou o markdown
 // (formatarMarkdown). A saída vai direto para o contexto do modelo, então:
@@ -379,10 +380,41 @@ function montarAvisos(a) {
 
 // ------------------------------------------------------------------ JSON
 
+// Parte `t` de `total` de 0 a 1, por piso em 3 casas, a conta em BigInt para
+// ser exata até MAX_SAFE_INTEGER; total 0 ou parte maior que o total → null.
+const fracaoParte = (t, total) => (total > 0 && t <= total ? Number((BigInt(t) * 1000n) / BigInt(total)) / 1000 : null);
+
+// Sessões abertas (spec v0.2.0 §12.6), do agregado `abertas` que o coletor
+// monta sobre o mesmo índice (os subagentes já vêm somados à sessão mãe). Cada
+// sessão com resposta na última hora sai com o id completo, o projeto (o de
+// mais respostas na hora, ou null), os modelos (até MAX_ROTULOS_SESSAO nomes),
+// os tokens da hora (tokensDaSoma: a mesma conta da parte do total) e a parte
+// do total da hora (fracaoParte). Em ordem de tokens, empate pelo id. Só as
+// MAX_SESSOES que o agregado lista; as outras contam no total da hora.
+// Agregado ausente ou inválido (a entrada da v0.1.0 não tem) → null. Usa
+// tokensDaSoma e comparar, definidos com o markdown, mais abaixo.
+function montarSessoesAbertas(c) {
+  try {
+    const a = lerAgregado(ler(c, 'abertas'));
+    if (a === null) return null;
+    const total = tokensDaSoma(a.total);
+    return Object.keys(a.porSessao)
+      .map((id) => {
+        const s = a.porSessao[id];
+        const t = tokensDaSoma(s);
+        return { id, projeto: s.projetos[0] ?? null, modelos: s.modelos, tokens: t, parte: fracaoParte(t, total) };
+      })
+      .sort((x, y) => y.tokens - x.tokens || comparar(x.id, y.id));
+  } catch {
+    return null;
+  }
+}
+
 // Relatório versionado (versao 1): { versao, aviso, gerado_em, limites,
-// limites_motivo, claude, github, avisos }. `estado` é o estado.json como
-// lido (passa por validarEstado e limitesValidos aqui); `github` é a saída de
-// coletarGithub; `avisos` só entra da lista fixa. Nunca lança.
+// limites_motivo, claude, github, avisos, sessoesAbertas }. `estado` é o
+// estado.json como lido (passa por validarEstado e limitesValidos aqui);
+// `github` é a saída de coletarGithub; `avisos` só entra da lista fixa. Nunca
+// lança.
 //
 // `limites` é null (com limites_motivo) ou { idade_min, five_hour, seven_day }:
 // cada janela é null ou traz a própria idade_min, a da sua leitura no estado
@@ -410,6 +442,11 @@ function montarAvisos(a) {
 // total vale, como sem detalhe; spec 12), ou é null se ausente. Os nomes
 // (chaves e listas) são dados, não instruções. Pensamento (thinking) não
 // entra (spec 12).
+//
+// `sessoesAbertas` (spec v0.2.0 §12.6) é a última chave e a única fora das da
+// v0.1.0, que seguem idênticas: null (Claude indisponível, ou entrada sem o
+// agregado `abertas`) ou a lista [{ id, projeto, modelos, tokens, parte }] de
+// montarSessoesAbertas. O agregado da hora nunca entra em `claude`.
 export function montarRelatorio(entrada) {
   const r = {
     versao: VERSAO_RELATORIO,
@@ -420,6 +457,7 @@ export function montarRelatorio(entrada) {
     claude: { indisponivel: CLAUDE_DESCONHECIDO },
     github: Object.create(null),
     avisos: [],
+    sessoesAbertas: null,
   };
   const e = ehObjeto(entrada) ? entrada : {};
   const agoraMs = ler(e, 'agoraMs');
@@ -432,6 +470,7 @@ export function montarRelatorio(entrada) {
   r.claude = montarClaude(ler(e, 'claude'));
   r.github = montarGithub(ler(e, 'github'));
   r.avisos = montarAvisos(ler(e, 'avisos'));
+  r.sessoesAbertas = Object.hasOwn(r.claude, 'indisponivel') ? null : montarSessoesAbertas(ler(e, 'claude'));
   return r;
 }
 
@@ -554,11 +593,12 @@ function celulas(s, semDetalhe) {
 // `primeiras`: as células que abrem a linha (nome e parte, ou, na tabela de
 // sessões, id, parte, projeto e modelos).
 const linhaTabela = (primeiras, s, semDetalhe) => `| ${[...primeiras, ...celulas(s, semDetalhe)].join(' | ')} |`;
+// Título e alinhamento de uma tabela, das colunas [título, alinhamento].
+const linhasCabecalho = (todas) => [`| ${todas.map(([t]) => t).join(' | ')} |`, `|${todas.map(([, a]) => `${a}|`).join('')}`];
 // `iniciais`: as colunas [título, alinhamento] que abrem a tabela; as de
 // tokens vêm depois, todas à direita.
 function cabecalho(iniciais, semDetalhe) {
-  const todas = [...iniciais, ...colunas(semDetalhe).map((t) => [t, NUMERO])];
-  return [`| ${todas.map(([t]) => t).join(' | ')} |`, `|${todas.map(([, a]) => `${a}|`).join('')}`];
+  return linhasCabecalho([...iniciais, ...colunas(semDetalhe).map((t) => [t, NUMERO])]);
 }
 
 // true se alguma soma do período tem cache criado sem detalhe: decide a
@@ -724,6 +764,84 @@ const comDesde = (titulo, iso) => {
   return s === null ? titulo : `${titulo} (desde ${diaHora(s)})`;
 };
 
+// Sessões abertas no markdown (spec v0.2.0 §12.6): a lista `sessoesAbertas`
+// do JSON revalidada item a item. Id texto e tokens inteiros são
+// obrigatórios; projeto é texto ou null; parte, de 0 a 1 ou null; os nomes
+// são saneados de novo (os de modelo sem os glifos da barra), como nas outras
+// tabelas. Item fora disso é pulado, e só as primeiras MAX_SESSOES posições
+// são olhadas. O que não é lista (JSON da v0.1.0) → null: a seção não sai.
+function lerSessoesAbertas(v) {
+  let lista = false;
+  try {
+    lista = Array.isArray(v);
+  } catch {
+    lista = false;
+  }
+  if (!lista) return null;
+  const saida = [];
+  try {
+    const fim = Math.min(v.length, MAX_SESSOES);
+    for (let i = 0; i < fim; i++) {
+      const x = v[i];
+      const id = ler(x, 'id');
+      const projeto = ler(x, 'projeto');
+      const t = inteiro(ler(x, 'tokens'));
+      const parte = ler(x, 'parte');
+      if (typeof id !== 'string' || t === null) continue;
+      if (projeto !== null && typeof projeto !== 'string') continue;
+      if (parte !== null && !(numeroFinito(parte) && parte >= 0 && parte <= 1)) continue;
+      saida.push({
+        id: rotuloSessao(id),
+        projeto: projeto === null ? null : rotuloProjeto(projeto),
+        modelos: lerRotulos(ler(x, 'modelos'), rotuloNomeModelo),
+        tokens: t,
+        parte,
+      });
+    }
+  } catch {
+    // lista hostil (Proxy que lança): fica o que já foi lido
+  }
+  return saida;
+}
+
+// Célula "parte do total" a partir da parte do JSON (0–1): a regra de
+// celulaParte, com a porcentagem inteira por piso (o epsilon só absorve o
+// resíduo de 0.29 * 100); parte 0 com tokens mostra "<1%" e a barrinha de 1;
+// null → —.
+function celulaFracao(parte, t) {
+  if (parte === null) return SEM;
+  const piso = Math.floor(parte * 100 + 1e-6);
+  if (piso === 0 && t > 0) return `${barrinha(1)} <1%`;
+  return `${barrinha(Math.min(100, parte * 100))} ${piso}%`;
+}
+
+const COLUNAS_ABERTAS = Object.freeze([['Sessão', TEXTO], PARTE, ['projeto', TEXTO], ['modelos', TEXTO], ['tokens', NUMERO]]);
+
+// Seção "Sessões abertas (última hora)", antes dos períodos: as
+// MAX_LINHAS_SESSOES primeiras da lista, com id curto (idsCurtos), parte do
+// total da hora, projeto, modelos (nomes curtos) e tokens da hora; as outras
+// são só contadas. Lista vazia diz isso; sem lista, nada.
+function blocoSessoesAbertas(v) {
+  const lista = lerSessoesAbertas(v);
+  if (lista === null) return [];
+  const linhas = ['### Sessões abertas (última hora)', ''];
+  if (lista.length === 0) {
+    linhas.push('Nenhuma sessão com resposta na última hora.', '');
+    return linhas;
+  }
+  const mostradas = lista.slice(0, MAX_LINHAS_SESSOES);
+  const ids = idsCurtos(mostradas.map((s) => s.id));
+  linhas.push(...linhasCabecalho(COLUNAS_ABERTAS));
+  mostradas.forEach((s, i) => {
+    const modelos = semEmpate(s.modelos, nomeCurtoModelo, (n) => n);
+    const projeto = listaNomes(s.projeto === null ? [] : [s.projeto]);
+    linhas.push(`| ${[`\`${ids[i]}\``, celulaFracao(s.parte, s.tokens), projeto, listaNomes(modelos), tokens(s.tokens)].join(' | ')} |`);
+  });
+  if (lista.length > MAX_LINHAS_SESSOES) linhas.push('', `Mais ${plural(lista.length - MAX_LINHAS_SESSOES, 'sessão', 'sessões')} fora da tabela.`);
+  linhas.push('');
+  return linhas;
+}
+
 function blocoClaude(o) {
   const linhas = ['## Claude', ''];
   const c = montarClaude(ler(o, 'claude'));
@@ -731,6 +849,7 @@ function blocoClaude(o) {
     linhas.push(`Claude: indisponível: ${c.indisponivel}`);
     return linhas;
   }
+  linhas.push(...blocoSessoesAbertas(ler(o, 'sessoesAbertas')));
   linhas.push(...blocoPeriodo('Hoje', c.hoje));
   linhas.push(...blocoPeriodo(comDesde('Últimos 7 dias', c.sete_dias_desde), c.sete_dias));
   // Sem leitura de 7d, `semana` são os mesmos últimos 7 dias: não se repete.

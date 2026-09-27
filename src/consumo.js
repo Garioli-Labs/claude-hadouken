@@ -24,6 +24,8 @@ const CONFIG_MAX_REPOS = 20;
 const PRAZO_GITHUB_MS = 10_000;
 const PRAZO_GITHUB_MAX_MS = 600_000;
 const SEMANA_MS = 7 * 86_400_000;
+// Sessões abertas (spec v0.2.0 §12.6): resposta na última hora.
+const ULTIMA_HORA_MS = 3_600_000;
 const ORIGIN_MAX = 512;
 const GIT_TIMEOUT_MS = 5000;
 const GIT_ESPERA_KILL_MS = 1000;
@@ -252,7 +254,11 @@ function motivoSemArquivos(raiz, idx) {
   return idx.ilegiveis > 0 ? CLAUDE_ILEGIVEIS : CLAUDE_SEM_RECENTES;
 }
 
-async function coletarClaude(raiz, { hojeMs, seteDiasMs, semana }) {
+// Agregados dos três períodos e, sobre o mesmo índice, o `abertas` (spec
+// v0.2.0 §12.6): as respostas desde agoraMs − 1 h, que já estão dentro dos
+// últimos 7 dias indexados. Os subagentes trazem a sessionId da sessão mãe, e
+// o agregado por sessão os soma a ela.
+async function coletarClaude(raiz, { hojeMs, seteDiasMs, semana }, agoraMs) {
   if (raiz === null) return { indisponivel: CLAUDE_SEM_HOME };
   const idx = await indexarTranscripts({ raiz, desdeMs: Math.min(hojeMs, seteDiasMs, semana.desdeMs) });
   if (idx.arquivos === 0) return { indisponivel: motivoSemArquivos(raiz, idx) };
@@ -260,6 +266,7 @@ async function coletarClaude(raiz, { hojeMs, seteDiasMs, semana }) {
     hoje: agregar(idx.registros, hojeMs),
     sete_dias: agregar(idx.registros, seteDiasMs),
     semana: agregar(idx.registros, semana.desdeMs),
+    abertas: agregar(idx.registros, agoraMs - ULTIMA_HORA_MS),
     hoje_desde: hojeMs,
     sete_dias_desde: seteDiasMs,
     semana_desde: semana.desdeMs,
@@ -302,7 +309,7 @@ export async function gerarRelatorio(opcoes) {
     }
     const raiz = typeof o.raizTranscripts === 'string' && o.raizTranscripts !== '' ? o.raizTranscripts : raizPadrao();
     const [claude, gh] = await Promise.all([
-      coletarClaude(raiz, periodos(estado, agoraMs)),
+      coletarClaude(raiz, periodos(estado, agoraMs), agoraMs),
       coletarRepos(dir, { gh: o.gh, cwd: o.cwd, prazoMs }, agoraMs),
     ]);
     return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos }) };

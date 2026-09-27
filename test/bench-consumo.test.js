@@ -62,6 +62,7 @@ test('bench/consumo.mjs --json: objeto com as quatro linhas, n pedido e as metas
     assert.equal(v.arquivos, 36);
     assert.ok(positivo(v.bytesGerados) && Number.isFinite(v.msGeracao));
     assert.equal(v.fixture.sessoes, 50);
+    assert.equal(v.fixture.historico, 90, 'histórico cheio (spec v0.2.0 §12.8)');
     assert.ok(positivo(v.fixture.bytesEstado));
     assert.deepEqual(v.github, { repo: 'exemplo/app-sintetico', runs: 30, jobsPorRun: 3, chamadasFrio: 32 });
     assert.deepEqual(v.linhas.map((l) => [l.id, l.cenario, l.n, l.alvoMs]), [

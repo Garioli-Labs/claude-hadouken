@@ -82,7 +82,7 @@ const ARQUIVOS = N_PROJETOS * ARQUIVOS_POR_PROJETO;
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rodada = path.join(repo, 'bench', 'lib', 'consumo-rodada.mjs');
 const importar = (arq) => import(pathToFileURL(path.join(repo, 'src', arq)).href);
-const { atualizarEstado, ARQ_ESTADO } = await importar('estado.js');
+const { atualizarEstado, ARQ_ESTADO, HISTORICO_MAX, HISTORICO_PASSO_MS } = await importar('estado.js');
 const { ARQ_INDICE } = await importar('transcripts.js');
 const { ARQ_CONFIG } = await importar('consumo.js');
 const ARQ_CACHE_GITHUB = 'github-cache.json';
@@ -151,6 +151,17 @@ try {
     else process.env.HADOUKEN_HOME = homeAntes;
   }
   const estadoModelo = path.join(modelo, ARQ_ESTADO);
+  // Histórico cheio (spec v0.2.0 §12.8), como no bench da barra: 90 pontos a
+  // 2 min um do outro, o mais novo há 30 s. O /consumo lê o estado.json
+  // inteiro, então o pior caso dele também leva o histórico. A seção de
+  // sessões abertas (§12.6) é mais uma passada linear sobre o mesmo índice,
+  // medida aqui com qualquer número de sessões na última hora.
+  const cheio = JSON.parse(fs.readFileSync(estadoModelo, 'utf8'));
+  cheio.historico = Array.from({ length: HISTORICO_MAX }, (_, k) => {
+    const i = HISTORICO_MAX - 1 - k;
+    return { at: new Date(agora - 30_000 - i * HISTORICO_PASSO_MS).toISOString(), h5: 42 - i * 0.25, d7: 61 - i * 0.07 };
+  });
+  fs.writeFileSync(estadoModelo, JSON.stringify(cheio, null, 2));
   const bytesEstado = fs.statSync(estadoModelo).size;
 
   // Ambiente das rodadas: o de quem chama, sem GIT_*, CLAUDE_CONFIG_DIR e
@@ -243,7 +254,7 @@ try {
   ].map((l) => ({ id: l.id, cenario: l.cenario.id, nome: l.nome, alvoMs: l.fase === 'frio' ? ALVO_FRIO_MS : ALVO_QUENTE_MS, ...resumo(l.cenario.tempos[l.fase]) }));
 
   const fmt = (x) => x.toFixed(1).padStart(8);
-  log(`fixture: estado.json with ${SESSOES_ESTADO} sessions (${bytesEstado} B); fake gh: ${RUNS_FALSOS} runs x ${JOBS_POR_RUN} jobs, ${CHAMADAS_FRIO} calls when cold`);
+  log(`fixture: estado.json with ${SESSOES_ESTADO} sessions and ${HISTORICO_MAX} history points (${bytesEstado} B); fake gh: ${RUNS_FALSOS} runs x ${JOBS_POR_RUN} jobs, ${CHAMADAS_FRIO} calls when cold`);
   log(`runs: ${N_FRIO} cold and ${N_QUENTE} warm per scenario, interleaved in random order after 1 discarded cold warm-up run per scenario; spawn to exit`);
   for (const l of linhas) {
     const veredito = l.p95 <= l.alvoMs ? 'within target' : 'OVER target';
@@ -260,7 +271,7 @@ try {
     arquivos,
     bytesGerados: bytes,
     msGeracao,
-    fixture: { sessoes: SESSOES_ESTADO, bytesEstado },
+    fixture: { sessoes: SESSOES_ESTADO, historico: HISTORICO_MAX, bytesEstado },
     github: { repo: REPO_FALSO, runs: RUNS_FALSOS, jobsPorRun: JOBS_POR_RUN, chamadasFrio: CHAMADAS_FRIO },
     linhas,
   };

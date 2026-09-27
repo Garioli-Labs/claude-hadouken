@@ -192,7 +192,7 @@ function notas(resultados) {
   }
   if (c) {
     const semRepo = (id) => (Array.isArray(c.linhas) ? c.linhas.find((l) => l?.id === id)?.p95 : undefined);
-    saida.push(`- \`/consumo\`: cada rodada é um processo (spawn à saída, como o CLI) sobre os mesmos ${fmtMB(c.bytesGerados)} MB sintéticos em ${c.arquivos} arquivos, estado.json com ${c.fixture?.sessoes} sessões e 1 repo no config.json; frio = HADOUKEN_HOME novo a cada rodada, quente = a mesma pasta da segunda execução em diante; aquecimento: ${c.aquecimento} rodada fria por cenário, descartada (no lugar das 5 acima). GitHub: executor falso do gh, sem rede (${c.github?.chamadasFrio} chamadas no frio, nenhuma no quente). Sem repo (git num cwd sem origin): p95 frio ${fmtMs(semRepo('frio-sem-repo'))} ms, quente ${fmtMs(semRepo('quente-sem-repo'))} ms.`);
+    saida.push(`- \`/consumo\`: cada rodada é um processo (spawn à saída, como o CLI) sobre os mesmos ${fmtMB(c.bytesGerados)} MB sintéticos em ${c.arquivos} arquivos, estado.json com ${c.fixture?.sessoes} sessões e ${c.fixture?.historico ?? 0} pontos de histórico, e 1 repo no config.json; frio = HADOUKEN_HOME novo a cada rodada, quente = a mesma pasta da segunda execução em diante; aquecimento: ${c.aquecimento} rodada fria por cenário, descartada (no lugar das 5 acima). GitHub: executor falso do gh, sem rede (${c.github?.chamadasFrio} chamadas no frio, nenhuma no quente). Sem repo (git num cwd sem origin): p95 frio ${fmtMs(semRepo('frio-sem-repo'))} ms, quente ${fmtMs(semRepo('quente-sem-repo'))} ms.`);
   }
   saida.push(`- Carga média de 1 min no fim: ${carga1min()}.`);
   const duracoes = Object.entries(resultados).map(([nome, r]) => `${nome} ${r.segundos.toFixed(0)} s`);
