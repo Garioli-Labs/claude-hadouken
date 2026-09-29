@@ -700,3 +700,13 @@ Pendentes, com o Sr. Garioli na frente da tela: S3 inteiro (OSC 9, 777 e 2 no Wi
 - **G5 (acima do ritmo) sai como trava.** O ritmo continua na barra só como informação.
 - **Entra G5, despacho caro.** PROPOSTA a fechar no plano: P1 trava o despacho de subagente com effort `max`, de qualquer modelo, ou com Fable em `xhigh` ou `max`, fora do portão final do bloco. A detecção usa as mesmas fontes da identificação de Fable: parâmetro, frontmatter do agente, `inherit` e variável de ambiente. Quando o effort não é identificável, a guarda não trava e registra o evento.
 - G1–G4, G6 e G7 ficam como estão: travam quando um limite real está em risco ou no excesso de Fable.
+
+### S3 no VS Code e a decisão final do D4 (Sr. Garioli, 2026-09-29)
+
+- **S3 (terminal integrado do VS Code):** repetidos os mesmos controles (OSC 2, 9 e 777 pelo UserPromptSubmit, com e sem bloqueio e fora de foco, e OSC 9 pelo UserPromptExpansion). Nada apareceu fora da conversa, e nenhum código foi parar em arquivo. **O S3 falha nos dois terminais desta máquina.**
+- **D4 passa a ser a opção C, liberação sem código.** `/claude-hadouken:liberar <escopo>` libera direto, com os escopos e tetos do D4: 2 h por padrão, máximo 24 h, `janela`, fim antecipado com +10 pontos de 7d e escopo `fable` próprio para G6.
+- Defesas contra o modelo liberar sozinho:
+  - só o UserPromptExpansion libera, e o modelo não digita comandos na sessão principal;
+  - a P4 nega `claude *` com a guarda disparada (S9);
+  - a liberação é recusada quando `CLAUDE_CODE_ENTRYPOINT` indica `-p` ou SDK.
+- Saem da §6 o `codigo-liberacao.json`, o scrypt, as tentativas e o `terminalSequence`. Sai também a ameaça S18, e a S11 se reduz à P4 mais a recusa por entrypoint. R1 declara o bypass por `npx`, `node .../cli.js` e comandos ofuscados.
