@@ -12,14 +12,18 @@ import { registrarSessao } from '../src/ativas.js';
 import { dirDados } from '../src/base.js';
 
 // Shims estáveis (spec 8.1, S6): <dirDados>/bin/statusline.mjs e cli.mjs, uma
-// linha cada, `await import("<file URL do alvo>").catch(...)`. O settings.json
-// aponta para eles e o SessionStart os regrava a cada sessão, desfazendo
-// adulteração. Alvo sumido (plugin atualizado, versão velha apagada): a barra
-// sai 0 calada; o CLI sai 1 com uma linha ASCII.
+// linha cada, `await import("<file URL do alvo>").catch(...)`, e painel.mjs
+// (emenda E4), `export * from "<file URL de src/uso/painel.js>"`, que a
+// extensão do VS Code carrega. O settings.json aponta para os dois primeiros
+// e o SessionStart regrava os três a cada sessão, desfazendo adulteração.
+// Alvo sumido (plugin atualizado, versão velha apagada): a barra sai 0
+// calada; o CLI sai 1 com uma linha ASCII.
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const SHIMS = ['statusline.mjs', 'cli.mjs'];
-const ALVO = { 'statusline.mjs': 'statusline.js', 'cli.mjs': 'cli.js' };
+const SHIMS = ['statusline.mjs', 'cli.mjs', 'painel.mjs'];
+const ALVO = { 'statusline.mjs': 'statusline.js', 'cli.mjs': 'cli.js', 'painel.mjs': path.join('uso', 'painel.js') };
+// O marcador que cada alvo sintético de criarRaiz imprime.
+const MARCADOR = { 'statusline.mjs': 'alvo-statusline', 'cli.mjs': 'alvo-cli', 'painel.mjs': 'alvo-painel' };
 const LINHA_CLI = 'claude-hadouken: plugin files not found - open a new session';
 const linhaInterna = (token) => `claude-hadouken: internal error (${token})\n`;
 // Handler do cli.mjs, copiado à mão (não importado de shim.js). String.raw:
@@ -33,15 +37,17 @@ const PREFIXO_CLI = 'import { fileURLToPath } from "node:url"; const u = ';
 const MODELO = {
   'statusline.mjs': (url) => `await import(${JSON.stringify(url)}).catch(() => {});\n`,
   'cli.mjs': (url) => `${PREFIXO_CLI}${JSON.stringify(url)}; await import(u).catch(${CATCH_CLI});\n`,
+  'painel.mjs': (url) => `export * from ${JSON.stringify(url)};\n`,
 };
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 // Uma linha só, ASCII imprimível, e nenhuma aspa dentro da URL.
 const FORMATO = {
   'statusline.mjs': /^await import\("file:\/\/[\x21\x23-\x7e]+"\)\.catch\(\(\) => \{\}\);\n$/,
   'cli.mjs': new RegExp(`^${escRe(PREFIXO_CLI)}"file://[\\x21\\x23-\\x7e]+"${escRe(`; await import(u).catch(${CATCH_CLI});`)}\\n$`),
+  'painel.mjs': /^export \* from "file:\/\/[\x21\x23-\x7e]+";\n$/,
 };
 // Nome do temporário da escrita atômica: .<shim>.<12 hex de crypto.randomBytes(6)>.tmp
-const NOME_TMP = /^\.(?:statusline|cli)\.mjs\.[0-9a-f]{12}\.tmp$/;
+const NOME_TMP = /^\.(?:statusline|cli|painel)\.mjs\.[0-9a-f]{12}\.tmp$/;
 // Data de 2 h atrás, sem seguir link (a varredura apaga temporários com mais de 1 h).
 const envelhecer = (p) => {
   const s = (Date.now() - 2 * 3_600_000) / 1000;
@@ -75,6 +81,8 @@ function criarRaiz(raiz) {
   fs.writeFileSync(path.join(raiz, 'package.json'), '{ "type": "module" }\n');
   fs.writeFileSync(path.join(raiz, 'src', 'statusline.js'), "process.stdout.write('alvo-statusline ' + import.meta.url);\n");
   fs.writeFileSync(path.join(raiz, 'src', 'cli.js'), "process.stdout.write('alvo-cli ' + import.meta.url);\n");
+  fs.mkdirSync(path.join(raiz, 'src', 'uso'));
+  fs.writeFileSync(path.join(raiz, 'src', 'uso', 'painel.js'), "process.stdout.write('alvo-painel ' + import.meta.url);\nexport const marca = 1;\n");
   return raiz;
 }
 
@@ -118,21 +126,24 @@ function arvore(raiz) {
 test('cria shims apontando para a raiz do plugin e é idempotente', () => {
   const raiz = criarRaiz(path.join(home, 'Plugin Dir'));
   const r1 = sincronizarShims(raiz);
-  assert.deepEqual(r1, { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(r1, { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   // O texto exato de cada shim, escrito à mão (não via MODELO).
   const url = (alvo) => JSON.stringify(pathToFileURL(path.join(raiz, 'src', alvo)).href);
   assert.equal(ler(arqShim('statusline.mjs')), `await import(${url('statusline.js')}).catch(() => {});\n`);
   assert.equal(ler(arqShim('cli.mjs')), `import { fileURLToPath } from "node:url"; const u = ${url('cli.js')}; await import(u).catch(${CATCH_CLI});\n`);
+  // Alvo em subpasta (src/uso/painel.js): a URL leva /uso/painel.js.
+  assert.equal(ler(arqShim('painel.mjs')), `export * from ${url(path.join('uso', 'painel.js'))};\n`);
+  assert.ok(ler(arqShim('painel.mjs')).endsWith('/src/uso/painel.js";\n'));
   for (const nome of SHIMS) {
     assert.equal(ler(arqShim(nome)).split('\n').length, 2, `${nome}: uma linha só`);
     assert.match(ler(arqShim(nome)), /^[\x20-\x7e]+\n$/, `${nome}: ASCII imprimível`);
   }
   assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: [] });
   const v2 = criarRaiz(path.join(home, 'v2'));
-  assert.deepEqual(sincronizarShims(v2).alterados, ['statusline.mjs', 'cli.mjs']);
+  assert.deepEqual(sincronizarShims(v2).alterados, ['statusline.mjs', 'cli.mjs', 'painel.mjs']);
   assert.equal(ler(arqShim('statusline.mjs')), esperado(v2, 'statusline.mjs'));
   // Escrita atômica: nenhum temporário sobra em bin/.
-  assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'statusline.mjs']);
+  assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'painel.mjs', 'statusline.mjs']);
 });
 
 test('conteúdo igual não é regravado: a data do arquivo não muda', () => {
@@ -182,7 +193,7 @@ test('junção (ou symlink de pasta) no lugar do shim vira arquivo regular; o al
   fs.mkdirSync(fora);
   fs.writeFileSync(path.join(fora, 'sentinela.txt'), 'original');
   if (!link(t, fora, arqShim('statusline.mjs'), LINK_PASTA)) return;
-  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   const info = fs.lstatSync(arqShim('statusline.mjs'));
   assert.ok(info.isFile() && !info.isSymbolicLink());
   assert.equal(ler(arqShim('statusline.mjs')), esperado(raiz, 'statusline.mjs'));
@@ -195,7 +206,7 @@ test('junção pendente no lugar do shim: some, e o alvo não é criado', (t) =>
   fs.mkdirSync(bin());
   const inexistente = path.join(home, 'nao-existe');
   if (!link(t, inexistente, arqShim('cli.mjs'), LINK_PASTA)) return;
-  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   assert.ok(fs.lstatSync(arqShim('cli.mjs')).isFile());
   assert.equal(ler(arqShim('cli.mjs')), esperado(raiz, 'cli.mjs'));
   assert.equal(fs.existsSync(inexistente), false);
@@ -207,7 +218,7 @@ test('symlink de arquivo no lugar do shim vira arquivo regular; o alvo fica inta
   const alvo = path.join(home, 'alvo.txt');
   fs.writeFileSync(alvo, 'original');
   if (!link(t, alvo, arqShim('statusline.mjs'), 'file')) return;
-  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   assert.ok(fs.lstatSync(arqShim('statusline.mjs')).isFile());
   assert.equal(ler(arqShim('statusline.mjs')), esperado(raiz, 'statusline.mjs'));
   assert.equal(ler(alvo), 'original');
@@ -219,7 +230,7 @@ test('symlink para um arquivo com o conteúdo certo também é trocado por arqui
   const alvo = path.join(home, 'isca.mjs');
   fs.writeFileSync(alvo, esperado(raiz, 'statusline.mjs'));
   if (!link(t, alvo, arqShim('statusline.mjs'), 'file')) return;
-  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   assert.ok(!fs.lstatSync(arqShim('statusline.mjs')).isSymbolicLink());
   assert.equal(ler(alvo), esperado(raiz, 'statusline.mjs'));
 });
@@ -245,7 +256,7 @@ test('FIFO no lugar do shim é trocado sem travar (POSIX)', { skip: process.plat
   ], { env: { ...process.env, HADOUKEN_HOME: home }, encoding: 'utf8', timeout: 5000 });
   assert.equal(p.error, undefined, String(p.error));
   assert.equal(p.status, 0, p.stderr);
-  assert.deepEqual(JSON.parse(p.stdout), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(JSON.parse(p.stdout), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   assert.ok(fs.lstatSync(arqShim('statusline.mjs')).isFile());
 });
 
@@ -359,7 +370,7 @@ test('raiz com aspas, apóstrofo, $, espaço, ç, #, % e ; importa o alvo certo'
       const p = rodarShim(shim);
       assert.equal(p.status, 0, `${JSON.stringify(nome)} ${shim}: ${p.stderr}`);
       const [marcador, url] = p.stdout.split(' ');
-      assert.equal(marcador, shim === 'cli.mjs' ? 'alvo-cli' : 'alvo-statusline', nome);
+      assert.equal(marcador, MARCADOR[shim], nome);
       // O loader devolve o caminho real (no macOS o tmpdir passa por /var -> /private/var).
       assert.equal(fileURLToPath(url), fs.realpathSync(path.join(raiz, 'src', ALVO[shim])), nome);
     }
@@ -418,7 +429,7 @@ test('nunca lança: rename que lança {} num shim vira motivo "shim" e o outro s
   }
   assert.deepEqual(r, { ok: false, motivo: 'shim' });
   // O temporário do shim que falhou foi apagado; o outro shim chegou.
-  assert.deepEqual(fs.readdirSync(bin()), ['cli.mjs']);
+  assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'painel.mjs']);
   assert.equal(ler(arqShim('cli.mjs')), esperado(raiz, 'cli.mjs'));
 });
 
@@ -450,12 +461,52 @@ test('nunca lança: HADOUKEN_HOME que é arquivo devolve o código do sistema e 
 
 test('shim executa a statusline de verdade para sessão registrada (caminho com espaço)', () => {
   assert.deepEqual(registrarSessao('s1', Date.now()), { ok: true });
-  assert.deepEqual(sincronizarShims(repo), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(sincronizarShims(repo), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   const r = rodarShim('statusline.mjs', '{"session_id":"s1"}');
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
-  assert.match(r.stdout, /5h —/);
-  assert.ok(!r.stdout.includes('\n'));
+  // E6: a barra fica só com a sessão.
+  assert.equal(r.stdout, '— │ ctx — │ cache —');
+});
+
+// E4: a extensão do VS Code carrega <dirDados>/bin/painel.mjs por import()
+// dinâmico. Num processo filho, como a extensão: o shim reexporta a lógica de
+// src/uso/painel.js da versão em uso, e estadoPainel({}) lê o HADOUKEN_HOME.
+test('painel.mjs de verdade exporta estadoPainel e talvezAtualizar (caminho com espaço)', () => {
+  assert.equal(sincronizarShims(repo).ok, true);
+  const url = pathToFileURL(arqShim('painel.mjs')).href;
+  const p = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `const m = await import(${JSON.stringify(url)}); process.stdout.write(JSON.stringify({ tipos: [typeof m.estadoPainel, typeof m.talvezAtualizar, typeof m.lerUso], arq: m.ARQ_USO, estado: m.estadoPainel({}) }));`,
+  ], { env: { ...process.env, HADOUKEN_HOME: home }, encoding: 'utf8', timeout: 15_000 });
+  assert.equal(p.error, undefined, String(p.error));
+  assert.equal(p.status, 0, p.stderr);
+  assert.deepEqual(JSON.parse(p.stdout), {
+    tipos: ['function', 'function', 'function'],
+    arq: 'uso-oficial.json',
+    estado: {
+      texto: 'Hadouken: sem leitura',
+      nivel: 'sem-leitura',
+      dica: [
+        '**Sessão (5h):** sem leitura', '**Semana (todos os modelos):** sem leitura', '**Semana (Fable):** sem leitura',
+        'Sessões ativas: 0', 'Sem leitura oficial ainda', 'Fonte: statusline do Claude Code e claude /usage, sem tokens.',
+      ].join('\n\n'),
+    },
+  });
+});
+
+// Foco 5: plugin atualizado e versão velha apagada. O import do painel.mjs
+// rejeita (a extensão trata e tenta de novo), sem travar nem imprimir nada.
+test('raiz apagada: o import do painel.mjs rejeita com ERR_MODULE_NOT_FOUND', () => {
+  const raiz = criarRaiz(path.join(home, 'p'));
+  assert.equal(sincronizarShims(raiz).ok, true);
+  fs.rmSync(raiz, { recursive: true, force: true });
+  const url = pathToFileURL(arqShim('painel.mjs')).href;
+  const p = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `await import(${JSON.stringify(url)}).then(() => process.stdout.write("importou"), (e) => process.stdout.write(String(e?.code)));`,
+  ], { encoding: 'utf8', timeout: 15_000 });
+  assert.equal(p.error, undefined, String(p.error));
+  assert.equal(p.status, 0, p.stderr);
+  assert.equal(p.stdout, 'ERR_MODULE_NOT_FOUND');
 });
 
 test('shim com sessão não registrada: nada impresso e nada gravado', () => {
@@ -701,7 +752,7 @@ test('varredura de bin/ inundado (mais de 5 000 nomes): no máximo 256 entradas 
     assert.ok(c.leituras <= LER_MAX, `leituras: ${c.leituras}`);
     assert.ok(c.lstatTmp <= LSTAT_MAX, `lstat: ${c.lstatTmp}`);
     // Todo nome é temporário, então para no 64º lstat, em qualquer ordem da
-    // pasta; no meio, no máximo os dois shims.
+    // pasta; no meio, no máximo os três shims.
     assert.equal(c.lstatTmp, LSTAT_MAX);
     assert.ok(c.leituras <= LSTAT_MAX + SHIMS.length, `leituras: ${c.leituras}`);
     assert.equal(fs.readdirSync(bin()).length, nomes.length + SHIMS.length);
@@ -757,7 +808,7 @@ test('shim adulterado e somente leitura é restaurado', () => {
   assert.equal(fs.lstatSync(arqShim('statusline.mjs')).mode & 0o200, 0);
   assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['statusline.mjs'] });
   assert.equal(ler(arqShim('statusline.mjs')), esperado(raiz, 'statusline.mjs'));
-  assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'statusline.mjs']);
+  assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'painel.mjs', 'statusline.mjs']);
 });
 
 test('bin/ sem escrita para o dono volta a 0o700 e o shim é restaurado (POSIX)', { skip: process.platform === 'win32' && 'modo de pasta é do POSIX' }, () => {
@@ -909,7 +960,7 @@ test('shim somente leitura que é hard link para um arquivo de fora: o arquivo d
     assert.equal(fs.lstatSync(fora).mode & 0o200, 0);
     assert.equal(ler(fora), 'original de fora');
     assert.equal(ler(arqShim('cli.mjs')), esperado(raiz, 'cli.mjs'));
-    assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'statusline.mjs']);
+    assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'painel.mjs', 'statusline.mjs']);
     if (process.platform === 'win32') {
       assert.deepEqual(r, { ok: false, motivo: 'shim_invalido' });
       // Recusado sem tocar: a entrada de bin/ continua o hard link.
@@ -969,7 +1020,7 @@ test('hard link que só o fstat vê: recusado, e o arquivo de fora não muda', (
     assert.equal(fs.lstatSync(fora).mode, modoFora);
     assert.equal(ler(fora), 'original de fora');
     assert.equal(fs.lstatSync(shim).nlink, 2);
-    assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'statusline.mjs']);
+    assert.deepEqual(fs.readdirSync(bin()).sort(), ['cli.mjs', 'painel.mjs', 'statusline.mjs']);
   } finally {
     try { fs.chmodSync(fora, 0o666); } catch { /* o afterEach apaga */ }
   }
@@ -1033,8 +1084,8 @@ test('arquivo trocado entre o lstat e o fstat: recusado, e o arquivo de fora nã
     assert.equal(fs.lstatSync(fora).mode & 0o200, 0);
     assert.equal(fs.lstatSync(fora).nlink, 1);
     assert.equal(ler(fora), 'original de fora');
-    // Nenhum temporário ficou: só o shim afastado pelo "atacante" e o cli.mjs.
-    assert.deepEqual(fs.readdirSync(bin()).sort(), ['afastado', 'cli.mjs']);
+    // Nenhum temporário ficou: só o shim afastado pelo "atacante", o cli.mjs e o painel.mjs.
+    assert.deepEqual(fs.readdirSync(bin()).sort(), ['afastado', 'cli.mjs', 'painel.mjs']);
     assert.equal(ler(arqShim('cli.mjs')), esperado(raiz, 'cli.mjs'));
   } finally {
     for (const p of [fora, afastado]) {
@@ -1091,14 +1142,14 @@ test('temporário da escrita atômica: nome imprevisível, sempre dentro de bin/
   } finally {
     fs.renameSync = original;
   }
-  assert.equal(usados.length, 2);
+  assert.equal(usados.length, 3);
   for (const [de, para] of usados) {
     assert.equal(path.dirname(de), bin());
     assert.match(path.basename(de), NOME_TMP);
     assert.ok(path.basename(de).startsWith(`.${path.basename(para)}.`), de);
   }
   const hex = (de) => path.basename(de).split('.').at(-2);
-  assert.notEqual(hex(usados[0][0]), hex(usados[1][0]));
+  assert.equal(new Set(usados.map(([de]) => hex(de))).size, 3);
 });
 
 test('link pendente plantado no nome do temporário: nada é criado fora de bin/', (t) => {
@@ -1143,7 +1194,7 @@ test('temporário aberto que não é arquivo regular: tmp_invalido e o shim não
   assert.equal(ler(arqShim('statusline.mjs')), 'adulterado');
   assert.equal(ler(arqShim('cli.mjs')), esperado(raiz, 'cli.mjs'));
   const sobras = fs.readdirSync(bin()).filter((n) => !SHIMS.includes(n));
-  assert.equal(sobras.length, 2, JSON.stringify(sobras));
+  assert.equal(sobras.length, 3, JSON.stringify(sobras));
   for (const n of sobras) assert.match(n, NOME_TMP);
 });
 
@@ -1169,7 +1220,7 @@ test('raiz UNC (\\\\servidor\\compartilhamento) continua aceita (Windows)', { sk
     t.skip(`compartilhamento administrativo indisponivel (${e.code})`);
     return;
   }
-  assert.deepEqual(sincronizarShims(unc), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(sincronizarShims(unc), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   const conteudo = ler(arqShim('statusline.mjs'));
   assert.equal(conteudo, esperado(unc, 'statusline.mjs'));
   assert.ok(conteudo.startsWith('await import("file://127.0.0.1/'), conteudo);
@@ -1216,7 +1267,7 @@ test('raiz UNC com o nome da máquina em maiúsculas continua aceita (Windows)',
     t.skip(`ida e volta nao difere so na caixa aqui (${volta})`);
     return;
   }
-  assert.deepEqual(sincronizarShims(unc), { ok: true, alterados: ['statusline.mjs', 'cli.mjs'] });
+  assert.deepEqual(sincronizarShims(unc), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
   const p = rodarShim('statusline.mjs');
   assert.equal(p.status, 0, p.stderr);
   assert.ok(p.stdout.startsWith(`alvo-statusline file://${os.hostname().toLowerCase()}/`), p.stdout);

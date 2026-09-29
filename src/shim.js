@@ -8,10 +8,12 @@ import {
 
 // Shims estáveis (spec 8.1, S6). O settings.json do usuário aponta a
 // statusLine (e o CLI) para <dirDados>/bin/<shim>, um caminho que não muda
-// quando o plugin é atualizado. O SessionStart chama sincronizarShims a cada
+// quando o plugin é atualizado; a extensão do VS Code carrega o painel.mjs
+// (emenda E4). O SessionStart chama sincronizarShims a cada
 // sessão: o shim aponta para a versão do plugin em uso e qualquer adulteração
 // é desfeita. Cada shim é uma linha só, `await import("<file URL do alvo>")`
-// seguido de um .catch fixo: o caminho entra apenas como URL de arquivo (que
+// seguido de um .catch fixo (o do painel, `export * from "<file URL>"`): o
+// caminho entra apenas como URL de arquivo (que
 // escapa espaço, aspas, #, %, quebra de linha e todo não-ASCII) e passa por
 // JSON.stringify; nada lido de outro lugar entra no conteúdo.
 //
@@ -36,12 +38,17 @@ export const DIR_BIN = 'bin';
 // escrever. String.raw: o \n fica como os dois caracteres \ e n, e o shim
 // continua uma linha só, toda ASCII.
 const CATCH_CLI = String.raw`(e) => { let m = "internal error (unknown)"; try { const s = (v) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : ""); if (e?.code === "ERR_MODULE_NOT_FOUND" && (e.url === u || (e.url === undefined && typeof e.message === "string" && e.message.startsWith("Cannot find module '" + fileURLToPath(u) + "'")))) m = "plugin files not found - open a new session"; else m = "internal error (" + (s(e?.code) || s(e?.name) || "unknown") + ")"; } catch {} process.exitCode = 1; try { process.stderr.write("claude-hadouken: " + m + "\n"); } catch {} }`;
+// O do painel (emenda E4) só reexporta a lógica de src/uso/painel.js: a
+// extensão do VS Code o carrega por import() dinâmico e trata a rejeição
+// (alvo sumido) ela mesma. O alvo em subpasta entra pelo path.join de
+// sincronizarShims, como os outros.
 const SHIMS = Object.freeze({
   'statusline.mjs': { alvo: 'statusline.js', modelo: (url) => `await import(${url}).catch(() => {});\n` },
   'cli.mjs': {
     alvo: 'cli.js',
     modelo: (url) => `import { fileURLToPath } from "node:url"; const u = ${url}; await import(u).catch(${CATCH_CLI});\n`,
   },
+  'painel.mjs': { alvo: 'uso/painel.js', modelo: (url) => `export * from ${url};\n` },
 });
 // A raiz só é aceita se este arquivo existir nela como arquivo regular.
 const ALVO_OBRIGATORIO = 'statusline.js';
@@ -72,7 +79,7 @@ const ABRIR_PASTA = fs.constants.O_RDONLY | (fs.constants.O_DIRECTORY ?? 0) | (f
 // Temporário da escrita atômica: .<shim>.<12 hex sorteados>.tmp. O sorteio
 // impede plantar um link no nome antes da escrita (m-2).
 const TMP_BYTES = 6;
-const NOME_TMP = /^\.(?:statusline|cli)\.mjs\.[0-9a-f]{12}\.tmp$/;
+const NOME_TMP = /^\.(?:statusline|cli|painel)\.mjs\.[0-9a-f]{12}\.tmp$/;
 const ehTmpDeShim = (nome) => NOME_TMP.test(nome);
 // Resultado de liberarEscrita.
 const LIBERADO = 'liberado';
@@ -292,8 +299,9 @@ function sincronizarUm(bin, nome, conteudo) {
   }
 }
 
-// Cria ou corrige <dirDados>/bin/statusline.mjs e cli.mjs para importar
-// <raizPlugin>/src/statusline.js e cli.js, e varre temporários velhos de bin/.
+// Cria ou corrige <dirDados>/bin/statusline.mjs, cli.mjs e painel.mjs para
+// importar <raizPlugin>/src/statusline.js, cli.js e uso/painel.js, e varre
+// temporários velhos de bin/.
 // Só escreve o que mudou. Cada shim é tratado à parte, então um shim com
 // problema não impede a correção do outro; a primeira falha vira o motivo.
 // Motivos: 'sem_diretorio' (sem home; nenhum I/O), 'raiz_invalida',

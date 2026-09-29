@@ -14,6 +14,7 @@ import {
 import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO } from '../src/alerta.js';
 import { LIMITE_VELHO_MS } from '../src/estado.js';
 import { horaLocal, diaHora } from '../src/util.js';
+import { fraseEsgota } from '../src/uso/frase.js';
 
 // Unidades dos hooks (Task 7): a linha de estado do SessionStart, a memória de
 // alertas do UserPromptSubmit e o histórico do SessionEnd. Os scripts em si
@@ -45,6 +46,16 @@ const limites = (p5, p7, r5 = R5, r7 = R7) => ({
   seven_day: { used_percentage: p7, resets_at: r7 },
 });
 
+// Caso E1 da emenda (29/09, 17:04), em hora local para passar em qualquer
+// fuso: a janela de 5 h reinicia às 17:20 e a de 7 d na segunda 05/10, 22:00.
+const E1 = new Date(2026, 8, 29, 17, 4).getTime();
+const E1_R5 = new Date(2026, 8, 29, 17, 20).getTime() / 1000;
+const E1_R7 = new Date(2026, 9, 5, 22, 0).getTime() / 1000;
+const e1 = (p5, p7, r7 = E1_R7) => ({
+  five_hour: { used_percentage: p5, resets_at: E1_R5 },
+  seven_day: { used_percentage: p7, resets_at: r7 },
+});
+
 test('linhaEstado: sem limites diz sem leitura', () => {
   assert.equal(LINHA_SEM_LEITURA, 'Consumo sem leitura: rode /usage.');
   for (const l of [null, undefined, {}, [], 'x', 42, { five_hour: null, seven_day: null }]) {
@@ -52,22 +63,46 @@ test('linhaEstado: sem limites diz sem leitura', () => {
   }
 });
 
-test('linhaEstado: as duas janelas, com a faixa de 7d de faixa7d e piso nos números', () => {
-  assert.equal(
-    linhaEstado(limites(42.9, 48.7), AGORA),
-    `Consumo: 5h 42% (reset ${horaLocal(R5)}) · 7d 48% vs 50% esperado, modo normal; reset ${diaHora(R7)}.`,
-  );
-  assert.match(linhaEstado(limites(42, 48), AGORA), /^Consumo: 5h 42% \(reset \d\d:\d\d\) · 7d 48% vs \d+% esperado, modo \S+; reset \S+ \d\d:\d\d\.$/);
-  // 89.6 nunca aparece como 90%.
-  assert.match(linhaEstado(limites(89.6, 50), AGORA), /^Consumo: 5h 89% /);
+test('linhaEstado: caso E1, com a frase da janela de 7 d (E5) e piso nos números', () => {
+  const linha = 'Consumo: 5h 25% (reset 17:20) · 7d 41% (reset seg 22:00); nesse ritmo, esgota amanhã à noite.';
+  assert.equal(linhaEstado(e1(25, 41), E1), linha);
+  // 25.9 nunca aparece como 26%, nem 89.6 como 90%.
+  assert.equal(linhaEstado(e1(25.9, 41), E1), linha);
+  assert.match(linhaEstado(e1(89.6, 41), E1), /^Consumo: 5h 89% /);
 });
 
-test('linhaEstado: rótulos de cada faixa de 7d', () => {
-  const casos = [[61, 'econômico'], [39, 'folga'], [50, 'normal'], [92, 'só leitura']];
-  for (const [p7, rotulo] of casos) {
-    const { faixa } = faixa7d({ usado: p7, resetsAt: R7, agoraMs: AGORA });
-    assert.ok(linhaEstado(limites(10, p7), AGORA).includes(`, modo ${rotulo}; reset `), `${p7} (${faixa})`);
+test('linhaEstado: não esgota antes do reinício, limite atingido e sem frase', () => {
+  assert.equal(linhaEstado(e1(25, 10), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 10% (reset seg 22:00); nesse ritmo, não esgota antes do reinício.');
+  assert.equal(linhaEstado(e1(25, 100), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 100% (reset seg 22:00); limite semanal atingido.');
+  // Uso zero: sem frase.
+  assert.equal(linhaEstado(e1(25, 0), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 0% (reset seg 22:00).');
+  // Menos de 30 min decorridos na janela: sem frase; a linha termina no reset.
+  const r7 = (E1 + 7 * 24 * H - 10 * 60_000) / 1000;
+  assert.equal(linhaEstado(e1(25, 5, r7), E1), `Consumo: 5h 25% (reset 17:20) · 7d 5% (reset ${diaHora(r7)}).`);
+});
+
+// A cauda só sai nas formas conhecidas de fraseEsgota (S1: números e
+// palavras fixas), e o "quando" é o da frase.
+test('linhaEstado: toda cauda é uma das formas fixas, com o quando de fraseEsgota', () => {
+  const QUANDO = String.raw`(?:por volta das \d\d:\d\d|(?:hoje|amanhã|domingo|segunda|terça|quarta|quinta|sexta|sábado) (?:de madrugada|de manhã|à tarde|à noite)|em \d\d/\d\d)`;
+  const FORMA = new RegExp(String.raw`^Consumo: 5h sem leitura · 7d \d+% \((?:reset (?:dom|seg|ter|qua|qui|sex|sáb) \d\d:\d\d)\)(?:; nesse ritmo, esgota ${QUANDO}|; nesse ritmo, não esgota antes do reinício|; limite semanal atingido)?\.$`, 'u');
+  const vistas = new Set();
+  for (const horas of [1, 5, 12, 24, 48, 100, 150, 167]) {
+    const r7 = Math.floor((E1 + 7 * 24 * H - horas * H) / 1000);
+    for (const p7 of [1, 10, 30, 50, 70, 90, 99, 100]) {
+      const l = linhaEstado({ seven_day: { used_percentage: p7, resets_at: r7 } }, E1);
+      assert.match(l, FORMA, `${horas} h, ${p7}%`);
+      assert.ok(!controleProibido(l));
+      const frase = fraseEsgota({ usado: p7, resetsAtMs: r7 * 1000, janelaMs: 7 * 24 * H, agoraMs: E1 });
+      const quando = /^Nesse ritmo, esgota (.+), antes do reinício /.exec(frase ?? '')?.[1];
+      if (quando !== undefined) {
+        assert.ok(l.endsWith(`; nesse ritmo, esgota ${quando}.`), l);
+        vistas.add(quando.startsWith('por volta') ? 'perto' : 'esgota');
+      } else if (l.includes('não esgota')) vistas.add('nao');
+      else if (l.includes('limite')) vistas.add('limite');
+    }
   }
+  assert.deepEqual([...vistas].sort(), ['esgota', 'limite', 'nao', 'perto']);
 });
 
 test('linhaEstado: janela ausente ou fora do schema aparece como sem leitura', () => {
@@ -75,9 +110,10 @@ test('linhaEstado: janela ausente ou fora do schema aparece como sem leitura', (
     linhaEstado({ five_hour: { used_percentage: 12, resets_at: R5 } }, AGORA),
     `Consumo: 5h 12% (reset ${horaLocal(R5)}) · 7d sem leitura.`,
   );
+  // 48% com 84 h decorridas: os 52% restantes levam 91 h, depois do reset.
   assert.equal(
-    linhaEstado({ seven_day: { used_percentage: 50, resets_at: R7 } }, AGORA),
-    `Consumo: 5h sem leitura · 7d 50% vs 50% esperado, modo normal; reset ${diaHora(R7)}.`,
+    linhaEstado({ seven_day: { used_percentage: 48, resets_at: R7 } }, AGORA),
+    `Consumo: 5h sem leitura · 7d 48% (reset ${diaHora(R7)}); nesse ritmo, não esgota antes do reinício.`,
   );
   const ruins = [
     { used_percentage: '42', resets_at: R5 },
