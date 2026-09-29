@@ -59,17 +59,23 @@ const entradaValida = (extra = {}) => {
 const ESC_ESTRANHO = /\x1b(?!\[(?:3[123]|0)m)/;
 const INVISIVEL = /[\p{C}\p{Zl}\p{Zp}]/u;
 const semCores = (s) => s.replace(/\x1b\[(?:3[123]|0)m/g, '');
+// E6 (emenda 2026-09-29): a barra do terminal fica só com a sessão. Sem
+// context_window nem prompt_cache no stdin, ctx e cache viram "—".
+const BARRA_SESSAO = 'Opus 5.5 │ ctx — │ cache —';
 
-test('sessão registrada imprime a barra e grava estado.json', () => {
+test('sessão registrada imprime a barra só da sessão e grava 5h/7d em estado.json (E6)', () => {
   const home = novoHome();
   assert.deepEqual(registrar(home, 's1'), { ok: true });
   const r = rodar(JSON.stringify(entradaValida()), home);
   assert.equal(r.status, 0);
   assert.equal(r.stderr, '');
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
-  assert.ok(!r.stdout.includes('\n'));
-  assert.ok(!r.stdout.includes('\x1b'));
-  assert.ok(fs.existsSync(path.join(home, 'estado.json')));
+  assert.equal(r.stdout, BARRA_SESSAO);
+  // A statusline segue gravando rate_limits: é a fonte exata e gratuita do 5h
+  // e da semana (E6).
+  const gravado = JSON.parse(fs.readFileSync(path.join(home, 'estado.json'), 'utf8'));
+  assert.equal(gravado.five_hour.used_percentage, 10);
+  assert.equal(gravado.seven_day.used_percentage, 20);
+  assert.equal(gravado.historico.length, 1);
 });
 
 test('sessão não registrada: saída vazia e nenhum arquivo gravado', () => {
@@ -110,7 +116,7 @@ test('renovação: a barra renova registro de mais de 1 h e deixa o recente', ()
   let r = rodar(JSON.stringify(entradaValida()), home);
   const depois = Date.now();
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
+  assert.equal(r.stdout, BARRA_SESSAO);
   const renovado = mtime(arqAtiva(home, 's1'));
   assert.ok(renovado >= antes - 1000 && renovado <= depois + 1000, `${renovado} fora de [${antes}, ${depois}]`);
   // Registro de 10 min: a data não muda (sem escrita a cada redesenho).
@@ -118,12 +124,12 @@ test('renovação: a barra renova registro de mais de 1 h e deixa o recente', ()
   datar(arqAtiva(home, 's1'), recente);
   r = rodar(JSON.stringify(entradaValida()), home);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
+  assert.equal(r.stdout, BARRA_SESSAO);
   assert.equal(mtime(arqAtiva(home, 's1')), recente);
   // Quase 30 dias: ainda ativa, e a barra renova.
   datar(arqAtiva(home, 's1'), Date.now() - ATIVA_MAX_MS + 60_000);
   r = rodar(JSON.stringify(entradaValida()), home);
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
+  assert.equal(r.stdout, BARRA_SESSAO);
   assert.ok(mtime(arqAtiva(home, 's1')) >= antes);
   assert.deepEqual(fs.readdirSync(path.join(home, 'ativas')), [hex('s1')]);
 });
@@ -131,21 +137,22 @@ test('renovação: a barra renova registro de mais de 1 h e deixa o recente', ()
 test('cores: só os códigos fixos, e nenhuma com NO_COLOR', () => {
   const home = novoHome();
   registrar(home, 's1');
-  const stdin = JSON.stringify(entradaValida());
+  const stdin = JSON.stringify(entradaValida({ effort: { level: 'high' }, context_window: { used_percentage: 31 }, prompt_cache: { hit_ratio: 0.9749 } }));
+  const COLORIDA = 'Opus 5.5·high │ \x1b[32mctx ▰▰▱▱▱▱▱▱ 31%\x1b[0m │ \x1b[32mcache ▰▰▰▰▰▰▰▱ 97%\x1b[0m';
   const colorida = rodar(stdin, home, { NO_COLOR: undefined });
   assert.equal(colorida.status, 0);
-  assert.ok(colorida.stdout.includes('\x1b[32m5h ▰▱▱▱▱▱▱▱ 10%'), JSON.stringify(colorida.stdout));
+  assert.equal(colorida.stdout, COLORIDA);
   assert.doesNotMatch(colorida.stdout, ESC_ESTRANHO);
   const vazia = rodar(stdin, home, { NO_COLOR: '' });
   assert.equal(vazia.status, 0);
   assert.equal(vazia.stderr, '');
-  assert.ok(vazia.stdout.includes('\x1b[32m5h ▰▱▱▱▱▱▱▱ 10%'), 'NO_COLOR vazio não desliga (no-color.org)');
+  assert.equal(vazia.stdout, COLORIDA, 'NO_COLOR vazio não desliga (no-color.org)');
   assert.doesNotMatch(vazia.stdout, ESC_ESTRANHO);
   const sem = rodar(stdin, home, { NO_COLOR: '1' });
   assert.equal(sem.status, 0);
   assert.equal(sem.stderr, '');
-  assert.match(sem.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10% ↻\d\d:\d\d │ 7d [▰▱┃]{9} 20%\/\d+%/);
-  assert.equal(sem.stdout.split('┃').length, 2, 'uma marca só, a da 7d');
+  // E6: a linha completa da sessão, sem 5h, 7d nem marca.
+  assert.equal(sem.stdout, 'Opus 5.5·high │ ctx ▰▰▱▱▱▱▱▱ 31% │ cache ▰▰▰▰▰▰▰▱ 97%');
   assert.ok(!sem.stdout.includes('\x1b'));
 });
 
@@ -267,7 +274,7 @@ test('stdin que nunca fecha: a barra sai no prazo curto e ainda imprime', async 
   const aberto = await cronometrar(home, false);
   assert.equal(aberto.codigo, 0, aberto.erro);
   assert.equal(aberto.erro, '');
-  assert.match(aberto.saida, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10% ↻/);
+  assert.equal(aberto.saida, BARRA_SESSAO);
   assert.ok(aberto.ms - base.ms < 700, `aberto ${aberto.ms.toFixed(0)} ms vs base ${base.ms.toFixed(0)} ms`);
 });
 
@@ -294,8 +301,8 @@ test('stdout fechado antes da escrita: sai com 0 e sem stack trace', async () =>
 
 // I-4 de ponta a ponta: a sessao B, ativa, esta em 85% e o hook dela ve
 // "serializar"; a sessao A, ociosa, redesenha com a leitura antiga de 60% da
-// mesma janela. estado.json fica em 85%, a barra de A mostra os 85% da conta
-// (o limite e da conta, nao da sessao) e o proximo hook de B nao diz nada.
+// mesma janela. estado.json fica em 85% (o limite e da conta, nao da sessao)
+// e o proximo hook de B nao diz nada. Desde a E6 a barra nao mostra o 5h.
 test('leitura velha de sessao ociosa nao baixa o snapshot da conta', () => {
   const home = novoHome();
   const s = Math.floor(Date.now() / 1000);
@@ -304,13 +311,13 @@ test('leitura velha de sessao ociosa nao baixa o snapshot da conta', () => {
   const limites = (p5, r5) => ({ five_hour: { used_percentage: p5, resets_at: r5 }, seven_day: { used_percentage: 1, resets_at: s + 6 * 86400 } });
   const b = rodar(JSON.stringify(entradaValida({ session_id: 'sessaoB', rate_limits: limites(85, s + 3600) })), home);
   assert.equal(b.status, 0, b.stderr);
-  assert.match(b.stdout, /5h ▰▰▰▰▰▰▰▱ 85%/);
+  assert.equal(b.stdout, BARRA_SESSAO);
   const estadoDe = () => validarEstado(lerJson(path.join(home, 'estado.json')).valor, Date.now());
   const vistoB = avaliarAlertas({ limites: limitesValidos(estadoDe(), Date.now()), anteriores: null, sessionId: 'sessaoB', agoraMs: Date.now() });
   assert.ok(vistoB.linhas.some((l) => /serializar/.test(l)), JSON.stringify(vistoB.linhas));
   const a = rodar(JSON.stringify(entradaValida({ session_id: 'sessaoA', rate_limits: limites(60, s + 3603) })), home);
   assert.equal(a.status, 0, a.stderr);
-  assert.match(a.stdout, /5h ▰▰▰▰▰▰▰▱ 85%/, 'a barra de A mostra o snapshot da conta, nao a propria leitura velha');
+  assert.equal(a.stdout, BARRA_SESSAO);
   const e = estadoDe();
   assert.equal(e.five_hour.used_percentage, 85);
   const depois = avaliarAlertas({ limites: limitesValidos(e, Date.now()), anteriores: vistoB.novos, sessionId: 'sessaoB', agoraMs: Date.now() });
@@ -369,7 +376,7 @@ test('sessão registrada muda só o estado.json: sem cache/ nem entrada nova', (
   const r = rodar(JSON.stringify(entradaValida()), home, { NODE_COMPILE_CACHE: undefined, NODE_DISABLE_COMPILE_CACHE: undefined });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
-  assert.match(r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
+  assert.equal(r.stdout, BARRA_SESSAO);
   const depois = arvore(home);
   const ehEstado = (item) => item.startsWith('estado.json|');
   assert.deepEqual(depois.filter((i) => !ehEstado(i)), antes.filter((i) => !ehEstado(i)));
@@ -404,7 +411,7 @@ else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
 }
 
 // O caminho curto só traz base.js (lerStdin, dirDados e idValido) e ativas.js;
-// estado.js e formato.js (com alerta.js e ritmo.js) só depois do gate.
+// estado.js e formato.js (com barrinha.js e util.js) só depois do gate.
 test('gate antes dos imports: sessão não registrada não carrega estado.js nem formato.js', () => {
   const home = novoHome();
   registrar(home, 'outra');
@@ -415,14 +422,16 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   registrar(home, 's1');
   const dentro = modulosCarregados(home, JSON.stringify(entradaValida()));
   assert.equal(dentro.r.status, 0, dentro.r.stderr);
-  assert.match(dentro.r.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10%/);
-  assert.deepEqual(dentro.nomes, ['alerta.js', 'ativas.js', 'barrinha.js', 'base.js', 'estado.js', 'formato.js', 'previsao.js', 'ritmo.js', 'statusline.js', 'util.js']);
+  assert.equal(dentro.r.stdout, BARRA_SESSAO);
+  // E6: sem previsao.js, nem alerta.js e ritmo.js, que vinham pelo 5h/7d.
+  assert.deepEqual(dentro.nomes, ['ativas.js', 'barrinha.js', 'base.js', 'estado.js', 'formato.js', 'statusline.js', 'util.js']);
 });
 
 // Sessões simultâneas de ponta a ponta (spec v0.2.0 §12.3 e §12.4): duas
 // outras sessões com a barra redesenhada no último minuto e o histórico de
-// 5h subindo 1 ponto por minuto.
-test('sessões simultâneas: 3 sessões e a previsão de estouro da 5h na barra', () => {
+// 5h subindo 1 ponto por minuto. Desde a E6, "N sessões" e a previsão saem da
+// barra (vão para o painel), mas o histórico segue gravado.
+test('sessões simultâneas (E6): a barra fica só com a sessão e o histórico segue gravado', () => {
   const home = novoHome();
   registrar(home, 's1');
   const agora = Date.now();
@@ -439,15 +448,11 @@ test('sessões simultâneas: 3 sessões e a previsão de estouro da 5h na barra'
   entrada.rate_limits.five_hour = { used_percentage: 74, resets_at: s + 3600 };
   const r = rodar(JSON.stringify(entrada), home);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^Opus 5\.5 │ 3 sessões │ 5h ▰▰▰▰▰▰▱▱ 74% ↻\d\d:\d\d →100% \d\d:\d\d │ 7d /);
-  assert.ok(!r.stdout.includes('\x1b'));
+  assert.equal(r.stdout, BARRA_SESSAO);
+  for (const proibido of ['sessões', '5h', '7d', '→']) assert.equal(r.stdout.includes(proibido), false, proibido);
   const gravado = JSON.parse(fs.readFileSync(path.join(home, 'estado.json'), 'utf8'));
   assert.equal(gravado.historico.length, 5);
   assert.equal(gravado.historico[4].h5, 74);
-  // Sozinha e sem histórico: nem o trecho de sessões nem a seta.
-  const so = novoHome();
-  registrar(so, 's1');
-  const r1 = rodar(JSON.stringify(entradaValida()), so);
-  assert.match(r1.stdout, /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10% ↻\d\d:\d\d │ 7d /);
-  assert.equal(r1.stdout.includes('→'), false);
+  assert.equal(gravado.five_hour.used_percentage, 74);
+  assert.deepEqual(Object.keys(gravado.sessoes).sort(), ['s1', 's2', 's3', 's4']);
 });

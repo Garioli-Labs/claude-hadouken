@@ -108,10 +108,10 @@ function fotografar(dir) {
   return itens.sort();
 }
 
-const NOVA = /^Opus 5\.5 │ 5h ▰▱▱▱▱▱▱▱ 10% ↻\d\d:\d\d │ 7d [▰▱┃]{9} 20%\//;
-// Spec v0.2.0 §12.4: com a barra da outra sessão redesenhada nos últimos
-// 5 min, o trecho conta as duas.
-const NOVA_DUAS = /^Opus 5\.5 │ 2 sessões │ 5h ▰▱▱▱▱▱▱▱ 10% ↻\d\d:\d\d │ 7d [▰▱┃]{9} 20%\//;
+// E6 (emenda 2026-09-29): a barra do terminal fica só com a sessão, sem 5h,
+// 7d nem "N sessões"; com uma ou duas sessões ativas, a linha é a mesma.
+const NOVA = /^Opus 5\.5 │ ctx — │ cache —$/;
+const NOVA_DUAS = NOVA;
 
 test('atualização: sessão registrada troca de visual no próximo SessionStart da versão nova; não registrada segue muda', () => {
   const home = novaPasta('hdk atualiza ç ');

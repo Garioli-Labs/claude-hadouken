@@ -15,15 +15,16 @@
 // Worst-case disk state, built in a temporary HADOUKEN_HOME that is removed at
 // the end:
 // - the measured session is registered, alongside 999 other registration files;
-// - estado.json holds 50 sessions (its cap, all active: the bar shows
-//   "50 sessões"), both rate-limit windows and a full history (90 points over
-//   3 h, spec v0.2.0 §12.8) that rises fast enough for a 7d forecast on the bar;
+// - estado.json holds 50 sessions (its cap, all active), both rate-limit
+//   windows and a full history (90 points over 3 h, spec v0.2.0 §12.8), which
+//   the status line reads, merges and rewrites on every run;
 // - stdin is a realistic, complete statusline payload.
 // The worst case stays live for the whole run, however long it takes: before
 // every round (warm-up included) estado.json goes back to the fixture with
 // each `at` moved forward by the time elapsed since it was built, checked with
-// the bar's own validation, and every registered run must print "50 sessões"
-// and the 7d forecast (as bench/hooks-p95.mjs does for the hooks).
+// the bar's own validation (as bench/hooks-p95.mjs does for the hooks). Since
+// amendment E6 (2026-09-29) the bar shows only this session (model·effort,
+// ctx and cache), so every registered run must print exactly that line.
 // Scenarios: registered (gate, merge, atomic write, render), unregistered (gate
 // only, prints nothing), the same two through the stable shim
 // <home>/bin/statusline.mjs (what settings.json runs), and a bare `node -e ""`
@@ -125,16 +126,14 @@ try {
   const nHistorico = estado.historico.length;
 
   // The caller's NO_COLOR decides whether the bar is coloured; the check strips
-  // the only escapes the bar may carry (the fixed colour codes). The worst case
-  // is re-anchored before every round (below), so every registered run must
-  // show all 50 sessions and the 7d forecast.
-  const PREFIXO_BARRA = /^Opus 5\.5\u00b7high \u2502 50 sess\u00f5es \u2502 5h \u25b0\u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1 42%/;
-  const PREVISAO = ' \u2192100% ';
+  // the only escapes the bar may carry (the fixed colour codes). E6: the bar is
+  // the session line only, with nothing from estado.json on it.
+  const LINHA_BARRA = 'Opus 5.5\u00b7high \u2502 ctx \u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 31% \u2502 cache \u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b1 97%';
   const CORES_FIXAS = /\x1b\[(?:3[123]|0)m/g;
   let barra = '';
   const barraCerta = (nome) => (out) => {
     const limpa = out.replace(CORES_FIXAS, '');
-    if (!PREFIXO_BARRA.test(limpa) || !limpa.includes(PREVISAO)) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
+    if (limpa !== LINHA_BARRA) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
     barra = out;
   };
   const semSaida = (nome) => (out) => {

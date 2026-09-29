@@ -35,20 +35,19 @@ async function principal() {
   // Só depois do gate: sessão vencida ou desconhecida nunca é revivida. Grava
   // no máximo uma vez por hora (RENOVAR_APOS_MS), não a cada redesenho.
   renovarSessao(entrada.session_id, agoraMs);
-  const [{ atualizarEstado, limitesValidos, sessoesAtivas }, { formatarBarra }, { preverEstouro }] = await Promise.all([
+  const [{ atualizarEstado }, { formatarBarra }] = await Promise.all([
     import('./estado.js'),
     import('./formato.js'),
-    import('./previsao.js'),
   ]);
-  const { estado } = atualizarEstado(entrada, agoraMs);
-  const limites = limitesValidos(estado, agoraMs);
-  // Spec v0.2.0 §12: a previsão vem do histórico que atualizarEstado acabou de
-  // gravar, e a contagem, das sessões dele (esta inclusa).
-  const previsao = preverEstouro({ historico: estado.historico, limites, agoraMs });
-  const ativas = sessoesAtivas(estado, agoraMs, entrada.session_id);
+  // E6: a barra fica só com a sessão, mas a statusline segue gravando
+  // rate_limits e o histórico em estado.json a cada atualização, porque essa é
+  // a fonte exata e gratuita do 5h e da semana (hooks e painel leem dali).
+  // limitesValidos, preverEstouro e sessoesAtivas saíram daqui: a barra não os
+  // mostra mais, e cada redesenho economiza essa conta.
+  atualizarEstado(entrada, agoraMs);
   // no-color.org: NO_COLOR presente e não vazio desliga as cores.
   const cor = !process.env.NO_COLOR;
-  process.stdout.write(formatarBarra({ entrada, limites, agoraMs, cor, previsao, sessoesAtivas: ativas }));
+  process.stdout.write(formatarBarra({ entrada, cor }));
 }
 
 principal().catch(() => {}).finally(() => { process.exitCode = 0; });

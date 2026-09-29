@@ -951,7 +951,8 @@ test('N-1: troca de conta mostra a conta nova na hora, com at novo', () => {
     five_hour: { used_percentage: 96, resets_at: agoraS + 2 * 3600 },
     seven_day: { used_percentage: 85, resets_at: agoraS + 2 * 86400 },
   });
-  assert.match(formatarBarra({ limites: limitesValidos(e, t2), agoraMs: t2, cor: false }), /96/);
+  // E6: a barra do terminal não mostra mais o 5h; o 96 fica em estado.json
+  // (limitesValidos acima), de onde o painel e os hooks o leem.
 });
 
 test('N-1: estado plantado com reset deslocado nao congela a barra', () => {

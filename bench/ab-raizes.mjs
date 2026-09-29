@@ -47,8 +47,10 @@
 // get the same bytes, so the 50 sessions stay inside the 5 min active window
 // and the 90 history points inside the 3 h horizon however long the run
 // takes. Checked each round, untimed, with the §12 library of root A (or of
-// root B when A is older than §12); a root with §12 must also print
-// "50 sessões" and the 7d forecast on the registered status line.
+// root B when A is older than §12); a root with §12 and from before amendment
+// E6 (2026-09-29) must also print "50 sessões" and the 7d forecast on the
+// registered status line, and a root with E6 must print only the session line
+// (model·effort, ctx and cache).
 // Scenarios, each run on both roots: status line registered and unregistered,
 // prompt hook registered and unregistered. Every round visits the scenarios in
 // a fresh random order (Fisher-Yates) and flips a coin for which root runs
@@ -215,14 +217,25 @@ try {
     }
   }
 
-  // Output checks that hold for any version from v0.1.0 on: the bar starts
-  // with the model, then (from spec v0.2.0 §12 on, while other sessions are
-  // active) the sessions segment, then the 5h label, and shows 42%;
-  // unregistered prints nothing.
+  // Output checks that hold for any version from v0.1.0 up to E6: the bar
+  // starts with the model, then (from spec v0.2.0 §12 on, while other sessions
+  // are active) the sessions segment, then the 5h label, and shows 42%. From
+  // E6 on the bar is exactly the session line. Unregistered prints nothing.
+  // A text probe of src/formato.js tells E6 apart; a wrong probe fails loudly
+  // either way, since each check rejects the other version's bar.
   const CORES_FIXAS = /\x1b\[(?:3[123]|0)m/g;
   const INICIO_BARRA = /^Opus 5\.5\u00b7high \u2502 (?:\d+ sess\u00f5es \u2502 )?5h /;
+  const LINHA_E6 = 'Opus 5.5·high │ ctx ▰▰▱▱▱▱▱▱ 31% │ cache ▰▰▰▰▰▰▰▱ 97%';
+  const sondaE6 = (raiz) => {
+    const arq = path.join(raiz, 'src', 'formato.js');
+    return fs.existsSync(arq) && /^export const PARTES_BARRA = /m.test(fs.readFileSync(arq, 'utf8'));
+  };
   const barraCerta = (nome) => (out, lado) => {
     const limpa = out.replace(CORES_FIXAS, '');
+    if (lado.e6) {
+      if (limpa !== LINHA_E6) throw new Error(`${nome} (${lado.nome}): unexpected output ${JSON.stringify(out)}`);
+      return;
+    }
     if (!INICIO_BARRA.test(limpa) || !limpa.includes(' 42% ')) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
     // A root with §12 shows the worst case: 50 sessions and the 7d forecast.
     if (lado.secao12 && (!limpa.includes(' 50 sessões │ ') || !limpa.includes(' →100% '))) {
@@ -247,8 +260,8 @@ try {
     return env;
   };
   const lados = [
-    { nome: 'A', raiz: raizA, env: ambiente(homeA), secao12: secao12A },
-    { nome: 'B', raiz: raizB, env: ambiente(homeB), secao12: secao12B },
+    { nome: 'A', raiz: raizA, env: ambiente(homeA), secao12: secao12A, e6: sondaE6(raizA) },
+    { nome: 'B', raiz: raizB, env: ambiente(homeB), secao12: secao12B, e6: sondaE6(raizB) },
   ];
   function rodar(c, lado) {
     const t0 = process.hrtime.bigint();
