@@ -663,3 +663,10 @@ A regra de compatibilidade do `SECURITY.md` continua: dado novo só em **arquivo
 - C: B mais a leitura digitada `/claude-hadouken:fable N`.
 
 **Recomendo B.** É contagem exata, local e sem fonte privada, e teria parado o incidente no quinto revisor. C fica para depois, se B não bastar.
+
+## Decisões do Sr. Garioli (2026-09-29)
+
+- **D1 (tetos):** a proposta. O guardião trava com semana 20 pontos acima do ritmo linear, semana em 85 %, 5h em 90 %, ou projeção semanal (com pelo menos 2 h de dados) de estouro antes do reset a 24 h ou menos. Tudo ajustável no `config.json`.
+- **D2, D3 e D4 (liberação):** como proposto. O bloqueio fica até a liberação ou o reset. Na sessão principal, deny com `continue:false`, se o spike S5 passar. `/claude-hadouken:liberar` com código de uso único visível só ao usuário. A liberação vale 2 h por padrão (máximo 24 h), acaba antes com mais 10 pontos de 7d, e a Fable exige escopo próprio.
+- **D5 (teto local de Fable):** 4 despachos Fable por 5 h; o quinto pede liberação. A barra avisa que o limite semanal por modelo não é visível.
+- **Escada de modelos (vale para os padrões do plugin e para o trabalho nos projetos dele):** Haiku no mecânico, Sonnet 5 nas revisões de rotina e na documentação, Opus no domínio e na implementação, Fable só no portão final de cada bloco.
