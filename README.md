@@ -87,7 +87,29 @@ O plugin faz três coisas:
 
 ---
 
+## O painel no VS Code (v0.3.0)
+
+Os limites da conta (sessão de 5 h, semana e Fable) são os mesmos em todas as sessões, e a partir da v0.3.0 aparecem **uma vez só**, num item da barra de status do VS Code:
+
+```text
+5h 25% · sem 41% · Fable 57%
+```
+
+- **Os números são os da aba Uso do claude.ai.** 5h e semana vêm da statusline do Claude Code, a cada resposta. O Fable, que a statusline não traz, vem do comando oficial `claude -p /usage`.
+- **Sem gastar tokens.** O `/usage` é comando local do Claude Code: não chama o modelo, e cada leitura confere isso (`num_turns` 0, custo 0). Se um dia o comando passar a ter custo, o painel para de ler por 24 h e avisa.
+- **Com pouca RAM.** A leitura roda em modo enxuto, sem plugins, MCP, hooks nem histórico de sessão: uns 270 MB por cerca de 5 s, contra 970 MB e 28 processos no modo normal. Ela acontece a cada 30 s, só com sessão do Claude Code ativa, uma por vez entre todas as janelas do VS Code. Com menos de 1,5 GiB de RAM livre, a leitura é pausada.
+- **Passe o mouse** no item para ver, por janela, a porcentagem, o reinício e a previsão na mesma frase do claude.ai ("Nesse ritmo, esgota amanhã à noite, antes do reinício de 05/10 às 22:00."). A dica mostra também a idade da leitura e o estado dela.
+- **Clique** no item para ler agora.
+- **Instalação.** O início de sessão do plugin instala a extensão sozinho, em segundo plano, quando acha o VS Code. Para desligar, defina `HADOUKEN_SEM_PAINEL=1`. Para remover, rode `code --uninstall-extension gariolilabs.claude-hadouken-painel`.
+
+A barra do terminal passou a mostrar só o que é **daquela sessão**: modelo, effort, contexto e cache.
+
+---
+
 ## A barra de status, segmento por segmento
+
+> **v0.3.0 (em desenvolvimento):** a barra mostra só os segmentos 1, 4 e 5, ou seja, modelo·effort, `ctx` e `cache`. Os segmentos 2 e 3 (5 h e 7 dias), o trecho de sessões e a previsão foram para o [painel no VS Code](#o-painel-no-vs-code-v030). O texto abaixo sobre eles descreve a v0.2.0 e será reescrito antes do release.
+
 
 A barra é uma linha só, dividida em cinco pedaços separados por `│`:
 

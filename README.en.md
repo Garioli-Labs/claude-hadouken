@@ -87,7 +87,29 @@ The plugin does three things:
 
 ---
 
+## The VS Code panel (v0.3.0)
+
+The account limits (5-hour session, week and Fable) are the same in every session. From v0.3.0 on they show up **once**, in a single VS Code status bar item:
+
+```text
+5h 25% · sem 41% · Fable 57%
+```
+
+- **The numbers are the ones on the claude.ai Usage tab.** 5h and the week come from the Claude Code status line on every response. Fable, which the status line does not carry, comes from the official `claude -p /usage` command.
+- **No tokens spent.** `/usage` is a local Claude Code command with no model call, and every read checks that (`num_turns` 0, cost 0). If the command ever starts to cost anything, the panel stops reading for 24 h and says so.
+- **Light on RAM.** Each read runs in lean mode, without plugins, MCP, hooks or session history: about 270 MB for about 5 s, against 970 MB and 28 processes in normal mode. It runs every 30 s, only while a Claude Code session is active, one at a time across all VS Code windows. With less than 1.5 GiB of free RAM, reading pauses.
+- **Hover** the item for each window's percentage, reset time and forecast, worded like claude.ai. The tooltip also shows how old the reading is and its status.
+- **Click** the item to read now.
+- **Install.** The plugin's session start installs the extension by itself, in the background, when it finds VS Code. To turn this off, set `HADOUKEN_SEM_PAINEL=1`. To remove it, run `code --uninstall-extension gariolilabs.claude-hadouken-painel`.
+
+The terminal status bar now shows only what belongs to **that session**: model, effort, context and cache.
+
+---
+
 ## The status bar, segment by segment
+
+> **v0.3.0 (in development):** the bar shows only segments 1, 4 and 5, that is, model·effort, `ctx` and `cache`. Segments 2 and 3 (5 hours and 7 days), the session count and the forecast moved to the [VS Code panel](#the-vs-code-panel-v030). The text below about them describes v0.2.0 and will be rewritten before the release.
+
 
 The bar is a single line split into five pieces separated by `│`:
 
