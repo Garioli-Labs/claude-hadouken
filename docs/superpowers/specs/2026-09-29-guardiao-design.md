@@ -684,3 +684,19 @@ Rodados com um plugin sonda via `--plugin-dir`, `HADOUKEN_HOME` temporário e Ha
 | S6 (achado lateral) | O aviso de conclusão do subagente em segundo plano gerou um **UserPromptSubmit** com as mesmas chaves de um prompt digitado. Nenhum campo os distingue. | O plano B do S6 ("P2 não bloqueia turno automático") precisa de outro critério: conteúdo do `prompt` ou nenhum bloqueio em P2. |
 
 Pendentes, com o Sr. Garioli na frente da tela: S3 inteiro (OSC 9, 777 e 2 no Windows Terminal e no VS Code, e a varredura de arquivos), S2 e S5 no modo interativo.
+
+### Complemento interativo (Windows Terminal, mesma data)
+
+| Spike | Resultado | Decisão |
+|---|---|---|
+| S5 (interativo) | `PreToolUse:Bash hook stopped continuation: PROBE-STOPREASON visible` apareceu na tela. O subagente em segundo plano terminou e entregou `SUBDONE` no turno seguinte. | **Passa.** D3 opção A (`deny` + `continue: false` na thread principal) fica de pé. |
+| S2 (interativo) | Mesmo comportamento do `-p`. A tela mostra `UserPromptExpansion operation blocked by hook:`, o `reason` e `Original prompt: <texto digitado>`. | **Passa.** O texto digitado volta na tela e fica no transcript, então o código tem de ser de uso único. |
+| S3 (Windows Terminal) | `terminalSequence` com OSC 9, OSC 777 e OSC 2 não mostrou nada fora da conversa: nem notificação, nem mudança de título. Foi testado pelo UserPromptExpansion bloqueado e, como controle, pelo UserPromptSubmit com e sem bloqueio e com a janela fora de foco (OSC 9 com 6 s de espera). Nenhum código ou texto de controle foi parar em arquivo (transcripts, `debug/`, `history.jsonl`, pasta de dados). | **Falha no Windows Terminal desta máquina.** O canal não é confiável. Falta testar o terminal do VS Code; se falhar também, vale D4 opção B, com o risco declarado. |
+
+### Mudança no D1 (Sr. Garioli, 2026-09-29)
+
+"O lance não é fazer durar até segunda, é fazer o melhor uso possível dos tokens, sem ficar lançando Fable à toa ou effort alto à toa."
+
+- **G5 (acima do ritmo) sai como trava.** O ritmo continua na barra só como informação.
+- **Entra G5, despacho caro.** PROPOSTA a fechar no plano: P1 trava o despacho de subagente com effort `max`, de qualquer modelo, ou com Fable em `xhigh` ou `max`, fora do portão final do bloco. A detecção usa as mesmas fontes da identificação de Fable: parâmetro, frontmatter do agente, `inherit` e variável de ambiente. Quando o effort não é identificável, a guarda não trava e registra o evento.
+- G1–G4, G6 e G7 ficam como estão: travam quando um limite real está em risco ou no excesso de Fable.
