@@ -1,0 +1,14 @@
+{
+  "name": "claude-hadouken-painel",
+  "displayName": "Claude Hadouken: painel de uso",
+  "description": "5h, semana e Fable do plano Claude na barra de status, sem gastar tokens.",
+  "publisher": "gariolilabs",
+  "version": "0.0.0",
+  "license": "MIT",
+  "engines": { "vscode": "^1.90.0" },
+  "main": "./extension.cjs",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [{ "command": "claudeHadouken.atualizarUso", "title": "Claude Hadouken: atualizar uso agora" }]
+  }
+}

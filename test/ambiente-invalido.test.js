@@ -174,7 +174,9 @@ const SCRIPTS = [
 // Filho com HADOUKEN_HOME = valor e com home (HOME e USERPROFILE),
 // temporário (TMPDIR, TEMP e TMP) e cwd em pastas novas e vazias: o que fosse
 // gravado apareceria numa delas. Sem CLAUDE_CONFIG_DIR nem HADOUKEN_SETTINGS
-// de quem roda os testes.
+// de quem roda os testes. HADOUKEN_SEM_PAINEL=1: o SessionStart não dispara a
+// instalação do painel, que chamaria o `code` de verdade pelo PATH de quem
+// roda os testes.
 function cenario(valor) {
   const casa = novoTmp('hdk env casa ');
   const tmp = novoTmp('hdk env tmp ');
@@ -182,7 +184,7 @@ function cenario(valor) {
   const env = { ...process.env };
   const fora = /^(?:home|userprofile|tmpdir|temp|tmp|hadouken_home|hadouken_settings|hadouken_teste_gh|claude_config_dir)$/i;
   for (const k of Object.keys(env)) if (fora.test(k)) delete env[k];
-  Object.assign(env, { HOME: casa, USERPROFILE: casa, TMPDIR: tmp, TEMP: tmp, TMP: tmp, HADOUKEN_HOME: valor, CLAUDE_PLUGIN_ROOT: RAIZ, NO_COLOR: '1' });
+  Object.assign(env, { HOME: casa, USERPROFILE: casa, TMPDIR: tmp, TEMP: tmp, TMP: tmp, HADOUKEN_HOME: valor, CLAUDE_PLUGIN_ROOT: RAIZ, NO_COLOR: '1', HADOUKEN_SEM_PAINEL: '1' });
   return { env, casa, tmp, cwd };
 }
 

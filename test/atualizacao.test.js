@@ -36,9 +36,11 @@ const novaPasta = (prefixo) => {
 };
 
 // Ambiente dos filhos: HADOUKEN_HOME na pasta do teste e NO_COLOR ligado; um
-// valor undefined tira a variável.
+// valor undefined tira a variável. HADOUKEN_SEM_PAINEL=1: o SessionStart com
+// a raiz do repo não dispara a instalação do painel, que chamaria o `code` de
+// verdade pelo PATH de quem roda os testes.
 function ambiente(home, extra = {}) {
-  const env = { ...process.env, HADOUKEN_HOME: home, NO_COLOR: '1', ...extra };
+  const env = { ...process.env, HADOUKEN_HOME: home, NO_COLOR: '1', HADOUKEN_SEM_PAINEL: '1', ...extra };
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
   return env;
 }

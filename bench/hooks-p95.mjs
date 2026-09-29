@@ -177,7 +177,9 @@ try {
     if (out !== '') throw new Error(`${nome}: expected no output, got ${JSON.stringify(out)}`);
   };
 
-  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo };
+  // HADOUKEN_SEM_PAINEL=1: the SessionStart runs never trigger the VS Code
+  // panel install (it would call the real `code` from the PATH).
+  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1' };
   // One untimed prompt settles the alert memory to what this fixture
   // evaluates to (the 7d band of the seeded memory differs from the reading,
   // and the 7d projection is announced once, for 50 active sessions).

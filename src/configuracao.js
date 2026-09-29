@@ -129,7 +129,10 @@ const caractereAceito = (c) => (c >= MINUSCULA_A && c <= MINUSCULA_Z)
   || PONTUACAO_ACEITA.has(c)
   || (c >= LATINA_INICIO && c <= LATINA_FIM && c !== VEZES && c !== DIVIDIDO);
 
-function caminhoAceito(caminho) {
+// Exportado também para o instalador do painel (src/painel/instalar-painel.js,
+// caminhoSeguro): a mesma lista para o caminho do `code` e do .vsix que vão
+// para o cmd.exe (spec E4 e E8, S27).
+export function caminhoAceito(caminho) {
   if (caminho.length === 0) return false;
   for (let i = 0; i < caminho.length; i++) {
     if (!caractereAceito(caminho.charCodeAt(i))) return false;

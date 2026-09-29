@@ -1,4 +1,6 @@
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { caminhoDoAmbiente, dirDados } from './base.js';
 import { codigoErro, gerarRelatorio } from './consumo.js';
 import { formatarMarkdown } from './relatorio.js';
 import { jsonSeguro, REGRA_JSON_SEGURO } from './util.js';
@@ -11,12 +13,16 @@ import { jsonSeguro, REGRA_JSON_SEGURO } from './util.js';
 // - `consumo` aceita só `--json` (literal exato); o resto é ignorado;
 // - `instalar` carrega instalar-cli.js (Task 11) sob demanda e repassa só as
 //   flags conhecidas; sem o módulo, "ainda não disponível" com código 0;
+// - `painel instalar` (spec E4, Task 4) carrega painel/instalar-painel.js sob
+//   demanda e instala a extensão do painel no VS Code; é o que o SessionStart
+//   dispara em segundo plano. Sai {"ok":true} com 0 ou {"ok":false,"motivo"}
+//   com 1, motivo só da lista fixa; `painel` sem `instalar` é a linha de uso;
 // - erro interno imprime só `erro interno (<código da lista>)`, código 1;
 // - escreve, espera o callback da escrita, põe process.exitCode e só então
 //   chama process.exit() sem argumento (o exitCode que instalar-cli.js pôs
 //   vale como está).
 
-export const USO = 'uso: cli.js consumo [--json] | instalar [--aplicar] [--substituir] [--remover]';
+export const USO = 'uso: cli.js consumo [--json] | instalar [--aplicar] [--substituir] [--remover] | painel instalar';
 export const NAO_DISPONIVEL = 'instalar: ainda não disponível';
 const FLAGS_INSTALAR = new Set(['--aplicar', '--substituir', '--remover']);
 const URL_INSTALAR = new URL('./instalar-cli.js', import.meta.url).href;
@@ -88,7 +94,32 @@ export async function instalar(args, opcoes) {
   return { texto: '', codigo: null };
 }
 
-const COMANDOS = Object.freeze({ __proto__: null, consumo, instalar: (args) => instalar(args) });
+// Motivo de falha do instalador do painel que pode sair no stdout: minúsculas
+// e hífen, como os da lista fixa de instalar-painel.js; qualquer outro vira
+// 'erro'.
+const MOTIVO_PAINEL = /^[a-z-]{1,40}$/;
+
+// `painel instalar`: instala a extensão do painel com a pasta de dados
+// (dirDados; null vira 'sem-pasta' lá) e a raiz do plugin, que é
+// CLAUDE_PLUGIN_ROOT quando for caminho absoluto completo e, senão, a pasta
+// dois níveis acima deste arquivo (o plugin de onde o CLI roda). Outro
+// subcomando, ou nenhum: a linha de uso, código 1. Argumentos depois de
+// `instalar` são ignorados. `opcoes.instalarPainel` existe para os testes.
+export async function painel(args, opcoes) {
+  const lista = Array.isArray(args) ? args : [];
+  if (lista[0] !== 'instalar') return { texto: `${USO}\n`, codigo: 1 };
+  const instalarPainel = typeof opcoes?.instalarPainel === 'function'
+    ? opcoes.instalarPainel
+    : (await import('./painel/instalar-painel.js')).instalarPainel;
+  const raizPlugin = caminhoDoAmbiente(process.env.CLAUDE_PLUGIN_ROOT)
+    ?? path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  const r = await instalarPainel({ dir: dirDados(), raizPlugin, agoraMs: Date.now() });
+  if (r?.ok === true) return { texto: '{"ok":true}\n', codigo: 0 };
+  const motivo = typeof r?.motivo === 'string' && MOTIVO_PAINEL.test(r.motivo) ? r.motivo : 'erro';
+  return { texto: `${JSON.stringify({ ok: false, motivo })}\n`, codigo: 1 };
+}
+
+const COMANDOS = Object.freeze({ __proto__: null, consumo, instalar: (args) => instalar(args), painel: (args) => painel(args) });
 
 // Escreve no stdout e resolve no callback da escrita (ou num erro do stdout,
 // ou no teto de 10 s). Nunca rejeita.
