@@ -710,3 +710,86 @@ Pendentes, com o Sr. Garioli na frente da tela: S3 inteiro (OSC 9, 777 e 2 no Wi
   - a P4 nega `claude *` com a guarda disparada (S9);
   - a liberação é recusada quando `CLAUDE_CODE_ENTRYPOINT` indica `-p` ou SDK.
 - Saem da §6 o `codigo-liberacao.json`, o scrypt, as tentativas e o `terminalSequence`. Sai também a ameaça S18, e a S11 se reduz à P4 mais a recusa por entrypoint. R1 declara o bypass por `npx`, `node .../cli.js` e comandos ofuscados.
+
+## Emenda 2026-09-29 (noite): painel no VS Code, leitura oficial do Fable e barra só da sessão
+
+Pedidos do Sr. Garioli na mesma data:
+
+- "Inclui a barra fora do terminal. No terminal só o que é só dele."
+- "Resolva esse problema, de modo que os dados mostrados sejam equivalentes ao da aba USO quando acesso o claude.ai."
+- "Mas isso de modo que o próprio uso do plugin não consuma tokens."
+- Sobre o Fable: "Vc faz isso sozinho. Não quero ficar digitando isso o tempo todo."
+- Sobre o painel: "Queria algo integrado a interface do VS Code. Se for envolver Chrome vai consumir RAM. Uso de RAM precisa ser tbm algo que o hadouken otimiza."
+- Frequência escolhida: leitura a cada 30 s. Forma da previsão: a mesma frase do claude.ai.
+
+### E1. Comparação com a aba Uso (29/09, 17:04)
+
+| Dado | claude.ai (Uso) | hadouken v0.2.0 | Situação |
+|---|---|---|---|
+| Sessão atual | 25%, redefine 17:20 | 5h 25%, reset 17:20 | igual |
+| Semana (todos os modelos) | 41%, reinicia seg 22:00 | 7d 41%, reset 05/10 22:00 | igual |
+| Semana (Fable) | 57% | sem leitura | **faltava** |
+| Previsão | "Nesse ritmo, você vai esgotar amanhã à noite" | "→100% 01/10 12:19" (regressão das últimas 3 h) | **diverge** |
+| Enquadramento | nenhum | "41% vs 11% esperado, modo econômico" | **não existe lá** |
+
+A frase do claude.ai bate com o ritmo médio da janela inteira: 41% em 19,1 h de janela dá 2,15%/h, e os 59% que faltam acabam em 27,4 h, na quarta 30/09 por volta das 20:30 ("amanhã à noite").
+
+### E2. Fonte oficial do Fable, sem tokens: `claude -p /usage`
+
+- O `/usage` do Claude Code 2.1.285 é comando `local` com `supportsNonInteractive` (conferido no binário). Em `-p` ele roda sem chamar o modelo. O resultado JSON traz `num_turns: 0`, `total_cost_usd: 0`, `local_command: "usage"` e, em `result`, as linhas `Current session`, `Current week (all models)` e `Current week (Fable)` com os mesmos números da aba Uso.
+- Quem chama o endpoint é o próprio Claude Code, pelo comando oficial. O plugin não lê credencial, não fala com endpoint privado e não usa OAuth, então o `SECURITY.md` continua valendo. A §7 muda: o Fable passa a ter leitura oficial e automática.
+- A statusline continua sem campo por modelo. Na 2.1.285 ela monta só `five_hour`, `seven_day` e `spend_limit` (conferido no código).
+- **Trava de custo.** Toda leitura confere `local_command === "usage"`, `num_turns === 0` e `total_cost_usd === 0`. Se qualquer uma falhar, o plugin trata como sinal de que o comando passou a chamar o modelo: grava `bloqueado: "custo"` e para de ler por 24 h.
+
+### E3. Leitura enxuta (RAM)
+
+Medido nesta máquina, com pico somando a árvore de processos:
+
+| Modo | Tempo | Pico de RAM | Processos |
+|---|---|---|---|
+| `claude -p /usage` puro | 15 s | 972 MB | 28 (MCP, hooks, plugins) |
+| enxuto | 5 s | 270 MB | 2 a 4 |
+
+- O modo enxuto usa `--no-session-persistence --strict-mcp-config --no-chrome --setting-sources "" --settings <arquivo com {"disableAllHooks":true}>` e `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. Roda numa pasta vazia do hadouken (`<dirDados>/uso-cwd/`), para o índice de arquivos não varrer nada.
+- `--bare` não serve, porque desliga o OAuth e o `/usage` falha.
+- **Uma leitura por vez, em todas as janelas.** Uma trava de arquivo (`uso-oficial.lock`, criada com `wx`) só é dada como vencida depois de 90 s. Uma leitura com menos de 25 s dispensa a próxima.
+- **Só quando serve.** A leitura só acontece com ao menos uma sessão ativa (`sessoesAtivas` de `estado.js`, janela de 5 min).
+- **Pausa por memória.** Com `os.freemem()` abaixo de 1,5 GiB, a leitura é pulada e o painel mostra "pausado: pouca RAM livre".
+- Intervalo de 30 s, a pedido. A média fica em torno de 45 MB, com picos de 270 MB por 5 s.
+
+### E4. Painel no VS Code
+
+- Uma extensão mínima (`vscode/`) com **um item na barra de status**, sem webview e sem dependências. Texto curto: `5h 25% · sem 41% · Fable 57%`. A cor segue a pior janela: aviso a partir de 75%, erro a partir de 90%.
+- A dica (tooltip em Markdown) mostra, por janela, a porcentagem, o reinício e a frase de previsão (E5). Mostra também a quantidade de sessões ativas, a idade da leitura, a fonte de cada número e o estado da leitura (ok, pausada por RAM, bloqueada por custo, claude não encontrado).
+- Tem um comando "Claude Hadouken: atualizar uso agora", que respeita a trava e a pausa por RAM.
+- A extensão é fina. Ela carrega o módulo do plugin por um novo shim estável, `<dirDados>/bin/painel.mjs`, que faz `export *` de `src/uso/painel.js` da versão em uso, pelo mesmo mecanismo de `sincronizarShims`. A lógica fica no plugin, testada com `node --test`.
+- **Instalação sem tokens.** O SessionStart dispara, em segundo plano e destacado, `cli.js painel instalar` quando o VS Code existe e a versão instalada da extensão difere da do plugin. O comando monta um `.vsix` sem dependências (zip com `zlib.crc32` e `deflateRawSync`) em `<dirDados>/painel/` e roda o CLI do VS Code (`code --install-extension <vsix> --force`). No Windows ele passa por `cmd.exe /d /s /c` com caminho validado pela mesma regra de caracteres do instalador da barra. O resultado fica em `<dirDados>/painel/instalado.json`. A configuração `painel.vscode: false` desliga tudo.
+- **Fonte de cada número.** Para 5h e semana, vale a leitura mais nova entre a statusline (`estado.json`) e o `/usage` (`uso-oficial.json`). Os reinícios vêm da statusline, em epoch exato. O Fable vem só do `/usage`, e o reinício dele sai do texto (`resets Oct 5, 10pm`) interpretado na hora local.
+
+### E5. Previsão com a frase do claude.ai
+
+- Ritmo médio da janela: `ritmo = usado / decorrido`, onde `decorrido = duração da janela − (reinício − agora)`, com janelas de 5 h e 7 d.
+- `esgota = agora + (100 − usado) / ritmo`. Se isso cai antes do reinício, a frase é "Nesse ritmo, esgota <quando>, antes do reinício de <dia>." Se cai depois, a frase é "Nesse ritmo, não esgota antes do reinício." Com menos de 30 min decorridos ou uso zero, não há frase.
+- `<quando>` segue os períodos madrugada (0–6 h), manhã (6–12 h), tarde (12–18 h) e noite (18–24 h):
+  - "hoje <período>";
+  - "amanhã <período>";
+  - "<dia da semana> <período>" até 6 dias;
+  - "dd/mm", depois disso.
+- **Saem da exibição** o "esperado" e o "modo econômico/folga/só leitura", da barra e da linha do SessionStart. A linha passa a ser "Consumo: 5h 25% (reset 17:20) · 7d 41% (reset seg 22:00); nesse ritmo, esgota amanhã à noite." `alerta.js` e a projeção por regressão (`previsao.js`) continuam por dentro, para os alertas e para a guarda. Os textos dos alertas injetados ficam para a parte 2.
+
+### E6. A barra do terminal fica só com a sessão
+
+- `formatarBarra` passa a mostrar só `modelo·effort │ ctx │ cache`. Saem 5h, 7d, a previsão e "N sessões", que vão para o painel.
+- A statusline continua gravando `rate_limits` e o histórico em `estado.json` a cada atualização, porque essa é a fonte exata e gratuita do 5h e da semana.
+- O segmento da guarda (Task 17 da parte 1) continua na barra quando a guarda estiver disparada, porque diz respeito a esta sessão. A Task 17 do plano da parte 1 precisa ser ajustada à nova `formatarBarra`.
+
+### E7. Guarda e Fable (a ajustar no plano da parte 1)
+
+- G6 e G7 ganham um piso: a porcentagem do Fable em `uso-oficial.json`, com a idade da leitura. Isso entra como adendo às Tasks 7 e 10 do plano da parte 1, depois desta entrega.
+- A proposta D5-C (leitura digitada) sai: a leitura agora é automática.
+
+### E8. Ameaças novas
+
+- **S26, o painel executa `claude`.** O executável é procurado só em `~/.local/bin/claude(.exe)` e nos diretórios do PATH. No Windows, só `.exe`. Os argumentos são fixos. A saída é limitada a 64 KiB e o tempo, a 30 s. Todo texto da saída passa por parser com regex ancorada: só números entram no arquivo.
+- **S27, o instalador executa o CLI do VS Code.** Só o `code` achado no PATH. O caminho do `.vsix` é validado pelo conjunto de caracteres seguro. A extensão só contém arquivos gerados pelo plugin.
+- **S28, `uso-oficial.json` adulterado.** A leitura valida o schema (números em [0, 100], instantes finitos). Um valor fora dele é tratado como "sem leitura".
