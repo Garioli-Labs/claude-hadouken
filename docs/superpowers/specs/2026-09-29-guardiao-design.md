@@ -750,7 +750,7 @@ Medido nesta máquina, com pico somando a árvore de processos:
 | `claude -p /usage` puro | 15 s | 972 MB | 28 (MCP, hooks, plugins) |
 | enxuto | 5 s | 270 MB | 2 a 4 |
 
-- O modo enxuto usa `--no-session-persistence --strict-mcp-config --no-chrome --setting-sources "" --settings <arquivo com {"disableAllHooks":true}>` e `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. Roda numa pasta vazia do hadouken (`<dirDados>/uso-cwd/`), para o índice de arquivos não varrer nada.
+- O modo enxuto usa `--no-session-persistence --strict-mcp-config --no-chrome --setting-sources "" --settings {"disableAllHooks":true}` (o JSON vai na própria linha, sem arquivo) e `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. Roda numa pasta vazia do hadouken (`<dirDados>/uso-cwd/`), para o índice de arquivos não varrer nada.
 - `--bare` não serve, porque desliga o OAuth e o `/usage` falha.
 - **Uma leitura por vez, em todas as janelas.** Uma trava de arquivo (`uso-oficial.lock`, criada com `wx`) só é dada como vencida depois de 90 s. Uma leitura com menos de 25 s dispensa a próxima.
 - **Só quando serve.** A leitura só acontece com ao menos uma sessão ativa (`sessoesAtivas` de `estado.js`, janela de 5 min).
