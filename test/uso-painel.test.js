@@ -107,7 +107,7 @@ test('talvezAtualizar: sucesso grava janelas, lidoEm e estado ok, roda no modo e
   assert.equal(c.cwd, path.join(dir, DIR_CWD));
   assert.ok(fs.lstatSync(c.cwd).isDirectory(), 'pasta vazia do hadouken (E3)');
   assert.deepEqual(fs.readdirSync(c.cwd), []);
-  assert.equal(c.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1');
+  assert.equal(c.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, undefined);
   assert.equal(c.agoraMs, AGORA);
   assert.equal(vistos.length, 1);
   assert.equal(vistos[0].pathEnv, process.env.PATH);

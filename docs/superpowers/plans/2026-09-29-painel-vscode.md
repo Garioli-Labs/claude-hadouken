@@ -59,7 +59,7 @@ Ordem: **lote A** com T1, T2 e T4 em paralelo; **lote B** com T3, que depende de
 export const PRAZO_USO_MS = 30_000;
 export const MAX_SAIDA_BYTES = 64 * 1024;
 export function argsUso(): string[]          // argumentos fixos (E3)
-export function ambienteUso(env): object     // cópia de env + CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export function ambienteUso(env): object     // cópia de env SEM CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC (ela congela o /usage no cache)
 export function acharClaude({ home, pathEnv, plataforma, existe }): string | null
 export function interpretarReset(texto, agoraMs): number | null   // ms epoch
 export function interpretarSaida(stdout, agoraMs):

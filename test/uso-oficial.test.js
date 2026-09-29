@@ -39,17 +39,16 @@ test('argsUso: os argumentos fixos do modo enxuto, sem que quem chama os altere'
   assert.deepEqual([...argsUso()], esperado);
 });
 
-test('ambienteUso: cópia do ambiente com o tráfego não essencial desligado', () => {
-  const env = { PATH: '/usr/bin', HOME: '/home/x' };
+test('ambienteUso: cópia do ambiente sem a variável que congela o /usage no cache', () => {
+  const env = { PATH: '/usr/bin', HOME: '/home/x', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', claude_code_disable_nonessential_traffic: '1' };
   const r = ambienteUso(env);
-  assert.deepEqual(r, { PATH: '/usr/bin', HOME: '/home/x', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
+  assert.deepEqual(r, { PATH: '/usr/bin', HOME: '/home/x' });
   assert.notEqual(r, env);
-  assert.equal(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, undefined);
-  assert.deepEqual(ambienteUso({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '0' }), { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
-  for (const ruim of [null, undefined, 'x', 7]) assert.deepEqual(ambienteUso(ruim), { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }, String(ruim));
+  assert.equal(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1');
+  for (const ruim of [null, undefined, 'x', 7]) assert.deepEqual(ambienteUso(ruim), {}, String(ruim));
   const hostil = {};
   Object.defineProperty(hostil, 'X', { enumerable: true, get() { throw new Error('getter'); } });
-  assert.deepEqual(ambienteUso(hostil), { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
+  assert.deepEqual(ambienteUso(hostil), {});
 });
 
 // ---------------------------------------------------------------------------
@@ -276,7 +275,7 @@ test('rodarUso: sucesso repassa a interpretação, com args, prazo, teto e ambie
   assert.equal(chamada.opcoes.windowsHide, true);
   assert.equal(chamada.opcoes.encoding, 'utf8');
   assert.equal(chamada.opcoes.env.PATH, '/usr/bin');
-  assert.equal(chamada.opcoes.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1');
+  assert.equal(chamada.opcoes.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, undefined);
   assert.equal(PRAZO_USO_MS, 30_000);
   assert.equal(MAX_SAIDA_BYTES, 64 * 1024);
 });

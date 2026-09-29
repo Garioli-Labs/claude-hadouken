@@ -25,9 +25,13 @@ export function argsUso() {
   return ARGS_USO;
 }
 
-// Cópia do ambiente com o tráfego não essencial do Claude Code desligado
-// (E3). Ambiente que não é objeto, ou com getter que lança, vira só a
-// variável.
+// Cópia do ambiente SEM CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, em
+// qualquer caixa (E3, emenda da noite): com ela, o /usage não busca a
+// utilização e devolve o cache de ~/.claude.json (cachedUsageUtilization),
+// que pode ter horas (medido em 29/09: 25% com reinício 17:20 às 18:04,
+// contra 5% frescos sem ela). Ambiente que não é objeto, ou com getter que
+// lança, vira objeto vazio.
+const TRAFEGO = 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC';
 export function ambienteUso(env) {
   let copia = {};
   try {
@@ -35,7 +39,7 @@ export function ambienteUso(env) {
   } catch {
     copia = {};
   }
-  copia.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
+  for (const k of Object.keys(copia)) if (k.toUpperCase() === TRAFEGO) delete copia[k];
   return copia;
 }
 
