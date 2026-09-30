@@ -51,7 +51,10 @@ test('replay: G5 nega o primeiro revisor; com liberar caro, passam 4 e o quinto 
   const home = preparar();
   estado(home, 60);
   assert.match(hook(home, 'guarda-despacho.js', revisor).stopReason, /despacho caro: Fable com effort xhigh/);
-  const lib = hook(home, 'liberar.js', { session_id: 's1', hook_event_name: 'UserPromptExpansion', command_name: 'claude-hadouken:liberar', command_args: 'caro' });
+  // O comando digitado traz command_source 'plugin' e expansion_type
+  // 'slash_command' (C1 da revisão final: o liberar recusa outra origem).
+  const lib = hook(home, 'liberar.js', { session_id: 's1', hook_event_name: 'UserPromptExpansion', expansion_type: 'slash_command',
+    command_name: 'claude-hadouken:liberar', command_args: 'caro', command_source: 'plugin' });
   assert.equal(lib.decision, 'block');
   const resultados = [];
   for (let i = 0; i < 16; i++) {
