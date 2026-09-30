@@ -39,6 +39,20 @@ test('eventos: anexa, anel de 200, detalhe fora do padrão vira null, tipo desco
   assert.ok(fs.statSync(path.join(d, ARQ_EVENTOS)).size <= 64 * 1024);
 });
 
+// M2 da revisão final da parte 1: a junção das travas (P1, P2, P3) passa de
+// 40 caracteres com as quatro chaves; o detalhe é cortado em 40, nunca
+// descartado. O que tem caractere fora do padrão segue null.
+test('eventos: detalhe acima de 40 caracteres é cortado em 40, não vira null', () => {
+  const d = novo();
+  const quatro = 'five_hour:seven_day:fable:fable-despachos';
+  const cinco = 'ilegivel:seven_day:five_hour:fable:fable-despachos';
+  assert.equal(quatro.length, 41);
+  anexarEvento(d, 'negado', quatro, agora);
+  anexarEvento(d, 'prompt-bloqueado', cinco, agora);
+  anexarEvento(d, 'troca-bloqueada', 'a b'.repeat(20), agora);
+  assert.deepEqual(lerEventos(d, agora).map((e) => e.detalhe), [quatro.slice(0, 40), cinco.slice(0, 40), null]);
+});
+
 test('eventos ilegíveis recomeçam do zero sem lançar', () => {
   const d = novo();
   fs.writeFileSync(path.join(d, ARQ_EVENTOS), '{');

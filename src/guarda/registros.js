@@ -29,7 +29,17 @@ export const TIPOS_EVENTO = Object.freeze([
   'disparo', 'negado', 'prompt-bloqueado', 'troca-bloqueada', 'liberacao', 'liberacao-recusada',
   'filha-negada', 'arquivo-negado', 'desconhecido', 'erro',
 ]);
-const DETALHE = /^[A-Za-z0-9:._-]{0,40}$/;
+const DETALHE_MAX = 40;
+const DETALHE = new RegExp(`^[A-Za-z0-9:._-]{0,${DETALHE_MAX}}$`);
+// M2 da revisão final da parte 1: a junção das travas ativas que P1, P2 e P3
+// registram passa de 40 caracteres com as quatro chaves (41; 50 com
+// 'ilegivel'). Cortar antes de validar guarda o começo em vez de perder o
+// detalhe inteiro; o corte nunca torna válido o que tem caractere de fora.
+const detalheValido = (d) => {
+  if (typeof d !== 'string') return null;
+  const c = d.slice(0, DETALHE_MAX);
+  return DETALHE.test(c) ? c : null;
+};
 export const MODELO_VALIDO = /^[A-Za-z0-9._:[\]-]{1,80}$/;
 
 // Nome de modelo vindo de hook (SessionStart `model`, PostModelSwitch
@@ -71,7 +81,7 @@ export function lerEventos(dir, agoraMs) {
 export function anexarEvento(dir, tipo, detalhe, agoraMs) {
   try {
     if (!TIPOS_EVENTO.includes(tipo) || !numeroFinito(agoraMs)) return { ok: false };
-    const d = typeof detalhe === 'string' && DETALHE.test(detalhe) ? detalhe : null;
+    const d = detalheValido(detalhe);
     const eventos = [...lerEventos(dir, agoraMs), { at: new Date(agoraMs).toISOString(), tipo, detalhe: d }];
     return gravar(dir, ARQ_EVENTOS, { eventos: eventos.slice(-EVENTOS_MAX) });
   } catch {
