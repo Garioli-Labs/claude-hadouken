@@ -4,8 +4,9 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registrarSessao } from '../src/ativas.js';
+import { quandoLocal } from '../src/util.js';
 import { ARQ_GUARDA } from '../src/guarda/travas.js';
 import { ARQ_LIBERACAO, gravarLiberacao, montarLiberacao, lerPedido } from '../src/guarda/liberacao.js';
 import { PADRAO_GUARDA } from '../src/guarda/config.js';
@@ -49,9 +50,9 @@ function ambiente(home, extra = {}) {
   return env;
 }
 
-function rodar(script, entrada, home, extra = {}) {
+function rodar(script, entrada, home, extra = {}, argsNode = []) {
   const input = typeof entrada === 'string' ? entrada : JSON.stringify(entrada);
-  return spawnSync(process.execPath, [scriptDe(script)], { input, env: ambiente(home, extra), encoding: 'utf8', timeout: 15_000 });
+  return spawnSync(process.execPath, [...argsNode, scriptDe(script)], { input, env: ambiente(home, extra), encoding: 'utf8', timeout: 15_000 });
 }
 
 function comHome(home, fn) {
@@ -214,4 +215,108 @@ test('P1: entrada hostil nunca quebra o hook', () => {
     assert.equal(r.status, 0);
     assert.equal(r.stderr, '');
   }
+});
+
+const expansao = (id, args, extra = {}) => ({
+  session_id: id, hook_event_name: 'UserPromptExpansion', expansion_type: 'slash_command',
+  command_name: 'claude-hadouken:liberar', command_args: args, command_source: 'plugin', prompt: `/claude-hadouken:liberar ${args}`, ...extra,
+});
+
+test('liberar 2h: grava a liberação, limpa as travas e confirma só com números', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose' }), home, { CLAUDE_EFFORT: 'high' }));
+  assert.ok(fs.existsSync(path.join(home, ARQ_GUARDA)));
+  const antes = Date.now();
+  const o = saida(rodar('liberar.js', expansao('s1', '2h'), home));
+  const depois = Date.now();
+  assert.equal(o.decision, 'block');
+  assert.match(o.reason, /^hadouken: liberado até .+ \(ou até 7d 96%\)\.$/);
+  const lib = JSON.parse(fs.readFileSync(path.join(home, ARQ_LIBERACAO), 'utf8'));
+  assert.deepEqual(lib.solta, ['five_hour', 'seven_day', 'fable-despachos', 'ilegivel']);
+  assert.equal(lib.sessao, 's1');
+  assert.ok(Math.abs(Date.parse(lib.ate) - (antes + 2 * H)) < 60_000);
+  // O hook usa o próprio relógio, que fica entre `antes` e `depois`: o texto
+  // esperado é o de uma das duas pontas, nunca um terceiro Date.now() (que
+  // viraria o dia sozinho perto da meia-noite).
+  const esperado = (ref) => `hadouken: liberado até ${quandoLocal(Date.parse(lib.ate) / 1000, ref)} (ou até 7d 96%).`;
+  assert.ok([esperado(antes), esperado(depois)].includes(o.reason), o.reason);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(home, ARQ_GUARDA), 'utf8')).travas.seven_day, null);
+  assert.deepEqual(eventos(home, 'liberacao').map((e) => e.detalhe), [lib.id]);
+  semSaida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose' }), home, { CLAUDE_EFFORT: 'high' }));
+});
+
+test('foco 5: liberar vindo de claude -p ou SDK é recusado sem gravar nada', () => {
+  for (const ep of ['sdk-cli', 'sdk-ts', 'sdk-py']) {
+    const home = novoHome();
+    registrar(home, 's1');
+    gravarEstado(home, { u7: 86 });
+    fs.writeFileSync(path.join(home, ARQ_GUARDA), '{');
+    const o = saida(rodar('liberar.js', expansao('s1', 'fable caro 24h'), home, { CLAUDE_CODE_ENTRYPOINT: ep }));
+    assert.deepEqual(o, { decision: 'block', reason: 'hadouken: nada liberado. A liberação só vale digitada pelo usuário numa sessão interativa.' });
+    assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
+    assert.equal(fs.readFileSync(path.join(home, ARQ_GUARDA), 'utf8'), '{');
+    assert.equal(eventos(home, 'liberacao-recusada').length, 1);
+  }
+});
+
+test('liberar com argumento inválido recusa sem repetir o texto', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  for (const args of ['99h', INSTRUCAO, 'janela 2h', '1h\u001b]0;x\u0007']) {
+    const o = saida(rodar('liberar.js', expansao('s1', args), home));
+    assert.deepEqual(o, { decision: 'block', reason: 'hadouken: nada liberado. Use /claude-hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.' });
+  }
+  assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
+});
+
+test('liberar limpa guarda.json ilegível; outro comando e entrada ruim ficam em silêncio ou recusam', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home);
+  fs.writeFileSync(path.join(home, ARQ_GUARDA), '{');
+  assert.equal(saida(rodar('liberar.js', expansao('s1', ''), home)).decision, 'block');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, ARQ_GUARDA), 'utf8')).travas.five_hour, null);
+  semSaida(rodar('liberar.js', expansao('s1', '2h', { command_name: 'outro-plugin:liberar' }), home));
+  assert.deepEqual(saida(rodar('liberar.js', expansao('__proto__', '2h'), home)), { decision: 'block', reason: 'hadouken: nada liberado. A liberação não pôde ser gravada.' });
+});
+
+test('liberar fable caro: a confirmação avisa dos créditos de uso', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const o = saida(rodar('liberar.js', expansao('s1', 'fable caro'), home));
+  assert.match(o.reason, /, com Fable \(pode consumir créditos de uso\) e despacho caro\.$/);
+});
+
+test('liberar: entrada hostil nunca quebra o hook nem libera', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  for (const e of ['', '{', '[]', '"x"', JSON.stringify({ session_id: 's1', command_name: ['claude-hadouken:liberar'], command_args: '2h' }),
+    JSON.stringify({ session_id: 's1', command_name: 'liberar', command_args: '2h' })]) {
+    semSaida(rodar('liberar.js', e, home));
+  }
+  assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
+  const o = saida(rodar('liberar.js', expansao('s1', `2h ${'x'.repeat(10_000)}`), home));
+  assert.equal(o.reason, 'hadouken: nada liberado. Use /claude-hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.');
+  assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
+});
+
+// §4.5: exceção depois do gate deixa o evento 'erro' e nada que libere. O
+// pré-carregamento faz crypto.randomBytes (o id da liberação, o último passo
+// antes de gravar) lançar; se ele não rodasse, a liberação sairia gravada e o
+// teste falharia.
+test('liberar: exceção depois do gate registra erro, recusa e não grava liberação', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  fs.writeFileSync(path.join(home, ARQ_GUARDA), '{');
+  const pre = path.join(home, 'falha.mjs');
+  fs.writeFileSync(pre, "import crypto from 'node:crypto';\ncrypto.randomBytes = () => { throw new Error('falha simulada'); };\n");
+  const o = saida(rodar('liberar.js', expansao('s1', '2h'), home, {}, ['--import', pathToFileURL(pre).href]));
+  assert.deepEqual(o, { decision: 'block', reason: 'hadouken: nada liberado. A liberação não pôde ser gravada.' });
+  assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
+  assert.equal(fs.readFileSync(path.join(home, ARQ_GUARDA), 'utf8'), '{');
+  assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), ['liberar']);
+  assert.equal(eventos(home, 'liberacao').length, 0);
 });
