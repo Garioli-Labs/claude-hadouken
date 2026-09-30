@@ -62,9 +62,10 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   const h = JSON.parse(ler('hooks', 'hooks.json')).hooks;
   const handlers = Object.entries(h).flatMap(([evento, grupos]) => grupos.flatMap((g) => g.hooks.map((x) => ({ evento, matcher: g.matcher, ...x }))));
   const novos = handlers.filter((x) => Array.isArray(x.args));
-  // 11 do brief (P1, P4 Bash e PowerShell, P5 x4, liberar, P3, PostModelSwitch,
-  // StopFailure) e mais 13 da P4, um por lançador.
-  assert.equal(novos.length, 11 + IF_P4.length - 2);
+  // 24 = 9 fora da P4 (P1, P5 x4, liberar, P3, PostModelSwitch, StopFailure)
+  // + 15 da P4, um por `if` de IF_P4 (8 Bash, 7 PowerShell). O brief contava 11
+  // com a P4 em 2 handlers; a Task 18 trocou esses 2 pelos 15.
+  assert.equal(novos.length, 24);
   for (const x of novos) {
     assert.equal(x.command, 'node');
     assert.equal(x.args.length, 1);

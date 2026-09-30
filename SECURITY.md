@@ -66,11 +66,11 @@ Riscos residuais da guarda (v0.4.0):
   - `$(claude ...)` dentro de um `git commit`: de propósito, nenhum `if` leva o `git commit` à P4 (um curinga como `Bash(*claude*)` levaria todo commit com o trailer do Claude);
   - `echo ... | bash`, `bash <<<` e `python -c`;
   - um alias `co-authored-by:` que aponte para o `claude` (com `shopt -s expand_aliases` ou um `.bashrc` lido);
-  - um comando acima de 4 MiB sem `claude` nem `liberar` em todo o stdin: acima desse teto a P4 não lê o comando e só procura essas duas palavras. Como o stdin traz o `transcript_path`, em geral dentro de `~/.claude`, na prática um comando desse tamanho é negado;
+  - em tese, um comando acima de 4 MiB sem `claude` nem `liberar` em todo o stdin, porque acima desse teto a P4 não lê o comando e só procura essas duas palavras. Na prática isso não passa: o stdin do hook sempre traz o `transcript_path`, com `.claude` no caminho, então a P4 nega todo comando de lançador acima de 4 MiB (falha fechada);
   - o hook que estoura o tempo (R2).
 
   Excesso aceito: a regra fixa da P4 nega o `git commit -m` que cita por extenso o comando de liberação. Use `git commit -F <arquivo>`.
-- **R2, timeout:** hook que estoura o tempo deixa passar. O pior comando de 4 MiB que a P4 lê leva de 2 a 4 s, abaixo do timeout de 10 s; numa máquina carregada, pode chegar perto dele.
+- **R2, timeout:** hook que estoura o tempo deixa passar. O pior comando de 4 MiB que a P4 lê leva cerca de 2 a 5 s, abaixo do timeout de 10 s; numa máquina carregada, pode chegar perto dele.
 - **R3, sessões sem guarda:** abertas antes da atualização sem `/reload-plugins`, `--bare`, plugins desligados, outras máquinas, claude.ai e o app desktop. A barra diz "sem guarda nesta sessão" onde ela roda.
 - **R4:** retirado com a liberação sem código.
 - **R5, limite do Fable pela leitura oficial (emendas E2 e E7):** desde a v0.3.0, o painel lê a semana do Fable pelo `/usage` oficial (`claude -p /usage`, sem modelo e sem tokens) e a grava em `uso-oficial.json`. A guarda usa essa leitura como piso quando ela tem até 15 min: 100% trava o Fable (G6), e `fable.tetoPct` (90%) zera o teto de despachos Fable (G7). Leitura velha, ausente ou fora do schema (S28) não conta; aí só valem o StopFailure (G6) e a contagem de despachos (G7). Sem sessão ativa ou com pouca RAM o painel não lê, e a leitura envelhece. A statusline segue sem campo por modelo.
@@ -173,11 +173,11 @@ Residual risks of the guard (v0.4.0):
   - `$(claude ...)` inside a `git commit`: on purpose, no `if` sends `git commit` to P4 (a wildcard such as `Bash(*claude*)` would send every commit carrying Claude's trailer);
   - `echo ... | bash`, `bash <<<` and `python -c`;
   - an alias `co-authored-by:` that points to `claude` (with `shopt -s expand_aliases` or a `.bashrc` that gets read);
-  - a command above 4 MiB with neither `claude` nor `liberar` anywhere in stdin: above that cap P4 does not read the command and only looks for those two words. Since stdin carries `transcript_path`, usually inside `~/.claude`, a command that large is denied in practice;
+  - in principle, a command above 4 MiB with neither `claude` nor `liberar` anywhere in stdin, because above that cap P4 does not read the command and only looks for those two words. In practice it does not get through: the hook's stdin always carries `transcript_path`, with `.claude` in the path, so P4 denies every launcher command above 4 MiB (fail-closed);
   - a hook that runs out of time (R2).
 
   Accepted over-deny: P4's fixed rule denies a `git commit -m` that spells out the release command. Use `git commit -F <file>`.
-- **R2, timeout:** a hook that runs out of time lets the call through. The worst 4 MiB command P4 reads takes 2 to 4 s, under the 10 s timeout; on a loaded machine it can come close to it.
+- **R2, timeout:** a hook that runs out of time lets the call through. The worst 4 MiB command P4 reads takes about 2 to 5 s, under the 10 s timeout; on a loaded machine it can come close to it.
 - **R3, sessions without the guard:** opened before the update without `/reload-plugins`, `--bare`, plugins turned off, other machines, claude.ai and the desktop app. The bar says "sem guarda nesta sessão" wherever it runs.
 - **R4:** withdrawn with the code-free release.
 - **R5, Fable limit from the official reading (amendments E2 and E7):** since v0.3.0, the panel reads the Fable week through the official `/usage` (`claude -p /usage`, no model and no tokens) and writes it to `uso-oficial.json`. The guard uses that reading as a floor while it is at most 15 min old: 100% locks Fable (G6), and `fable.tetoPct` (90%) sets the Fable dispatch cap to zero (G7). A stale, missing or out-of-schema reading (S28) does not count; then only StopFailure (G6) and the dispatch count (G7) apply. With no active session or low RAM the panel does not read, and the reading ages. The status line still has no per-model field.

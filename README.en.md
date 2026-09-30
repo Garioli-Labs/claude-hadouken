@@ -384,7 +384,7 @@ In the session-start line, the ending comes from the week's [forecast sentence](
 
 At session start, if something goes wrong with the plugin itself, Claude gets one more fixed line, for example `claude-hadouken: sessão não registrada (...); barra e alertas desligados nesta sessão.` (session not registered; bar and alerts off in this session) or `claude-hadouken: barra indisponível (...)` (bar unavailable).
 
-Every line is built only from validated numbers and fixed phrases in the code; no text read from a file goes into it. Notices never block the prompt: if anything fails in a hook, it exits silently (code 0) and Claude carries on normally.
+Every line is built only from validated numbers and fixed phrases in the code; no text read from a file goes into it. Notices never block the prompt: if anything fails in a hook, it exits silently (code 0) and Claude carries on normally. The guard is a separate thing: while it is tripped, it can block a typed prompt in a Fable session (see [The usage guard](#the-usage-guard)).
 
 ---
 

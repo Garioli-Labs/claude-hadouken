@@ -378,7 +378,7 @@ Na linha do início de sessão, o fim vem da [frase de previsão](#a-previsão) 
 
 No início da sessão, se algo der errado com o próprio plugin, o Claude recebe mais uma linha fixa, por exemplo `claude-hadouken: sessão não registrada (...); barra e alertas desligados nesta sessão.` ou `claude-hadouken: barra indisponível (...)`.
 
-Toda linha é montada só com números validados e frases fixas do código; nenhum texto lido de arquivo entra nela. Os avisos nunca bloqueiam o prompt: se algo falhar num hook, ele termina em silêncio (código 0) e o Claude segue normalmente.
+Toda linha é montada só com números validados e frases fixas do código; nenhum texto lido de arquivo entra nela. Os avisos nunca bloqueiam o prompt: se algo falhar num hook, ele termina em silêncio (código 0) e o Claude segue normalmente. A guarda é outra coisa: enquanto ela está disparada, pode bloquear o prompt digitado numa sessão Fable (veja [A guarda de consumo](#a-guarda-de-consumo)).
 
 ---
 
