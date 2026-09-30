@@ -30,6 +30,9 @@ test('S24: módulos da guarda e hooks novos não importam rede nem child_process
     ...['guarda-despacho.js', 'guarda-filha.js', 'guarda-arquivos.js', 'guarda-modelo.js', 'modelo-trocado.js', 'limite-atingido.js', 'liberar.js',
       'guarda-agenda.js']
       .map((f) => path.join('src', 'hooks', f)),
+    // M6 da revisão final da parte 1: avaliar.js importa a leitura do uso
+    // oficial, que mora ao lado do painel (que roda o claude); ela só lê.
+    path.join('src', 'uso', 'ler-uso.js'),
   ];
   for (const a of arquivos) {
     const t = ler(a);
@@ -52,22 +55,24 @@ test('S15: afrouxar o config.json não solta a trava', () => {
 // Os `if` da P4 (decisão do controlador na Task 18): claude e cada lançador
 // explícito. PowerShell(& *) ficou de fora: a doc não confirma que o `&` entra
 // no texto casado, e o spike S9 mostrou que PowerShell(claude *) já casa
-// '& claude -p' (R1 no SECURITY.md).
+// '& claude -p' (R1 no SECURITY.md). M8 da revisão final da parte 1: no
+// PowerShell também bash e sh (o bash do Git ou do WSL no PATH do Windows
+// abre `bash -c "claude -p ..."`), como no Bash.
 const IF_P4 = [
   'Bash(claude *)', 'Bash(npx *)', 'Bash(node *)', 'Bash(bash *)', 'Bash(sh *)', 'Bash(cmd *)', 'Bash(pwsh *)', 'Bash(powershell *)',
-  'PowerShell(claude *)', 'PowerShell(npx *)', 'PowerShell(node *)', 'PowerShell(cmd *)', 'PowerShell(pwsh *)', 'PowerShell(powershell *)',
-  'PowerShell(Start-Process *)',
+  'PowerShell(claude *)', 'PowerShell(npx *)', 'PowerShell(node *)', 'PowerShell(bash *)', 'PowerShell(sh *)', 'PowerShell(cmd *)',
+  'PowerShell(pwsh *)', 'PowerShell(powershell *)', 'PowerShell(Start-Process *)',
 ];
 
 test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', () => {
   const h = JSON.parse(ler('hooks', 'hooks.json')).hooks;
   const handlers = Object.entries(h).flatMap(([evento, grupos]) => grupos.flatMap((g) => g.hooks.map((x) => ({ evento, matcher: g.matcher, ...x }))));
   const novos = handlers.filter((x) => Array.isArray(x.args));
-  // 25 = 10 fora da P4 (P1, P5 x4, liberar, P3, PostModelSwitch, StopFailure
-  // e o hook da agenda, C1 da revisão final) + 15 da P4, um por `if` de IF_P4
-  // (8 Bash, 7 PowerShell). O brief contava 11 com a P4 em 2 handlers; a
-  // Task 18 trocou esses 2 pelos 15.
-  assert.equal(novos.length, 25);
+  // 27 = 10 fora da P4 (P1, P5 x4, liberar, P3, PostModelSwitch, StopFailure
+  // e o hook da agenda, C1 da revisão final) + 17 da P4, um por `if` de IF_P4
+  // (8 Bash, 9 PowerShell). O brief contava 11 com a P4 em 2 handlers; a
+  // Task 18 trocou esses 2 pelos 15, e o M8 da revisão final somou 2.
+  assert.equal(novos.length, 27);
   for (const x of novos) {
     assert.equal(x.command, 'node');
     assert.equal(x.args.length, 1);

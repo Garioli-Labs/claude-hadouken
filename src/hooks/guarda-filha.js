@@ -6,8 +6,9 @@ import { chamaClaude, claudeComLiberar } from '../guarda/caminho.js';
 // Hook PreToolUse de Bash e PowerShell com `if: "Bash(claude *)"` e
 // `if: "PowerShell(claude *)"` (spec v0.4.0 §4.2 P4, spike S9) e, por decisão
 // do controlador na Task 18, um handler com `if` para cada lançador explícito
-// (npx, node, bash, sh, cmd, pwsh, powershell; no PowerShell, Start-Process),
-// nunca um curinga que traga o git commit. Com a guarda disparada, nega abrir
+// (npx, node, bash, sh, cmd, pwsh, powershell; no PowerShell, Start-Process;
+// bash e sh no PowerShell desde o M8 da revisão final da parte 1, para o bash
+// do Git ou do WSL), nunca um curinga que traga o git commit. Com a guarda disparada, nega abrir
 // uma sessão claude filha: uma sessão -p não carrega a trava desta conversa na
 // cabeça e poderia despachar à vontade. O hook confere o comando de novo
 // (chamaClaude), para uma versão que ignore o `if`. Best-effort: lançadores

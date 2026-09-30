@@ -438,9 +438,14 @@ test('P4: claude por Bash ou PowerShell é negado só com a guarda disparada', (
   const o = saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'cd . && claude -p "revise o diff"' }), home));
   assert.deepEqual(o, negacao('hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.'));
   assert.equal(saida(rodar('guarda-filha.js', ferramenta('s1', 'PowerShell', { command: '& claude -p x' }), home)).hookSpecificOutput.permissionDecision, 'deny');
+  // M8 da revisão final: o bash (Git ou WSL) chamado do PowerShell, que agora
+  // tem os `if` PowerShell(bash *) e PowerShell(sh *) em hooks.json.
+  assert.equal(saida(rodar('guarda-filha.js', ferramenta('s1', 'PowerShell', { command: 'bash -c "claude -p x"' }), home)).hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(saida(rodar('guarda-filha.js', ferramenta('s1', 'PowerShell', { command: "sh -c 'claude -p x'" }), home)).hookSpecificOutput.permissionDecision, 'deny');
+  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'PowerShell', { command: 'bash ./build.sh' }), home));
   semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'git status' }), home));
   semSaida(rodar('guarda-filha.js', ferramenta('nao-registrada', 'Bash', { command: 'claude -p x' }), home));
-  assert.equal(eventos(home, 'filha-negada').length, 2);
+  assert.equal(eventos(home, 'filha-negada').length, 4);
 });
 
 // Regra fixa da P4 (decisão do controlador na revisão da Task 13): uma sessão

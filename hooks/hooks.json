@@ -28,6 +28,8 @@
           { "type": "command", "if": "PowerShell(claude *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
           { "type": "command", "if": "PowerShell(npx *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
           { "type": "command", "if": "PowerShell(node *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(bash *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(sh *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
           { "type": "command", "if": "PowerShell(cmd *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
           { "type": "command", "if": "PowerShell(pwsh *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
           { "type": "command", "if": "PowerShell(powershell *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
