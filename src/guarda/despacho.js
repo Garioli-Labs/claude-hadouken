@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { effortValido } from '../util.js';
+import { lerLimitado } from '../estado.js';
 
 // Perfil de um despacho de subagente (spec v0.4.0 §4.3 e G5 do D1 emendado):
 // o modelo, na ordem de resolução da documentação (C7): parâmetro `model`,
@@ -32,12 +33,17 @@ export function dirConfigClaude(env, home) {
 
 // Frontmatter YAML simples (linhas "chave: valor" entre --- e ---) de um
 // arquivo regular de até 8 KiB, sem seguir link. Só `model` e `effort` saem.
-// null quando não dá para ler. Nunca lança.
+// null quando não dá para ler. Nunca lança. O lstat recusa o link; a leitura
+// vai pelo descritor com o teto (lerLimitado em estado.js, fstat do mesmo
+// descritor), para um arquivo trocado ou crescendo depois do lstat não ser
+// lido inteiro (M7 da revisão final da parte 1).
 export function lerFrontmatter(arquivo) {
   try {
     const info = fs.lstatSync(arquivo, { throwIfNoEntry: false });
     if (!info || !info.isFile() || info.size > FRONTMATTER_MAX) return null;
-    let texto = fs.readFileSync(arquivo, 'utf8').replace(/\r\n/g, '\n');
+    const lido = lerLimitado(arquivo, FRONTMATTER_MAX);
+    if (!lido.ok) return null;
+    let texto = lido.bytes.toString('utf8').replace(/\r\n/g, '\n');
     if (texto.startsWith(BOM)) texto = texto.slice(BOM.length);
     if (texto.length > FRONTMATTER_MAX) return null;
     const r = { model: null, effort: null };

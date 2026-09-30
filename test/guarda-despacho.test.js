@@ -72,6 +72,24 @@ test('lerFrontmatter: teto de 8 KiB, sem frontmatter e link', () => {
   assert.deepEqual(lerFrontmatter(bom), { model: 'fable', effort: 'xhigh' });
 });
 
+// M7 da revisão final da parte 1: o teto vale na leitura, não só no lstat.
+// Um .md trocado por um arquivo grande entre o lstat e a leitura (aqui o
+// lstat mente) não é lido inteiro: a leitura pelo descritor para no teto.
+test('lerFrontmatter: arquivo que cresce depois do lstat não é lido além do teto', (t) => {
+  const troca = path.join(tmp, 'troca.md');
+  fs.writeFileSync(troca, `---\nmodel: fable\n---\n${'x'.repeat(2 * 1024 * 1024)}`);
+  const lstatReal = fs.lstatSync;
+  t.mock.method(fs, 'lstatSync', (p, o) => (p === troca ? { isFile: () => true, size: 100 } : lstatReal(p, o)));
+  let lidos = 0;
+  const somar = (r) => { lidos += typeof r === 'number' ? r : (r?.length ?? 0); return r; };
+  const readFileReal = fs.readFileSync;
+  const readReal = fs.readSync;
+  t.mock.method(fs, 'readFileSync', (...a) => somar(readFileReal(...a)));
+  t.mock.method(fs, 'readSync', (...a) => somar(readReal(...a)));
+  assert.equal(lerFrontmatter(troca), null);
+  assert.ok(lidos <= 8 * 1024 + 1, `leu ${lidos} bytes`);
+});
+
 // O título acima promete o link: lstat não segue, então um .md que é link
 // para um frontmatter válido não conta. No Windows sem modo de desenvolvedor
 // criar o link falha com EPERM, e o teste fica pulado.

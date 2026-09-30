@@ -85,8 +85,9 @@ export function lerJson(arquivo, maxBytes = MAX_BYTES_PADRAO) {
 // fstat já decidia, porque o stat nunca protegeu contra o que fosse trocado
 // entre ele e o open. O que o stat recusava antes (pasta, junção, FIFO,
 // dispositivo) agora é aberto e recusado aqui sem ler um byte; o O_NONBLOCK
-// impede que um FIFO trave o open.
-function lerLimitado(arquivo, limite) {
+// impede que um FIFO trave o open. Exportada para o frontmatter dos agentes
+// (guarda/despacho.js, M7 da revisão final da parte 1), que não é JSON.
+export function lerLimitado(arquivo, limite) {
   let fd;
   try {
     fd = fs.openSync(arquivo, ABRIR_LEITURA);
