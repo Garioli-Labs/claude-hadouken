@@ -40,7 +40,7 @@
 - Implementador: `opus-high` em todas as tarefas de código; `opus-xhigh` só nas Tasks 9 e 16, que decidem segurança (o modelo da sessão que a P2 e a P3 leem; a fronteira entre texto de transcript e relatório).
 - Revisor por tarefa: Sonnet 5 (`model: sonnet`), só leitura do diff, **sem rodar testes**. O controlador roda `node --test` uma vez por tarefa.
 - Tasks 1 e 2 (spikes): sem revisor. O controlador confere o registro contra a regra de "passa se" de cada spike. A Task 2 é do Sr. Garioli, com o controlador guiando.
-- Um único portão Fable no fim (Task 21): revisão de qualidade e segurança do branch v0.4.0 inteiro, via `fable-xhigh`. A parte 1 teve o portão dela na Task 19 dela.
+- Portão Fable: nenhum nesta parte. Um único `fable-xhigh` revisa o branch v0.4.0 inteiro (partes 1 e 2 e o aprendizado) depois do plano do aprendizado (Task 21).
 - Antes de cada despacho, o controlador lê a linha do hadouken. Com alerta de projeção, para e pergunta.
 
 ## Decisões em aberto (padrão recomendado; o Sr. Garioli confirma na Task 3)
@@ -443,13 +443,13 @@ Acrescente ao registro (`.superpowers/sdd/2026-09-30-guardiao-parte2/progress.md
 
 ---
 
-### Task 2: Spikes pagos com o Sr. Garioli (S6, S7, S8 e, se preciso, S10)
+### Task 2: Spikes pagos com o Sr. Garioli (S6, S7, S8, S12 e, se preciso, S10)
 
 **Por que gastam tokens:** o disparo de cron e de `/loop`, o subagente em segundo plano, a skill `context: fork` e a retomada com cache vencido só acontecem com turnos de modelo. Não há como provocá-los com o prompt bloqueado. O custo fica em centavos: Haiku, poucos turnos curtos. Estimativa total: até US$ 0,20. **Quem faz é o Sr. Garioli**, no Windows Terminal, com o controlador lendo a sonda depois de cada passo. Nenhum passo roda `/usage`, e a sonda grava só nomes de chave, booleanos e números.
 
 **Interfaces:**
 - Consome: a sonda e a barra-sonda da Task 1.
-- Produz: o registro de S6, S7, S8 e do S10 (se a Task 1 ficou inconclusiva).
+- Produz: o registro de S6, S7, S8, S12 e do S10 (se a Task 1 ficou inconclusiva).
 
 - [ ] **Step 1: Preparar o terminal (o controlador passa este bloco ao Sr. Garioli)**
 
@@ -549,6 +549,32 @@ O S7 **passa** com as três condições:
 
 O S10 **passa** se os quatro campos chegarem, com `prompt_cache_likely_expired` `true` e `context_tokens` numérico.
 
+- [ ] **Step 5b: S12, herança de `CLAUDE_CODE_ENTRYPOINT` (Haiku, pago; ordem do controlador)**
+
+Pergunta: um `claude -p` aberto de dentro de uma sessão do Claude Code no VS Code herda `CLAUDE_CODE_ENTRYPOINT=claude-vscode`, ou o modo print o troca (por exemplo, por `sdk-cli`)? A recusa do `/liberar` (`/^sdk/i` em `src/hooks/liberar.js`) depende disso; hoje o pino em `test/guarda-liberar-extra.test.js` ("resíduo: CLAUDE_CODE_ENTRYPOINT=claude-vscode não é recusado hoje") declara o caminho aberto e a P4 o fecha.
+
+Só pelo PowerShell ou por `execFile` do Node; **nunca pelo Git Bash**. Nenhum `/usage`.
+
+1. O Sr. Garioli abre uma sessão do Claude Code no VS Code, com o terminal integrado em PowerShell e os mesmos `$tmp`/`$env:HADOUKEN_HOME` do Step 1.
+2. Cria um hook descartável que grava só as duas variáveis, sem mais nada:
+
+```powershell
+$s12 = Join-Path $tmp 's12'
+New-Item -ItemType Directory -Force (Join-Path $s12 '.claude-plugin'), (Join-Path $s12 'hooks') | Out-Null
+# WriteAllText grava UTF-8 sem BOM
+[IO.File]::WriteAllText((Join-Path $s12 '.claude-plugin\plugin.json'), '{"name":"hdk-s12","version":"0.0.0"}')
+[IO.File]::WriteAllText((Join-Path $s12 'gravar.js'), 'require("node:fs").appendFileSync(process.env.S12_SAIDA, JSON.stringify({ entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT ?? null, claudecode: process.env.CLAUDECODE ?? null }) + "\n");')
+[IO.File]::WriteAllText((Join-Path $s12 'hooks\hooks.json'), '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"node \"${CLAUDE_PLUGIN_ROOT}/gravar.js\""}]}]}}')
+$env:S12_SAIDA = Join-Path $tmp 's12.jsonl'
+```
+
+3. Pede à sessão do VS Code que rode, pela ferramenta PowerShell: `claude -p "responda só ok" --model haiku --plugin-dir "<valor de $s12>" --output-format json`. Anote o `total_cost_usd` (abaixo de US$ 0,01).
+4. O controlador lê `$env:S12_SAIDA`: uma linha com `entrypoint` e `claudecode`. Nenhum outro valor de ambiente é gravado.
+
+**Porta:**
+- `entrypoint` `sdk-cli` (ou qualquer valor que não seja `claude-vscode`): a recusa por entrypoint do `/liberar` basta. O pino de `test/guarda-liberar-extra.test.js` passa a esperar a recusa (Task 13, Step 4).
+- `entrypoint` `claude-vscode`: a regra da P4 (nega sempre o comando que chama `claude` com liberar) continua sendo a defesa, e a Task 20 escreve o R-entrypoint no `SECURITY.md`.
+
 - [ ] **Step 6: Registrar e limpar**
 
 O controlador acrescenta ao registro uma seção "Task 2" com o que cada passo mostrou e o custo de cada sessão (`/cost` ou `total_cost_usd`). Depois apaga `$tmp` e as pastas de projeto temporárias em `~/.claude/projects` cujo nome contém o nome de `$tmp`, conferindo o nome antes. Sem commit.
@@ -568,7 +594,8 @@ Quem faz: um implementador `opus-high`, com o registro das Tasks 1 e 2 em mãos;
   - Task 11 roda só com S7 aprovado;
   - Task 12 roda só com S10 aprovado;
   - Task 13 usa o texto do S4;
-  - Task 20 escreve R6, a versão mínima e o S6.
+  - Task 20 escreve R6, a versão mínima e o S6;
+  - Task 13 (Step 4) e Task 20 leem o S12.
 
 - [ ] **Step 1: Acrescentar a emenda ao fim da spec**
 
@@ -577,7 +604,7 @@ Use o Edit para acrescentar a seção abaixo depois da última linha da spec. Pr
 ```markdown
 ## Emenda 2026-09-30: spikes da parte 2 (Claude Code 2.1.285, Windows)
 
-Rodados com a sonda `hadouken-sonda` por `--plugin-dir`, `HADOUKEN_HOME` temporário e cwd temporário. A sonda gravou só nomes de chave, booleanos, números e rótulos fixos. S4 (parte local), S10 (tentativa) e S11 sem custo de modelo; S6, S7, S8 e S10 (se pago) com Haiku, pelo Sr. Garioli, custo total US$ <custo do registro>.
+Rodados com a sonda `hadouken-sonda` por `--plugin-dir`, `HADOUKEN_HOME` temporário e cwd temporário. A sonda gravou só nomes de chave, booleanos, números e rótulos fixos. S4 (parte local), S10 (tentativa) e S11 sem custo de modelo; S6, S7, S8, S12 e S10 (se pago) com Haiku, pelo Sr. Garioli, custo total US$ <custo do registro>.
 
 | Spike | Resultado | Decisão |
 |---|---|---|
@@ -586,6 +613,7 @@ Rodados com a sonda `hadouken-sonda` por `--plugin-dir`, `HADOUKEN_HOME` tempor�
 | S7 | <intervaloMedianoS, iguaisSemTranscriptNovo, iguaisComTranscriptNovo, diferentesSemTranscriptNovo> | Passa: o instalador oferece `refreshInterval: 60` (Task 11). Reprova: sem `refreshInterval`; a regra de frescor (Task 10) entra do mesmo jeito. |
 | S8 | <PreToolUse de garfo, Workflow e SendMessage> | Passa: a P1 cobre. Reprova: o caso que escapa entra em R6 do `SECURITY.md`; o matcher `Skill` não entra, porque bloquearia toda skill. |
 | S10 | <campos de retomada, tipos e custos> | Passa: a linha de retomada entra (Task 12). Reprova: o item 11 da §10 sai. |
+| S12 | <entrypoint e claudecode vistos pelo `claude -p` aberto do VS Code> | `sdk-cli` ou outro valor que não `claude-vscode`: a recusa por entrypoint do `/liberar` basta, e o pino do `claude-vscode` passa a esperar recusa (Task 13, Step 4). `claude-vscode`: a P4 (nega sempre) segue como defesa, e o `SECURITY.md` ganha o R-entrypoint (Task 20). |
 | S11 | <versão testada e leitura: passa, falha ou inconclusivo> | Passa: eventos desconhecidos são ignorados; o README diz que a guarda precisa da 2.1.251 ou mais nova, e que antes dela a P3 e a liberação não existem. Falha ou inconclusivo: o README declara a mínima 2.1.251. Nos três casos, o aviso "PreModelSwitch nunca rodou" não entra. |
 | Formas das linhas de hook | <tipoDaLinha, sucesso.*, contexto.comParSucesso/total, compactacao.*> | Base do custo dos hooks (§9.4): uma execução por `hook_success`, caracteres do stdout, `hook_cancelled` com `timedOut` como timeout, `system/compact_boundary` como compactação. |
 
@@ -2048,6 +2076,18 @@ git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "test: G6 classificati
 ```
 
 (Se o Step 2 mexeu em `src/hooks/limite-atingido.js`, acrescente esse arquivo aos dois pathspecs e troque o prefixo da mensagem por `fix:`.)
+
+- [ ] **Step 4: Pino do `claude-vscode` pelo S12 (só se o S12 viu um valor que não é `claude-vscode`)**
+
+Em `test/guarda-liberar-extra.test.js`, o teste "resíduo: CLAUDE_CODE_ENTRYPOINT=claude-vscode não é recusado hoje…" passa a esperar a recusa: `o.reason` igual a `RECUSADO_ENTRYPOINT` de `src/guarda/mensagens.js`, nenhuma `liberacao.json`, nenhum evento `liberacao` e um evento `liberacao-recusada` com detalhe `entrypoint`. Troque o título por `'S12: CLAUDE_CODE_ENTRYPOINT=claude-vscode num filho é recusado'` e o comentário acima dele pelo resultado do S12. Se o `liberar.js` da parte 1 não recusar `claude-vscode` (hoje só `/^sdk/i`), **pare e relate antes de mexer em código**: recusar `claude-vscode` também recusaria o `/liberar` digitado numa sessão normal do VS Code.
+
+Run: `node --test test/guarda-liberar-extra.test.js`
+Expected: PASS.
+
+```bash
+git -C "E:/Projetos DEV/claude-hadouken-guarda" add -- test/guarda-liberar-extra.test.js
+git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "test: liberar pin follows the S12 entrypoint result" -- test/guarda-liberar-extra.test.js
+```
 
 ---
 
@@ -3745,6 +3785,7 @@ Na seção portuguesa, depois do último S da parte 1, acrescente:
 - **S30, leitura repetida da barra.** Com a barra rodando sem conversa (`refreshInterval`, ou a mesma leitura reenviada), um valor parado não passa por leitura nova: a idade só é renovada quando o valor muda ou o transcript da sessão foi escrito depois da última leitura. Sem transcript utilizável no stdin, vale a regra antiga (renova).
 - No R6: o resultado do S8 (garfo, Workflow, SendMessage), com a decisão 16 (o que escapa da P1 fica declarado; o matcher `Skill` não entra).
 - No R3: o resultado do S6 (cron e `/loop`): se o disparo automático passa pelo UserPromptSubmit e é bloqueado pela P2, ou se não passa.
+- Só se o S12 viu `claude-vscode`: **R-entrypoint.** Um `claude -p` aberto de dentro de uma sessão do VS Code herda `CLAUDE_CODE_ENTRYPOINT=claude-vscode`, e o `/liberar` dele não é recusado pelo entrypoint. A defesa é a P4, que nega sempre o comando Bash ou PowerShell que chama `claude` com liberar; um comando ofuscado escapa dela (R1).
 - Um parágrafo sobre o SessionStart dentro de subagente (Task 9): nada é gravado, e o modelo da sessão mãe não muda.
 
 Na seção inglesa, a tradução fiel dos mesmos itens, no tom que já existe.
@@ -3771,34 +3812,6 @@ git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "docs: v0.4.0 part 2 i
 
 ---
 
-### Task 21: Portão Fable do branch v0.4.0 inteiro
+### Task 21: Portão Fable (fora desta parte)
 
-Quem faz: um revisor `fable-xhigh`, só leitura, sobre `git diff 8d1bff3..HEAD` (partes 1 e 2). Correções: `opus-high`, com re-revisão Sonnet escopada no diff da correção.
-
-**Files:** nenhum pelo revisor. As correções tocam só os arquivos que o achado apontar.
-
-- [ ] **Step 1: Pacote do revisor**
-
-O controlador monta, no `.superpowers/sdd/2026-09-30-guardiao-parte2/` (ignorado):
-- `git -C "E:/Projetos DEV/claude-hadouken-guarda" diff --stat 8d1bff3..HEAD`;
-- `git -C "E:/Projetos DEV/claude-hadouken-guarda" diff 8d1bff3..HEAD -- src hooks skills`;
-- a saída de `node --test` (a contagem de testes e a última linha);
-- a spec com as emendas, este plano e o da parte 1;
-- o registro das tarefas (as linhas "Ruling:" dos dois registros).
-
-- [ ] **Step 2: Despacho**
-
-Brief do revisor: "Revise o branch v0.4.0 inteiro (qualidade e segurança) contra a spec e as emendas. Prioridades: (1) os cinco itens do Foco de revisão da parte 2 e os da parte 1; (2) toda fronteira em que texto de fora (stdin de hook, transcripts, `installed_plugins.json`, `hooks.json`, `config.json`, argumentos do `/liberar`) chega a um texto para o Claude ou para o usuário; (3) o que pode soltar a guarda sem liberação; (4) rede ou `child_process` em `src/guarda/**`, nos hooks novos, em `src/custo-hooks.js` e `src/indice-hooks.js`; (5) escrita não atômica, sem lstat ou sem teto de bytes. Só leitura: não rode testes nem edite arquivos. Para cada achado: arquivo:linha, gravidade (bloqueia, importante, menor), o cenário concreto e a correção mínima."
-
-- [ ] **Step 3: Correções**
-
-Para cada achado "bloqueia" ou "importante": um despacho `opus-high` com o achado, o arquivo e o teste que o prende (o teste vem primeiro e falha antes da correção). O controlador roda `node --test`; um revisor Sonnet revisa só o diff da correção. Achado "menor": entra no registro; corrige-se se custar menos que um despacho, senão fica anotado para a v0.4.1.
-
-Commits das correções com pathspec explícito, mensagem `fix: <o que mudou> (v0.4.0 gate finding <n>)`.
-
-- [ ] **Step 4: Fechamento**
-
-Run: `node --test`
-Expected: PASS.
-
-O controlador escreve no registro: achados, correções, a contagem final de testes, e o que ficou para o Sr. Garioli: o push do branch (para o CI medir Linux e macOS e a Task 19 fechar a tabela), a tag e a publicação. Sem push e sem tag nesta tarefa.
+Não roda no fim da parte 2: a v0.4.0 inclui também o aprendizado local (`docs/superpowers/plans/2026-09-30-aprendizado.md`), e há um único portão `fable-xhigh` sobre o branch v0.4.0 inteiro, depois do plano do aprendizado. O bump para 0.4.0 continua na Task 20, sem tag e sem push.
