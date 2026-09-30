@@ -271,7 +271,7 @@ function gravarResultado(dir, agoraMs, res) {
 // 1. sem pasta de dados: 'sem-pasta';
 // 2. bloqueio por custo em vigor: 'bloqueado', mesmo com forcar;
 // 3. leitura (ou tentativa) de menos de 25 s, ou de menos de 15 min depois
-//    de 'tempo' ou 'saida', ou gravação que falhou há menos de 25 s neste
+//    de 'tempo', 'saida', 'formato' ou 'erro', ou gravação que falhou há menos de 25 s neste
 //    processo: 'recente' (com forcar, só o piso de 5 s);
 // 4. sem forcar e sem sessão ativa: 'sem-sessao';
 // 5. memória livre abaixo de RAM_MIN_BYTES (ou ilegível): 'pouca-ram',
