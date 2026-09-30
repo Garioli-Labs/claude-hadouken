@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { rodarHook, emitirContexto } from './comum.js';
+import { rodarHook, emitirContexto, emitirJson, falharAberto } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva, renovarSessao } from '../ativas.js';
 
@@ -8,7 +8,8 @@ import { sessaoAtiva, renovarSessao } from '../ativas.js';
 // linha só quando a faixa muda (alerta.js), ou "sem leitura" uma vez por
 // sessão. Spec v0.2.0 §12 (avisos ao Claude): com a previsão de estouro do
 // histórico do estado (previsao.js) e as sessões ativas, também o aviso de
-// projeção. Nunca bloqueia o prompt.
+// projeção. Desde a v0.4.0, bloqueia o prompt digitado numa sessão Fable com
+// a guarda disparada (P2, src/guarda/prompt.js).
 //
 // Roda em toda sessão aberta, registrada ou não, então o caminho até o gate
 // carrega o mínimo: comum.js (stdin), base.js e ativas.js. Sessão sem
@@ -36,6 +37,19 @@ rodarHook(async (entrada) => {
   const agoraMs = Date.now();
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   renovarSessao(sessionId, agoraMs);
+  // Spec v0.4.0 §4.2 P2: a guarda decide antes dos alertas. Prompt
+  // bloqueado não recebe linha nenhuma (o reason vai só ao usuário). Uma
+  // exceção fora de decidirPrompt (o import, por exemplo) também passa e
+  // registra o evento 'erro' P2 (falharAberto, §4.5).
+  let p2 = { bloquear: null, linha: null };
+  await falharAberto(dirDados(), 'P2', agoraMs, async () => {
+    const { decidirPrompt } = await import('../guarda/prompt.js');
+    p2 = decidirPrompt({ dir: dirDados(), sessionId, prompt: entrada.prompt, agoraMs });
+  });
+  if (p2.bloquear !== null) {
+    emitirJson({ decision: 'block', reason: p2.bloquear });
+    return;
+  }
   const [
     { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, gravarJsonAtomico, sessoesAtivas },
     { avaliarAlertas },
@@ -74,5 +88,5 @@ rodarHook(async (entrada) => {
   if (precisaGravar(registro, guardado, agoraMs)) gravarJsonAtomico(arqAlertas, registro);
   const registroProjecao = projecaoParaGravar(novos.projecao);
   if (precisaGravarProjecao(registroProjecao, projecaoLida)) gravarJsonAtomico(arqProjecao, registroProjecao);
-  emitirContexto('UserPromptSubmit', linhas.join('\n'));
+  emitirContexto('UserPromptSubmit', (p2.linha === null ? linhas : [...linhas, p2.linha]).join('\n'));
 });

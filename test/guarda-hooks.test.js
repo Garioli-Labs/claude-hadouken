@@ -320,3 +320,30 @@ test('liberar: exceção depois do gate registra erro, recusa e não grava liber
   assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), ['liberar']);
   assert.equal(eventos(home, 'liberacao').length, 0);
 });
+
+const promptDe = (id, prompt) => ({ session_id: id, hook_event_name: 'UserPromptSubmit', prompt, cwd: os.tmpdir() });
+
+test('P2 ponta a ponta: sessão Fable disparada bloqueia o prompt; task-notification passa', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  gravarModeloSessao(home, 's1', 'claude-fable-5-1', Date.now());
+  const o = saida(rodar('prompt-submit.js', promptDe('s1', 'rode a revisão'), home));
+  assert.equal(o.decision, 'block');
+  assert.equal(o.reason, 'hadouken: guarda ativa: 7d em 86%, teto 85%. Esta sessão está no Fable. Troque com /model ou libere com /claude-hadouken:liberar.');
+  const r = rodar('prompt-submit.js', promptDe('s1', '<task-notification>\n<task-id>x</task-id>\n</task-notification>'), home);
+  assert.equal(r.status, 0);
+  assert.equal(r.stderr, '');
+  if (r.stdout !== '') assert.equal(JSON.parse(r.stdout).decision, undefined);
+});
+
+test('P2 ponta a ponta: depois do liberar, o prompt seguinte leva a linha uma vez', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  saida(rodar('liberar.js', expansao('s1', '2h'), home));
+  const o = saida(rodar('prompt-submit.js', promptDe('s1', 'pode seguir'), home));
+  assert.match(o.hookSpecificOutput.additionalContext, /hadouken: o usuário liberou a guarda até .+ ou até 7d 96%\.$/);
+  const r2 = rodar('prompt-submit.js', promptDe('s1', 'e agora'), home);
+  assert.ok(!r2.stdout.includes('liberou a guarda'));
+});

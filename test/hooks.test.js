@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registrarSessao, ATIVA_MAX_MS } from '../src/ativas.js';
+import { marcarSessao } from '../src/guarda/registros.js';
 
 // Os três hooks do plugin (spec 6.5, 8.1 e 8.2), cada um num processo filho
 // como o Claude Code os roda: JSON no stdin, contexto em JSON no stdout,
@@ -371,7 +372,9 @@ test('prompt-submit: memória de alerta velha é recomeço, sem linha de descida
 // memória de alertas, com at guardado de menos de 5 min, não regrava
 // alertas.json (nem cria temporário). Mudança na memória ou at de 5 min ou mais
 // regrava. A memória é plantada em JSON compacto; o hook grava indentado, então
-// qualquer gravação muda os bytes.
+// qualquer gravação muda os bytes. Desde a v0.4.0, o primeiro prompt da sessão
+// cria a marca em guarda-sessoes/ (P2, uma vez por sessão); a sessão já vem
+// marcada, para a árvore provar que o prompt comum não grava mais nada.
 test('prompt-submit: memória igual e recente não é regravada; mudança ou at velho regrava', () => {
   const r5 = agoraS() + 3600;
   const r7 = agoraS() + 84 * 3600;
@@ -379,6 +382,7 @@ test('prompt-submit: memória igual e recente não é regravada; mudança ou at 
   const preparar = ({ atMs, faixa5 = 'serializar' }) => {
     const home = novoHome();
     registrar(home, 's1');
+    marcarSessao(home, 's1');
     gravarEstado(home, { p5: 82, p7: 50, r5, r7 });
     fs.writeFileSync(arqAlertas(home), JSON.stringify({
       at: iso(atMs), five_hour: { resets_at: r5, faixa: faixa5 }, seven_day: { resets_at: r7, faixa: 'normal' }, sem_leitura: {},
@@ -407,6 +411,7 @@ test('prompt-submit: memória igual e recente não é regravada; mudança ou at 
   // então nada muda e nada é gravado, mesmo com at nulo.
   home = novoHome();
   registrar(home, 's1');
+  marcarSessao(home, 's1');
   fs.writeFileSync(arqAlertas(home), JSON.stringify({ at: null, five_hour: null, seven_day: null, sem_leitura: { s1: true } }));
   antes = arvore(home);
   mudo(rodar('prompt-submit.js', prompt(), home));
@@ -483,7 +488,8 @@ else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
 
 // Adendo E: o caminho até o gate só traz comum.js, base.js (stdin, dirDados e
 // idValido) e ativas.js; estado.js, alerta.js e o resto (util.js incluído) só
-// depois do gate.
+// depois do gate. Desde a v0.4.0, a P2 (src/guarda/prompt.js e a guarda que
+// ele avalia) também entra só depois do gate.
 test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.js', () => {
   const home = novoHome();
   registrar(home, 'outra');
@@ -494,7 +500,11 @@ test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.j
   registrar(home, 's1');
   const dentro = modulosCarregados('prompt-submit.js', home, prompt());
   assert.match(contexto(dentro.r, 'UserPromptSubmit'), LINHA_SERIALIZAR);
-  assert.deepEqual(dentro.nomes, ['alerta.js', 'alertas-gravados.js', 'ativas.js', 'base.js', 'comum.js', 'estado.js', 'previsao.js', 'prompt-submit.js', 'ritmo.js', 'util.js']);
+  assert.deepEqual(dentro.nomes, [
+    'alerta.js', 'alertas-gravados.js', 'arquivo.js', 'ativas.js', 'avaliar.js', 'base.js', 'comum.js', 'config.js',
+    'estado.js', 'gatilhos.js', 'ler-uso.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'prompt-submit.js',
+    'prompt.js', 'registros.js', 'ritmo.js', 'travas.js', 'util.js',
+  ]);
 });
 
 test('session-end: sessão não registrada não carrega estado.js nem historico.js', () => {
