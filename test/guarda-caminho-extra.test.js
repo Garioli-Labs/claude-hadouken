@@ -232,6 +232,51 @@ test('claudeComLiberar (rodada 2): texto levado a outro interpretador e concaten
   for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
 });
 
+// Decisão do controlador (rodada 3): claude só conta como palavra com início,
+// espaço, ; & | ( { ' " crase = / ou \ antes e fim, espaço, ; & | ) ' " ou
+// crase depois, com .exe, .cmd ou .ps1 opcionais; nada de - . ou : grudado.
+// O nome deste repositório e a pasta de dados passam com $, * ou (.
+test('claudeComLiberar (rodada 3): claude grudado a - . : } ] ou , não é palavra; com caminho ou .exe, .cmd, .ps1 é', () => {
+  const nao = [
+    'cd "E:/Projetos DEV/claude-hadouken-guarda" && echo $X',
+    'ls ~/.claude/hadouken/*',
+    "git commit -m \"$(cat <<'EOF'\nfix: claude-hadouken bar (P4)\n\nclaude-hadouken: a barra mostra a guarda\nEOF\n)\"",
+    'git commit -F msg.txt',
+    'cat ~/.claude/claude.json | grep "hadouken*"',
+    'echo claude: $X hadouken',
+    'echo {claude} $X hadouken',
+    'echo [claude] $X hadouken',
+    'echo claude, $X hadouken',
+    'echo claude.bat $X hadouken',
+  ];
+  for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
+  const sim = [
+    '/usr/bin/claude -p "/liberar 2h"',
+    '"C:\\x\\claude.exe" -p "/liberar 2h"',
+    'claude.cmd -p "/liberar 2h"',
+    '.\\claude.ps1 -p "/liberar 2h"',
+    'X=claude; $X -p "/claude-hadouken:libe{rar,}"',
+    "Start-Process 'claude' -ArgumentList '-p','/liberar'",
+    '`claude` -p "/liberar 2h"',
+  ];
+  for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
+});
+
+test('P4 ponta a ponta (rodada 3): comandos do controlador que citam o repositório ou a pasta de dados passam, com a guarda disparada', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, 86);
+  const casos = [
+    'cd "E:/Projetos DEV/claude-hadouken-guarda" && echo $X',
+    'ls ~/.claude/hadouken/*',
+    "git commit -m \"$(cat <<'EOF'\nfix: claude-hadouken bar (P4)\nEOF\n)\"",
+    'git commit -F msg.txt',
+  ];
+  for (const command of casos) semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command }), home));
+  assert.equal(eventos(home, 'liberacao-recusada').length, 0);
+  assert.equal(eventos(home, 'filha-negada').length, 0);
+});
+
 // Decisão do controlador (rodada 2): acima de 1 MiB (1_048_576 unidades de
 // texto), liberar em qualquer lugar nega sem o leitor. Os comandos abaixo não
 // têm claude nem hadouken: só o limite nega.

@@ -110,9 +110,10 @@ function segmentos(texto, bash) {
   return segs;
 }
 
-// A palavra é claude: o nome (com caminho e .exe, .cmd, .ps1 ou .bat) ou o
-// pacote claude-code (npx @anthropic-ai/claude-code, node .../claude-code/cli.js).
-const EH_CLAUDE = /(?:^|[\\/])claude(?:\.exe|\.cmd|\.ps1|\.bat)?$/;
+// A palavra é claude: o nome (com caminho e .exe, .cmd ou .ps1; decisão do
+// controlador na rodada 3 da revisão da Task 16) ou o pacote claude-code
+// (npx @anthropic-ai/claude-code, node .../claude-code/cli.js).
+const EH_CLAUDE = /(?:^|[\\/])claude(?:\.exe|\.cmd|\.ps1)?$/;
 const ehClaude = (w) => EH_CLAUDE.test(w) || w.includes('claude-code');
 const ATRIBUICAO = /^[a-z_][a-z0-9_]*\+?=/;
 // Comandos que rodam o comando seguinte (decisão do controlador: env,
@@ -248,11 +249,14 @@ const LIBERAR_CURTO = /(?:^|[\s;&|(=])\/liberar(?=[\s;&|)]|$)/;
 // espaços e procurar, sem copiar o texto.
 const LIBERAR_ESPACADO = /l\s*i\s*b\s*e\s*r\s*a\s*r/;
 const DOIS_PONTOS_LIBERAR = /:\s*l\s*i\s*b\s*e\s*r\s*a\s*r/;
-// (b): claude que não é parte de outro nome (claude-hadouken, claudette,
-// CLAUDE.md, ~/.claude/, uma pasta claude/), com caminho ou .exe, .cmd, .ps1
-// ou .bat; ou o pacote. A palavra pode vir depois de { [ , ' " $ ou de uma
-// barra (try {claude}, ['claude', ...], .\claude.exe).
-const PALAVRA_CLAUDE = /(?<![a-z0-9_.-])claude(?:\.exe|\.cmd|\.ps1|\.bat)?(?![a-z0-9_./\\-])/;
+// (b), decisão do controlador na rodada 3 da revisão da Task 16: claude só
+// conta como palavra com início, espaço, ; & | ( { ' " crase = / ou \ antes
+// e fim, espaço, ; & | ) ' " ou crase depois, com .exe, .cmd ou .ps1
+// opcionais. Nada de - . ou : grudado: o nome deste repositório
+// (claude-hadouken), a pasta ~/.claude/, claude.json e 'claude:' não contam;
+// /usr/bin/claude, "C:\x\claude.exe", claude.cmd, try {claude -p} e
+// ['claude', ...] contam. Ou o pacote claude-code.
+const PALAVRA_CLAUDE = /(?:^|[\s;&|({'"`=/\\])claude(?:\.exe|\.cmd|\.ps1)?(?=$|[\s;&|)'"`])/;
 const PACOTE = /claude-code/;
 // (b): ':liberar' com qualquer coisa antes (claude-hadouken:liberar) ou
 // '/liberar' fora de um caminho, sem outro nome depois (liberar.js,
