@@ -12,11 +12,19 @@ import { dirDados, idValido } from '../base.js';
 // e comandos ofuscados). O argumento nunca volta no texto: só a gramática de
 // lerPedido decide, e a resposta sai de mensagens.js.
 // Sem gate de sessão ativa: a liberação é do usuário e vale para a conta.
-// Qualquer exceção depois do gate vira evento 'erro' (§4.5, falharAberto em
-// comum.js) e a resposta "nada liberado": uma liberação que falha nunca fica
-// gravada.
+// Qualquer exceção depois do gate, inclusive a do import de mensagens.js, vira
+// evento 'erro' (§4.5, falharAberto em comum.js) e a resposta "nada
+// liberado": uma liberação que falha nunca fica gravada.
+// Resíduo: C23 só reescreve `cli` para `sdk-cli` no modo print, então um
+// `claude -p` aberto de uma sessão com outro entrypoint (ex.: claude-vscode)
+// herda esse valor e passa por aqui; quem fecha esse caminho é a P4 (Task 16),
+// e o spike da parte 2 procura um sinal melhor.
 
 const COMANDO = 'claude-hadouken:liberar';
+// O mesmo texto de NAO_GRAVADO (mensagens.js), só para quando o import dele
+// falha: a expansão continua bloqueada e nada é liberado.
+// test/guarda-liberar-extra.test.js confere que os dois são iguais.
+const NAO_GRAVADO_RESERVA = 'hadouken: nada liberado. A liberação não pôde ser gravada.';
 
 // O texto da resposta. Tudo o que pode lançar (inclusive o próprio texto de
 // confirmação) vem antes de gravarLiberacao; depois dela só limparTravas e
@@ -30,12 +38,14 @@ async function decidir(entrada, dir, sessionId, agoraMs, msg) {
     import('../guarda/liberacao.js'),
     import('../guarda/registros.js'),
   ]);
-  reg.marcarSessao(dir, sessionId);
+  // A recusa de -p e SDK vem antes de qualquer outra gravação: a sessão filha
+  // deixa só o evento 'liberacao-recusada', nem a marca de sessão.
   const ep = process.env.CLAUDE_CODE_ENTRYPOINT;
   if (typeof ep === 'string' && /^sdk/i.test(ep)) {
     reg.anexarEvento(dir, 'liberacao-recusada', 'entrypoint', agoraMs);
     return msg.RECUSADO_ENTRYPOINT;
   }
+  reg.marcarSessao(dir, sessionId);
   const { config } = lerConfigGuarda(dir);
   const pedido = lib.lerPedido(typeof entrada.command_args === 'string' ? entrada.command_args : '', config);
   if (!pedido.ok) {
@@ -64,12 +74,17 @@ async function decidir(entrada, dir, sessionId, agoraMs, msg) {
 
 rodarHook(async (entrada) => {
   if (entrada === null || entrada.command_name !== COMANDO) return;
-  const msg = await import('../guarda/mensagens.js');
   const sessionId = entrada.session_id;
   const dir = dirDados();
-  if (!idValido(sessionId) || dir === null) return emitirJson({ decision: 'block', reason: msg.NAO_GRAVADO });
   const agoraMs = Date.now();
-  let reason = msg.NAO_GRAVADO;
-  await falharAberto(dir, 'liberar', agoraMs, async () => { reason = await decidir(entrada, dir, sessionId, agoraMs, msg); });
+  let reason = NAO_GRAVADO_RESERVA;
+  // Com dir null, falharAberto não tem onde registrar (anexarEvento nunca
+  // lança) e a resposta segue "nada liberado".
+  await falharAberto(dir, 'liberar', agoraMs, async () => {
+    const msg = await import('../guarda/mensagens.js');
+    reason = msg.NAO_GRAVADO;
+    if (!idValido(sessionId) || dir === null) return;
+    reason = await decidir(entrada, dir, sessionId, agoraMs, msg);
+  });
   emitirJson({ decision: 'block', reason });
 });
