@@ -384,11 +384,11 @@ Toda linha é montada só com números validados e frases fixas do código; nenh
 
 ## A guarda de consumo
 
-Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subagente, no uso do Fable e no despacho caro. A trava fica até **você** liberar com `/claude-hadouken:liberar`; o Claude não consegue se liberar sozinho.
+Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subagente, no uso do Fable e no despacho caro. A trava fica até **você** liberar com `/claude-hadouken:liberar` ou até o reset da janela que a disparou. A liberação só vale digitada por você na conversa: uma sessão `claude` filha, uma tarefa agendada, um `/loop` ou uma rotina não liberam. O Claude não se libera sozinho sem forjar os arquivos do hadouken ou mexer no próprio plugin; a guarda é um freio contra o descuido, não uma barreira contra um modelo decidido a contorná-la (veja R1 no [SECURITY.md](SECURITY.md)).
 
 ### O que trava
 
-| Gatilho | Quando | O que bloqueia |
+| Gatilho ou proteção | Quando | O que bloqueia |
 |---|---|---|
 | G1 | a janela de 5h projeta 100% em até 90 min, com o reset a pelo menos 15 min | todo despacho de subagente, a troca para o Fable e, numa sessão Fable, o prompt |
 | G2 | a semana projeta 100% em até 24 h, com pelo menos 2 h de leituras | o mesmo |
@@ -397,6 +397,9 @@ Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subage
 | G5 | despacho caro: effort `max` em qualquer modelo, ou Fable em `xhigh` ou `max` | aquele despacho |
 | G6 | o limite do Fable foi atingido (aviso de limite do Claude Code, ou a leitura oficial da semana do Fable em 100%, com até 15 min) | despacho Fable, a troca para o Fable e o prompt numa sessão Fable |
 | G7 | o quinto despacho Fable em 5 h, ou qualquer despacho Fable com a semana do Fable em 90% ou mais (leitura oficial com até 15 min) | o mesmo |
+| P4 | qualquer trava ativa | abrir uma sessão `claude` filha pelo Bash ou pelo PowerShell (direto ou por `npx`, `node`, `bash`, `sh`, `cmd`, `pwsh`, `powershell` e, no PowerShell, `Start-Process`) |
+| P5 | sempre, mesmo com a guarda desligada | editar a pasta de dados do hadouken (`~/.claude/hadouken`) com Write, Edit, MultiEdit ou NotebookEdit |
+| liberação | sempre, mesmo com a guarda desligada | uma sessão `claude` filha, uma tarefa agendada, um `/loop` ou uma rotina (CronCreate, ScheduleWakeup, RemoteTrigger) com `/claude-hadouken:liberar` no texto |
 
 Os números são ajustáveis na chave `guarda` do `config.json` (o 90% do Fable é `guarda.fable.tetoPct`). Afrouxar a configuração não solta uma trava que já disparou.
 
@@ -410,12 +413,14 @@ Quando o reset oficial do Fable não se lê, a trava do G7 não tem fim marcado:
 - Acrescente `fable` para soltar também o limite do Fable. Depois do limite, o Fable pode consumir créditos de uso.
 - Acrescente `caro` para soltar o despacho caro, por exemplo antes da revisão final de um bloco.
 
-Toda liberação acaba antes do prazo se a semana subir 10 pontos. Ela vale para todas as sessões, porque o limite é da conta. A barra mostra "liberada até …" enquanto ela vale.
+Toda liberação acaba antes do prazo se a semana subir 10 pontos. Ela vale para todas as sessões, porque o limite é da conta. A barra mostra "liberada até …" enquanto ela vale, também ao lado de uma trava que ela não cobre.
 
 ### O que a barra diz
 
 - `guarda: 7d`: disparada, com a janela ou `Fable`.
-- `liberada até hoje 16:40`: liberação ativa.
+- `liberada até hoje 16:40`: liberação ativa. Com uma trava que ela não cobre, aparecem as duas: `guarda: Fable · liberada até hoje 16:40`.
+- `liberação sem origem`: há uma liberação ativa sem o registro de quem a deu, sinal de arquivo gravado à mão (veja R1 no [SECURITY.md](SECURITY.md)).
+- `guarda com erro`: a avaliação da guarda falhou, ou um hook da guarda registrou um erro nos últimos 15 min. A chamada passou (a guarda falha aberta, mas à vista).
 - `guarda desligada`: `"ligada": false` no `config.json`.
 - `guarda sem leitura`: sem leitura de limite; só G5, G6 e G7 valem.
 - `sem guarda nesta sessão`: a sessão foi aberta antes da atualização.

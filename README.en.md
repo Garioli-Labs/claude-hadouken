@@ -390,11 +390,11 @@ Every line is built only from validated numbers and fixed phrases in the code; n
 
 ## The usage guard
 
-Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch, at Fable use and at the expensive dispatch. The lock stays until **you** release it with `/claude-hadouken:liberar`; Claude cannot release itself.
+Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch, at Fable use and at the expensive dispatch. The lock stays until **you** release it with `/claude-hadouken:liberar`, or until the reset of the window that tripped it. A release only counts when you type it in the conversation: a child `claude` session, a scheduled task, a `/loop` or a routine does not release. Claude does not release itself without forging hadouken's files or tampering with the plugin itself; the guard is a brake against carelessness, not a barrier against a model set on getting around it (see R1 in [SECURITY.md](SECURITY.md)).
 
 ### What locks
 
-| Trigger | When | What it blocks |
+| Trigger or protection | When | What it blocks |
 |---|---|---|
 | G1 | the 5h window projects 100% within 90 min, with the reset at least 15 min away | every subagent dispatch, the switch to Fable and, in a Fable session, the prompt |
 | G2 | the week projects 100% within 24 h, with at least 2 h of readings | the same |
@@ -403,6 +403,9 @@ Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch,
 | G5 | expensive dispatch: effort `max` on any model, or Fable at `xhigh` or `max` | that dispatch |
 | G6 | the Fable limit was reached (Claude Code's limit notice, or the official Fable week reading at 100%, at most 15 min old) | Fable dispatch, the switch to Fable and the prompt in a Fable session |
 | G7 | the fifth Fable dispatch in 5 h, or any Fable dispatch with the Fable week at 90% or more (official reading at most 15 min old) | the same |
+| P4 | any active lock | opening a child `claude` session through Bash or PowerShell (directly or through `npx`, `node`, `bash`, `sh`, `cmd`, `pwsh`, `powershell` and, in PowerShell, `Start-Process`) |
+| P5 | always, even with the guard off | editing hadouken's data folder (`~/.claude/hadouken`) with Write, Edit, MultiEdit or NotebookEdit |
+| release | always, even with the guard off | a child `claude` session, a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger) with `/claude-hadouken:liberar` in its text |
 
 The numbers can be tuned under the `guarda` key of `config.json` (the Fable 90% is `guarda.fable.tetoPct`). Loosening the configuration does not lift a lock that has already tripped.
 
@@ -416,12 +419,14 @@ When the official Fable reset cannot be read, a G7 lock has no set end: it stays
 - Add `fable` to lift the Fable limit as well. After the limit, Fable may consume usage credits.
 - Add `caro` to lift the expensive dispatch, for example before the final review of a block.
 
-Every release ends early if the week rises 10 points. It applies to every session, because the limit belongs to the account. The bar shows "liberada até …" (released until …) while it holds.
+Every release ends early if the week rises 10 points. It applies to every session, because the limit belongs to the account. The bar shows "liberada até …" (released until …) while it holds, also next to a lock it does not cover.
 
 ### What the bar says
 
 - `guarda: 7d`: tripped, with the window or `Fable` (guard: 7d).
-- `liberada até hoje 16:40`: an active release (released until today 16:40).
+- `liberada até hoje 16:40`: an active release (released until today 16:40). With a lock it does not cover, both show: `guarda: Fable · liberada até hoje 16:40`.
+- `liberação sem origem`: there is an active release with no record of who granted it, a sign of a hand-written file (see R1 in [SECURITY.md](SECURITY.md)) (release with no origin).
+- `guarda com erro`: the guard evaluation failed, or a guard hook recorded an error in the last 15 min. The call went through: the guard fails open, but visibly (guard with an error).
 - `guarda desligada`: `"ligada": false` in `config.json` (guard off).
 - `guarda sem leitura`: no limits reading; only G5, G6 and G7 apply (guard without a reading).
 - `sem guarda nesta sessão`: the session was opened before the update (no guard in this session).

@@ -44,9 +44,11 @@ const FERRAMENTAS = new Set(['Bash', 'PowerShell']);
 // test/guarda-caminho-extra.test.js). Acima dele o comando não é lido: o
 // stdin cru segue até o fim (sem acumular, lerStdinVigiando em base.js) e, se
 // tiver 'claude' (sem diferenciar maiúsculas) ou 'liberar' em qualquer ponto,
-// a P4 nega pela regra fixa; senão, passa (R1). O stdin do Claude Code traz o
-// transcript_path, em geral dentro de ~/.claude, então na prática acima de
-// 4 MiB a P4 nega.
+// a P4 nega pela regra fixa; senão, passa (R1) e registra o evento 'erro' P4,
+// como quando o prazo de 1 s corta a leitura (M5 da revisão final da parte 1,
+// decisão do controlador: passa; rodarHook em comum.js). O stdin do Claude
+// Code traz o transcript_path, em geral dentro de ~/.claude, então na prática
+// acima de 4 MiB a P4 nega.
 const TETO_STDIN = 4 * 1_048_576;
 const VIGIA_ACIMA = /claude|liberar/i;
 // O mesmo texto de P4_LIBERAR_TEXTO (mensagens.js), só para quando o import
