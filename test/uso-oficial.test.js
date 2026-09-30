@@ -10,7 +10,9 @@ import {
   interpretarReset,
   interpretarSaida,
   rodarUso,
+  matarArvore,
 } from '../src/uso/oficial.js';
+import { spawn, spawnSync } from 'node:child_process';
 
 // Leitura oficial do /usage (spec, emenda E2, E3 e E8/S26). As datas são
 // montadas com new Date(ano, mes, ...) locais, para passar em qualquer fuso:
@@ -172,13 +174,23 @@ test('interpretarSaida: a saída real dá 25, 41 e 57 com os reinícios em hora 
 });
 
 test('interpretarSaida: qualquer sinal de modelo chamado dá custo (trava de E2)', () => {
-  for (const extra of [{ num_turns: 1 }, { total_cost_usd: 0.01 }, { local_command: 'compact' }, { num_turns: '0' }, { total_cost_usd: null }]) {
+  for (const extra of [{ num_turns: 1 }, { total_cost_usd: 0.01 }, { num_turns: '0' }, { total_cost_usd: null }, { local_command: 'compact', num_turns: 1 }]) {
     const saida = JSON.stringify({ ...JSON.parse(REAL), ...extra });
     assert.deepEqual(interpretarSaida(saida, AGORA), { ok: false, motivo: 'custo' }, JSON.stringify(extra));
   }
+  for (const campo of ['num_turns', 'total_cost_usd']) {
+    const semCampo = JSON.parse(REAL);
+    delete semCampo[campo];
+    assert.deepEqual(interpretarSaida(JSON.stringify(semCampo), AGORA), { ok: false, motivo: 'custo' }, campo);
+  }
+});
+
+test('interpretarSaida: zero turnos e custo zero fora do comando usage é formato, não custo (portão Fable, item 5)', () => {
+  const outro = JSON.stringify({ ...JSON.parse(REAL), local_command: 'compact' });
+  assert.deepEqual(interpretarSaida(outro, AGORA), { ok: false, motivo: 'formato' });
   const semCampo = JSON.parse(REAL);
   delete semCampo.local_command;
-  assert.deepEqual(interpretarSaida(JSON.stringify(semCampo), AGORA), { ok: false, motivo: 'custo' });
+  assert.deepEqual(interpretarSaida(JSON.stringify(semCampo), AGORA), { ok: false, motivo: 'formato' });
 });
 
 test('interpretarSaida: JSON inválido, tipo errado ou result ruim dá formato', () => {
@@ -270,7 +282,7 @@ test('rodarUso: sucesso repassa a interpretação, com args, prazo, teto e ambie
   assert.equal(chamada.exe, EXE);
   assert.deepEqual([...chamada.args], [...argsUso()]);
   assert.equal(chamada.opcoes.cwd, '/dados/uso-cwd');
-  assert.equal(chamada.opcoes.timeout, PRAZO_USO_MS);
+  assert.equal(chamada.opcoes.timeout, PRAZO_USO_MS + 5_000);
   assert.equal(chamada.opcoes.maxBuffer, MAX_SAIDA_BYTES);
   assert.equal(chamada.opcoes.windowsHide, true);
   assert.equal(chamada.opcoes.encoding, 'utf8');
@@ -324,4 +336,78 @@ test('rodarUso: executar que lança dá erro, e a promessa nunca rejeita', async
 test('rodarUso: argumentos ruins nunca rejeitam', async () => {
   assert.deepEqual(await rodarUso(), { ok: false, motivo: 'sem-claude' });
   assert.deepEqual(await rodarUso(null), { ok: false, motivo: 'sem-claude' });
+});
+
+test('rodarUso: o prazo próprio resolve com tempo sem esperar o close e mata a árvore (portão Fable, item 2)', async () => {
+  const filho = { pid: 4242 };
+  const mortos = [];
+  let cb = null;
+  const inicio = Date.now();
+  const r = await rodarUso({
+    exe: EXE, cwd: '/tmp', agoraMs: AGORA, prazoMs: 50,
+    executar: (x, a, o, callback) => { cb = callback; return filho; },
+    matar: (f) => mortos.push(f),
+  });
+  assert.deepEqual(r, { ok: false, motivo: 'tempo' });
+  assert.ok(Date.now() - inicio < 5_000);
+  assert.deepEqual(mortos, [filho]);
+  // O callback tardio não muda nada.
+  cb(null, REAL, '');
+  // Prazo fora da faixa volta ao padrão (não acelera nem estende).
+  let opcoesVistas = null;
+  await rodarUso({ exe: EXE, cwd: '/tmp', agoraMs: AGORA, prazoMs: 10 * PRAZO_USO_MS, executar: (x, a, o, c) => { opcoesVistas = o; c(null, REAL, ''); } });
+  assert.equal(opcoesVistas.timeout, PRAZO_USO_MS + 5_000);
+});
+
+test('rodarUso: resposta antes do prazo não chama matar', async () => {
+  const mortos = [];
+  const r = await rodarUso({ exe: EXE, cwd: '/tmp', agoraMs: AGORA, prazoMs: 50, executar: (x, a, o, cb) => { cb(null, REAL, ''); return { pid: 1 }; }, matar: (f) => mortos.push(f) });
+  assert.equal(r.ok, true);
+  await new Promise((ok) => setTimeout(ok, 100));
+  assert.deepEqual(mortos, []);
+});
+
+test('matarArvore: taskkill do System32 por caminho absoluto no win32; SIGKILL fora dele; pid ruim não faz nada', () => {
+  const chamadas = [];
+  const executar = (exe, args, opcoes) => chamadas.push({ exe, args, opcoes });
+  matarArvore({ pid: 123 }, { plataforma: 'win32', executar, systemRoot: String.raw`D:\Win` });
+  assert.deepEqual(chamadas[0].exe, String.raw`D:\Win\System32\taskkill.exe`);
+  assert.deepEqual(chamadas[0].args, ['/pid', '123', '/t', '/f']);
+  assert.equal(chamadas[0].opcoes.windowsHide, true);
+  for (const raiz of [null, '', 'relativo', String.raw`\\srv\share`, `${String.raw`C:\x`}\0y`]) {
+    matarArvore({ pid: 7 }, { plataforma: 'win32', executar, systemRoot: raiz });
+    assert.equal(chamadas.at(-1).exe, String.raw`C:\Windows\System32\taskkill.exe`, String(raiz));
+  }
+  const sinais = [];
+  matarArvore({ pid: 9, kill: (s) => sinais.push(s) }, { plataforma: 'linux', executar });
+  assert.deepEqual(sinais, ['SIGKILL']);
+  const antes = chamadas.length;
+  for (const f of [null, undefined, {}, { pid: 0 }, { pid: -1 }, { pid: 1.5 }, { pid: '12' }]) matarArvore(f, { plataforma: 'win32', executar });
+  assert.equal(chamadas.length, antes);
+  assert.doesNotThrow(() => matarArvore({ pid: 5, kill: () => { throw new Error('ESRCH'); } }, { plataforma: 'linux' }));
+});
+
+const vivo = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+test('matarArvore: no Windows de verdade, o neto que herdou o stdout também morre', { skip: process.platform !== 'win32' }, async () => {
+  // Pai node que abre um neto node com o stdout herdado e imprime o pid dele.
+  const neto = 'setInterval(() => {}, 1000)';
+  const pai = `const c = require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(neto)}], { stdio: ['ignore', 'inherit', 'inherit'] }); console.log(c.pid); setInterval(() => {}, 1000);`;
+  const filho = spawn(process.execPath, ['-e', pai], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+  const pidNeto = await new Promise((ok) => filho.stdout.once('data', (d) => ok(Number(String(d).trim()))));
+  assert.ok(vivo(pidNeto));
+  matarArvore(filho);
+  const limite = Date.now() + 10_000;
+  while ((vivo(pidNeto) || vivo(filho.pid)) && Date.now() < limite) await new Promise((ok) => setTimeout(ok, 100));
+  const sobrou = vivo(pidNeto);
+  if (sobrou) spawnSync('taskkill', ['/pid', String(pidNeto), '/f']);
+  assert.equal(sobrou, false, 'o neto sobreviveu');
+  assert.equal(vivo(filho.pid), false);
 });

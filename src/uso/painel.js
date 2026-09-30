@@ -40,6 +40,13 @@ const MAX_USO_BYTES = 16 * 1024;
 // (forcar) só respeita um piso de 5 s.
 const RECENTE_MS = INTERVALO_MS - 5_000;
 const PISO_FORCADO_MS = 5_000;
+// Depois de uma leitura que estourou o prazo ou o teto de saída, a próxima
+// espera 15 min (portão Fable da v0.3.0, item 1): um /usage normal leva uns
+// 6 s, então 30 s já é anomalia, e sem a espera cada tique rodaria outro
+// `claude` de 270 MB logo em seguida. O comando manual (forcar) segue com o
+// piso de 5 s.
+export const ESPERA_FALHA_MS = 15 * 60_000;
+const MOTIVOS_ESPERA = new Set(['tempo', 'saida']);
 // Folga de relógio para o `ate` do bloqueio, a mesma de instante (base.js).
 const FOLGA_RELOGIO_MS = 5 * 60_000;
 const MAX_ISO = 64;
@@ -128,8 +135,19 @@ function barreira(uso, agoraMs, forcado) {
   if (uso === null) return null;
   if (bloqueioEmVigor(uso, agoraMs)) return 'bloqueado';
   const ultimo = Math.max(msDe(uso.lidoEm), msDe(uso.estado?.em));
-  if (numeroFinito(ultimo) && agoraMs - ultimo < (forcado ? PISO_FORCADO_MS : RECENTE_MS)) return 'recente';
+  const espera = MOTIVOS_ESPERA.has(uso.estado?.motivo) && msDe(uso.estado.em) === ultimo ? ESPERA_FALHA_MS : RECENTE_MS;
+  if (numeroFinito(ultimo) && agoraMs - ultimo < (forcado ? PISO_FORCADO_MS : espera)) return 'recente';
   return null;
+}
+
+// Tentativa cuja gravação falhou, por pasta (portão Fable da v0.3.0, item
+// 6): sem o arquivo novo, a barreira não a vê, e cada janela rodaria outro
+// `claude` a cada 30 s. Vale só neste processo, só para o intervalo normal.
+const falhasDeGravacao = new Map();
+
+function gravacaoFalhouHaPouco(dir, agoraMs, forcado) {
+  const ms = falhasDeGravacao.get(dir);
+  return !forcado && numeroFinito(ms) && agoraMs - ms >= 0 && agoraMs - ms < RECENTE_MS;
 }
 
 // Padrão de estadoAtivo: alguma sessão com `at` de até 5 min em estado.json
@@ -248,16 +266,20 @@ function gravarResultado(dir, agoraMs, res) {
 }
 
 // Pede uma leitura oficial, se couber (E3). A ordem:
+// 0. HADOUKEN_SEM_PAINEL=1 no ambiente: 'desligado';
 // 1. sem pasta de dados: 'sem-pasta';
 // 2. bloqueio por custo em vigor: 'bloqueado', mesmo com forcar;
-// 3. leitura (ou tentativa) de menos de 25 s: 'recente' (com forcar, 5 s);
+// 3. leitura (ou tentativa) de menos de 25 s, ou de menos de 15 min depois
+//    de 'tempo' ou 'saida', ou gravação que falhou há menos de 25 s neste
+//    processo: 'recente' (com forcar, só o piso de 5 s);
 // 4. sem forcar e sem sessão ativa: 'sem-sessao';
 // 5. memória livre abaixo de RAM_MIN_BYTES (ou ilegível): 'pouca-ram',
 //    mesmo com forcar (Foco 4);
 // 6. trava de outra janela viva: 'travado'. Com a trava na mão, 2 e 3 são
 //    conferidos de novo: outra janela pode ter acabado de ler;
 // 7. roda o `claude` enxuto na pasta vazia uso-cwd;
-// 8. grava e devolve { feito: true, motivo: 'ok' ou a falha };
+// 8. grava, com o instante do fim da leitura, e devolve { feito: true,
+//    motivo: 'ok' ou a falha };
 // 9. solta a trava. Qualquer exceção vira { feito: false, motivo: 'erro' }.
 // Sem nenhum `await` antes da trava quando forcar: duas chamadas seguidas
 // nunca passam as duas por ela.
@@ -272,10 +294,15 @@ export async function talvezAtualizar(opcoes) {
       memLivre = os.freemem,
       achar = acharClaude,
       estadoAtivo,
+      env = process.env,
     } = opcoes ?? {};
+    // Opt-out (E4): com HADOUKEN_SEM_PAINEL=1 no ambiente do VS Code, a
+    // extensão instalada também para de ler (portão Fable, item 3).
+    if (env?.HADOUKEN_SEM_PAINEL === '1') return naoFeito('desligado');
     if (typeof dir !== 'string' || dir === '') return naoFeito('sem-pasta');
     if (!naFaixaDoDate(agoraMs)) return naoFeito('erro');
     const forcado = forcar === true;
+    if (gravacaoFalhouHaPouco(dir, agoraMs, forcado)) return naoFeito('recente');
     const antes = barreira(lerUso(dir, agoraMs), agoraMs, forcado);
     if (antes !== null) return naoFeito(antes);
     if (!forcado) {
@@ -292,16 +319,27 @@ export async function talvezAtualizar(opcoes) {
     const cwd = path.join(dir, DIR_CWD);
     fs.mkdirSync(cwd, { recursive: true });
     const exe = achar({ home: homeOuNull(), pathEnv: process.env.PATH, plataforma: process.platform });
+    const inicio = Date.now();
     let r;
     try {
-      r = await rodar({ exe, cwd, env: ambienteUso(process.env), agoraMs });
+      r = await rodar({ exe, cwd, env: ambienteUso(env), agoraMs });
     } catch {
       r = null;
     }
     const res = normalizar(r);
+    // O instante gravado é o do fim da leitura (portão Fable, item 1): com o
+    // do começo, uma leitura de 30 s já nasceria velha e a seguinte sairia no
+    // próximo tique. Em segundos inteiros, para uma leitura instantânea gravar
+    // o próprio agoraMs.
+    const decorrido = Date.now() - inicio;
+    const fimMs = agoraMs + (numeroFinito(decorrido) && decorrido > 0 ? Math.floor(decorrido / 1000) * 1000 : 0);
     // Gravação que falha (disco cheio, permissão) não marca a leitura como
-    // recente; sem este aviso, cada tique da extensão rodaria outro `claude`.
-    if (!gravarResultado(dir, agoraMs, res)) return { feito: true, motivo: 'erro' };
+    // recente no arquivo; fica marcada na memória deste processo.
+    if (!gravarResultado(dir, fimMs, res)) {
+      falhasDeGravacao.set(dir, fimMs);
+      return { feito: true, motivo: 'erro' };
+    }
+    falhasDeGravacao.delete(dir);
     return { feito: true, motivo: res.ok ? 'ok' : res.motivo };
   } catch {
     return naoFeito('erro');
@@ -377,6 +415,9 @@ const LINHA_MOTIVO = Object.freeze({
   bloqueado: LINHA_BLOQUEIO,
   custo: LINHA_BLOQUEIO,
   'sem-claude': 'claude não encontrado em ~/.local/bin nem no PATH.',
+  desligado: 'Leitura desligada (HADOUKEN_SEM_PAINEL=1).',
+  tempo: 'Última leitura passou de 30 s; a próxima em 15 min.',
+  saida: 'Última leitura passou do teto de saída; a próxima em 15 min.',
 });
 const FALHAS = new Set(['tempo', 'saida', 'formato', 'erro', 'sem-pasta']);
 

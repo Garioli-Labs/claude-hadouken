@@ -167,14 +167,21 @@ test('instalarPainel win32: a linha de comando do cmd.exe exatamente como no pla
   const { chamadas, executar } = executarFalso();
   const pedidos = [];
   const achar = (o) => { pedidos.push(o); return code; };
-  const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: agora, achar, executar, plataforma: 'win32', pathEnv: 'C:\\x' });
+  // Um .vsix de versão anterior e um arquivo alheio na pasta: só o primeiro sai.
+  fs.mkdirSync(path.join(dir, DIR_PAINEL), { recursive: true });
+  fs.writeFileSync(arqPainel(dir, nomeVsix('9.8.6')), 'velho');
+  fs.writeFileSync(arqPainel(dir, 'outro.vsix'), 'alheio');
+  const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: agora, achar, executar, plataforma: 'win32', pathEnv: 'C:\\x', systemRoot: 'D:\\Win' });
   assert.deepEqual(r, { ok: true, motivo: 'ok' });
+  assert.equal(fs.existsSync(arqPainel(dir, nomeVsix('9.8.6'))), false);
+  assert.equal(fs.existsSync(arqPainel(dir, 'outro.vsix')), true);
+  fs.unlinkSync(arqPainel(dir, 'outro.vsix'));
   assert.equal(pedidos.length, 1);
   assert.equal(pedidos[0].plataforma, 'win32');
   assert.equal(pedidos[0].pathEnv, 'C:\\x');
   const vsix = arqPainel(dir, nomeVsix('9.8.7'));
   assert.equal(chamadas.length, 1);
-  assert.equal(chamadas[0].exe, 'cmd.exe');
+  assert.equal(chamadas[0].exe, 'D:\\Win\\System32\\cmd.exe');
   assert.deepEqual(chamadas[0].args, ['/d', '/s', '/c', `""${code}" --install-extension "${vsix}" --force"`]);
   assert.deepEqual(chamadas[0].opcoes, { windowsVerbatimArguments: true, windowsHide: true, timeout: PRAZO_INSTALAR_MS, cwd: path.join(dir, DIR_PAINEL) });
   assert.equal(PRAZO_INSTALAR_MS, 120_000);

@@ -49,6 +49,34 @@ const MAX_FONTE_BYTES = 256 * 1024;
 const TMP_BYTES = 6;
 // Temporário da escrita do .vsix: <nome do .vsix>.<12 hex sorteados>.tmp.
 const TMP_VSIX = /^claude-hadouken-painel-\d{1,9}\.\d{1,9}\.\d{1,9}\.vsix\.[0-9a-f]{12}\.tmp$/;
+// .vsix de versões anteriores, apagados depois de uma instalação boa (portão
+// Fable da v0.3.0, item 7).
+const VSIX_ANTIGO = /^claude-hadouken-painel-\d{1,9}\.\d{1,9}\.\d{1,9}\.vsix$/;
+
+// cmd.exe por caminho absoluto, do System32 (portão Fable da v0.3.0, item 4):
+// pelo nome, o libuv procura antes na pasta de trabalho do spawn.
+export function caminhoCmd(systemRoot = process.env.SystemRoot) {
+  const raiz = typeof systemRoot === 'string' && /^[A-Za-z]:[\\/]/.test(systemRoot) && !systemRoot.includes('\0') ? systemRoot : 'C:\\Windows';
+  return path.win32.join(raiz, 'System32', 'cmd.exe');
+}
+
+// Apaga os .vsix de outras versões na pasta do painel. Só arquivo regular
+// com o nome exato; nunca lança.
+function apagarVsixAntigos(pasta, atual) {
+  try {
+    for (const nome of fs.readdirSync(pasta)) {
+      if (nome === atual || !VSIX_ANTIGO.test(nome)) continue;
+      try {
+        const alvo = path.join(pasta, nome);
+        if (fs.lstatSync(alvo).isFile()) fs.unlinkSync(alvo);
+      } catch {
+        /* segue */
+      }
+    }
+  } catch {
+    /* pasta ilegível: fica como está */
+  }
+}
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const falha = (motivo) => ({ ok: false, motivo });
@@ -217,7 +245,7 @@ export async function instalarPainel(opcoes) {
   try {
     const {
       dir, raizPlugin, agoraMs = Date.now(), achar = acharCode, executar = executarPadrao,
-      plataforma = process.platform, pathEnv = process.env.PATH, existe,
+      plataforma = process.platform, pathEnv = process.env.PATH, existe, systemRoot = process.env.SystemRoot,
     } = ehObjeto(opcoes) ? opcoes : {};
     if (!dirValido(dir)) return falha('sem-pasta');
     if (!agoraValido(agoraMs) || typeof achar !== 'function' || typeof executar !== 'function') return falha('argumentos');
@@ -239,11 +267,12 @@ export async function instalarPainel(opcoes) {
     const caminhos = plataforma === 'win32' ? path.win32 : path.posix;
     if (!caminhos.isAbsolute(code) || !caminhoSeguro(code, plataforma) || !caminhoSeguro(vsix)) return falha('caminho-inseguro');
     const r = plataforma === 'win32'
-      ? await rodar(executar, 'cmd.exe', ['/d', '/s', '/c', `""${code}" --install-extension "${vsix}" --force"`], {
+      ? await rodar(executar, caminhoCmd(systemRoot), ['/d', '/s', '/c', `""${code}" --install-extension "${vsix}" --force"`], {
         windowsVerbatimArguments: true, windowsHide: true, timeout: PRAZO_INSTALAR_MS, cwd: pasta,
       })
       : await rodar(executar, code, ['--install-extension', vsix, '--force'], { timeout: PRAZO_INSTALAR_MS, cwd: pasta });
     if (r !== 'ok') return falha(r);
+    apagarVsixAntigos(pasta, path.basename(vsix));
     const g = gravarJsonAtomico(path.join(pasta, ARQ_INSTALADO), { versao, em: new Date(agoraMs).toISOString() });
     return g.ok ? { ok: true, motivo: 'ok' } : falha('escrita');
   } catch {

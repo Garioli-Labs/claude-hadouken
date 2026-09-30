@@ -183,9 +183,13 @@ const FORMATO = Object.freeze({ ok: false, motivo: 'formato' });
 const CUSTO = Object.freeze({ ok: false, motivo: 'custo' });
 
 // Interpreta o stdout do `claude -p /usage --output-format json` (E2).
-// Trava de custo: se o resultado não vier do comando local `usage`, com zero
-// turnos e custo zero, o comando passou a chamar o modelo, e a resposta é
-// `custo`. Nenhuma das três linhas com número válido: `formato`.
+// Trava de custo: turnos ou custo que não sejam exatamente 0 (inclusive
+// ausentes ou de outro tipo) querem dizer que o comando passou a chamar o
+// modelo, e a resposta é `custo`. Com zero turnos e custo zero, um resultado
+// que não venha do comando local `usage` (erro de login, por exemplo) é
+// `formato`: nada foi gasto, e travar 24 h por ele seria um falso positivo
+// (portão Fable da v0.3.0, item 5). Nenhuma das três linhas com número
+// válido: `formato`.
 export function interpretarSaida(stdout, agoraMs) {
   try {
     if (typeof stdout !== 'string') return { ...FORMATO };
@@ -196,7 +200,8 @@ export function interpretarSaida(stdout, agoraMs) {
       return { ...FORMATO };
     }
     if (obj === null || typeof obj !== 'object' || Array.isArray(obj) || obj.type !== 'result') return { ...FORMATO };
-    if (obj.local_command !== 'usage' || obj.num_turns !== 0 || obj.total_cost_usd !== 0) return { ...CUSTO };
+    if (obj.num_turns !== 0 || obj.total_cost_usd !== 0) return { ...CUSTO };
+    if (obj.local_command !== 'usage') return { ...FORMATO };
     const texto = obj.result;
     if (typeof texto !== 'string' || Buffer.byteLength(texto, 'utf8') > MAX_RESULT_BYTES) return { ...FORMATO };
     const sessao = janelaDaLinha(texto, LINHAS.sessao, agoraMs);
@@ -213,6 +218,29 @@ export function interpretarSaida(stdout, agoraMs) {
 
 const executarPadrao = (exe, args, opcoes, cb) => execFile(exe, args, opcoes, cb);
 
+// O prazo do execFile é a reserva: o nosso vence antes e mata a árvore.
+const RESERVA_PRAZO_MS = 5_000;
+
+// Mata o `claude` e o que ele abriu (portão Fable da v0.3.0, item 2). No
+// Windows o timeout do execFile encerra só o claude.exe; um neto com o
+// stdout herdado seguraria o 'close' e deixaria processos órfãos. O
+// taskkill vem do System32, por caminho absoluto, com /t (árvore) e /f.
+// Fora do Windows, SIGKILL no filho. Nunca lança.
+export function matarArvore(filho, { plataforma = process.platform, executar = executarPadrao, systemRoot = process.env.SystemRoot } = {}) {
+  try {
+    const pid = filho?.pid;
+    if (!Number.isInteger(pid) || pid <= 0) return;
+    if (plataforma === 'win32') {
+      const raiz = typeof systemRoot === 'string' && /^[A-Za-z]:[\\/]/.test(systemRoot) && !systemRoot.includes('\0') ? systemRoot : 'C:\\Windows';
+      executar(path.win32.join(raiz, 'System32', 'taskkill.exe'), ['/pid', String(pid), '/t', '/f'], { windowsHide: true, timeout: 10_000 }, () => {});
+    } else {
+      filho.kill('SIGKILL');
+    }
+  } catch {
+    /* processo já saiu */
+  }
+}
+
 // Motivo de um erro do execFile, ou null quando há stdout para interpretar.
 // O teto de saída vem antes do prazo: ao passar do maxBuffer o execFile mata
 // o filho, e o erro chega também com `killed` e `signal`.
@@ -225,31 +253,37 @@ function motivoDoErro(erro, stdout) {
 
 // Roda o `claude` no modo enxuto e interpreta a saída (E3, S26). Argumentos
 // fixos, prazo de 30 s, saída de até 64 KiB, sem shell e sem janela. O
-// ambiente sempre passa por ambienteUso. `executar` troca o execFile nos
-// testes. Nunca rejeita.
+// ambiente sempre passa por ambienteUso. No prazo, a promessa resolve com
+// `tempo` na hora, sem esperar o 'close', e a árvore do filho é morta
+// (matarArvore); o timeout do execFile, 5 s depois, fica de reserva.
+// `executar`, `matar` e `prazoMs` trocam o execFile, a morte da árvore e o
+// prazo nos testes. Nunca rejeita.
 export function rodarUso(opcoes) {
   return new Promise((resolver) => {
     let feito = false;
+    let relogio = null;
     const fim = (r) => {
       if (feito) return;
       feito = true;
+      if (relogio !== null) clearTimeout(relogio);
       resolver(r);
     };
     try {
-      const { exe, cwd, env, agoraMs = Date.now(), executar = executarPadrao } = opcoes ?? {};
+      const { exe, cwd, env, agoraMs = Date.now(), executar = executarPadrao, matar = matarArvore, prazoMs = PRAZO_USO_MS } = opcoes ?? {};
       if (typeof exe !== 'string' || exe === '') {
         fim({ ok: false, motivo: 'sem-claude' });
         return;
       }
+      const prazo = numeroFinito(prazoMs) && prazoMs > 0 && prazoMs <= PRAZO_USO_MS ? prazoMs : PRAZO_USO_MS;
       const opcoesFilho = {
         cwd,
         env: ambienteUso(env ?? process.env),
-        timeout: PRAZO_USO_MS,
+        timeout: prazo + RESERVA_PRAZO_MS,
         maxBuffer: MAX_SAIDA_BYTES,
         windowsHide: true,
         encoding: 'utf8',
       };
-      executar(exe, [...ARGS_USO], opcoesFilho, (erro, stdout) => {
+      const filho = executar(exe, [...ARGS_USO], opcoesFilho, (erro, stdout) => {
         try {
           const saida = typeof stdout === 'string' ? stdout : Buffer.isBuffer(stdout) ? stdout.toString('utf8') : '';
           if (erro) {
@@ -264,6 +298,18 @@ export function rodarUso(opcoes) {
           fim({ ok: false, motivo: 'erro' });
         }
       });
+      if (!feito) {
+        relogio = setTimeout(() => {
+          if (feito) return;
+          fim({ ok: false, motivo: 'tempo' });
+          try {
+            if (typeof matar === 'function') matar(filho);
+          } catch {
+            /* nada a fazer */
+          }
+        }, prazo);
+        relogio.unref?.();
+      }
     } catch {
       fim({ ok: false, motivo: 'erro' });
     }

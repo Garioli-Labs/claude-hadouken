@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  ARQ_USO, ARQ_TRAVA, DIR_CWD, INTERVALO_MS, TRAVA_VENCIDA_MS, RAM_MIN_BYTES, BLOQUEIO_CUSTO_MS,
+  ARQ_USO, ARQ_TRAVA, DIR_CWD, INTERVALO_MS, TRAVA_VENCIDA_MS, RAM_MIN_BYTES, BLOQUEIO_CUSTO_MS, ESPERA_FALHA_MS,
   lerUso, talvezAtualizar, estadoPainel,
 } from '../src/uso/painel.js';
 
@@ -31,6 +31,10 @@ const USO_OK = Object.freeze({
 });
 const SEM_LEITURA = Object.freeze({ texto: 'Hadouken: sem leitura', nivel: 'sem-leitura', dica: '' });
 const FONTE = 'Fonte: statusline do Claude Code e claude /usage, sem tokens.';
+
+// O opt-out do ambiente de quem roda os testes não pode mudar o resultado:
+// os testes do opt-out passam `env` explícito.
+delete process.env.HADOUKEN_SEM_PAINEL;
 
 let dir;
 const homeOriginal = process.env.HADOUKEN_HOME;
@@ -167,13 +171,68 @@ test('talvezAtualizar: leitura recente (menos de 25 s) dispensa a próxima; com 
     [5_000, 5_000, true, 'ok'],
   ];
   for (const [idadeLido, idadeEm, forcar, motivo] of casos) {
-    gravarUso(usoGravado(AGORA - idadeLido, { estado: { motivo: 'tempo', em: iso(AGORA - idadeEm) } }));
+    gravarUso(usoGravado(AGORA - idadeLido, { estado: { motivo: 'formato', em: iso(AGORA - idadeEm) } }));
     const { rodar, chamadas } = rodarFalso();
     const r = await talvezAtualizar(opcoes({ rodar, forcar }));
     const rotulo = `${idadeLido}/${idadeEm}/${forcar}`;
     assert.deepEqual(r, { feito: motivo === 'ok', motivo }, rotulo);
     assert.equal(chamadas.length, motivo === 'ok' ? 1 : 0, rotulo);
   }
+});
+
+test('talvezAtualizar: depois de tempo ou saida, a próxima espera 15 min; forcar respeita só o piso de 5 s (portão Fable, item 1)', async () => {
+  for (const motivo of ['tempo', 'saida']) {
+    const casos = [
+      [ESPERA_FALHA_MS - 1, false, 'recente'],
+      [ESPERA_FALHA_MS, false, 'ok'],
+      [5_000, true, 'ok'],
+    ];
+    for (const [idade, forcar, esperado] of casos) {
+      gravarUso(usoGravado(AGORA - H, { estado: { motivo, em: iso(AGORA - idade) } }));
+      const { rodar, chamadas } = rodarFalso();
+      const rotulo = `${motivo}/${idade}/${forcar}`;
+      assert.deepEqual(await talvezAtualizar(opcoes({ rodar, forcar })), { feito: esperado === 'ok', motivo: esperado }, rotulo);
+      assert.equal(chamadas.length, esperado === 'ok' ? 1 : 0, rotulo);
+    }
+  }
+  // Uma leitura boa mais nova que a falha vale pelo intervalo normal.
+  gravarUso(usoGravado(AGORA - INTERVALO_MS, { estado: { motivo: 'tempo', em: iso(AGORA - H) } }));
+  assert.deepEqual(await talvezAtualizar(opcoes({ rodar: rodarFalso().rodar })), { feito: true, motivo: 'ok' });
+});
+
+test('talvezAtualizar: o instante gravado é o do fim da leitura, em segundos inteiros (portão Fable, item 1)', async () => {
+  const { rodar } = rodarFalso(() => new Promise((ok) => setTimeout(() => ok(USO_OK), 1_100)));
+  assert.deepEqual(await talvezAtualizar(opcoes({ rodar })), { feito: true, motivo: 'ok' });
+  const gravado = lerArq();
+  assert.equal(gravado.lidoEm, iso(AGORA + S));
+  assert.equal(gravado.estado.em, iso(AGORA + S));
+});
+
+test('talvezAtualizar: HADOUKEN_SEM_PAINEL=1 no ambiente desliga a leitura, mesmo com forcar (portão Fable, item 3)', async () => {
+  const { rodar, chamadas } = rodarFalso();
+  for (const forcar of [false, true]) {
+    assert.deepEqual(await talvezAtualizar(opcoes({ rodar, forcar, env: { HADOUKEN_SEM_PAINEL: '1' } })), { feito: false, motivo: 'desligado' });
+  }
+  assert.equal(chamadas.length, 0);
+  for (const valor of ['0', '', 'sim']) {
+    assert.equal((await talvezAtualizar(opcoes({ rodar, forcar: true, agoraMs: AGORA + chamadas.length * 10 * S, env: { HADOUKEN_SEM_PAINEL: valor } }))).motivo, 'ok', valor);
+  }
+  assert.equal(chamadas.length, 3);
+  assert.equal(chamadas[0].env.HADOUKEN_SEM_PAINEL, '0');
+});
+
+test('talvezAtualizar: gravação que falha segura a próxima leitura por 25 s neste processo (portão Fable, item 6)', async () => {
+  fs.mkdirSync(arqUso());
+  const { rodar, chamadas } = rodarFalso();
+  assert.deepEqual(await talvezAtualizar(opcoes({ rodar })), { feito: true, motivo: 'erro' });
+  assert.deepEqual(await talvezAtualizar(opcoes({ rodar, agoraMs: AGORA + INTERVALO_MS - 5_001 })), { feito: false, motivo: 'recente' });
+  assert.equal(chamadas.length, 1);
+  assert.deepEqual(await talvezAtualizar(opcoes({ rodar, agoraMs: AGORA + 10 * S, forcar: true })), { feito: true, motivo: 'erro' });
+  fs.rmSync(arqUso(), { recursive: true });
+  // A falha forçada renovou a marca: a próxima só depois de 25 s dela.
+  assert.deepEqual(await talvezAtualizar(opcoes({ rodar, agoraMs: AGORA + 10 * S + INTERVALO_MS - 5_001 })), { feito: false, motivo: 'recente' });
+  assert.deepEqual(await talvezAtualizar(opcoes({ rodar, agoraMs: AGORA + 10 * S + INTERVALO_MS })), { feito: true, motivo: 'ok' });
+  assert.equal(chamadas.length, 3);
 });
 
 test('talvezAtualizar: sem sessão ativa, sem-sessao; com forcar, lê assim mesmo', async () => {
@@ -298,7 +357,7 @@ test('talvezAtualizar: erro de leitura preserva as últimas janelas boas e atual
   await talvezAtualizar(opcoes({ rodar }));
   let t = AGORA;
   for (const motivo of ['tempo', 'saida', 'formato', 'erro', 'sem-claude']) {
-    t += INTERVALO_MS;
+    t += ESPERA_FALHA_MS;
     const falso = rodarFalso({ ok: false, motivo });
     assert.deepEqual(await talvezAtualizar(opcoes({ rodar: falso.rodar, agoraMs: t })), { feito: true, motivo }, motivo);
     assert.deepEqual(lerArq(), usoGravado(AGORA, { estado: { motivo, em: iso(t) } }), motivo);
@@ -559,8 +618,9 @@ test('estadoPainel: uma linha fixa por motivo da última leitura', () => {
     bloqueado: 'Leitura bloqueada por 24 h: o /usage passou a ter custo.',
     custo: 'Leitura bloqueada por 24 h: o /usage passou a ter custo.',
     'sem-claude': 'claude não encontrado em ~/.local/bin nem no PATH.',
-    tempo: 'Última leitura falhou (tempo).',
-    saida: 'Última leitura falhou (saida).',
+    tempo: 'Última leitura passou de 30 s; a próxima em 15 min.',
+    saida: 'Última leitura passou do teto de saída; a próxima em 15 min.',
+    desligado: 'Leitura desligada (HADOUKEN_SEM_PAINEL=1).',
     formato: 'Última leitura falhou (formato).',
     erro: 'Última leitura falhou (erro).',
     'sem-pasta': 'Última leitura falhou (sem-pasta).',
