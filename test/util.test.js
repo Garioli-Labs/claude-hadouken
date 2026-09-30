@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizarEffort, horaLocal, diaHora, formatarTokens, milhar, decimal, sanear, EFFORTS_VALIDOS, effortValido } from '../src/util.js';
+import { normalizarEffort, horaLocal, diaHora, quandoLocal, formatarTokens, milhar, decimal, sanear, EFFORTS_VALIDOS, effortValido } from '../src/util.js';
 
 test('normalizarEffort aceita string, objeto e ausência', () => {
   assert.equal(normalizarEffort('high'), 'high');
@@ -381,4 +381,28 @@ test('lerStdin chamado de novo não acumula ouvintes de erro', async () => {
   );
   assert.equal(r.codigo, 0, r.erro);
   assert.equal(r.saida, '1');
+});
+
+// Datas montadas com componentes locais: o teste vale em qualquer fuso.
+const local = (a, m, d, h, min) => new Date(a, m, d, h, min).getTime();
+const s = (ms) => ms / 1000;
+
+test('quandoLocal: hoje, amanhã, ontem e data com dia da semana', () => {
+  const agora = local(2026, 8, 29, 10, 0); // ter 29/09
+  assert.equal(quandoLocal(s(local(2026, 8, 29, 13, 31)), agora), 'hoje 13:31');
+  assert.equal(quandoLocal(s(local(2026, 8, 30, 0, 5)), agora), 'amanhã 00:05');
+  assert.equal(quandoLocal(s(local(2026, 8, 28, 23, 50)), agora), 'ontem 23:50');
+  assert.equal(quandoLocal(s(local(2026, 9, 1, 13, 31)), agora), 'qui 01/10 13:31');
+  // O mesmo dia da semana 7 dias à frente nunca sai só como "ter".
+  assert.equal(quandoLocal(s(local(2026, 9, 6, 9, 0)), agora), 'ter 06/10 09:00');
+});
+
+test('quandoLocal: virada de ano e entradas inválidas', () => {
+  const agora = local(2026, 11, 31, 23, 0);
+  assert.equal(quandoLocal(s(local(2027, 0, 1, 1, 0)), agora), 'amanhã 01:00');
+  assert.equal(quandoLocal(s(local(2027, 0, 3, 1, 0)), agora), 'dom 03/01 01:00');
+  for (const ruim of [NaN, Infinity, '1', null, undefined]) {
+    assert.equal(quandoLocal(ruim, agora), '—');
+    assert.equal(quandoLocal(1_800_000_000, ruim), '—');
+  }
 });
