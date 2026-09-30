@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PADRAO_GUARDA, guardaDaConfig, lerConfigGuarda } from '../src/guarda/config.js';
+import { PADRAO_GUARDA, LIBERACAO_TETO_H, guardaDaConfig, lerConfigGuarda } from '../src/guarda/config.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk-cfg-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -37,6 +37,19 @@ test('campos válidos entram, inválidos usam o padrão com aviso fixo', () => {
     'config.json: guarda.teto7d inválido, usando 85',
     'config.json: guarda.horizonte7dH inválido, usando 24',
     'config.json: guarda.liberacao.tetoPontos7d inválido, usando 10',
+  ]);
+});
+
+// LIBERACAO_TETO_H mora aqui e é o máximo das duas faixas da liberação;
+// liberacao.js recusa na leitura qualquer liberação mais longa que ele.
+test('LIBERACAO_TETO_H é o máximo de liberacao.padraoH e liberacao.maxH, e o padrão do maxH', () => {
+  assert.equal(LIBERACAO_TETO_H, 24);
+  assert.equal(PADRAO_GUARDA.liberacaoMaxH, LIBERACAO_TETO_H);
+  const noTeto = guardaDaConfig({ guarda: { liberacao: { padraoH: LIBERACAO_TETO_H, maxH: LIBERACAO_TETO_H } } });
+  assert.deepEqual([noTeto.config.liberacaoPadraoH, noTeto.config.liberacaoMaxH, noTeto.avisos], [LIBERACAO_TETO_H, LIBERACAO_TETO_H, []]);
+  assert.deepEqual(guardaDaConfig({ guarda: { liberacao: { padraoH: LIBERACAO_TETO_H + 1, maxH: LIBERACAO_TETO_H + 1 } } }).avisos, [
+    'config.json: guarda.liberacao.padraoH inválido, usando 2',
+    'config.json: guarda.liberacao.maxH inválido, usando 24',
   ]);
 });
 

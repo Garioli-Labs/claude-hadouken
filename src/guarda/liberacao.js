@@ -2,6 +2,7 @@ import path from 'node:path';
 import { gravarJsonAtomico } from '../estado.js';
 import { idValido, instante, numeroFinito } from '../base.js';
 import { lerSemLink } from './arquivo.js';
+import { LIBERACAO_TETO_H } from './config.js';
 
 // Liberação da guarda (spec v0.4.0 §6, D4 = opção C em 2026-09-29): sem
 // código. Só o hook UserPromptExpansion de /claude-hadouken:liberar grava este
@@ -72,9 +73,11 @@ function prazoJanela(travas, agoraMs, config) {
   return reset === null ? agoraMs + config.liberacaoPadraoH * H : Math.min(reset * 1000, teto);
 }
 
-// `pedido` já passou por lerPedido com ok; `id` e `sessionId` vêm do hook.
-// base7d sem leitura válida é null: aí só o prazo encerra a liberação.
+// `pedido` vem de lerPedido; sem `ok: true` não há liberação (null), em vez
+// de um prazo NaN que lançaria. `id` e `sessionId` vêm do hook. base7d sem
+// leitura válida é null: aí só o prazo encerra a liberação.
 export function montarLiberacao({ pedido, agoraMs, usado7d, travas, config, sessionId, id }) {
+  if (pedido?.ok !== true) return null;
   const ate = pedido.janela ? prazoJanela(travas, agoraMs, config) : agoraMs + pedido.horas * H;
   const solta = [...SOLTA_BASE];
   if (pedido.fable) solta.push('fable');
@@ -88,7 +91,9 @@ export function montarLiberacao({ pedido, agoraMs, usado7d, travas, config, sess
 
 // Esquema estrito (§6.4): arquivo inválido é "sem liberação". Reconstrói só
 // os campos conhecidos; `solta` só com nomes conhecidos e sem repetição; o
-// teto de pontos na mesma faixa de liberacao.tetoPontos7d em config.js.
+// teto de pontos na mesma faixa de liberacao.tetoPontos7d em config.js. O
+// prazo vai no máximo LIBERACAO_TETO_H além de criadaEm (§6.2: no máximo
+// 24 h), então nem um arquivo forjado solta a guarda por mais que isso.
 export function liberacaoValida(valor, agoraMs) {
   try {
     if (!ehObjeto(valor) || valor.v !== 1 || !numeroFinito(agoraMs)) return null;
@@ -96,6 +101,7 @@ export function liberacaoValida(valor, agoraMs) {
     const criada = instante(valor.criadaEm, agoraMs);
     const ate = typeof valor.ate === 'string' && valor.ate.length <= 64 ? Date.parse(valor.ate) : NaN;
     if (criada === null || !numeroFinito(ate) || ate < criada) return null;
+    if (ate - criada > LIBERACAO_TETO_H * H) return null;
     const s = valor.solta;
     if (!Array.isArray(s) || s.length > SOLTA_CONHECIDAS.length || new Set(s).size !== s.length) return null;
     if (!s.every((x) => SOLTA_CONHECIDAS.includes(x))) return null;

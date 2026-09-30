@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   ARQ_LIBERACAO, lerPedido, montarLiberacao, liberacaoValida, coberturaAtual, lerLiberacao, gravarLiberacao,
 } from '../src/guarda/liberacao.js';
-import { PADRAO_GUARDA } from '../src/guarda/config.js';
+import { PADRAO_GUARDA, LIBERACAO_TETO_H } from '../src/guarda/config.js';
 import { ARQ_GUARDA, travasVazias, gravarTravas, lerTravas, limparTravas } from '../src/guarda/travas.js';
 
 const dirs = [];
@@ -44,6 +44,7 @@ test('montarLiberacao: prazo, solta, base e teto de pontos', () => {
     v: 1, id: 'b3f0c2d1', criadaEm: new Date(agora).toISOString(), ate: new Date(agora + 2 * H).toISOString(),
     solta: ['five_hour', 'seven_day', 'fable-despachos', 'ilegivel', 'fable'], base7d: 84.4, tetoPontos7d: 10, sessao: 'sess-1', avisada: false,
   });
+  for (const pedido of [lerPedido('25h', PADRAO_GUARDA), undefined, { ok: 'true', horas: 2 }]) assert.equal(montarLiberacao({ pedido, agoraMs: agora, usado7d: 50, travas: t, config: PADRAO_GUARDA, sessionId: 's', id: '00000000' }), null);
 });
 
 test('janela: até o reset da janela travada, no máximo maxH', () => {
@@ -85,6 +86,24 @@ test('liberacaoValida: esquema estrito; inválida é nenhuma liberação', () =>
   for (const estrago of [{ id: 'xyz' }, { solta: ['tudo'] }, { solta: ['fable', 'fable'] }, { base7d: 101 }, { tetoPontos7d: 0 }, { sessao: '__proto__' }, { avisada: 'sim' }, { v: 2 }, { ate: 'ontem' }]) {
     assert.equal(liberacaoValida({ ...lib, ...estrago }, agora), null, JSON.stringify(estrago));
   }
+});
+
+// Spec §6.2 (no máximo 24 h) e decisão do controlador na revisão da Task 8:
+// uma liberação mais longa que LIBERACAO_TETO_H desde criadaEm é inválida,
+// também em memória (coberturaAtual valida de novo), então nem um
+// liberacao.json forjado solta a guarda por mais de um dia.
+test('liberacaoValida: prazo de até 24 h desde criadaEm; 1 ms a mais é nenhuma liberação', () => {
+  const lib = montarLiberacao({ pedido: lerPedido('24h', PADRAO_GUARDA), agoraMs: agora, usado7d: 50, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's', id: 'abcdef01' });
+  assert.equal(LIBERACAO_TETO_H, 24);
+  assert.equal(lib.ate, new Date(agora + 24 * H).toISOString());
+  assert.deepEqual(liberacaoValida(lib, agora), lib);
+  assert.equal(coberturaAtual(lib, agora + H, 50).ativa, true);
+  const longa = { ...lib, ate: new Date(agora + 24 * H + 1).toISOString() };
+  assert.equal(liberacaoValida(longa, agora), null);
+  assert.deepEqual(coberturaAtual(longa, agora + H, 50), { ativa: false, solta: new Set(), fim: null });
+  // O teto conta de criadaEm, não de agora: criada há 10 h com prazo daqui a 20 h também cai.
+  const antiga = { ...lib, criadaEm: new Date(agora - 10 * H).toISOString(), ate: new Date(agora + 20 * H).toISOString() };
+  assert.equal(liberacaoValida(antiga, agora), null);
 });
 
 test('gravar e ler; link e arquivo gigante são nenhuma liberação', (t) => {

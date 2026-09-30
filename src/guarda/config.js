@@ -12,9 +12,15 @@ import { lerJson } from '../estado.js';
 export const ARQ_CONFIG = 'config.json';
 const CONFIG_MAX_BYTES = 64 * 1024;
 
+// Teto absoluto de uma liberação, em horas (spec §6.2 e D4: no máximo 24 h):
+// o máximo da faixa de liberacao.padraoH e liberacao.maxH, e o padrão do
+// maxH. liberacao.js recusa na leitura uma liberação mais longa que isso,
+// então nem um liberacao.json forjado solta a guarda por mais de um dia.
+export const LIBERACAO_TETO_H = 24;
+
 export const PADRAO_GUARDA = Object.freeze({
   ligada: true, teto5h: 90, horizonte5hMin: 90, margemReset5hMin: 15, teto7d: 85, horizonte7dH: 24,
-  fableDespachosMax: 4, fableDespachosHoras: 5, liberacaoPadraoH: 2, liberacaoMaxH: 24, liberacaoTetoPontos7d: 10,
+  fableDespachosMax: 4, fableDespachosHoras: 5, liberacaoPadraoH: 2, liberacaoMaxH: LIBERACAO_TETO_H, liberacaoTetoPontos7d: 10,
 });
 
 // [chave em ConfigGuarda, caminho no JSON, rótulo do aviso, mínimo, máximo]
@@ -26,8 +32,8 @@ const CAMPOS = Object.freeze([
   ['horizonte7dH', ['horizonte7dH'], 'horizonte7dH', 1, 72],
   ['fableDespachosMax', ['fableDespachos', 'max'], 'fableDespachos.max', 0, 50],
   ['fableDespachosHoras', ['fableDespachos', 'horas'], 'fableDespachos.horas', 1, 24],
-  ['liberacaoPadraoH', ['liberacao', 'padraoH'], 'liberacao.padraoH', 1, 24],
-  ['liberacaoMaxH', ['liberacao', 'maxH'], 'liberacao.maxH', 1, 24],
+  ['liberacaoPadraoH', ['liberacao', 'padraoH'], 'liberacao.padraoH', 1, LIBERACAO_TETO_H],
+  ['liberacaoMaxH', ['liberacao', 'maxH'], 'liberacao.maxH', 1, LIBERACAO_TETO_H],
   ['liberacaoTetoPontos7d', ['liberacao', 'tetoPontos7d'], 'liberacao.tetoPontos7d', 1, 50],
 ]);
 
