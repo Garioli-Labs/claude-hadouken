@@ -40,13 +40,14 @@ const MAX_USO_BYTES = 16 * 1024;
 // (forcar) só respeita um piso de 5 s.
 const RECENTE_MS = INTERVALO_MS - 5_000;
 const PISO_FORCADO_MS = 5_000;
-// Depois de uma leitura que estourou o prazo ou o teto de saída, a próxima
-// espera 15 min (portão Fable da v0.3.0, item 1): um /usage normal leva uns
-// 6 s, então 30 s já é anomalia, e sem a espera cada tique rodaria outro
-// `claude` de 270 MB logo em seguida. O comando manual (forcar) segue com o
-// piso de 5 s.
+// Depois de uma leitura que estourou o prazo ou o teto de saída, que veio
+// num formato inesperado ou que falhou, a próxima espera 15 min (portão Fable
+// da v0.3.0, item 1, e revisão da correção): um /usage normal leva uns 6 s,
+// e uma falha que se repete rodaria outro `claude` de 270 MB a cada tique. O
+// 5h e a semana seguem vindo da statusline nesse meio-tempo. O comando manual
+// (forcar) segue com o piso de 5 s.
 export const ESPERA_FALHA_MS = 15 * 60_000;
-const MOTIVOS_ESPERA = new Set(['tempo', 'saida']);
+const MOTIVOS_ESPERA = new Set(['tempo', 'saida', 'formato', 'erro']);
 // Folga de relógio para o `ate` do bloqueio, a mesma de instante (base.js).
 const FOLGA_RELOGIO_MS = 5 * 60_000;
 const MAX_ISO = 64;

@@ -171,7 +171,7 @@ test('talvezAtualizar: leitura recente (menos de 25 s) dispensa a próxima; com 
     [5_000, 5_000, true, 'ok'],
   ];
   for (const [idadeLido, idadeEm, forcar, motivo] of casos) {
-    gravarUso(usoGravado(AGORA - idadeLido, { estado: { motivo: 'formato', em: iso(AGORA - idadeEm) } }));
+    gravarUso(usoGravado(AGORA - idadeLido, { estado: { motivo: 'sem-claude', em: iso(AGORA - idadeEm) } }));
     const { rodar, chamadas } = rodarFalso();
     const r = await talvezAtualizar(opcoes({ rodar, forcar }));
     const rotulo = `${idadeLido}/${idadeEm}/${forcar}`;
@@ -180,8 +180,8 @@ test('talvezAtualizar: leitura recente (menos de 25 s) dispensa a próxima; com 
   }
 });
 
-test('talvezAtualizar: depois de tempo ou saida, a próxima espera 15 min; forcar respeita só o piso de 5 s (portão Fable, item 1)', async () => {
-  for (const motivo of ['tempo', 'saida']) {
+test('talvezAtualizar: depois de tempo, saida, formato ou erro, a próxima espera 15 min; forcar respeita só o piso de 5 s (portão Fable, item 1)', async () => {
+  for (const motivo of ['tempo', 'saida', 'formato', 'erro']) {
     const casos = [
       [ESPERA_FALHA_MS - 1, false, 'recente'],
       [ESPERA_FALHA_MS, false, 'ok'],
@@ -377,7 +377,8 @@ test('talvezAtualizar: resposta fora do contrato vira erro, sem inventar número
   ];
   let t = AGORA;
   for (const [resposta, motivo] of casos) {
-    t += INTERVALO_MS;
+    // Depois de erro ou formato, a próxima leitura espera 15 min.
+    t += ESPERA_FALHA_MS;
     const rodar = async (o) => resposta(o);
     assert.deepEqual(await talvezAtualizar(opcoes({ rodar, agoraMs: t })), { feito: true, motivo });
     const gravado = lerArq();
