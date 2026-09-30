@@ -277,6 +277,60 @@ test('P4 ponta a ponta (rodada 3): comandos do controlador que citam o repositó
   assert.equal(eventos(home, 'filha-negada').length, 0);
 });
 
+// Decisão do controlador (rodada 4): antes do teste (b), e só dele, cada
+// trailer exato 'Co-Authored-By: Claude ... <noreply@anthropic.com>' (sem
+// diferenciar maiúsculas) vira um espaço. O resto da linha e do comando
+// continua conferido; (a) e (c) não mudam.
+const TRAILER = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>';
+const heredoc = (...linhas) => `git commit -m "$(cat <<'EOF'\n${linhas.join('\n')}\nEOF\n)"`;
+const MENSAGEM = ['feat: claude-hadouken guard on the bar', '', 'The hadouken guard shows on the status bar.'];
+
+test('claudeComLiberar (rodada 4): o trailer Co-Authored-By do Claude sai antes do (b); o resto do comando continua conferido', () => {
+  const commit = heredoc(...MENSAGEM, '', TRAILER);
+  assert.equal(claudeComLiberar(commit), false, commit);
+  const sim = [
+    heredoc(...MENSAGEM, 'claude -p /claude-hadouken:liberar', '', TRAILER),
+    'Co-Authored-By: Claude x <noreply@anthropic.com>; claude -p "$(echo hadouken)"',
+    'Co-Authored-By: Claude x <outro@example.com> && claude -p x hadouken$',
+  ];
+  for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
+});
+
+// Casos que só o (b) pega: o leitor da posição de comando lê '>o' ou 'echo'
+// como o comando. Provam que sai cada trailer exato, e só ele.
+test('claudeComLiberar (rodada 4): só o trailer exato sai; antes e depois dele, na mesma linha, conta', () => {
+  const nao = [
+    'echo "hadouken$X" # CO-AUTHORED-BY:\tCLAUDE X <NOREPLY@ANTHROPIC.COM>',
+    'echo "hadouken$X" # Co-Authored-By: Claude a <noreply@anthropic.com> Co-Authored-By: Claude b <noreply@anthropic.com>',
+  ];
+  for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
+  const sim = [
+    'Co-Authored-By: Claude x <noreply@anthropic.com>; >o claude -p "hadouken$X"',
+    '>o claude -p "hadouken$X" # Co-Authored-By: Claude x <noreply@anthropic.com>',
+    'echo "hadouken$X" # Co-Authored-By: Claude x <outro@example.com>',
+    'echo "hadouken$X" # Co-Authored-By: Claude <x> <noreply@anthropic.com>',
+    'echo "hadouken$X" # Co-Authored-By: Claude x\n<noreply@anthropic.com>',
+    'echo "hadouken$X" # Co-Authored-By: Claude x <noreply@anthropic.com.br>',
+    // Montado com aspas no meio: não é o trailer exato; sem as aspas, claude é palavra.
+    'echo "hadouken$X" # Co-Authored-By: Cl""aude x <noreply@anthropic.com>',
+    // (a) e (c) ainda leem o trailer: o texto da liberação e um comando dentro dele.
+    'git commit -m "Co-Authored-By: Claude /claude-hadouken:liberar <noreply@anthropic.com>"',
+    'Co-Authored-By: Claude x; claude -p "hadouken$X" <noreply@anthropic.com>',
+  ];
+  for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
+});
+
+// A regex da decisão aplicada com replace é quadrática quando muitos começos
+// de trailer dividem uma linha sem '<' (medido: este texto de 440 KB leva
+// 15 s, acima do tempo do hook, que então passa). A remoção tem de ser linear.
+test('claudeComLiberar (rodada 4): muitos começos de trailer sem o endereço não custam tempo quadrático', () => {
+  const texto = `claude -p "hadouken$X" ${'co-authored-by: claude'.repeat(20_000)}`;
+  const t0 = performance.now();
+  assert.equal(claudeComLiberar(texto), true);
+  const ms = performance.now() - t0;
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+});
+
 // Decisão do controlador (rodada 2): acima de 1 MiB (1_048_576 unidades de
 // texto), liberar em qualquer lugar nega sem o leitor. Os comandos abaixo não
 // têm claude nem hadouken: só o limite nega.
