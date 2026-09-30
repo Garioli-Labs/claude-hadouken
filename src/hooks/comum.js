@@ -1,4 +1,4 @@
-import { lerStdin } from '../base.js';
+import { lerStdinVigiando } from '../base.js';
 
 // O que os três hooks do plugin (spec 6.5) têm em comum: ler o JSON do
 // stdin, escrever o contexto no formato do Claude Code e sair sempre com
@@ -6,14 +6,14 @@ import { lerStdin } from '../base.js';
 // Claude: qualquer falha termina calada.
 //
 // Este arquivo fica no caminho curto de todo hook (antes do gate de ativação,
-// spec 8.2), então só importa base.js (lerStdin).
+// spec 8.2), então só importa base.js (lerStdinVigiando).
 //
 // Prazos (spec 8.1, S9): só a leitura do stdin tem prazo próprio (1 s, em
-// lerStdin). O trabalho depois do gate é E/S síncrona sem prazo, porque o Node
-// não interrompe uma chamada síncrona sem um worker; o limite de fora é o
-// timeout de 5 s de cada hook em hooks/hooks.json. Numa home em rede travada o
-// prompt espera no máximo isso (resíduo aceito, M5 da revisão da Task 7; a
-// barra tem o mesmo formato).
+// lerStdinVigiando). O trabalho depois do gate é E/S síncrona sem prazo,
+// porque o Node não interrompe uma chamada síncrona sem um worker; o limite de
+// fora é o timeout de 5 s de cada hook em hooks/hooks.json. Numa home em rede
+// travada o prompt espera no máximo isso (resíduo aceito, M5 da revisão da
+// Task 7; a barra tem o mesmo formato).
 
 // Se o Claude Code fechar o pipe antes da escrita, o EPIPE vira evento de
 // erro no stdout; sem ouvinte ele derrubaria o processo com código 1.
@@ -53,7 +53,7 @@ export async function falharAberto(dir, detalhe, agoraMs, fn) {
 }
 
 // Objeto JSON do stdin, ou null (vazio, inválido, lista, primitivo, acima do
-// teto de lerStdin).
+// teto de lerStdinVigiando).
 function entradaDe(texto) {
   try {
     const v = JSON.parse(texto);
@@ -63,14 +63,16 @@ function entradaDe(texto) {
   }
 }
 
-// Lê o stdin, chama fn(entrada | null) e sai com 0 aconteça o que acontecer:
-// erro síncrono, promessa rejeitada ou stdin quebrado. Usa exitCode (nunca
-// process.exit) para que a escrita no stdout termine antes da saída.
-// maxBytes troca o teto de 1 MiB do stdin (spec 8.1, S9); só a P4 o usa
-// (guarda-filha.js), porque a regra fixa precisa ver o comando inteiro.
-export function rodarHook(fn, maxBytes) {
-  lerStdin(undefined, maxBytes)
-    .then((texto) => fn(entradaDe(texto)))
+// Lê o stdin, chama fn(entrada | null, leitura) e sai com 0 aconteça o que
+// acontecer: erro síncrono, promessa rejeitada ou stdin quebrado. Usa exitCode
+// (nunca process.exit) para que a escrita no stdout termine antes da saída.
+// maxBytes troca o teto de 1 MiB do stdin (spec 8.1, S9) e vigia procura uma
+// RegExp no texto cru acima dele (lerStdinVigiando em base.js); leitura é
+// { excedeu, casou }. Só a P4 os usa (guarda-filha.js), porque a regra fixa
+// precisa ver o comando inteiro.
+export function rodarHook(fn, maxBytes, vigia) {
+  lerStdinVigiando(undefined, maxBytes, vigia)
+    .then((r) => fn(entradaDe(r.texto), { excedeu: r.excedeu, casou: r.casou }))
     .catch(() => {})
     .finally(() => { process.exitCode = 0; });
 }

@@ -112,8 +112,11 @@ function segmentos(texto, bash) {
 
 // A palavra é claude: o nome (com caminho e .exe, .cmd ou .ps1; decisão do
 // controlador na rodada 3 da revisão da Task 16) ou o pacote claude-code
-// (npx @anthropic-ai/claude-code, node .../claude-code/cli.js).
-const EH_CLAUDE = /(?:^|[\\/])claude(?:\.exe|\.cmd|\.ps1)?$/;
+// (npx @anthropic-ai/claude-code, node .../claude-code/cli.js). Decisão do
+// controlador na Task 18 (Step 0): o leitor não separa redireção da palavra,
+// então claude seguido de < ou > (claude>o, claude<x) conta, e também depois
+// de ':' (Start-Process -FilePath:claude).
+const EH_CLAUDE = /(?:^|[\\/:])claude(?:\.exe|\.cmd|\.ps1)?(?:$|[<>])/;
 const ehClaude = (w) => EH_CLAUDE.test(w) || w.includes('claude-code');
 const ATRIBUICAO = /^[a-z_][a-z0-9_]*\+?=/;
 // Comandos que rodam o comando seguinte (decisão do controlador: env,
@@ -186,22 +189,38 @@ function lancamento(texto, nivel) {
   return r;
 }
 
+// A P4 passa o mesmo comando, em minúsculas, pelos dois testes em sequência
+// (claudeComLiberar e chamaClaude), e cada um lia tudo de novo. A leitura de
+// nível 0 do último texto fica guardada e a segunda sai de graça: com o pior
+// caso de 4 MiB o hook cabe em 5 s (decisão do controlador na Task 18, Step 0;
+// test/guarda-caminho-extra.test.js). A função é pura, então o resultado
+// guardado é o mesmo que a leitura daria.
+let ultimaLeitura = { texto: null, r: NENHUM };
+function lancamentoDe(texto) {
+  if (ultimaLeitura.texto === texto) return ultimaLeitura.r;
+  const r = lancamento(texto, 0);
+  ultimaLeitura = { texto, r };
+  return r;
+}
+
 // O executável claude como palavra de comando: no começo, depois de um
-// separador (; & | ( ou espaço) ou de um caminho, seguido de espaço ou do fim.
-// Não casa 'claude-hadouken', 'CLAUDE.md' nem 'claudette'. Sem corte de
+// separador (; & | ( ou espaço), de ':' ou de um caminho, seguido de espaço,
+// aspa, < ou > (redireção grudada, decisão do controlador na Task 18) ou do
+// fim. Não casa 'claude-hadouken', 'CLAUDE.md' nem 'claudette'. Sem corte de
 // tamanho (a regex é linear; na revisão, 9 KB antes do claude escapavam), e
 // também o leitor acima (claude entre aspas, $(which claude), npx do pacote,
 // continuação de linha). Nunca lança; na dúvida, conta como claude.
 // Casa também o 'Claude' do trailer 'Co-Authored-By: Claude ...' de um
 // commit, e a P4 comum, com a guarda disparada, nega esse commit. Decisão do
 // controlador na rodada 5 da revisão da Task 16: fica assim, porque a fiação
-// da Task 18 deixa o git commit fora da P4.
-const CLAUDE = /(?:^|[\s;&|(])(?:[^\s;&|()"']*[\\/])?claude(?:\.exe|\.cmd|\.ps1)?(?=\s|$|["'])/i;
+// da Task 18 deixa o git commit fora da P4. O claudeComLiberar tira esse
+// trailer antes do teste (b): ver TRAILER abaixo.
+const CLAUDE = /(?:^|[\s;&|(:])(?:[^\s;&|()"']*[\\/])?claude(?:\.exe|\.cmd|\.ps1)?(?=\s|$|["'<>])/i;
 export function chamaClaude(comando) {
   if (typeof comando !== 'string') return false;
   if (CLAUDE.test(comando)) return true;
   try {
-    return lancamento(comando.toLowerCase(), 0) === CLAUDE_LANCADO;
+    return lancamentoDe(comando.toLowerCase()) === CLAUDE_LANCADO;
   } catch {
     return true;
   }
@@ -236,7 +255,8 @@ export function chamaClaude(comando) {
 //     apareceria em nenhuma função exportada (sem teste que a prove).
 // Acima de 1 MiB (1_048_576 unidades do texto), 'liberar' em qualquer lugar,
 // cru ou normalizado (com espaços no meio), nega sem o leitor. A busca crua
-// vem antes, para não copiar o texto (16 MiB: 17 ms contra segundos).
+// vem antes, para não copiar o texto (16 MiB: 17 ms contra segundos). Acima
+// de 4 MiB de stdin a P4 nem chama esta função (TETO_STDIN, guarda-filha.js).
 // Nega a mais, e o texto do deny aponta a saída: uma linha de heredoc que
 // comece por claude. O trailer 'Co-Authored-By: Claude ...' numa linha só
 // dele não conta no (b) desde as rodadas 4 e 5 (ver semTrailer).
@@ -255,11 +275,13 @@ const DOIS_PONTOS_LIBERAR = /:\s*l\s*i\s*b\s*e\s*r\s*a\s*r/;
 // (b), decisão do controlador na rodada 3 da revisão da Task 16: claude só
 // conta como palavra com início, espaço, ; & | ( { ' " crase = / ou \ antes
 // e fim, espaço, ; & | ) ' " ou crase depois, com .exe, .cmd ou .ps1
-// opcionais. Nada de - . ou : grudado: o nome deste repositório
+// opcionais. Nada de - . ou : grudado depois: o nome deste repositório
 // (claude-hadouken), a pasta ~/.claude/, claude.json e 'claude:' não contam;
 // /usr/bin/claude, "C:\x\claude.exe", claude.cmd, try {claude -p} e
-// ['claude', ...] contam. Ou o pacote claude-code.
-const PALAVRA_CLAUDE = /(?:^|[\s;&|({'"`=/\\])claude(?:\.exe|\.cmd|\.ps1)?(?=$|[\s;&|)'"`])/;
+// ['claude', ...] contam. Ou o pacote claude-code. Decisão do controlador na
+// Task 18 (Step 0): < e > depois (redireção grudada: claude>o, claude<x) e
+// ':' antes (Start-Process -FilePath:claude) também contam.
+const PALAVRA_CLAUDE = /(?:^|[\s;&|({'"`=/\\:])claude(?:\.exe|\.cmd|\.ps1)?(?=$|[\s;&|)'"`<>])/;
 const PACOTE = /claude-code/;
 // (b): ':liberar' com qualquer coisa antes (claude-hadouken:liberar) ou
 // '/liberar' fora de um caminho, sem outro nome depois (liberar.js,
@@ -293,6 +315,11 @@ const semEscapeDe = (t) => t.replace(/\\/g, '');
 // linha (16 MiB adversariais em menos de 0,25 s). Sem a âncora, a regex da
 // rodada 4 aplicada com replace era quadrática (420 KB em 11 s, acima do
 // tempo do hook, que então passa).
+// Só o (b) tira o trailer; o chamaClaude (CLAUDE, acima) ainda o casa.
+// Resíduo (R1, SECURITY.md): um alias chamado 'co-authored-by:' que aponte
+// para claude faz a linha do trailer lançar claude e sai do (b) junto com o
+// trailer; o shell não interativo não expande alias, mas um que o faça
+// (shopt -s expand_aliases, um .bashrc lido) escapa.
 const TRAILER = /(?<=^|\n)[ \t]*co-authored-by:[ \t]*claude[^;&|()$`'"\\\n<]*<noreply@anthropic\.com>(?=[ \t]*(?:\r?\n|$|["']))/gi;
 const semTrailer = (t) => t.replace(TRAILER, ' ');
 
@@ -322,7 +349,7 @@ export function claudeComLiberar(comando) {
     const liberar = DOIS_PONTOS_LIBERAR.test(semEscape) || LIBERAR_CURTO.test(semEscape);
     const expansao = bruto.includes('hadouken') && /[{$`*?]/.test(bruto);
     if (!liberar && !expansao) return false;
-    const l = lancamento(bruto, 0);
+    const l = lancamentoDe(bruto);
     return l === CLAUDE_LANCADO || (l === INCERTO && liberar);
   } catch {
     return true;

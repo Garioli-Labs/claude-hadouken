@@ -384,12 +384,96 @@ test('P4 ponta a ponta (rodada 2): commit que cita hadouken:liberar nega com o t
   semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'git commit -m "feat: liberar guard for claude"' }), home));
   assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), Array(casos.length).fill('P4'));
   assert.equal(eventos(home, 'filha-negada').length, 0);
-  // A P4 lê o stdin até 16 MiB (o teto comum é 1 MiB): a P4 comum também vê
-  // um comando acima de 1 MiB. Acima de 16 MiB o hook passa calado (R1).
+  // A P4 lê o stdin até 4 MiB (o teto comum é 1 MiB): a P4 comum também vê
+  // um comando acima de 1 MiB. Acima de 4 MiB, ver o teste da Task 18 abaixo.
   gravarEstado(home, 86);
   assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `echo ${'a'.repeat(2 * 1_048_576)} && claude -p x` }), home)), P4_NEGADO);
-  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `echo liberar ${'a'.repeat(16 * 1_048_576)}` }), home));
   assert.equal(eventos(home, 'filha-negada').length, 1);
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length);
+});
+
+// Decisão do controlador (Task 18, Step 0, achado 1 da revisão das rodadas
+// 2 a 5 da Task 16): redireção grudada em claude (claude>o, claude<x) e
+// '-FilePath:claude' escapavam das três regras e do chamaClaude. '<' e '>'
+// entram no conjunto de depois, e ':' no de antes, das três regex de claude.
+test('claudeComLiberar e chamaClaude (Task 18): redireção grudada e -FilePath:claude negam; o que passava segue passando', () => {
+  const sim = [
+    'claude>o -p "/claude-hado$u""ken:liberar"',
+    'claude>/dev/null -p "/claude-hadouken:lib$x"',
+    'claude</dev/null -p /claude-hadouken:liberar',
+    'claude>o -p /claude-hadouken:lib{,}erar',
+    '2>&1 claude>o -p /claude-hadouken:lib`echo erar`',
+    "Start-Process -FilePath:claude -ArgumentList '-p','/claude-hadouken:lib$x'",
+  ];
+  for (const c of sim) {
+    assert.equal(claudeComLiberar(c), true, `claudeComLiberar: ${c}`);
+    assert.equal(chamaClaude(c), true, `chamaClaude: ${c}`);
+  }
+  // A P4 comum também: claude grudado na redireção, sem o texto da liberação.
+  for (const c of ['claude>o -p x', 'claude<pedido.txt', '2>&1 claude>o -p x', 'Start-Process -FilePath:claude']) {
+    assert.equal(chamaClaude(c), true, c);
+  }
+  const nao = [
+    'cd "E:/Projetos DEV/claude-hadouken" && echo $X',
+    'ls ~/.claude/hadouken/*',
+    'cat ~/.claude/claude.json | grep "hadouken*"',
+    'git commit -F msg.txt',
+  ];
+  for (const c of nao) {
+    assert.equal(claudeComLiberar(c), false, `claudeComLiberar: ${c}`);
+    assert.equal(chamaClaude(c), false, `chamaClaude: ${c}`);
+  }
+  // O commit em heredoc com o trailer do Claude segue fora do claudeComLiberar
+  // (o chamaClaude casa o trailer; o git commit não chega à P4, ver hooks.json).
+  assert.equal(claudeComLiberar(heredoc(...MENSAGEM, '', TRAILER)), false);
+});
+
+// Decisão do controlador (Task 18, Step 0, achado 3): com 16 MiB, os dois
+// leitores somavam 10 a 14 s, acima do timeout de 10 s da P4, e o hook
+// passava. O teto do stdin da P4 caiu para 4 MiB; o pior caso de 4 MiB passa
+// pelos dois leitores, em sequência como no hook, em menos de 5 s (a segunda
+// leitura sai da memória de lancamentoDe, em caminho.js). Conta o tempo de
+// CPU do processo, não o de relógio: o node --test roda os arquivos em
+// paralelo, e na suíte inteira o relógio dobrava (sem a memória, 5,2 s contra
+// 2,3 s sozinho, medido no Windows).
+test('P4 (Task 18): o pior caso de 4 MiB nos dois leitores, em sequência, fica abaixo de 5 s', () => {
+  const T = 4 * 1_048_576;
+  const cab = 'hadouken$ ';
+  for (const rep of ['$x ', 'eval x; ', 'a=b ', 'env ']) {
+    const texto = cab + rep.repeat(Math.ceil((T - cab.length) / rep.length)).slice(0, T - cab.length);
+    assert.equal(texto.length, T);
+    const c0 = process.cpuUsage();
+    assert.equal(claudeComLiberar(texto), false, rep);
+    assert.equal(chamaClaude(texto), false, rep);
+    const { user, system } = process.cpuUsage(c0);
+    const ms = (user + system) / 1000;
+    assert.ok(ms < 5000, `${JSON.stringify(rep)}: ${ms.toFixed(0)} ms de CPU`);
+  }
+});
+
+// Decisão do controlador (Task 18, Step 0, achado 3): acima de 4 MiB de
+// stdin a P4 não lê o comando. Nega se o texto cru tiver 'claude' (sem
+// diferenciar maiúsculas) ou 'liberar', em qualquer ponto, inclusive depois
+// dos 4 MiB; senão, passa, mesmo com a guarda disparada (R1).
+test('P4 ponta a ponta (Task 18): acima de 4 MiB nega sem ler com claude ou liberar; sem eles passa', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, 40);
+  const MIB = 1_048_576;
+  const casos = [
+    `echo liberar ${'a'.repeat(4 * MIB)}`,
+    `echo CLAUDE ${'a'.repeat(4 * MIB)}`,
+    `echo ${'a'.repeat(5 * MIB)} && cLaUdE -p x`,
+  ];
+  for (const command of casos) {
+    const entrada = ferramenta('s1', 'Bash', { command });
+    assert.ok(Buffer.byteLength(JSON.stringify(entrada)) > 4 * MIB);
+    assert.deepEqual(saida(rodar('guarda-filha.js', entrada, home)), LIBERAR_NEGADO, command.slice(0, 20));
+  }
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), Array(casos.length).fill('P4'));
+  gravarEstado(home, 86);
+  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `echo ${'a'.repeat(4 * MIB)} && git status` }), home));
+  assert.equal(eventos(home, 'filha-negada').length, 0);
   assert.equal(eventos(home, 'liberacao-recusada').length, casos.length);
 });
 

@@ -251,17 +251,38 @@ const ignorarErroTardio = () => {};
 // maxBytes (1 MiB por padrão; spec 8.1, S9) para de acumular na hora e devolve
 // '', que quem chama trata como entrada inválida. Nunca rejeita.
 export function lerStdin(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES) {
+  return lerStdinVigiando(prazoMs, maxBytes, null).then((r) => r.texto);
+}
+
+// Sobra do pedaço anterior juntada ao seguinte, para a vigia casar uma palavra
+// partida entre dois pedaços do pipe. A vigia procura palavras curtas.
+const VIGIA_SOBRA = 64;
+
+// O mesmo que lerStdin, devolvendo { texto, excedeu, casou }. Sem vigia,
+// acima de maxBytes fecha o stdin na hora (texto '', excedeu true). Com vigia
+// (uma RegExp), acima de maxBytes nada é devolvido nem acumulado: o resto do
+// stdin é lido até o fim ou o prazo, e só se procura a vigia no texto cru (o
+// já lido e cada pedaço seguinte, em latin1: uma palavra ASCII nunca sai de
+// um byte de UTF-8 multibyte). casou é true na primeira vez que ela casa, e
+// aí o stdin fecha sem esperar o fim. Só a P4 usa a vigia (spec v0.4.0 §4.2,
+// decisão do controlador na Task 18: acima de 4 MiB nega sem ler o comando
+// se o texto tiver 'claude' ou 'liberar'). Nunca rejeita.
+export function lerStdinVigiando(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES, vigia = null) {
   return new Promise((resolve) => {
     const entrada = process.stdin;
     if (entrada.isTTY) {
-      resolve('');
+      resolve({ texto: '', excedeu: false, casou: false });
       return;
     }
     const teto = Number.isFinite(maxBytes) && maxBytes >= 0 ? maxBytes : STDIN_MAX_BYTES;
+    // Sem g nem y: test() não guarda lastIndex entre pedaços.
+    const re = vigia instanceof RegExp ? new RegExp(vigia.source, vigia.flags.replace(/[gy]/g, '')) : null;
     const partes = [];
     let total = 0;
     let terminado = false;
-    const terminar = (excedeu = false) => {
+    let vigiando = false;
+    let sobra = '';
+    const terminar = (excedeu = false, casou = false) => {
       if (terminado) return;
       terminado = true;
       clearTimeout(prazo);
@@ -281,15 +302,34 @@ export function lerStdin(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES) {
         try { texto = Buffer.concat(partes, total).toString('utf8'); } catch { texto = ''; }
       }
       partes.length = 0;
-      resolve(texto);
+      resolve({ texto, excedeu, casou });
     };
-    const aoTerminar = () => terminar(false);
+    // Fim, erro ou prazo: depois do teto, a vigia não casou no que chegou.
+    const aoTerminar = () => terminar(vigiando, false);
+    const procurar = (texto) => {
+      const s = sobra + texto;
+      if (re.test(s)) return true;
+      sobra = s.slice(-VIGIA_SOBRA);
+      return false;
+    };
     // Bytes, não caracteres: o teto vale para o que chega pelo pipe.
     const aoLer = (c) => {
       const pedaco = typeof c === 'string' ? Buffer.from(c, 'utf8') : c;
+      if (vigiando) {
+        if (procurar(pedaco.toString('latin1'))) terminar(true, true);
+        return;
+      }
       total += pedaco.length;
       if (total > teto) {
-        terminar(true);
+        if (re === null) {
+          terminar(true);
+          return;
+        }
+        vigiando = true;
+        partes.push(pedaco);
+        const lido = Buffer.concat(partes).toString('latin1');
+        partes.length = 0;
+        if (procurar(lido)) terminar(true, true);
         return;
       }
       partes.push(pedaco);

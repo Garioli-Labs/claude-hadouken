@@ -383,6 +383,56 @@ test('lerStdin chamado de novo não acumula ouvintes de erro', async () => {
   assert.equal(r.saida, '1');
 });
 
+// Vigia da P4 (Task 18, Step 0): acima do teto o texto não é devolvido nem
+// acumulado; o resto do stdin é lido até o fim ou o prazo, e só se procura a
+// vigia no texto cru, pedaço a pedaço, com uma sobra entre pedaços.
+const BASE_URL = new URL('../src/base.js', import.meta.url).href;
+const vigiado = (args, depois = '') => `const { lerStdinVigiando } = await import(${JSON.stringify(BASE_URL)});\n` +
+  `const t0 = Date.now(); const p = lerStdinVigiando(${args});\n${depois}\n` +
+  'const r = await p; process.stdout.write(JSON.stringify({ ...r, ms: Date.now() - t0 }));';
+const semMs = ({ ms, ...r }) => r;
+
+test('lerStdinVigiando: abaixo do teto devolve o texto; acima, só diz se a vigia casou', async () => {
+  const casos = [
+    ['1000, 8, /claude|liberar/i', 'abc', { texto: 'abc', excedeu: false, casou: false }],
+    ['1000, 8, /claude|liberar/i', `CLAUDE${'x'.repeat(20)}`, { texto: '', excedeu: true, casou: true }],
+    ['1000, 8, /claude|liberar/i', `${'ç'.repeat(40)}liberar`, { texto: '', excedeu: true, casou: true }],
+    ['1000, 8, /claude|liberar/i', 'x'.repeat(64), { texto: '', excedeu: true, casou: false }],
+    // Sem vigia, o mesmo que lerStdin: acima do teto, vazio.
+    ['1000, 8', `claude${'x'.repeat(20)}`, { texto: '', excedeu: true, casou: false }],
+  ];
+  for (const [args, entrada, esperado] of casos) {
+    const r = await rodarFilho(vigiado(args), { entrada });
+    assert.equal(r.codigo, 0, r.erro);
+    assert.deepEqual(semMs(JSON.parse(r.saida)), esperado, `${args} ${entrada.slice(0, 12)}`);
+  }
+});
+
+test('lerStdinVigiando: a palavra partida entre dois pedaços casa; sem ela, o fim do stdin decide', async () => {
+  // Pedaços emitidos à mão: a fronteira fica exatamente no meio da palavra.
+  const emitir = (...ps) => ps.map((p) => `process.stdin.emit('data', Buffer.from(${JSON.stringify(p)}));`).join('\n');
+  let r = await rodarFilho(vigiado('2000, 8, /claude|liberar/i', emitir('x'.repeat(10), 'y'.repeat(100), 'cla', 'UDE')), { entrada: '', semFim: true });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: true, casou: true });
+  r = await rodarFilho(vigiado('2000, 8, /claude|liberar/i', `${emitir('x'.repeat(10), 'cla', 'u de')}\nprocess.stdin.emit('end');`), { entrada: '', semFim: true });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: true, casou: false });
+});
+
+test('lerStdinVigiando: a vigia que casa termina sem esperar o fim; sem casar, o prazo termina', async () => {
+  // O stdin nunca fecha: com o prazo de 10 s, só a vigia termina a tempo.
+  let r = await rodarFilho(vigiado('10000, 16, /claude|liberar/i'), { entrada: `${'x'.repeat(64)}liberar`, semFim: true, timeoutMs: 8000 });
+  assert.equal(r.codigo, 0, r.erro);
+  let o = JSON.parse(r.saida);
+  assert.deepEqual(semMs(o), { texto: '', excedeu: true, casou: true });
+  assert.ok(o.ms < 2000, `demorou ${o.ms} ms`);
+  r = await rodarFilho(vigiado('200, 16, /claude|liberar/i'), { entrada: 'x'.repeat(64), semFim: true, timeoutMs: 8000 });
+  assert.equal(r.codigo, 0, r.erro);
+  o = JSON.parse(r.saida);
+  assert.deepEqual(semMs(o), { texto: '', excedeu: true, casou: false });
+  assert.ok(o.ms >= 150 && o.ms < 2000, `demorou ${o.ms} ms`);
+});
+
 // Datas montadas com componentes locais: o teste vale em qualquer fuso.
 const local = (a, m, d, h, min) => new Date(a, m, d, h, min).getTime();
 const s = (ms) => ms / 1000;

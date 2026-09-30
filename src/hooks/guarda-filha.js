@@ -32,9 +32,19 @@ const FERRAMENTAS = new Set(['Bash', 'PowerShell']);
 // Decisão do controlador na rodada 2 da revisão da Task 16: acima de 1 MiB,
 // 'liberar' em qualquer lugar do comando nega sem ler. Com o teto comum do
 // stdin (1 MiB, spec 8.1, S9) o JSON desse comando nem chegaria aqui e o hook
-// passaria calado; a P4 lê até 16 MiB, mais do que um modelo escreve numa
-// chamada. Acima disso, passa (R1, SECURITY.md na Task 18).
-const TETO_STDIN = 16 * 1_048_576;
+// passaria calado; a P4 lê mais, até TETO_STDIN.
+// Decisão do controlador na Task 18 (Step 0, achado 3 da revisão das rodadas
+// 2 a 5): com 16 MiB os dois leitores (claudeComLiberar e chamaClaude)
+// somavam 10 a 14 s, acima do timeout de 10 s da P4, e o hook passava. O teto
+// cai para 4 MiB (o pior caso medido fica abaixo de 5 s,
+// test/guarda-caminho-extra.test.js). Acima dele o comando não é lido: o
+// stdin cru segue até o fim (sem acumular, lerStdinVigiando em base.js) e, se
+// tiver 'claude' (sem diferenciar maiúsculas) ou 'liberar' em qualquer ponto,
+// a P4 nega pela regra fixa; senão, passa (R1). O stdin do Claude Code traz o
+// transcript_path, em geral dentro de ~/.claude, então na prática acima de
+// 4 MiB a P4 nega.
+const TETO_STDIN = 4 * 1_048_576;
+const VIGIA_ACIMA = /claude|liberar/i;
 // O mesmo texto de P4_LIBERAR_TEXTO (mensagens.js), só para quando o import
 // dele falha. test/guarda-hooks.test.js confere que os dois são iguais.
 const P4_LIBERAR_RESERVA = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
@@ -71,7 +81,11 @@ async function avaliarFilha(tool, dir, sessionId, agoraMs) {
   reg.anexarEvento(dir, 'filha-negada', tool, agoraMs);
 }
 
-rodarHook(async (entrada) => {
+rodarHook(async (entrada, leitura) => {
+  if (leitura?.casou === true) {
+    await negarLiberacao();
+    return;
+  }
   if (entrada === null || !FERRAMENTAS.has(entrada.tool_name)) return;
   const comando = entrada.tool_input?.command;
   if (claudeComLiberar(comando)) {
@@ -87,4 +101,4 @@ rodarHook(async (entrada) => {
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   // Depois do gate, toda exceção passa e vira evento 'erro' (§4.5).
   await falharAberto(dir, 'P4', agoraMs, () => avaliarFilha(entrada.tool_name, dir, sessionId, agoraMs));
-}, TETO_STDIN);
+}, TETO_STDIN, VIGIA_ACIMA);
