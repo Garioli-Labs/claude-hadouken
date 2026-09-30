@@ -19,16 +19,25 @@ import { chamaClaude, claudeComLiberar } from '../guarda/caminho.js';
 // recusa pelo entrypoint; negar o lançamento aqui é a defesa. A regra é só
 // texto (claudeComLiberar, import estático: não depende de um import dinâmico
 // que falhe) e, na dúvida, nega: sem mensagens.js, sai o texto de reserva;
-// sem registros.js, o deny sai sem o evento.
+// sem registros.js, o deny sai sem o evento. Desde a rodada 2 da revisão da
+// Task 16 a regra é a união de três testes (claudeComLiberar em
+// guarda/caminho.js) e também nega o texto que só cita 'hadouken:liberar',
+// com ou sem claude; o texto do deny aponta o git commit -F.
 // Resíduo: um script fora da ferramenta Bash ou PowerShell (arquivo .sh ou
 // .ps1, npm run), o pedido lido de arquivo (claude -p < pedido.txt) e comandos
 // ofuscados ainda chegam ao liberar; o `if` do hooks.json (Task 18) decide
 // quais lançadores chegam a este hook. SECURITY.md declara (Task 18).
 
 const FERRAMENTAS = new Set(['Bash', 'PowerShell']);
+// Decisão do controlador na rodada 2 da revisão da Task 16: acima de 1 MiB,
+// 'liberar' em qualquer lugar do comando nega sem ler. Com o teto comum do
+// stdin (1 MiB, spec 8.1, S9) o JSON desse comando nem chegaria aqui e o hook
+// passaria calado; a P4 lê até 16 MiB, mais do que um modelo escreve numa
+// chamada. Acima disso, passa (R1, SECURITY.md na Task 18).
+const TETO_STDIN = 16 * 1_048_576;
 // O mesmo texto de P4_LIBERAR_TEXTO (mensagens.js), só para quando o import
 // dele falha. test/guarda-hooks.test.js confere que os dois são iguais.
-const P4_LIBERAR_RESERVA = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar.';
+const P4_LIBERAR_RESERVA = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
 
 const negar = (razao) => emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
 
@@ -78,4 +87,4 @@ rodarHook(async (entrada) => {
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   // Depois do gate, toda exceção passa e vira evento 'erro' (§4.5).
   await falharAberto(dir, 'P4', agoraMs, () => avaliarFilha(entrada.tool_name, dir, sessionId, agoraMs));
-});
+}, TETO_STDIN);

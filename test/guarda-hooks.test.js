@@ -407,7 +407,7 @@ test('SessionStart grava a marca e o modelo da sessão', () => {
 
 const ferramenta = (id, tool_name, tool_input) => ({ session_id: id, hook_event_name: 'PreToolUse', tool_name, tool_input, cwd: os.tmpdir() });
 const negacao = (razao) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
-const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar.');
+const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
 
 // O brief da Task 16 usava 'claude -p "/claude-hadouken:liberar"' aqui; com a
 // regra fixa (decisão do controlador na revisão da Task 13) esse comando é
@@ -456,18 +456,24 @@ test('P4: claude com o comando de liberação é negado sempre: armada, disparad
   assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
 });
 
-test('P4: comando que só menciona liberar, sem claude, passa; claude sem liberar com a guarda armada passa', () => {
+// Decisão do controlador (rodada 2 da revisão da Task 16): o texto que cita
+// 'hadouken:liberar' nega mesmo sem claude (grep, echo, mensagem de commit); o
+// texto do deny aponta o git commit -F.
+test('P4: comando que só menciona liberar, sem claude, passa; com hadouken:liberar nega; claude sem liberar com a guarda armada passa', () => {
   const home = novoHome();
   registrar(home, 's1');
   gravarEstado(home, { u7: 86 });
-  for (const command of ['git log --grep liberar', 'echo liberar', 'grep -rn "/claude-hadouken:liberar" src']) {
+  for (const command of ['git log --grep liberar', 'echo liberar']) {
     semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command }), home));
   }
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'grep -rn "/claude-hadouken:liberar" src' }), home)), LIBERAR_NEGADO);
   const armada = novoHome();
   registrar(armada, 's1');
   gravarEstado(armada);
   semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'claude -p "revise src/hooks/liberar.js"' }), armada));
-  assert.equal(eventos(home, 'liberacao-recusada').length + eventos(armada, 'liberacao-recusada').length, 0);
+  assert.equal(eventos(home, 'liberacao-recusada').length, 1);
+  assert.equal(eventos(armada, 'liberacao-recusada').length, 0);
+  assert.equal(eventos(home, 'filha-negada').length, 0);
 });
 
 // Gancho de carga (posto com --import, como em guarda-liberar-extra.test.js:

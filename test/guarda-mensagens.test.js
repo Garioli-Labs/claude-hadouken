@@ -55,7 +55,7 @@ test('P2, P3, P4, P5', () => {
   assert.equal(m.p3Usuario(ms, ['fable'], agora), `hadouken: guarda ativa: ${txt}. Troca para o Fable bloqueada; libere com /claude-hadouken:liberar fable.`);
   assert.equal(m.P4_TEXTO, 'hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.');
   assert.equal(m.P5_TEXTO, 'hadouken: bloqueado: arquivos do hadouken só o usuário edita.');
-  assert.equal(m.P4_LIBERAR_TEXTO, 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar.');
+  assert.equal(m.P4_LIBERAR_TEXTO, 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
 });
 
 test('liberação: confirmação, linha seguinte ao Claude e recusas', () => {

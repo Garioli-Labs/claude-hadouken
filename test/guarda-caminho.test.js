@@ -72,15 +72,17 @@ test('claudeComLiberar: claude (ou o pacote) junto com o comando de liberação'
     "Start-Process claude -ArgumentList '-p','/claude-hadouken:liberar'",
     'X=claude; $X -p "/claude-hadouken:liberar"',
     `${' '.repeat(10_000)}claude -p "/claude-hadouken:liberar"`,
+    // Decisão do controlador (rodada 2): o texto com 'hadouken:liberar' nega
+    // mesmo sem claude; quem só cita o comando grava o texto num arquivo.
+    'echo "/claude-hadouken:liberar"',
+    'grep -rn "claude-hadouken:liberar" src',
+    'cd "E:/Projetos DEV/claude-hadouken" && grep -n "/claude-hadouken:liberar" README.md',
+    'cat CLAUDE.md && echo /claude-hadouken:liberar',
   ];
   for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
   const nao = [
     'git log --grep liberar',
     'echo liberar',
-    'echo "/claude-hadouken:liberar"',
-    'grep -rn "claude-hadouken:liberar" src',
-    'cd "E:/Projetos DEV/claude-hadouken" && grep -n "/claude-hadouken:liberar" README.md',
-    'cat CLAUDE.md && echo /claude-hadouken:liberar',
     'claude -p "revise src/hooks/liberar.js"',
     'claude plugin list | grep liberar',
     'git status',

@@ -53,7 +53,7 @@ export async function falharAberto(dir, detalhe, agoraMs, fn) {
 }
 
 // Objeto JSON do stdin, ou null (vazio, inválido, lista, primitivo, acima do
-// teto de 1 MiB de lerStdin).
+// teto de lerStdin).
 function entradaDe(texto) {
   try {
     const v = JSON.parse(texto);
@@ -66,8 +66,10 @@ function entradaDe(texto) {
 // Lê o stdin, chama fn(entrada | null) e sai com 0 aconteça o que acontecer:
 // erro síncrono, promessa rejeitada ou stdin quebrado. Usa exitCode (nunca
 // process.exit) para que a escrita no stdout termine antes da saída.
-export function rodarHook(fn) {
-  lerStdin()
+// maxBytes troca o teto de 1 MiB do stdin (spec 8.1, S9); só a P4 o usa
+// (guarda-filha.js), porque a regra fixa precisa ver o comando inteiro.
+export function rodarHook(fn, maxBytes) {
+  lerStdin(undefined, maxBytes)
     .then((texto) => fn(entradaDe(texto)))
     .catch(() => {})
     .finally(() => { process.exitCode = 0; });

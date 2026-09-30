@@ -88,7 +88,7 @@ function semSaida(r) {
 
 const ferramenta = (id, tool_name, tool_input, cwd = os.tmpdir()) => ({ session_id: id, hook_event_name: 'PreToolUse', tool_name, tool_input, cwd });
 const negacao = (razao) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
-const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar.');
+const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
 const P4_NEGADO = negacao('hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.');
 const P5_NEGADO = negacao('hadouken: bloqueado: arquivos do hadouken só o usuário edita.');
 const eventos = (home, tipo) => lerEventos(home, Date.now()).filter((e) => e.tipo === tipo);
@@ -107,20 +107,25 @@ test('chamaClaude: 20 KB antes do claude não escapam do corte', () => {
   assert.equal(chamaClaude(`echo ${'a'.repeat(20_000)}`), false);
 });
 
-// Decisão do controlador (rodada 1): claude só conta em posição de comando de
-// algum segmento; texto entre aspas conta quando é o argumento de -c, /c, /k,
+// Decisão do controlador (rodada 1): claude em posição de comando de algum
+// segmento conta; texto entre aspas conta quando é o argumento de -c, /c, /k,
 // -Command ou eval (e $(...) e crase, que o bash executa mesmo entre aspas).
-test('claudeComLiberar: só claude em posição de comando conta; mensagem de commit passa', () => {
+// Rodada 2: o texto que cita 'hadouken:liberar' nega mesmo fora da posição de
+// comando (mensagem de commit, echo, gh); só a que não cita passa.
+test('claudeComLiberar: claude em posição de comando nega; mensagem que cita hadouken:liberar também (rodada 2)', () => {
   const nao = [
     'git commit -m "feat: liberar guard for claude"',
+    "git commit -m 'fix: claude -p pede para liberar a guarda'",
+    'gh pr create --title "liberar" --body "claude pede; o usuário libera"',
+  ];
+  for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
+  const sim = [
+    'git commit -m "docs: claude must not run /claude-hadouken:liberar"',
     'git commit -m "P4 nega claude -p /claude-hadouken:liberar"',
     "git commit -m 'docs: claude e /claude-hadouken:liberar'",
     "git commit -m \"$(cat <<'EOF'\nfeat: a P4 nega o comando claude-hadouken:liberar\n\nclaude-hadouken: liberar só pelo usuário\nEOF\n)\"",
     'echo "claude -p /claude-hadouken:liberar" > nota.txt',
     'gh pr create --title "liberar" --body "claude -p /claude-hadouken:liberar"',
-  ];
-  for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
-  const sim = [
     'bash -c "claude -p /claude-hadouken:liberar"',
     "sh -lc 'claude -p /claude-hadouken:liberar'",
     "powershell -Command \"claude -p '/claude-hadouken:liberar'\"",
@@ -179,6 +184,89 @@ test('P4 ponta a ponta: continuação nega; commit que cita claude passa; 20 KB 
   assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `echo ${'a'.repeat(20_000)} && claude -p x` }), home)), P4_NEGADO);
   assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), ['P4', 'P4']);
   assert.equal(eventos(home, 'filha-negada').length, 1);
+});
+
+// Decisão do controlador (rodada 2): parar de caçar variantes. claudeComLiberar
+// é a união de (a) o texto normalizado com 'hadouken:liberar', (b) claude como
+// palavra em qualquer lugar junto de ':liberar' ou '/liberar' como palavra, ou
+// de 'hadouken' com { $ ` * ? + ( ! ou %, e (c) o leitor de posição de
+// comando. Os casos A a D passavam pela rodada 1. Cada um vai com o texto
+// literal (a), com o nome curto e com chaves (b, sem 'hadouken:liberar').
+test('claudeComLiberar (rodada 2): redirecionamento, cmd /c e -Command, bloco do PowerShell e ponto negam', () => {
+  const casos = [
+    '>o claude -p ARG', '2>&1 claude -p ARG', '<in claude -p ARG', // A
+    'cmd /c start claude -p ARG', 'cmd /c call claude -p ARG', "powershell -Command Start-Process claude -ArgumentList '-p','ARG'", // B
+    'try { claude -p ARG } catch {}', '1 | ForEach-Object { claude -p ARG }', 'Start-Job { claude -p ARG }', 'try {claude -p ARG}', // C
+    '. claude -p ARG', // D
+  ];
+  for (const arg of ['/claude-hadouken:liberar', '"/liberar 2h"', '"/claude-hadouken:libe{rar,}"']) {
+    for (const c of casos) assert.equal(claudeComLiberar(c.replace('ARG', arg)), true, c.replace('ARG', arg));
+  }
+});
+
+test('claudeComLiberar (rodada 2): texto levado a outro interpretador e concatenação junto de hadouken negam', () => {
+  const sim = [
+    'echo "claude -p /claude-hadouken:liberar" | bash',
+    "python -c \"os.system('claude -p /claude-hadouken:liberar')\"",
+    "python -c \"import os; os.system('cl' + 'aude -p /claude-hadouken:liberar')\"",
+    'claude -p ("/claude-hadouken:lib"+"erar")',
+    "& claude -p ('/claude-hadouken:' + 'lib' + 'erar')",
+    "python -c \"import subprocess; subprocess.run(['claude', '-p', '/claude-hadouken:lib' + 'erar'])\"",
+    'claude -p "/claude-hadouken:lib$(echo erar)"',
+    'claude -p "/claude-hadouken:lib%X%"',
+    'claude -p "/claude-hadouken:lib!X!"',
+    'git commit -m "docs: CLAUDE must not run /Claude-Hadouken:Liberar"',
+    'echo "/claude-hadouken:lib\\\nerar"',
+  ];
+  for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
+  // Sem 'hadouken:liberar' no texto, sem claude como palavra (claude-hadouken
+  // e ~/.claude não são a palavra) ou sem liberar nem hadouken: passa.
+  const nao = [
+    'git commit -m "feat: liberar guard for claude"',
+    'claude -p "resuma o README.md"',
+    'ls ~/.claude/hadouken/*.json',
+    'cd "E:/Projetos DEV/claude-hadouken" && node --test',
+    'cd "E:/Projetos DEV/claude-hadouken" && git log --grep "liberar" -- src/*.js',
+    'claude -p "revise src/hooks/liberar.js e src/hooks/liberar/"',
+  ];
+  for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
+});
+
+// Decisão do controlador (rodada 2): acima de 1 MiB (1_048_576 unidades de
+// texto), liberar em qualquer lugar nega sem o leitor. Os comandos abaixo não
+// têm claude nem hadouken: só o limite nega.
+test('claudeComLiberar (rodada 2): comando com mais de 1 MiB e liberar em qualquer lugar nega sem ler', () => {
+  const MIB = 1_048_576;
+  const com = (texto, total) => `${texto} ${'a'.repeat(total - texto.length - 1)}`;
+  assert.equal(com('echo liberar', MIB + 1).length, MIB + 1);
+  assert.equal(claudeComLiberar(com('echo liberar', MIB + 1)), true);
+  assert.equal(claudeComLiberar(com('echo LIBERAR', MIB + 1)), true);
+  assert.equal(claudeComLiberar(`echo ${'a'.repeat(MIB)} lib\\erar`), true);
+  assert.equal(claudeComLiberar(com('echo liberar', MIB)), false);
+  assert.equal(claudeComLiberar(com('echo nada', MIB + 1)), false);
+});
+
+test('P4 ponta a ponta (rodada 2): commit que cita hadouken:liberar nega com o texto do -F; redirecionamento e 1 MiB negam', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, 40);
+  const casos = [
+    'git commit -m "docs: claude must not run /claude-hadouken:liberar"',
+    '2>&1 claude -p /claude-hadouken:liberar',
+    'cmd /c start claude -p "/liberar 2h"',
+    `echo liberar ${'a'.repeat(1_048_576)}`,
+  ];
+  for (const command of casos) assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command }), home)), LIBERAR_NEGADO, command.slice(0, 80));
+  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'git commit -m "feat: liberar guard for claude"' }), home));
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), Array(casos.length).fill('P4'));
+  assert.equal(eventos(home, 'filha-negada').length, 0);
+  // A P4 lê o stdin até 16 MiB (o teto comum é 1 MiB): a P4 comum também vê
+  // um comando acima de 1 MiB. Acima de 16 MiB o hook passa calado (R1).
+  gravarEstado(home, 86);
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `echo ${'a'.repeat(2 * 1_048_576)} && claude -p x` }), home)), P4_NEGADO);
+  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `echo liberar ${'a'.repeat(16 * 1_048_576)}` }), home));
+  assert.equal(eventos(home, 'filha-negada').length, 1);
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length);
 });
 
 // A pasta de dados no lugar de verdade (~/.claude/hadouken), dentro de um

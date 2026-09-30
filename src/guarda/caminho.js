@@ -208,32 +208,78 @@ export function chamaClaude(comando) {
 // do VS Code herda CLAUDE_CODE_ENTRYPOINT=claude-vscode (C23), e o hook do
 // liberar não a separa pelo entrypoint; fechar o lançamento aqui é a defesa.
 // Só texto, sem E/S, o comando inteiro, e nunca lança: na dúvida, nega.
-// - Liberação: sem aspas, crase (escape do PowerShell), ^ (escape do cmd),
-//   barra invertida (escape do bash), espaços e maiúsculas, o texto tem
-//   ':liberar' (cobre 'claude-hadouken:liberar' com ou sem a barra, e o
-//   prefixo montado por variável); ou '/liberar' como palavra, caso o Claude
-//   Code aceite o nome curto do comando do plugin.
-// - Claude (decisão do controlador na rodada 1 da revisão): só em posição de
-//   comando de algum segmento, pelo leitor acima. Uma mensagem de commit que
-//   cita claude e liberar passa; bash -c "claude ..." e $(claude ...) não.
-// - Expansão (mesma decisão): com claude em posição de comando, o texto com
-//   'hadouken' e { $ ` * ou ? nega, porque não dá para saber o que o bash
-//   expande (:libe{rar,}, :lib?rar, $X).
-// - Um comando que não dá para ler (variável, glob) só nega junto do texto
-//   da liberação.
-// Resíduo (R1; SECURITY.md na Task 18): um script fora da ferramenta Bash ou
-// PowerShell (arquivo .sh ou .ps1, npm run, um executável com outro nome),
-// o texto vindo de arquivo (claude -p < pedido.txt), comandos ofuscados (nome
-// montado aos pedaços, códigos de caractere, -EncodedCommand) e uma linha de
-// heredoc que comece por claude (conta como comando: nega a mais).
+//
+// Decisão do controlador na rodada 2 da revisão da Task 16: parar de caçar
+// variantes. A rodada 1, só com a posição de comando, deixava passar
+// '>o claude ...', 'cmd /c start claude ...', 'try { claude ... }' e
+// '. claude ...'. Agora nega se qualquer um de três testes disparar:
+// (a) o texto normalizado (sem continuação de linha, sem aspas, crase, ^ e
+//     barra invertida, minúsculas) tem 'hadouken:liberar', com ou sem
+//     claude. Juntar os espaços num só não muda essa busca (o alvo não tem
+//     espaço) e custaria segundos num comando de 16 MiB, então não é feito.
+//     Um grep, um echo ou uma mensagem de commit que cite o comando nega; o
+//     texto do deny aponta o git commit -F.
+// (b) claude como palavra em qualquer lugar (a checagem larga de antes da
+//     rodada 1) e, junto, ':liberar' ou '/liberar' como palavra, ou
+//     'hadouken' com { $ ` * ? + ( ! ou % (chaves, variável, crase, glob,
+//     concatenação "lib"+"erar", subexpressão, %X% e !X! do cmd).
+// (c) o leitor de posição de comando da rodada 1, como estava: claude
+//     lançado com ':liberar' (espaços fora) ou '/liberar' como palavra, ou
+//     com 'hadouken' e { $ ` * ou ?; um comando que não dá para ler
+//     (variável, glob) só com o texto da liberação. Os casos A a D não foram
+//     levados ao leitor: (a) e (b) já os pegam, e a mudança nele não
+//     apareceria em nenhuma função exportada (sem teste que a prove).
+// Acima de 1 MiB (1_048_576 unidades do texto), 'liberar' em qualquer lugar,
+// cru ou normalizado (com espaços no meio), nega sem o leitor. A busca crua
+// vem antes, para não copiar o texto (16 MiB: 17 ms contra segundos).
+// Nega a mais, e o texto do deny aponta a saída: uma mensagem de commit em
+// heredoc ($(cat <<'EOF' ...)) que cite hadouken e traga o trailer
+// 'Co-Authored-By: Claude' (claude como palavra, hadouken, $ e ( no mesmo
+// comando), e uma linha de heredoc que comece por claude.
+// Resíduo (R1; SECURITY.md na Task 18): a ofuscação que monta o próprio
+// 'hadouken' em tempo de execução ($'\x68adouken', printf, códigos de
+// caractere, -EncodedCommand), com ou sem claude como palavra; o nome claude
+// montado aos pedaços sem o texto da liberação; um script fora da ferramenta
+// Bash ou PowerShell (arquivo .sh ou .ps1, npm run, um executável com outro
+// nome) e o texto vindo de arquivo (claude -p < pedido.txt).
+const LIMITE = 1_048_576;
 const LIBERAR_CURTO = /(?:^|[\s;&|(=])\/liberar(?=[\s;&|)]|$)/;
+// 'liberar' e ':liberar' com espaços entre as letras: o mesmo que tirar os
+// espaços e procurar, sem copiar o texto.
+const LIBERAR_ESPACADO = /l\s*i\s*b\s*e\s*r\s*a\s*r/;
+const DOIS_PONTOS_LIBERAR = /:\s*l\s*i\s*b\s*e\s*r\s*a\s*r/;
+// (b): claude que não é parte de outro nome (claude-hadouken, claudette,
+// CLAUDE.md, ~/.claude/, uma pasta claude/), com caminho ou .exe, .cmd, .ps1
+// ou .bat; ou o pacote. A palavra pode vir depois de { [ , ' " $ ou de uma
+// barra (try {claude}, ['claude', ...], .\claude.exe).
+const PALAVRA_CLAUDE = /(?<![a-z0-9_.-])claude(?:\.exe|\.cmd|\.ps1|\.bat)?(?![a-z0-9_./\\-])/;
+const PACOTE = /claude-code/;
+// (b): ':liberar' com qualquer coisa antes (claude-hadouken:liberar) ou
+// '/liberar' fora de um caminho, sem outro nome depois (liberar.js,
+// liberar/, liberara não contam; 'liberar.' no fim da frase conta).
+const LIBERAR_PALAVRA = /(?::|(?<![a-z0-9_./-])\/)liberar(?![a-z0-9_/-]|\.[a-z0-9_])/;
+const EXPANSAO_LARGA = /[{$`*?+(!%]/;
 
 export function claudeComLiberar(comando) {
   try {
     if (typeof comando !== 'string') return false;
     const bruto = comando.toLowerCase();
-    const semEscape = bruto.replace(/["'`^\\]/g, '');
-    const liberar = semEscape.replace(/\s+/g, '').includes(':liberar') || LIBERAR_CURTO.test(semEscape);
+    const grande = comando.length > LIMITE;
+    if (grande && bruto.includes('liberar')) return true;
+    const semContinuacao = bruto.replace(/[\\`^]\r?\n/g, '');
+    const semAspas = semContinuacao.replace(/["'`^]/g, '');
+    const semEscape = semAspas.replace(/\\/g, '');
+    if (grande && LIBERAR_ESPACADO.test(semEscape)) return true;
+    // (a)
+    if (semEscape.includes('hadouken:liberar')) return true;
+    // (b)
+    const palavraClaude = [semContinuacao, semAspas, semEscape].some((v) => PACOTE.test(v) || PALAVRA_CLAUDE.test(v));
+    if (palavraClaude) {
+      if (LIBERAR_PALAVRA.test(semContinuacao) || LIBERAR_PALAVRA.test(semEscape)) return true;
+      if (semEscape.includes('hadouken') && EXPANSAO_LARGA.test(semContinuacao)) return true;
+    }
+    // (c)
+    const liberar = DOIS_PONTOS_LIBERAR.test(semEscape) || LIBERAR_CURTO.test(semEscape);
     const expansao = bruto.includes('hadouken') && /[{$`*?]/.test(bruto);
     if (!liberar && !expansao) return false;
     const l = lancamento(bruto, 0);
