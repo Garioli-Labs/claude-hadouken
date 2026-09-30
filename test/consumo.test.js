@@ -53,6 +53,16 @@ test('config.json ausente: sem repos e sem aviso (o origin decide)', () => {
   assert.deepEqual(reposDaConfig(arqConfig()), { repos: null, avisos: [] });
 });
 
+test('config.json com guarda e sem repos: repos null, sem aviso (§14 v0.4.0)', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk-cfg-compat-'));
+  try {
+    fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ guarda: { teto7d: 70 } }));
+    assert.deepEqual(reposDaConfig(path.join(d, 'config.json')), { repos: null, avisos: [] });
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test('config.json válido: até 20 repos que passam na regex da Task 9', () => {
   config(JSON.stringify({ repos: ['Garioli-Labs/resonance-pro', 'o/r'] }));
   assert.deepEqual(reposDaConfig(arqConfig()), { repos: ['Garioli-Labs/resonance-pro', 'o/r'], avisos: [] });
