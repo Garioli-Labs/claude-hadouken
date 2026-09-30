@@ -35,9 +35,14 @@ async function segmentoDaGuarda(dir, entrada, agoraMs) {
     const g = avaliarGuarda({ dir, agoraMs, sessionId: entrada.session_id });
     const m = entrada.model !== null && typeof entrada.model === 'object' ? entrada.model : {};
     const nomeModelo = [m.id, m.display_name].filter((x) => typeof x === 'string').join(' ').slice(0, 200);
+    // M3 da revisão final da parte 1: só a liberação em vigor (cobertura
+    // ativa) vai à barra, com ou sem trava descoberta ao lado; a vencida, não.
+    // M4: o evento 'erro' recente de hook, na mesma leitura dos eventos.
+    const liberacao = g.cobertura?.ativa === true && g.liberacao ? g.liberacao : null;
+    const sinais = reg.sinaisDaBarra(dir, liberacao ? liberacao.id : null, agoraMs);
     return segmentoBarra({
-      marcada: reg.sessaoMarcada(dir, entrada.session_id), status: g.status, ativas: g.ativas, liberacao: g.liberacao,
-      origemConhecida: g.liberacao ? reg.temEventoLiberacao(dir, g.liberacao.id, agoraMs) : true,
+      marcada: reg.sessaoMarcada(dir, entrada.session_id), status: g.status, ativas: g.ativas, liberacao,
+      origemConhecida: sinais.origemConhecida, erroRecente: sinais.erroRecente,
       fableSessao: /fable/i.test(nomeModelo), despachosFable: g.despachosFable, config: g.config, usoFable: g.usoFable,
     }, agoraMs);
   } catch {

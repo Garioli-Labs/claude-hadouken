@@ -125,15 +125,22 @@ function semanaFable(u, agoraMs) {
 }
 
 // Segmento da barra (§8.3). Vazio com a guarda armada e sessão fora do Fable.
+// M3 da revisão final da parte 1: a liberação em vigor aparece também ao lado
+// das travas que ela não cobre (a statusline só a passa com a cobertura
+// ativa); a barra mostra toda liberação (§6.5, R1). M4: erroRecente (evento
+// 'erro' de hook nos últimos 15 min, statusline.js) mostra "guarda com erro"
+// (§4.5), uma vez só; com a guarda desligada, só "guarda desligada".
 export function segmentoBarra(o, agoraMs) {
   try {
     if (!o.marcada) return 'sem guarda nesta sessão';
     const partes = [];
+    const valendo = o.status !== 'desligada' && o.status !== 'erro';
     if (o.status === 'desligada') partes.push('guarda desligada');
     else if (o.status === 'erro') partes.push('guarda com erro');
     else if (o.status === 'sem-leitura') partes.push('guarda sem leitura');
     else if (o.status === 'disparada') partes.push(`guarda: ${[...new Set(o.ativas.map((k) => ROTULO[k] ?? 'guarda'))].join(' + ')}`);
-    else if (o.status === 'liberada' && o.liberacao) {
+    if (valendo && o.erroRecente === true) partes.push('guarda com erro');
+    if (valendo && o.liberacao) {
       partes.push(`liberada até ${quandoLocal(segundos(Date.parse(o.liberacao.ate)), agoraMs)}`);
       if (!o.origemConhecida) partes.push('liberação sem origem');
     }

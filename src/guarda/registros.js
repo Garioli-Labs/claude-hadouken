@@ -95,6 +95,19 @@ export function temEventoLiberacao(dir, id, agoraMs) {
   return lerEventos(dir, agoraMs).some((e) => e.tipo === 'liberacao' && e.detalhe === id);
 }
 
+// Os dois sinais da barra numa leitura só (M3 e M4 da revisão final da parte
+// 1): a origem da liberação em vigor (idLiberacao null = nenhuma, conta como
+// conhecida) e um evento 'erro' de hook nos últimos ERRO_RECENTE_MS, que a
+// barra mostra como "guarda com erro" (spec v0.4.0 §4.5).
+export const ERRO_RECENTE_MS = 15 * 60_000;
+export function sinaisDaBarra(dir, idLiberacao, agoraMs) {
+  const eventos = lerEventos(dir, agoraMs);
+  return {
+    origemConhecida: idLiberacao === null || eventos.some((e) => e.tipo === 'liberacao' && e.detalhe === idLiberacao),
+    erroRecente: eventos.some((e) => e.tipo === 'erro' && agoraMs - Date.parse(e.at) <= ERRO_RECENTE_MS),
+  };
+}
+
 export function despachosFableRecentes(dir, agoraMs) {
   try {
     const v = ler(dir, ARQ_DESPACHOS, PEQUENO_MAX_BYTES);

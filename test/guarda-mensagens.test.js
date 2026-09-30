@@ -87,6 +87,25 @@ test('segmento da barra', () => {
   assert.equal(m.segmentoBarra({ ...base, fableSessao: true, despachosFable: [agora - H, agora - 2 * H, agora - 6 * H] }, agora), 'Fable 2/4 em 5h · sem leitura oficial');
 });
 
+// M3 e M4 da revisão final da parte 1: a liberação em vigor aparece ao lado
+// das travas que ela não cobre (a statusline só a passa com a cobertura
+// ativa), e um evento 'erro' recente de hook mostra "guarda com erro" (§4.5).
+test('segmento da barra: liberação ao lado das travas e erro recente de hook', () => {
+  const base = { marcada: true, status: 'armada', ativas: [], liberacao: null, origemConhecida: true, fableSessao: false, despachosFable: [], config: PADRAO_GUARDA };
+  const lib = { ate: new Date(agora + 2 * H).toISOString() };
+  const ate = `liberada até ${quandoLocal(agoraS + 7200, agora)}`;
+  const disparada = { ...base, status: 'disparada', ativas: ['fable'], liberacao: lib };
+  assert.equal(m.segmentoBarra(disparada, agora), `guarda: Fable · ${ate}`);
+  assert.equal(m.segmentoBarra({ ...disparada, origemConhecida: false }, agora), `guarda: Fable · ${ate} · liberação sem origem`);
+  assert.equal(m.segmentoBarra({ ...base, status: 'sem-leitura', liberacao: lib }, agora), `guarda sem leitura · ${ate}`);
+  assert.equal(m.segmentoBarra({ ...base, erroRecente: true }, agora), 'guarda com erro');
+  assert.equal(m.segmentoBarra({ ...disparada, erroRecente: true }, agora), `guarda: Fable · guarda com erro · ${ate}`);
+  assert.equal(m.segmentoBarra({ ...base, status: 'liberada', liberacao: lib, erroRecente: true }, agora), `guarda com erro · ${ate}`);
+  // Uma vez só com a avaliação da barra em erro; desligada, só "desligada".
+  assert.equal(m.segmentoBarra({ ...base, status: 'erro', erroRecente: true }, agora), 'guarda com erro');
+  assert.equal(m.segmentoBarra({ ...base, status: 'desligada', liberacao: lib, erroRecente: true }, agora), 'guarda desligada');
+});
+
 test('segmento da barra: semana do Fable pela leitura oficial (E2, E7)', () => {
   const base = { marcada: true, status: 'armada', ativas: [], liberacao: null, origemConhecida: true, fableSessao: true, despachosFable: [agora - H], config: PADRAO_GUARDA };
   const u = (pct, idadeMs, resetsAtMs = agora + 48 * H) => ({ pct, resetsAtMs, idadeMs });

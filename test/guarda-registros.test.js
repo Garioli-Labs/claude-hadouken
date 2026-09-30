@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   ARQ_EVENTOS, ARQ_DESPACHOS, ARQ_LIMITES, ARQ_MODELOS, DIR_MARCAS,
-  anexarEvento, lerEventos, temEventoLiberacao, registrarDespachoFable, despachosFableRecentes,
+  anexarEvento, lerEventos, temEventoLiberacao, sinaisDaBarra, ERRO_RECENTE_MS, registrarDespachoFable, despachosFableRecentes,
   registrarLimite, ultimoLimiteFable, gravarModeloSessao, modeloDaSessao, marcarSessao, sessaoMarcada, normalizarModelo,
 } from '../src/guarda/registros.js';
 
@@ -60,6 +60,23 @@ test('eventos ilegíveis recomeçam do zero sem lançar', () => {
   assert.deepEqual(anexarEvento(d, 'liberacao', 'abcdef01', agora), { ok: true });
   assert.equal(temEventoLiberacao(d, 'abcdef01', agora), true);
   assert.equal(temEventoLiberacao(d, '00000000', agora), false);
+});
+
+// M3 e M4 da revisão final da parte 1: os dois sinais da barra numa leitura.
+test('sinaisDaBarra: origem da liberação e erro de hook nos últimos 15 min', () => {
+  const d = novo();
+  assert.deepEqual(sinaisDaBarra(d, null, agora), { origemConhecida: true, erroRecente: false });
+  assert.deepEqual(sinaisDaBarra(d, 'abcdef01', agora), { origemConhecida: false, erroRecente: false });
+  anexarEvento(d, 'erro', 'P1', agora - ERRO_RECENTE_MS - 1);
+  anexarEvento(d, 'liberacao', 'abcdef01', agora);
+  assert.deepEqual(sinaisDaBarra(d, 'abcdef01', agora), { origemConhecida: true, erroRecente: false });
+  assert.equal(ERRO_RECENTE_MS, 15 * 60_000);
+  anexarEvento(d, 'erro', 'P5', agora - ERRO_RECENTE_MS + 1);
+  assert.deepEqual(sinaisDaBarra(d, null, agora), { origemConhecida: true, erroRecente: true });
+  // Outro tipo de evento recente não é erro.
+  const d2 = novo();
+  anexarEvento(d2, 'negado', 'G5', agora);
+  assert.equal(sinaisDaBarra(d2, null, agora).erroRecente, false);
 });
 
 // Só os campos conhecidos voltam: tipo fora da lista, instante ilegível ou

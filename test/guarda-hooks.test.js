@@ -11,7 +11,7 @@ import { ARQ_GUARDA } from '../src/guarda/travas.js';
 import { ARQ_LIBERACAO, gravarLiberacao, montarLiberacao, lerPedido } from '../src/guarda/liberacao.js';
 import { PADRAO_GUARDA } from '../src/guarda/config.js';
 import { travasVazias, lerTravas } from '../src/guarda/travas.js';
-import { ARQ_DESPACHOS, ARQ_LIMITES, lerEventos, registrarDespachoFable, gravarModeloSessao, modeloDaSessao } from '../src/guarda/registros.js';
+import { ARQ_DESPACHOS, ARQ_LIMITES, lerEventos, registrarDespachoFable, gravarModeloSessao, modeloDaSessao, registrarLimite, anexarEvento } from '../src/guarda/registros.js';
 import { P4_LIBERAR_TEXTO, AGENDA_LIBERAR_TEXTO } from '../src/guarda/mensagens.js';
 
 // Hooks da guarda (spec v0.4.0 §4.2), cada um num processo filho como o
@@ -735,4 +735,30 @@ test('barra: sessão Fable mostra a contagem e a semana do Fable (E2, E7); liber
   gravarLiberacao(home, montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: agora, usado7d: 40, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef01' }));
   const r2 = rodarBarra(barraDe('s1', 40), home);
   assert.match(r2.stdout, / │ liberada até .+ · liberação sem origem$/);
+});
+
+// M3 e M4 da revisão final da parte 1.
+test('barra: a liberação aparece ao lado da trava que ela não cobre; erro de hook recente aparece', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home);
+  rodar('prompt-submit.js', promptDe('s1', 'oi'), home);
+  const agora = Date.now();
+  // G6: o limite do Fable atingido há 1 min trava o Fable; a liberação 2h
+  // (sem 'fable') não cobre essa trava.
+  registrarLimite(home, 'fable', agora - 60_000);
+  // Evento 'erro' de hook há 20 min: fora da janela de 15 min. Gravado antes
+  // dos outros: anexarEvento com um relógio 20 min atrás descartaria os
+  // eventos "do futuro" (instante em base.js).
+  anexarEvento(home, 'erro', 'P1', agora - 20 * 60_000);
+  gravarLiberacao(home, montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: agora, usado7d: 40, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef02' }));
+  anexarEvento(home, 'liberacao', 'abcdef02', agora);
+  const r = rodarBarra(barraDe('s1', 40), home);
+  assert.match(r.stdout, / │ guarda: Fable · liberada até [^·]+$/);
+  // Há 1 min: dentro da janela.
+  anexarEvento(home, 'erro', 'P4', agora - 60_000);
+  assert.match(rodarBarra(barraDe('s1', 40), home).stdout, / │ guarda: Fable · guarda com erro · liberada até [^·]+$/);
+  // Liberação vencida (2h pedidas há 3 h) não aparece.
+  gravarLiberacao(home, montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: agora - 3 * H, usado7d: 40, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef03' }));
+  assert.match(rodarBarra(barraDe('s1', 40), home).stdout, / │ guarda: Fable · guarda com erro$/);
 });
