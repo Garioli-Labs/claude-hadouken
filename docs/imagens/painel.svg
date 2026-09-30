@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="885" height="220" viewBox="0 0 885 220" role="img" aria-label="Item do claude-hadouken na barra de status do VS Code, com o mouse em cima: 5h 42% · sem 59% · Fable 71%. A dica mostra, por janela, a porcentagem, o reinício e a previsão: sessão de 5h em 42%, reinicia às 15:30 e, nesse ritmo, esgota por volta das 14:04; semana de todos os modelos em 59%, não esgota antes do reinício de segunda às 22:00; semana do Fable em 71%, esgota segunda de manhã. Depois, 2 sessões ativas, a idade da leitura oficial (12 s) e a fonte: statusline do Claude Code e claude /usage, sem tokens.">
+  <title>Item do claude-hadouken na barra de status do VS Code, com o mouse em cima: 5h 42% · sem 59% · Fable 71%. A dica mostra, por janela, a porcentagem, o reinício e a previsão: sessão de 5h em 42%, reinicia às 15:30 e, nesse ritmo, esgota por volta das 14:04; semana de todos os modelos em 59%, não esgota antes do reinício de segunda às 22:00; semana do Fable em 71%, esgota segunda de manhã. Depois, 2 sessões ativas, a idade da leitura oficial (12 s) e a fonte: statusline do Claude Code e claude /usage, sem tokens.</title>
+  <rect x="0" y="0" width="885" height="220" fill="#1F1F1F"/>
+  <rect x="24.5" y="16.5" width="796" height="171" rx="3" fill="#202020" stroke="#454545"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Ubuntu, 'Droid Sans', sans-serif" font-size="13">
+    <text x="36" y="42" textLength="692" lengthAdjust="spacing" xml:space="preserve"><tspan fill="#E8E8E8" font-weight="700">Sessão (5h):</tspan><tspan fill="#CCCCCC"> 42% · reinicia 15:30 · Nesse ritmo, esgota por volta das 14:04, antes do reinício das 15:30.</tspan></text>
+    <text x="36" y="68" textLength="762" lengthAdjust="spacing" xml:space="preserve"><tspan fill="#E8E8E8" font-weight="700">Semana (todos os modelos):</tspan><tspan fill="#CCCCCC"> 59% · reinicia seg 22:00 · Nesse ritmo, não esgota antes do reinício de 28/09 às 22:00.</tspan></text>
+    <text x="36" y="94" textLength="773" lengthAdjust="spacing" xml:space="preserve"><tspan fill="#E8E8E8" font-weight="700">Semana (Fable):</tspan><tspan fill="#CCCCCC"> 71% · reinicia seg 22:00 · Nesse ritmo, esgota segunda de manhã, antes do reinício de 28/09 às 22:00.</tspan></text>
+    <text x="36" y="120" textLength="111" lengthAdjust="spacing" xml:space="preserve"><tspan fill="#CCCCCC">Sessões ativas: 2</tspan></text>
+    <text x="36" y="146" textLength="156" lengthAdjust="spacing" xml:space="preserve"><tspan fill="#CCCCCC">Leitura oficial: há 12 s</tspan></text>
+    <text x="36" y="172" textLength="397" lengthAdjust="spacing" xml:space="preserve"><tspan fill="#CCCCCC">Fonte: statusline do Claude Code e claude /usage, sem tokens.</tspan></text>
+  </g>
+  <rect x="0" y="198" width="885" height="22" fill="#181818"/>
+  <path d="M0 198.5 H885" stroke="#2B2B2B"/>
+  <rect x="623" y="198" width="198" height="22" fill="#F1F1F133"/>
+  <path d="M628 209 h3 l2 -5 l3 10 l2 -7 l1.5 2 h3" fill="none" stroke="#CCCCCC" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="648" y="213" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Ubuntu, 'Droid Sans', sans-serif" font-size="12" fill="#CCCCCC" textLength="168" lengthAdjust="spacing" xml:space="preserve">5h 42% · sem 59% · Fable 71%</text>
+</svg>

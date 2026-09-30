@@ -16,29 +16,34 @@
 
 `claude-hadouken` is a Claude Code plugin that measures your real usage and shows it where you work:
 
-- your account's **5-hour** and **7-day** limits, with the expected weekly pace;
+- your account's limits, the **5-hour session**, the **week** and the **Fable week**, with the same numbers as the claude.ai Usage tab;
+- each session's **context** and prompt **cache hit rate**;
 - **tokens** per project, per model·effort, per session and per main agent vs. subagents;
-- prompt **cache hit rate**;
 - **GitHub Actions minutes and cache** for your repositories.
 
-It all shows up in an always-visible status bar, in an on-demand report, and in short notices that Claude itself receives when it is time to shift gears.
+It all shows up in a status bar at the bottom of Claude Code, in a VS Code status bar item, in an on-demand report, and in short notices that Claude itself receives when it is time to shift gears.
 
-This is **v0.2.0** of the plugin's first subproject, the **Usage reader** (*Leitor de consumo*): the same numbers as v0.1.0, now also as little bars, an easier-to-read report and, with several sessions open, how many are active and when a window hits 100 % at the current pace. Zero dependencies, Node.js only.
+This is **v0.3.0** of the plugin's first subproject, the **Usage reader** (*Leitor de consumo*). The Claude Code status bar now shows only what belongs to the session: model, effort, context and cache. The account limits, which are the same in every session, show up once, in a VS Code status bar item, with Fable read from the official `/usage` without spending tokens and the forecast worded like claude.ai. Zero dependencies, Node.js only.
 
 > [!NOTE]
-> The plugin's interface (status bar, notices and report) is in Brazilian Portuguese. This README quotes it verbatim and explains each part in English.
+> The plugin's interface (status bar, panel, notices and report) is in Brazilian Portuguese. This README quotes it verbatim and explains each part in English.
 
 ## Contents
 
 - [Why it exists](#why-it-exists)
 - [In 30 seconds](#in-30-seconds)
 - [The status bar, segment by segment](#the-status-bar-segment-by-segment)
-  - [5-hour window](#2-5-hour-window)
-  - [7-day window and the expected pace](#3-7-day-window-and-the-expected-pace)
-  - [Context and cache](#4-context-ctx)
-  - [Several sessions at once](#several-sessions-at-once)
+  - [Context and cache](#2-context-ctx)
   - [When `—` shows up, and when the bar is empty](#when--shows-up-and-when-the-bar-is-empty)
+- [The VS Code panel](#the-vs-code-panel)
+  - [The tooltip](#the-tooltip)
+  - [The forecast](#the-forecast)
+  - [No tokens, little RAM](#no-tokens-little-ram)
+  - [Install, turn off and remove](#install-turn-off-and-remove)
 - [The notices Claude receives](#the-notices-claude-receives)
+  - [5-hour window: the bands](#5-hour-window-the-bands)
+  - [7-day window: the expected pace and the modes](#7-day-window-the-expected-pace-and-the-modes)
+  - [Projection and several sessions](#projection-and-several-sessions)
 - [The `/claude-hadouken:consumo` report](#the-claude-hadoukenconsumo-report)
   - [Open sessions in the last hour](#open-sessions-in-the-last-hour)
   - [Column glossary](#column-glossary)
@@ -73,67 +78,48 @@ The guiding principle: **quality before savings**. Saving cuts volume, paralleli
 
 ## In 30 seconds
 
-The plugin does three things:
+The plugin does four things:
 
-1. **A status bar**, always at the bottom of Claude Code. In one line, in numbers and little bars, it tells you how much of your usage windows is gone and whether you are ahead of or behind pace for the week. With several sessions open, it also says how many are active and, if the current pace takes a window to 100 % before its reset, at what time.
+1. **A status bar**, always at the bottom of Claude Code. In one line, in numbers and little bars, it tells you this session's model and effort, how much of the context is in use and how much of what goes to the model comes from the cache.
 
-   ![claude-hadouken status bar: Opus 5.5·high; 5h with its bar at 42%, resetting at 15:30; 7d with its bar at 59%, a mark at the expected 65%, resetting Monday 22:00; context at 37% and cache hit rate at 92%, each with its own bar; all green](docs/imagens/barra-calma.svg)
+   ![claude-hadouken status bar: Opus 5.5·high; context at 37% and cache hit rate at 92%, each with its own bar, both green](docs/imagens/barra-calma.svg)
 
-2. **Short notices for Claude.** When a window changes band (for example, the 5-hour one goes past 80 %), or when the current pace takes it to 100 % before the reset, Claude receives one line in its context and adjusts how it works.
-3. **An on-demand report**, `/claude-hadouken:consumo`: where the tokens went (by project, model, subagents and session, plus the weight of each session open in the last hour) and the GitHub Actions minutes.
+2. **A VS Code status bar item** with the account limits: the 5-hour session, the week and the Fable week, with the numbers from the claude.ai Usage tab. Hover it to see when each window resets and the forecast, worded like claude.ai.
+
+   ![claude-hadouken item in the VS Code status bar, hovered: 5h 42% · sem 59% · Fable 71%. The tooltip shows, per window, the percentage, the reset and the forecast: 5-hour session at 42%, resets at 15:30 and, at this pace, runs out around 14:04; week for all models at 59%, does not run out before Monday's 22:00 reset; Fable week at 71%, runs out Monday morning. Then 2 active sessions, the age of the official reading (12 s) and the source: Claude Code status line and claude /usage, no tokens](docs/imagens/painel.svg)
+
+3. **Short notices for Claude.** When a window changes band (for example, the 5-hour one goes past 80 %), or when the current pace takes it to 100 % before the reset, Claude receives one line in its context and adjusts how it works.
+4. **An on-demand report**, `/claude-hadouken:consumo`: where the tokens went (by project, model, subagents and session, plus the weight of each session open in the last hour) and the GitHub Actions minutes.
 
 > [!TIP]
 > Every image and example in this README is the real output of the plugin's code, run on **synthetic data** (projects `meu-projeto` and `outro-projeto`, made-up sessions). The examples' clock is frozen on a **Saturday at 12:00**; the account's week started the previous Monday at 22:00. The images are rebuilt with `node docs/imagens/gerar.mjs`.
 
 ---
 
-## The VS Code panel (v0.3.0)
-
-The account limits (5-hour session, week and Fable) are the same in every session. From v0.3.0 on they show up **once**, in a single VS Code status bar item:
-
-```text
-5h 25% · sem 41% · Fable 57%
-```
-
-- **The numbers are the ones on the claude.ai Usage tab.** 5h and the week come from the Claude Code status line on every response. Fable, which the status line does not carry, comes from the official `claude -p /usage` command.
-- **No tokens spent.** `/usage` is a local Claude Code command with no model call, and every read checks that (`num_turns` 0, cost 0). If the command ever starts to cost anything, the panel stops reading for 24 h and says so.
-- **Light on RAM.** Each read runs in lean mode, without plugins, MCP, hooks or session history: about 270 MB for about 5 s, against 970 MB and 28 processes in normal mode. It runs every 30 s, only while a Claude Code session is active, one at a time across all VS Code windows. With less than 1.5 GiB of free RAM, reading pauses.
-- **Hover** the item for each window's percentage, reset time and forecast, worded like claude.ai. The tooltip also shows how old the reading is and its status.
-- **Click** the item to read now.
-- **Install.** The plugin's session start installs the extension by itself, in the background, when it finds VS Code. To turn this off, set `HADOUKEN_SEM_PAINEL=1`. To remove it, run `code --uninstall-extension gariolilabs.claude-hadouken-painel`.
-
-The terminal status bar now shows only what belongs to **that session**: model, effort, context and cache.
-
----
-
 ## The status bar, segment by segment
 
-> **v0.3.0 (in development):** the bar shows only segments 1, 4 and 5, that is, model·effort, `ctx` and `cache`. Segments 2 and 3 (5 hours and 7 days), the session count and the forecast moved to the [VS Code panel](#the-vs-code-panel-v030). The text below about them describes v0.2.0 and will be rewritten before the release.
-
-
-The bar is a single line split into five pieces separated by `│`:
+The bar shows only what belongs to **this session**, in one line split into three pieces separated by `│`:
 
 ```text
-Opus 5.5·high │ 5h ▰▰▰▱▱▱▱▱ 42% ↻15:30 │ 7d ▰▰▰▰▰┃▱▱▱ 59%/65% ↻seg 22:00 │ ctx ▰▰▰▱▱▱▱▱ 37% │ cache ▰▰▰▰▰▰▰▱ 92%
-└─────┬─────┘   └─────────┬──────────┘   └──────────────┬──────────────┘   └──────┬───────┘   └───────┬────────┘
-      1                   2                             3                         4                   5
+Opus 5.5·high │ ctx ▰▰▰▱▱▱▱▱ 37% │ cache ▰▰▰▰▰▰▰▱ 92%
+└─────┬─────┘   └──────┬───────┘   └───────┬────────┘
+      1                2                   3
 ```
 
 | # | Segment | What it means | Where the number comes from | Colour | What to do |
 |---|---|---|---|---|---|
 | 1 | `Opus 5.5·high` | Model and effort level of **this session**. | Claude Code sends it to the bar on every refresh. | No colour. | Check it before a big task: is this the model and effort you wanted? |
-| 2 | `5h ▰▰▰▱▱▱▱▱ 42% ↻15:30` | You have used **42 %** of the 5-hour window (3 of 8 squares). It resets at **15:30** (local time). | The limits reading Claude Code receives with the API responses. | Green below 70 %, yellow from 70 % to 79 %, red from 80 % on. | Green: carry on. Yellow: watch the pace. Red: no parallel work; from 90 %, wrap up what you are doing. |
-| 3 | `7d ▰▰▰▰▰┃▱▱▱ 59%/65% ↻seg 22:00` | You have used **59 %** of the week. At a linear pace, **65 %** would be expected by now, marked by the `┃` on the bar. The week resets **Monday (`seg`) at 22:00**. | The same limits reading; "expected" is the plugin's maths. | Green on pace or with slack, yellow on `econ`, red on `só leitura`. | Check the label: none = normal; `econ` = hold back volume; `folga` = invest in quality; `só leitura` = stop. |
-| 4 | `ctx ▰▰▰▱▱▱▱▱ 37%` | **37 %** of this session's context window is in use. | Claude Code sends it to the bar. | Green below 70 %, yellow from 70 % to 84 %, red from 85 % on. | Yellow or red and about to change topic? A new session (or `/compact`) starts lighter. |
-| 5 | `cache ▰▰▰▰▰▰▰▱ 92%` | **92 %** of what was sent to the model in this session came from the prompt cache. | Claude Code sends it to the bar. | Green from 80 % on, yellow from 50 % to 79 %, red below 50 %. | High is good: you reuse context instead of paying for it again. Low right at the start of a session is normal. |
+| 2 | `ctx ▰▰▰▱▱▱▱▱ 37%` | **37 %** of this session's context window is in use (3 of 8 squares). | Claude Code sends it to the bar. | Green below 70 %, yellow from 70 % to 84 %, red from 85 % on. | Yellow or red and about to change topic? A new session (or `/compact`) starts lighter. |
+| 3 | `cache ▰▰▰▰▰▰▰▱ 92%` | **92 %** of what was sent to the model in this session came from the prompt cache. | Claude Code sends it to the bar. | Green from 80 % on, yellow from 50 % to 79 %, red below 50 %. | High is good: you reuse context instead of paying for it again. Low right at the start of a session is normal. |
+
+The account limits (5 hours, week and Fable) are not on the bar: they are the same in every session and show up once, in the [VS Code panel](#the-vs-code-panel). On every refresh the bar still saves the 5-hour and 7-day reading that Claude Code sends along: the panel, the notices to Claude and the report all come from it.
 
 ### The little bars
 
-All four percentages also come as a bar of 8 squares: `▰` is a full square, `▱` an empty one, and each square is worth 12.5 points.
+Both percentages also come as a bar of 8 squares: `▰` is a full square, `▱` an empty one, and each square is worth 12.5 points.
 
 - The maths rounds to the nearest square, with two guards: usage of 1 % or more never shows as empty (at least one square stays), and the bar is only completely full at 100 %.
-- On the 7-day bar, the `┃` marks where the expected pace is. Full squares after the `┃` mean usage ahead of pace; empty squares before it, usage behind. In the example, `▰▰▰▰▰┃▱▱▱`: the expected 65 % falls after the 5th square, and the 59 % usage also fills 5, so you are on pace.
-- The bar is the same number in another shape: the percentage is still written next to it, and the colour and band come from the number, never from the bar.
+- The bar is the same number in another shape: the percentage is still written next to it, and the colour comes from the number, never from the bar.
 - An indicator with no reliable data shows `—`, with no bar.
 
 ### 1. Model·effort
@@ -142,71 +128,7 @@ All four percentages also come as a bar of 8 squares: `▰` is a full square, `�
 - The effort appears after the `·` only when it is one of the five known levels: `low`, `medium`, `high`, `xhigh` or `max`. With no recognised effort, the bar shows just the model name.
 - Model, effort, context and cache always belong to **the session where the bar is shown**. Two open sessions can show different models.
 
-### 2. 5-hour window
-
-Anthropic limits Pro and Max accounts in 5-hour windows. The `5h ▰▰▰▱▱▱▱▱ 42% ↻15:30` segment says two things, the first one twice:
-
-- **`▰▰▰▱▱▱▱▱ 42%`**: how much of the current window is used. The 5-hour window has no expected pace, so its bar has no `┃`.
-- **`↻15:30`**: the local time the window resets. The `↻` means "resets at".
-
-When the current pace takes the window to 100 % before the reset, the segment gets the forecast at its end, `→100% 13:10`, in red; see [Several sessions at once](#several-sessions-at-once).
-
-The colour and Claude's behaviour change by band:
-
-| Usage | Band (on screen) | Colour | What Claude starts doing | What you can do |
-|---|---|---|---|---|
-| below 70 % | normal | green | Nothing changes. | Nothing. |
-| 70 % to 79 % | `atenção` (attention) | yellow | Watches the pace. | Avoid opening big new fronts. |
-| 80 % to 89 % | `serializar` (serialise) | red | No Workflow and no parallel subagents. | One thing at a time. |
-| 90 % or more | `fechar` (wrap up) | red | Wraps up the current task, opens no new stage and schedules the return for after the reset. | Leave the next stage for after the `↻`. |
-
-### 3. 7-day window and the expected pace
-
-The account also has a weekly limit. The `7d ▰▰▰▰▰┃▱▱▱ 59%/65% ↻seg 22:00` segment has four parts:
-
-- **`▰▰▰▰▰┃▱▱▱`**: usage as a bar, with the `┃` at the expected pace (see [The little bars](#the-little-bars)).
-- **`59%`**: how much of the week is used.
-- **`65%`**: how much you **would have used by now** if you spent the week evenly, hour by hour, until the reset. It is the yardstick for being ahead or behind.
-- **`↻seg 22:00`**: the local day and time the week resets (`seg` = Monday; the days are `dom seg ter qua qui sex sáb`, Sunday to Saturday).
-
-Sometimes a label follows the numbers: `econ`, `folga` or `só leitura`. No label means you are on pace.
-
-At the end, as on the 5-hour window, there may be the forecast of hitting 100 % before the reset, with the day: `→100% dom 18:00` (Sunday 18:00). The expected value is a time yardstick; the forecast comes from the real pace.
-
-#### The pace maths, with an example
-
-The week has 168 hours. After *h* hours, the expected value is *h* ÷ 168 × 100 %.
-
-In the example, the week resets Monday at 22:00, so it started **the previous Monday at 22:00**. It is now **Saturday, 12:00**.
-
-1. Hours since the start: Monday 22:00 → Saturday 12:00 = **110 h**.
-2. Expected: 110 ÷ 168 × 100 = 65.47 %, shown as **65 %** (rounded down).
-3. Actual usage: **59 %**.
-4. Distance: 59 − 65 = **−6 points**. That is within ±10, so the mode is **normal** and there is no label.
-
-The 10-point rule: the distance is usage minus expected, using the same whole numbers you see on the bar. Only **going past** 10 points changes the mode. At the same time as the example:
-
-| Usage | Distance | Mode | How the bar shows it | Colour |
-|---|---|---|---|---|
-| 76 % | +11 | economy | `7d ▰▰▰▰▰┃▰▱▱ 76%/65% econ ↻seg 22:00` | yellow |
-| 75 % | +10 | normal | `7d ▰▰▰▰▰┃▰▱▱ 75%/65% ↻seg 22:00` | green |
-| 59 % | −6 | normal | `7d ▰▰▰▰▰┃▱▱▱ 59%/65% ↻seg 22:00` | green |
-| 55 % | −10 | normal | `7d ▰▰▰▰▱┃▱▱▱ 55%/65% ↻seg 22:00` | green |
-| 54 % | −11 | slack | `7d ▰▰▰▰▱┃▱▱▱ 54%/65% folga ↻seg 22:00` | green |
-| 91 % | (irrelevant) | read-only | `7d ▰▰▰▰▰┃▰▰▱ 91%/65% só leitura ↻seg 22:00` | red |
-
-What each mode means:
-
-| Mode | When | Label | Colour | What Claude starts doing |
-|---|---|---|---|---|
-| normal | usage within 10 points of expected, up or down | (none) | green | Nothing changes. |
-| economy (`econômico`) | usage more than 10 points **above** expected | `econ` | yellow | Less volume and parallelism, without cutting tests, review or implementation effort. |
-| slack (`folga`) | usage more than 10 points **below** expected | `folga` | green | Invests the slack in quality (extra review, higher effort on specs and audits), not volume. |
-| read-only (`só leitura`) | usage at 90 % or more **and** reset more than 24 h away | `só leitura` | red | Read-only; recommends stopping. Overrides the other modes. |
-
-Expected always stays between 0 % and 100 %, even if the machine's clock is ahead or behind. The maths is done in UTC; only the display uses the local time zone, so daylight saving time does not throw anything off.
-
-### 4. Context (`ctx`)
+### 2. Context (`ctx`)
 
 The context window is how much conversation, files and tool results the model can take into account at once. `ctx 37%` means 37 % of it is in use in this session. The number comes from Claude Code itself. The fuller it is, the more every response carries; when you change topic, a new session is usually cheaper.
 
@@ -218,7 +140,7 @@ The colour warns when the context fills up (the ctx and cache bands are visual o
 | 70 % to 84 % | yellow |
 | 85 % or more | red |
 
-### 5. Cache (`cache`)
+### 3. Cache (`cache`)
 
 On every response, Claude Code sends the whole conversation to the model again. The **prompt cache** keeps the start of that conversation for a while, and later responses reuse it instead of processing everything again. Reading from the cache costs a fraction of the normal input price.
 
@@ -234,71 +156,196 @@ The colour follows the hit rate:
 
 Red at the start of a session, or right after switching models, is normal: the cache is still being built.
 
-### Several sessions at once
-
-With several Claude Code sessions open at the same time (in VS Code or in any terminal), the bar gets two extra pieces:
-
-```text
-Opus 5.5·high │ 3 sessões │ 5h ▰▰▰▰▰▰▰▱ 82% ↻15:30 →100% 13:10 │ 7d ▰▰▰▰▰┃▱▱▱ 59%/65% ↻seg 22:00 │ ctx ▰▰▰▱▱▱▱▱ 37% │ cache ▰▰▰▰▰▰▰▱ 92%
-                └───┬───┘                          └────┬────┘
-                    A                                   B
-```
-
-| # | Piece | What it means | Where the number comes from | Colour | What to do |
-|---|---|---|---|---|---|
-| A | `3 sessões` | **3** plugin sessions are active right now, this one included. It comes right after the model, only with 2 or more. | The plugin's count over `estado.json`: registered sessions whose bar refreshed in the last 5 minutes. | No colour. | More sessions spend the same window faster: look at this number before opening another. |
-| B | `→100% 13:10` | At the current pace, the 5-hour window hits **100 %** at **13:10**, before it resets at 15:30. On the 7-day window the forecast comes with the day: `→100% dom 18:00` (Sunday 18:00). | The plugin's maths over the limits readings of the last minutes (see below). | Red. | Reduce parallelism or serialise; if the time is too soon to finish what is left, leave the next stage for after the `↻`. |
-
-**What counts as an active session.** A registered session (one that started after the plugin was installed) whose bar refreshed in the last 5 minutes. The bar refreshes whenever the session works, so an idle session drops out of the count within 5 minutes. The count never goes above 50 (the session cap in `estado.json`) and is always a whole number. With a single session, your own, the piece is not shown. The plugin does not tell VS Code sessions apart from other terminals: it counts every Claude Code session on this machine that went through the registration.
-
-**Sessions opened before installation are not counted.** They never go through the plugin's registration. Their usage is still inside the account's percentages, and so it is in the forecast.
-
-**How the forecast is made.**
-
-- On every refresh, the bar keeps the limits reading in a short history, in `estado.json`: at most one point every 2 minutes, up to 90 points (3 hours).
-- The pace is the least-squares slope of the percentage against time: on the 5-hour window, over the points of the last 20 minutes; on the 7-day one, over those of the last 3 hours.
-- The forecast is now + (100 − current usage) ÷ pace. It needs at least 3 points covering 6 minutes or more with usage going up, and it only shows if it falls before the reset: if the reset comes first, there is nothing to warn about.
-- The percentages belong to the whole account, so the pace already adds up every session, registered or not, on this machine or another.
-- When the window changes (the reset time moved, or the percentage dropped more than 1 point), that window's history starts over: the forecast never mixes two windows. Right after a change, or with the bar idle, the forecast takes a few minutes to come back.
-- A reading that carries one window but not the other also restarts the missing window's history. If Claude Code leaves `seven_day` out now and then, the 7-day forecast keeps starting over and may never show.
-
-With the forecast close, Claude also gets a projection notice (see [The notices Claude receives](#the-notices-claude-receives)), and the report shows how much each session weighed in the last hour (see [Open sessions in the last hour](#open-sessions-in-the-last-hour)).
-
 ### The bar in other situations
 
-![Twelve states of the bar, each with its little bars: 5h 74% in yellow; 5h 82% in red; 5h 93% in red; 7d 78%/65% econ in yellow; 7d 50%/65% folga (slack) in green; 7d 91%/65% só leitura (read-only) in red; ctx 88% in red; cache 64% in yellow; 3 open sessions, with the 3 sessões piece after the model; 5h at 82% with the forecast of hitting 100% at 13:10, in red; 7d at 84% with the forecast of hitting 100% on Sunday at 18:00, in red; and a session with no data yet, showing dashes and no bars](docs/imagens/barra-estados.svg)
+![Six states of the bar: ctx 76% in yellow; ctx 88% in red; cache 64% in yellow; cache 31% in red, with ctx 4%, at the start of a session; an unknown effort, with just the model name; and a session with no data yet, showing dashes and no bars](docs/imagens/barra-estados.svg)
 
-The grey comment lines in the image are in Portuguese; in order they say: 5h past 70 % (attention, yellow); 5h past 80 % (serialise, red); 5h past 90 % (wrap up, red); 7d more than 10 points above expected (econ, yellow); 7d more than 10 points below expected (slack, green); 7d at 90 % or more with the reset over 24 h away (read-only, red); ctx at 85 % or more, context almost full (red); cache hit rate between 50 % and 79 % (yellow); 3 sessions open at the same time: the sessions piece, right after the model; at the current pace, 5h hits 100 % at 13:10, before the reset: forecast (red); at the current pace, 7d hits 100 % on Sunday at 18:00, before Monday's reset; new session before the first response (no data yet).
+The grey comment lines in the image are in Portuguese; in order they say: ctx from 70 % to 84 %, context filling up (yellow); ctx at 85 % or more, context almost full (red); cache hit rate from 50 % to 79 % (yellow); cache hit rate below 50 %, start of a session or model switch (red); effort outside the five known levels, just the model name; new session before the first response (no data yet).
 
 ### When `—` shows up, and when the bar is empty
 
-**`—` means "no reliable data right now", never zero.** It shows up when:
+**`—` means "no reliable data right now", never zero.** On the bar it shows up in `ctx` or `cache` when:
 
-- the session has not received its first API response yet (the limits arrive with the responses);
-- your account does not send limits to the bar (API key, or a plan without limits): then `5h —` and `7d —` stay for good, and everything else works;
-- the last limits reading is more than 1 hour old, or the reset time has passed with no new reading: the plugin prefers `—` to showing a stale value as current;
+- Claude Code has not sent the number yet, as in a new session before the first response;
 - the value received is not in the expected shape (for example, a percentage outside 0 to 100).
 
 **An empty bar is something else.** In a session opened **before** the plugin was installed, the bar command prints nothing, on purpose: the plugin only acts in sessions that started after it. Open a new session. See [Installation](#installation).
 
 ### Rules for the whole bar
 
-- **Limits belong to the account, not the session.** With several sessions open, they all show the most recent valid reading from any of them. So does the forecast: it comes from the same readings, kept in a single history.
-- **Percentages are rounded down.** 89.6 % shows as `89%`, never as a `90%` that would contradict the band. The weekly mode comes from the same whole numbers you see, so the bar and the mode never disagree.
-- **Colour only on the four percentages and on the forecast** (5 hours, 7 days, ctx and cache; the `→100%` forecast always in red; the model and the session count have no colour), and only these: green, yellow and red. The colour covers the whole segment, bar included; the forecast, at the end of the segment, has its own. The [`NO_COLOR`](https://no-color.org/) variable (set and non-empty) turns colours off; the bars stay.
-- **Width.** With the bars, the line went from about 75 to about 100 columns, and a long model name makes it wider. The sessions piece adds 12 columns (13 from 10 sessions on) and each forecast 12 on the 5-hour window and 16 on the 7-day one. The bar does not cut itself to fit: see [Known limitations](#known-limitations).
+- **Only the session.** Model, effort, context and cache belong to each session: two open sessions each show their own. What belongs to the account is in the [VS Code panel](#the-vs-code-panel).
+- **Percentages are rounded down.** 89.6 % shows as `89%`, and the colour comes from that same whole number, so the number and the colour never disagree.
+- **Colour only on `ctx` and `cache`**, and only these: green, yellow and red. The colour covers the whole segment, bar included; the model has no colour. The [`NO_COLOR`](https://no-color.org/) variable (set and non-empty) turns colours off; the bars stay.
+- **Width.** The example line is 53 columns; a long model name (up to 40 characters) makes it wider. The bar does not cut itself to fit: see [Known limitations](#known-limitations).
+
+---
+
+## The VS Code panel
+
+The account limits (5-hour session, week and Fable) are the same in every session, so they show up **once**, in an item on the right of the VS Code status bar:
+
+```text
+5h 42% · sem 59% · Fable 71%
+```
+
+| Piece | What it means | On the claude.ai Usage tab |
+|---|---|---|
+| `5h 42%` | You have used **42 %** of the 5-hour session. | Current session |
+| `sem 59%` | You have used **59 %** of the week (`sem` = *semana*), all models added up. | Current week (all models) |
+| `Fable 71%` | You have used **71 %** of Fable's own weekly limit. | Current week (Fable) |
+
+- **Percentages are rounded down.** A window with no reliable reading shows as `—` (for example, `Fable —` before the first official reading); with none at all, the item says `Hadouken: sem leitura` (no reading).
+- **The colour follows the worst window:** no colour below 75 %, warning background (yellow) from 75 % to 89 % and error background (red) from 90 % on. These bands are the panel's own; the notices to Claude follow theirs (see [The notices Claude receives](#the-notices-claude-receives)).
+- **Click** the item, or run the `Claude Hadouken: atualizar uso agora` (update usage now) command, to read right away. A manual read still respects the lock between windows, the RAM pause and the cost block (see [No tokens, little RAM](#no-tokens-little-ram)).
+
+![Six states of the panel item in the VS Code status bar: 5h 42% · sem 59% · Fable 71%, no colour; 5h 78% · sem 59% · Fable 71%, yellow background; 5h 42% · sem 59% · Fable 92%, red background; 5h 42% · sem 59% · Fable —, before the first official reading; Hadouken: sem leitura; and Hadouken: abra uma sessão do Claude Code, when no session has started with the plugin on this machine](docs/imagens/painel-estados.svg)
+
+The grey comment lines in the image are in Portuguese; in order they say: every window below 75 %, no colour; worst window from 75 % to 89 %, warning background; worst window at 90 % or more, error background; before the first official reading, Fable shows `—`; no valid reading; no Claude Code session has started with the plugin on this machine (the item then says "open a Claude Code session").
+
+**Where each number comes from.**
+
+- **5 hours and week:** the newer reading between the Claude Code status line (which the bar saves in `estado.json` on every refresh) and `/usage` (saved in `uso-oficial.json`). The reset time comes from the status line, which carries it exactly.
+- **Fable:** only from `/usage`, because the status line has no per-model limit. Its reset time is taken from the `/usage` text (`resets Oct 5, 10pm`), read in local time.
+- A reading more than 1 hour old, or whose reset has already passed, is not shown: the window turns into `—`.
+
+### The tooltip
+
+Hover the item to see the tooltip (the image in [In 30 seconds](#in-30-seconds) shows one). In order, it has:
+
+| Line | What it says |
+|---|---|
+| **Sessão (5h):**, **Semana (todos os modelos):** and **Semana (Fable):** | The percentage, when the window resets (`reinicia 15:30` on the same day, `reinicia seg 22:00` on another) and the [forecast](#the-forecast). A window with no reading: `sem leitura`. |
+| `Sessões ativas: 2` | How many plugin sessions are active right now (see [Projection and several sessions](#projection-and-several-sessions)). |
+| `Leitura oficial: há 12 s` | The age of the latest `/usage` reading; before the first one, `Sem leitura oficial ainda` (no official reading yet). |
+| reading status | Only when something stops the reading: `Leitura pausada: pouca RAM livre.` (paused: little free RAM), `Leitura bloqueada por 24 h: o /usage passou a ter custo.` (blocked for 24 h: `/usage` started to cost), `claude não encontrado em ~/.local/bin nem no PATH.` (claude not found), `Leitura desligada (HADOUKEN_SEM_PAINEL=1).` (reading turned off), `Última leitura passou de 30 s; a próxima em 15 min.` (last reading took over 30 s; next one in 15 min), `Última leitura passou do teto de saída; a próxima em 15 min.` (last reading went over the output cap; next one in 15 min) or `Última leitura falhou (motivo).` (last reading failed), with the reason from a fixed list (`formato`, `erro`, `sem-pasta`). |
+| `Fonte: statusline do Claude Code e claude /usage, sem tokens.` | Always, at the end (source: the Claude Code status line and claude /usage, no tokens). |
+
+The tooltip holds only fixed labels and numbers: no text read from a file goes into it.
+
+### The forecast
+
+The sentence is the same one claude.ai uses, built from the average pace of the whole window so far:
+
+- pace = usage ÷ time elapsed in the window (5 hours or 7 days);
+- runs out = now + (100 − usage) ÷ pace.
+
+| Case | Sentence |
+|---|---|
+| runs out before the reset | `Nesse ritmo, esgota <when>, antes do reinício <reset>.` (at this pace, runs out <when>, before the <reset> reset) |
+| runs out after the reset | `Nesse ritmo, não esgota antes do reinício <reset>.` (at this pace, does not run out before the reset) |
+| usage at 100 % | `Limite atingido; reinicia <reset>.` (limit reached; resets <reset>) |
+| less than 30 minutes elapsed, or zero usage | (no sentence) |
+
+- **`<when>`** is `por volta das 14:04` (around 14:04) when it is less than 6 hours away. Further out, it is `hoje` (today), `amanhã` (tomorrow) or the weekday (up to 6 days), with the part of the day: `de madrugada` (0 to 5 h), `de manhã` (6 to 11 h), `à tarde` (12 to 17 h) or `à noite` (18 to 23 h). After 6 days, `em 05/10` (on 05/10, day/month).
+- **`<reset>`** is `das 15:30` on the same day and `de 28/09 às 22:00` on another.
+
+In the image, at 12:00, the 5-hour session is at 42 % and resets at 15:30. It started at 10:30, so 1.5 h have passed: the pace is 42 ÷ 1.5 = 28 % an hour. The remaining 58 % run out in 58 ÷ 28 = 2.07 h, around 14:04, before 15:30. Hence `Nesse ritmo, esgota por volta das 14:04, antes do reinício das 15:30.`
+
+This sentence is not the projection in the notices to Claude. The projection uses the pace of the last minutes (see [Projection and several sessions](#projection-and-several-sessions)); the sentence, the average of the whole window, like claude.ai. The session-start line uses the weekly sentence.
+
+### No tokens, little RAM
+
+- **No tokens.** Fable comes from the official `claude -p /usage` command. `/usage` is a local Claude Code command: it does not call the model. Every read checks the result (`local_command` equal to `usage`, `num_turns` 0 and cost 0). If it ever comes back different, the panel takes it as the command having started to cost, stops reading for 24 h and says so in the tooltip. Claude Code itself queries Anthropic, with your session; the plugin reads no credential and calls no endpoint.
+- **Lean mode.** The read runs without plugins, MCP, hooks, Chrome or session history (`--no-session-persistence --strict-mcp-config --no-chrome --setting-sources "" --settings {"disableAllHooks":true}`), in an empty folder inside the data folder (`uso-cwd/`), so Claude Code indexes nothing. Measured on the author's Windows machine:
+
+  | Mode | Time | Peak RAM | Processes |
+  |---|---|---|---|
+  | plain `claude -p /usage` | 15 s | 972 MB | 28 (MCP, hooks, plugins) |
+  | lean, the panel's | 5 s | 270 MB | 2 to 4 |
+
+- **Only when useful.** One read every 30 s, only while some Claude Code session was active in the last 5 minutes, and one at a time across all VS Code windows: a file lock (`uso-oficial.lock`) is only considered abandoned after 90 s, and a read less than 25 s old makes the next one unnecessary. After a read that ran past the deadline or the output cap, came in an unexpected format or failed, the next one waits 15 min; 5 h and the week keep coming from the status line meanwhile. On average about 45 MB, with 270 MB peaks for 5 s.
+- **Memory pause.** With less than 1.5 GiB of free RAM, the read is skipped, even a manual one, and the tooltip says `Leitura pausada: pouca RAM livre.`
+- **The rest is file reading.** Every 5 s the extension redraws the item by reading `estado.json` and `uso-oficial.json`. No webview and no dependencies; the logic lives in the plugin (`src/uso/painel.js`), loaded through a stable script in the data folder (`bin/painel.mjs`).
+
+### Install, turn off and remove
+
+- **Automatic install.** When a session starts on a plugin version that is not yet installed in VS Code, the session start builds the extension (a `.vsix`, in `<data folder>/painel/`) and runs `code --install-extension <vsix> --force` in the background. It needs the `code` command on `PATH` (on Windows, `code.cmd`). One attempt per hour, whether it works or not, and none of it goes into Claude's context.
+- **Manual install:** `node "$HOME/.claude/hadouken/bin/cli.mjs" painel instalar`.
+- If the item does not show up in a VS Code window that was already open, reload it (the `Developer: Reload Window` command). Until a Claude Code session has started with the plugin on this machine, the item says `Hadouken: abra uma sessão do Claude Code` (open a Claude Code session).
+- **Remove (the way to turn it off now):** run `code --uninstall-extension gariolilabs.claude-hadouken-painel` and reload every open VS Code window (`Developer: Reload Window`): the item keeps running in them until the reload. Also set `HADOUKEN_SEM_PAINEL=1` in Claude Code's environment; without it, a session start installs the extension again, on the next plugin version.
+- **`HADOUKEN_SEM_PAINEL=1`** makes the session start stop installing and updating the extension. For an already installed extension to stop reading `/usage`, the variable has to be in VS Code's own environment: set it as a user variable (on Windows) or in your shell profile, and quit and reopen VS Code completely. A variable set only in one terminal does not reach the extension.
+- **`HADOUKEN_HOME`** follows the same rule: if you move the data folder, the extension only sees it with the variable in VS Code's environment.
 
 ---
 
 ## The notices Claude receives
 
-The bar is for you. The notices are for Claude.
+The bar and the panel are for you. The notices are for Claude.
 
-When a window changes band, the plugin puts **one short line in Claude's context**, before it reads your next prompt. The line does not show up as a chat message: you follow the same change through the bar's colour and label, and Claude takes the state into account (and may mention it). At the start of every session, it also receives the current state in one line. And when, at the current pace, a window is going to hit 100 % before its reset, it gets a projection notice.
+When a window changes band, the plugin puts **one short line in Claude's context**, before it reads your next prompt. The line does not show up as a chat message: you follow usage through the VS Code panel and `/claude-hadouken:consumo`, and Claude takes the state into account (and may mention it). At the start of every session, it also receives the current usage in one line. And when, at the current pace, a window is going to hit 100 % before its reset, it gets a projection notice.
 
-![Lines Claude receives: the state at session start and one notice per band change (5h at 74%: attention; 5h at 83%: serialise; 7d 78% against 65%: economy mode). Then, with 3 active sessions, the projection notice: 5h hits 100% at 12:50, before the 15:30 reset; in the same 60-minute band nothing repeats; 25 minutes before running out, a new notice. A prompt in the same band produces no line.](docs/imagens/avisos.svg)
+![Lines Claude receives: usage at session start (5h 42% resetting at 15:30, 7d 59% resetting Monday 22:00 and, at this pace, it does not run out before the reset) and one notice per band change (5h at 74%: attention; 5h at 83%: serialise; 7d 78% against 65%: economy mode). Then, with 3 active sessions, the projection notice: 5h hits 100% at 12:50, before the 15:30 reset; in the same 60-minute band nothing repeats; 25 minutes before running out, a new notice. A prompt in the same band produces no line.](docs/imagens/avisos.svg)
 
 The grey comment lines in the image are in Portuguese; in order they say: session start (SessionStart); prompt with 5h at 74%; next prompt, still at 76%: same band, nothing is injected; prompt with 5h at 83%; prompt with 7d at 78% (expected 65%); 3 active sessions, at the current pace 5h hits 100% at 12:50 (50 min from now); next prompt, forecast at 12:45: same band (60 min), nothing is injected; forecast at 12:25 (25 min from now): 30-minute band, new notice.
+
+The bands, modes and projection below drive the notices and the report's "Limites e ritmo" panel. The VS Code panel uses none of them: it shows the percentage, with its own colours, and the [forecast](#the-forecast) worded like claude.ai.
+
+### 5-hour window: the bands
+
+Anthropic limits Pro and Max accounts in 5-hour windows. Claude's behaviour changes by band:
+
+| Usage | Band (as quoted) | What Claude starts doing | What you can do |
+|---|---|---|---|
+| below 70 % | normal | Nothing changes. | Nothing. |
+| 70 % to 79 % | `atenção` (attention) | Watches the pace. | Avoid opening big new fronts. |
+| 80 % to 89 % | `serializar` (serialise) | No Workflow and no parallel subagents. | One thing at a time. |
+| 90 % or more | `fechar` (wrap up) | Wraps up the current task, opens no new stage and schedules the return for after the reset. | Leave the next stage for after the reset. |
+
+### 7-day window: the expected pace and the modes
+
+The account also has a weekly limit. For it, the plugin works out the **expected** value: how much you **would have used by now** if you spent the week evenly, hour by hour, until the reset. It is the yardstick for being ahead or behind, and it decides the mode.
+
+#### The pace maths, with an example
+
+The week has 168 hours. After *h* hours, the expected value is *h* ÷ 168 × 100 %.
+
+In the example, the week resets Monday at 22:00, so it started **the previous Monday at 22:00**. It is now **Saturday, 12:00**.
+
+1. Hours since the start: Monday 22:00 → Saturday 12:00 = **110 h**.
+2. Expected: 110 ÷ 168 × 100 = 65.47 %, shown as **65 %** (rounded down).
+3. Actual usage: **59 %**.
+4. Distance: 59 − 65 = **−6 points**. That is within ±10, so the mode is **normal**.
+
+The 10-point rule: the distance is usage minus expected, using whole numbers (rounded down). Only **going past** 10 points changes the mode. At the same time as the example:
+
+| Usage | Distance | Mode |
+|---|---|---|
+| 76 % | +11 | economy |
+| 75 % | +10 | normal |
+| 59 % | −6 | normal |
+| 55 % | −10 | normal |
+| 54 % | −11 | slack |
+| 91 % | (irrelevant) | read-only |
+
+What each mode means:
+
+| Mode | When | What Claude starts doing |
+|---|---|---|
+| normal | usage within 10 points of expected, up or down | Nothing changes. |
+| economy (`econômico`) | usage more than 10 points **above** expected | Less volume and parallelism, without cutting tests, review or implementation effort. |
+| slack (`folga`) | usage more than 10 points **below** expected | Invests the slack in quality (extra review, higher effort on specs and audits), not volume. |
+| read-only (`só leitura`) | usage at 90 % or more **and** reset more than 24 h away | Read-only; recommends stopping. Overrides the other modes. |
+
+Expected always stays between 0 % and 100 %, even if the machine's clock is ahead or behind. The maths is done in UTC; only the display uses the local time zone, so daylight saving time does not throw anything off. The expected value and the mode show up in the notices and in the report; the bar, the panel and the session-start line do not show them.
+
+### Projection and several sessions
+
+With several Claude Code sessions open at the same time (in VS Code or in any terminal), the same window is spent faster. Two of the plugin's counts deal with that: active sessions and the projection.
+
+**What counts as an active session.** A registered session (one that started after the plugin was installed) whose bar refreshed in the last 5 minutes. The bar refreshes whenever the session works, so an idle session drops out of the count within 5 minutes. The count never goes above 50 (the session cap in `estado.json`) and is always a whole number. The plugin does not tell VS Code sessions apart from other terminals: it counts every Claude Code session on this machine that went through the registration. The number shows up in the panel tooltip (`Sessões ativas: 3`) and in the projection notice, when there are 2 or more.
+
+**Sessions opened before installation are not counted.** They never go through the plugin's registration. Their usage is still inside the account's percentages, and so it is in the projection.
+
+**How the projection is made.**
+
+- On every refresh, the bar keeps the limits reading in a short history, in `estado.json`: at most one point every 2 minutes, up to 90 points (3 hours).
+- The pace is the least-squares slope of the percentage against time: on the 5-hour window, over the points of the last 20 minutes; on the 7-day one, over those of the last 3 hours.
+- The projection is now + (100 − current usage) ÷ pace. It needs at least 3 points covering 6 minutes or more with usage going up, and it only counts if it falls before the reset: if the reset comes first, there is nothing to warn about.
+- The percentages belong to the whole account, so the pace already adds up every session, registered or not, on this machine or another.
+- When the window changes (the reset time moved, or the percentage dropped more than 1 point), that window's history starts over: the projection never mixes two windows. Right after a change, or with the bar idle, the projection takes a few minutes to come back.
+- A reading that carries one window but not the other also restarts the missing window's history. If Claude Code leaves `seven_day` out now and then, the 7-day projection keeps starting over and may never come out.
+
+With the projection close, Claude gets the projection notice (see below), and the report shows how much each session weighed in the last hour (see [Open sessions in the last hour](#open-sessions-in-the-last-hour)).
 
 ### When a notice is sent
 
@@ -307,7 +354,7 @@ The grey comment lines in the image are in Portuguese; in order they say: sessio
 - **Going down is announced too, once** (`5h voltou a 65%: faixa normal.`).
 - **A new window lifts the restrictions.** If the previous window ended in a restrictive band, the new one starts with an explicit notice that the restrictions are lifted.
 - **With no reading, a single line per session:** `Consumo sem leitura: rode /usage.`
-- **Projection, once per band, window and session.** With the 5-hour forecast 60 minutes away or less (and before the reset), one line is sent; at 30 minutes or less, another. On the 7-day window, one line with the forecast 24 hours away or less. Each band is sent once per window in each session: the forecast leaving the band and coming back does not repeat the line, and a forecast that is already in the 30-minute band when it first shows produces only that band's line. A new window starts without this memory. The line says how many sessions are active when there are 2 or more; with just one, it has no parenthesis. The band notices above do not change.
+- **Projection, once per band, window and session.** With the 5-hour projection 60 minutes away or less (and before the reset), one line is sent; at 30 minutes or less, another. On the 7-day window, one line with the projection 24 hours away or less. Each band is sent once per window in each session: the projection leaving the band and coming back does not repeat the line, and a projection that is already in the 30-minute band when it first shows produces only that band's line. A new window starts without this memory. The line says how many sessions are active when there are 2 or more; with just one, it has no parenthesis. The band notices above do not change.
 
 ### Every line, as the code produces it
 
@@ -315,7 +362,7 @@ The numbers below are examples; the text is fixed.
 
 | Situation | Line Claude receives | In English |
 |---|---|---|
-| Session start | `Consumo: 5h 42% (reset 15:30) · 7d 59% vs 65% esperado, modo normal; reset seg 22:00.` | Usage: 5h 42% (reset 15:30) · 7d 59% vs 65% expected, normal mode; reset Mon 22:00. |
+| Session start | `Consumo: 5h 42% (reset 15:30) · 7d 59% (reset seg 22:00); nesse ritmo, não esgota antes do reinício.` | Usage: 5h 42% (reset 15:30) · 7d 59% (reset Mon 22:00); at this pace, it does not run out before the reset. |
 | 5 h entered attention | `5h em 74% (reset 15:30): atenção ao ritmo.` | 5h at 74% (reset 15:30): watch the pace. |
 | 5 h entered serialise | `5h em 83%: serializar — sem Workflow nem subagentes em paralelo.` | 5h at 83%: serialise — no Workflow and no parallel subagents. |
 | 5 h entered wrap up | `5h em 91%: fechar a tarefa em curso, não abrir etapa nova, agendar a volta para depois de 15:30.` | 5h at 91%: wrap up the current task, open no new stage, schedule the return for after 15:30. |
@@ -332,6 +379,8 @@ The numbers below are examples; the text is fixed.
 | 7 d: at the current pace, 100 % within 24 h, before the reset | `hadouken: no ritmo atual, 7d chega a 100% às dom 09:00, antes do reset das seg 22:00. Reduza o paralelismo ou serialize.` | hadouken: at the current pace, 7d hits 100% at Sun 09:00, before the Mon 22:00 reset. Reduce parallelism or serialise. |
 | No limits reading | `Consumo sem leitura: rode /usage.` | Usage has no reading: run /usage. |
 
+In the session-start line, the ending comes from the week's [forecast sentence](#the-forecast), shortened: `; nesse ritmo, esgota amanhã à noite` (at this pace, runs out tomorrow night), `; nesse ritmo, não esgota antes do reinício` (does not run out before the reset) or `; limite semanal atingido` (weekly limit reached). With no sentence (less than 30 minutes into the window, or zero usage), the line ends at the reset. A window with no reading shows as `5h sem leitura` or `7d sem leitura`, never as 0.
+
 At session start, if something goes wrong with the plugin itself, Claude gets one more fixed line, for example `claude-hadouken: sessão não registrada (...); barra e alertas desligados nesta sessão.` (session not registered; bar and alerts off in this session) or `claude-hadouken: barra indisponível (...)` (bar unavailable).
 
 Every line is built only from validated numbers and fixed phrases in the code; no text read from a file goes into it. Notices never block the prompt: if anything fails in a hook, it exits silently (code 0) and Claude carries on normally.
@@ -340,7 +389,7 @@ Every line is built only from validated numbers and fixed phrases in the code; n
 
 ## The `/claude-hadouken:consumo` report
 
-The bar answers "how am I doing right now". The report answers "where did the usage go". Run `/claude-hadouken:consumo`, or just ask Claude something like "how is my usage?".
+The bar and the panel answer "how am I doing right now". The report answers "where did the usage go". Run `/claude-hadouken:consumo`, or just ask Claude something like "how is my usage?".
 
 ![Excerpt of the /claude-hadouken:consumo report: the limits and pace panel with one bar per window, the two sessions with responses in the last hour (share of the hour's total, project, models and tokens), today's tables by project, model·effort and origin, with the share-of-total column as a bar, responses, input, cache created 1 h and 5 min, cache read, output and cache hit rate, and the GitHub section with runs, conclusions, minutes per OS and cache](docs/imagens/relatorio.svg)
 
@@ -348,7 +397,7 @@ It comes in three blocks, always in this order:
 
 | Block (heading on screen) | Answers | Source |
 |---|---|---|
-| **Limits and pace** (`Limites e ritmo`) | How the 5-hour and 7-day windows stand right now. | The latest limits reading (the same as the bar's). |
+| **Limits and pace** (`Limites e ritmo`) | How the 5-hour and 7-day windows stand right now. | The latest limits reading the bar saved (the same as the notices'). |
 | **Claude** | Which sessions answered in the last hour and how much each weighed; how many tokens were spent, where and on what: today, in the last 7 days and in the account's week. | Claude Code's local transcripts on this machine. |
 | **GitHub** | How many Actions runs and minutes your repos used. | `gh api`, read-only. |
 
@@ -381,7 +430,7 @@ On screen the section is `Sessões abertas (última hora)`:
 - **tokens** are the last hour's: input + cache created + cache read + output. **parte do total** (share of total) is how much the session weighs in the hour's total, with the same bar and the same rounding down as the periods' column.
 - **projeto** (project) is the one with most of the session's responses in the hour; **modelos** (models), up to 5 short names (see [Short names](#short-names)).
 - Ordered by tokens, largest first. Up to 10 rows; the rest are only counted (`Mais 3 sessões fora da tabela.`). With no response in the hour: `Nenhuma sessão com resposta na última hora.` ("no session with a response in the last hour").
-- The section reads this machine's transcripts, so it includes sessions opened before the plugin was installed, which the bar's `3 sessões` does not count.
+- The section reads this machine's transcripts, so it includes sessions opened before the plugin was installed, which the active-session count (in the panel tooltip and the projection notice) does not include.
 
 ### Claude: three periods
 
@@ -391,7 +440,7 @@ The tokens come from the transcripts Claude Code writes on this machine (`~/.cla
 |---|---|---|
 | **Today** (`Hoje`) | local midnight | The working day. |
 | **Last 7 days** (`Últimos 7 dias`) | now minus 7 × 24 h (in the example, `desde sáb 12:00`, "since Sat 12:00") | A rolling week, whatever the account's reset. |
-| **Weekly window** (`Janela semanal`) | the start of the account's 7-day window (in the example, `desde seg 22:00`) | The same period as the bar's `7d`, to compare tokens with the percentage. |
+| **Weekly window** (`Janela semanal`) | the start of the account's 7-day window (in the example, `desde seg 22:00`) | The same period as the panel's week and the notices' `7d`, to compare tokens with the percentage. |
 
 With no 7-day reading, the third block is not repeated: it says `Sem leitura da janela de 7 dias: o bloco dos últimos 7 dias vale para a semana.` ("no 7-day reading: the last-7-days block stands for the week"). A period with no responses: `Nenhuma resposta no período.`
 
@@ -622,7 +671,7 @@ The full output, with all three periods, is in [`docs/imagens/relatorio-exemplo.
 ```
 
 - `faixa` (band) is `ok`, `atencao`, `serializar` or `fechar`; `modo` (mode) is `normal`, `economico`, `folga` or `so-leitura`.
-- `esperado` (expected) has one decimal (the bar shows the floor, `65%`); `desvio` is the whole-number distance that decides the mode.
+- `esperado` (expected) has one decimal (the "Limites e ritmo" panel shows the floor, `65%`); `desvio` is the whole-number distance that decides the mode.
 - `resets_at` is the reset instant in Unix seconds; `idade_min` is the reading's age in minutes.
 - Tokens are in `claude.hoje`, `claude.sete_dias` and `claude.semana` (today, last 7 days, weekly window), with the same sums as the tables (`respostas`, `input`, `output`, `cacheRead`, `cacheCreate`, `cacheCreate1h`, `cacheCreate5m`, `cacheCreateSemDetalhe`, `acertoCache` from 0 to 1).
 - The v0.1.0 keys are the same, byte for byte: bars, share of total, short names, decimal comma and thousands separator are markdown only. Numbers come raw, and ids and names in full.
@@ -638,7 +687,8 @@ The only accepted argument is the literal `--json`; anything else is ignored and
 
 - **Claude Code** with plugin support.
 - **Node.js 20 or newer**, on your `PATH`.
-- **A Pro or Max plan** to see limits: Claude Code only hands the 5 h and 7-day limits to the status bar on those accounts (or behind a gateway with a spend limit), and only after the session's first API response. Without that, the plugin works, but the limit segments stay at `—`.
+- **A Pro or Max plan** to see limits: Claude Code only hands the 5 h and 7-day limits to the status line on those accounts (or behind a gateway with a spend limit), and only after the session's first API response. Without that, the plugin works, but the limits have no reading in the panel, the notices and the report.
+- Optional, for the panel: **VS Code** with the `code` command on `PATH` (on Windows, `code.cmd`), and the `claude` executable in `~/.local/bin` or on `PATH` (on Windows, `claude.exe`), to read Fable.
 - Optional: [`gh`](https://cli.github.com/), logged in, for the GitHub section.
 - Optional: `git`, to find the repo from `origin` when there is no `config.json`.
 
@@ -688,6 +738,8 @@ The bar appears on the next interface refresh. Two things to know before you con
 - With a `statusLine` configured, Claude Code stops showing most footer keyboard hints, such as `esc to interrupt` and `? for shortcuts`.
 - Sessions opened before the plugin was installed start running the new command right away, but do not get the bar: in them it stays empty until the session is reopened. If you replaced an existing bar, those sessions have no bar until reopened.
 
+**4. The VS Code panel installs itself.** With the `code` command on `PATH`, the session start installs the panel extension in the background, without asking anything and without spending tokens. In a VS Code window that was already open, the item may only show up after you reload it (`Developer: Reload Window`). To skip the install, or to remove it, see [Install, turn off and remove](#install-turn-off-and-remove).
+
 ### What `/claude-hadouken:instalar` changes, and how to undo it
 
 | Question | Answer |
@@ -708,16 +760,16 @@ claude plugin marketplace update claude-hadouken
 claude plugin update claude-hadouken@claude-hadouken
 ```
 
-The bar does not need to be reinstalled. The `statusLine` runs a stable script in the data folder (`bin/statusline.mjs`), and that script points to the plugin version loaded by the latest session start (opening, resuming, `/clear` and `/compact` all count as a start). v0.2.0 changes more than the look: it adds the short history of readings, the `→100%` forecast and the projection notice. In practice:
+The bar does not need to be reinstalled. The `statusLine` runs a stable script in the data folder (`bin/statusline.mjs`), and that script points to the plugin version loaded by the latest session start (opening, resuming, `/clear` and `/compact` all count as a start). The VS Code panel loads its logic the same way, through `bin/painel.mjs`. In v0.3.0 the bar loses the 5-hour and 7-day segments, the session-start line changes and the panel comes in. In practice:
 
-- **Until some session starts on the new version**, every session stays on the previous one.
-- **Once a session starts on the new version**, every session that already showed the bar, including the ones opened before the update, switches to the new bar on its next redraw. The forecast shows up about 6 minutes later, once the history holds 3 readings covering 6 minutes.
-- **The hooks of a session that was already open** (the session start line and the notices before each prompt) keep running the previous version's code until that session restarts, so it never gets the projection notice. This comes from how Claude Code loads each session's hooks, not from the plugin, and may change between Claude Code versions.
-- **A `/clear`, `/compact` or `/resume` in a session still running the previous version** points every session's bar back to it while it is still on disk: the previous look comes back, the forecast disappears and the previous version drops the history of readings. Nothing breaks. If the previous version's folder is removed after that point, the bar is empty, with no error.
-- **Only a session start on the new version** fixes both cases: opening a new session (or resuming one in a new Claude Code process), or a `/clear` or `/compact` in a session already on the new version. The new bar comes back on the next redraw, and the forecast about 6 minutes later.
+- **Until some session starts on v0.3.0**, every session stays on the previous version, with 5 h and 7 d on the bar, and the panel is not installed.
+- **Once a session starts on v0.3.0**, every session that already showed the bar, including the ones opened before the update, switches to the new, session-only bar on its next redraw. That session start also installs the VS Code panel in the background (see [Install, turn off and remove](#install-turn-off-and-remove)); a VS Code window that was already open may need a reload.
+- **The hooks of a session that was already open** keep running the previous version's code until that session restarts. The notices before each prompt did not change in v0.3.0, so nothing changes in them. This comes from how Claude Code loads each session's hooks, not from the plugin, and may change between Claude Code versions.
+- **A `/clear`, `/compact` or `/resume` in a session still running the previous version** points every session's bar back to it while it is still on disk: the previous look comes back, with 5 h and 7 d on the bar. Nothing breaks. If the previous version's folder is removed after that point, the bar is empty, with no error.
+- **Only a session start on the new version** fixes it: opening a new session (or resuming one in a new Claude Code process), or a `/clear` or `/compact` in a session already on the new version. The new bar comes back on the next redraw.
 - **A session that never loaded the plugin** still shows no bar and writes nothing, before and after the update.
 
-**After updating, restart the sessions that were open** (close and reopen them). That way every session runs the new version, with every notice, and none points the bar back to the previous one.
+**After updating, restart the sessions that were open** (close and reopen them). That way every session runs the new version, and none points the bar back to the previous one.
 
 ---
 
@@ -749,8 +801,9 @@ Create `~/.claude/hadouken/config.json`:
 | Variable | Effect |
 |---|---|
 | `CLAUDE_CONFIG_DIR` | When it is an absolute path, the plugin reads transcripts from `<CLAUDE_CONFIG_DIR>/projects` and the installer edits `<CLAUDE_CONFIG_DIR>/settings.json`, as Claude Code does. |
-| `HADOUKEN_HOME` | Changes the data folder (default `~/.claude/hadouken`). Only a complete absolute path counts (on Windows, with a drive letter or UNC). With any other value, the plugin has **no** data folder: it writes nothing, the installer refuses, and the default folder is never used instead. |
+| `HADOUKEN_HOME` | Changes the data folder (default `~/.claude/hadouken`). Only a complete absolute path counts (on Windows, with a drive letter or UNC). With any other value, the plugin has **no** data folder: it writes nothing, the installer refuses, and the default folder is never used instead. The VS Code panel only sees it if it is in VS Code's own environment. |
 | `HADOUKEN_SETTINGS` | Changes the `settings.json` the installer edits. Same rule: complete absolute path only; any other value makes the installer refuse. |
+| `HADOUKEN_SEM_PAINEL` | With the exact value `1`, the session start does not install or update the VS Code panel extension. For an already installed extension to stop reading `/usage`, the variable has to be in VS Code's own environment (see [Install, turn off and remove](#install-turn-off-and-remove)). |
 | `NO_COLOR` | Set and non-empty, removes the bar's colours. |
 
 The installer shows which data folder the bar will point to and where that choice came from; when it comes from `HADOUKEN_HOME`, it warns that this gets saved into `settings.json` and applies to every project.
@@ -763,7 +816,11 @@ In `~/.claude/hadouken/` (or in `HADOUKEN_HOME`), outside any repository:
 
 | File | Purpose |
 |---|---|
-| `estado.json` | Latest limits reading, the data of each active session and the short history of readings that feeds the forecast (up to 90 points, one every 2 minutes, 3 hours). |
+| `estado.json` | Latest limits reading, saved by the bar, the data of each active session and the short history of readings that feeds the notices' projection (up to 90 points, one every 2 minutes, 3 hours). |
+| `uso-oficial.json` | The panel's latest `/usage` reading (5 h, week and Fable, with the reading time), its status and, if any, the 24 h cost block. |
+| `uso-oficial.lock` | The panel's read lock: it exists only during a read, so two VS Code windows do not read at the same time. |
+| `uso-cwd/` | Empty folder where the panel's `claude` read runs. |
+| `painel/` | The built panel extension (`.vsix`), the record of the installed version (`instalado.json`) and of the last attempt (`tentativa.json`). |
 | `alertas.json` | Last band announced per window, so no notice repeats. |
 | `projecao.json` | Projection bands already announced in each session, so the projection notice does not repeat (up to 256 sessions). Created only when there is something to keep; content out of format becomes empty memory. |
 | `historico.jsonl` | One line per finished session, with its last reading. |
@@ -771,7 +828,7 @@ In `~/.claude/hadouken/` (or in `HADOUKEN_HOME`), outside any repository:
 | `indice-transcripts.json` | Incremental index that speeds up the report. |
 | `github-cache.json` | Actions runs that already completed. |
 | `ativas/` | One file per session that loaded the plugin (the activation registry); files idle for more than 30 days are deleted automatically. |
-| `bin/` | Stable scripts called by the bar and the commands, rewritten on every new session. |
+| `bin/` | Stable scripts called by the bar, the commands and the VS Code panel (`painel.mjs`), rewritten on every new session. |
 
 You can delete the folder at any time; it is recreated on the next session, without history.
 
@@ -782,12 +839,12 @@ You can delete the folder at any time; it is recreated on the next session, with
 **Summary:**
 
 - **No telemetry.** Nothing is sent to any service, including the plugin's author. The plugin never calls the Claude API.
-- **Network: only `gh api`, read-only.** The only network access is `gh api <endpoint>` (always a GET), made by the report for the configured repos or for `origin`. The plugin opens no connection of its own.
+- **Network: `gh api`, read-only, and Claude Code's `/usage`.** The report runs `gh api <endpoint>` (always a GET) for the configured repos or for `origin`. The VS Code panel runs the official `claude -p /usage` command: Claude Code itself queries Anthropic, with your session, without calling the model. The plugin opens no connection of its own.
 - **No tokens.** The plugin never reads, asks for or stores a token or credential. The GitHub login belongs to `gh`. The "tokens" in the report are usage counts.
 - **Transcripts: numbers only.** From transcripts, the index keeps relative paths, session and request ids, numbers, dates, model, effort and the project name. No conversation content.
-- **Where it writes:** only in the data folder. The single exception is the `statusLine` key of your `settings.json`, through the installer, with confirmation and a backup.
+- **Where it writes:** only in the data folder. The exceptions are the `statusLine` key of your `settings.json`, through the installer, with confirmation and a backup, and the panel extension, which the VS Code CLI installs in its extensions folder (can be turned off with `HADOUKEN_SEM_PAINEL=1`).
 
-**The guarantee:** nothing the plugin reads (state files, transcripts, the status line input, GitHub responses, command arguments) ever becomes executed code, a shell command, an arbitrary path, a terminal sequence or an instruction carrying the plugin's authority in Claude's context. Every threat in the model (S1 to S9: tampered file, malicious text, terminal sequences, argument injection, malicious repo, tampered script, installer triggered behind your back, supply chain, huge file) has a defence and a test with synthetic malicious input.
+**The guarantee:** nothing the plugin reads (state files, transcripts, the status line input, GitHub responses, command arguments) ever becomes executed code, a shell command, an arbitrary path, a terminal sequence or an instruction carrying the plugin's authority in Claude's context. Every threat in the model (S1 to S9: tampered file, malicious text, terminal sequences, argument injection, malicious repo, tampered script, installer triggered behind your back, supply chain, huge file; and, for the panel, S26 to S28: the panel runs `claude`, the installer runs the VS Code CLI, a tampered `uso-oficial.json`) has a defence and a test with synthetic malicious input.
 
 **The honest limit:** no plugin can stop code that **already runs as your OS user**. A malicious skill that got that far can change any of your files, including `settings.json` and the plugin itself. What `claude-hadouken` guarantees is that it does not widen that power, and that it restores its own scripts on every new session.
 
@@ -818,6 +875,8 @@ No plugin failure or slowness may stall Claude. Targets are measured, not assume
 - The Windows target is higher because Node's startup alone, with no script at all, already takes 72 ms (p50) and 89 ms (p95) on the same Windows machine. The bar runs in the background and never blocks typing.
 - v0.2.0 costs a little more than v0.1.0 on registered-session paths: +5.0 to +6.8 ms at p50 for the bar and the prompt hook, in a paired A/B of 200 pairs with both versions in the same folder (`bench/ab-raizes.mjs`). That is the work for several sessions at once (history, forecast, active-session count and projection notice). On unregistered-session paths it is the same or up to 3 ms faster. The p95 values stay well within target.
 - The session start and end hooks run once per session and have the same target as the bar and the prompt hook. On top of the target, every hook has a 5 s ceiling in `hooks.json`.
+- The table's numbers were measured on v0.2.0. v0.3.0 removes the 5-hour and 7-day text from the bar, but the bar still saves the same readings and the same history.
+- The VS Code panel is outside these targets: it runs outside Claude Code, and its install leaves the session start in the background, without the hook waiting. Its cost is the lean `/usage` read, measured separately: 5 s and a 270 MB peak per read, every 30 s and only with an active session (see [No tokens, little RAM](#no-tokens-little-ram)).
 
 Why the report is fast the second time: the transcript index is incremental and only re-reads what changed; completed GitHub runs are cached.
 
@@ -838,10 +897,12 @@ Why the report is fast the second time: the transcript index is incremental and 
 - **Windows and PowerShell.** The skills' commands are the same in sh, bash, zsh and PowerShell (all of them expand `$HOME`). `git` and `gh` are only used as an `.exe` found in an absolute `PATH` entry, never in the current folder; `.cmd` and `.bat` do not work.
 - **Node without ICU.** On a Node built without ICU (`--with-intl=none`), the plugin keeps working with stricter text cleaning: names in non-Latin scripts (and emoji) are removed from the bar and escaped in the JSON output.
 - **`HADOUKEN_HOME` and the skills.** The skills always call `node "$HOME/.claude/hadouken/bin/cli.mjs"`. With `HADOUKEN_HOME`, the command lives in `$HADOUKEN_HOME/bin/cli.mjs` and the skills cannot find it; run it directly, for example `node "$HADOUKEN_HOME/bin/cli.mjs" consumo`.
-- **The bar does not adapt to the terminal width.** Claude Code hands the bar's output over a pipe without saying how wide the terminal is, so the bar cannot know what fits and cuts nothing. With the little bars the line is about 100 columns (more with a long model name, the sessions piece or a forecast); in a narrower terminal the end is hidden or wraps, depending on the terminal. The `▰`, `▱`, `┃` and `→` glyphs take one column, like the `│` and `↻` the bar already used; terminals or fonts that draw ambiguous-width characters as two columns (common with CJK settings) make the line wider.
-- **Sessions opened before installation are not in the `N sessões` count.** They never go through the plugin's registration. Their usage is in the account's percentages, and so in the forecast, and the report's "open sessions in the last hour" section shows them, because it reads the transcripts.
-- **The forecast is a straight line.** It projects the pace of the last minutes (20 on the 5-hour window, 3 hours on the 7-day one) as if it stayed the same: a pause or a burst changes the forecast on the next reading. It needs at least 3 readings covering 6 minutes, so it does not show right at the start of a window or with the bar idle.
-- **One account at a time.** Readings are not separated per account: with two accounts under the same OS user, the bar shows the most recent reading from either. The forecast's history is a single one too; since the two accounts have different resets, switching between them restarts the history on every switch, and the forecast disappears until it gathers points again.
+- **The bar does not adapt to the terminal width.** Claude Code hands the bar's output over a pipe without saying how wide the terminal is, so the bar cannot know what fits and cuts nothing. In v0.3.0 the line got short, 53 columns in the example (more with a long model name); in a terminal narrower than that, the end is hidden or wraps, depending on the terminal. The `▰`, `▱` and `│` glyphs take one column; terminals or fonts that draw ambiguous-width characters as two columns (common with CJK settings) make the line wider.
+- **Sessions opened before installation are not among the active sessions.** They never go through the plugin's registration, so they are left out of the panel's `Sessões ativas` and of the number in the projection notice. Their usage is in the account's percentages, and so in the projection and the forecast, and the report's "open sessions in the last hour" section shows them, because it reads the transcripts.
+- **The notices' projection is a straight line.** It projects the pace of the last minutes (20 on the 5-hour window, 3 hours on the 7-day one) as if it stayed the same: a pause or a burst changes the projection on the next reading. It needs at least 3 readings covering 6 minutes, so it does not come out right at the start of a window or with the bar idle. The panel's forecast uses a different calculation, the average pace of the whole window, and so reacts slowly to a burst.
+- **One account at a time.** Readings are not separated per account: with two accounts under the same OS user, the panel, the notices and the report use the most recent reading from either, and the panel's `/usage` reads the account `claude` is logged into. The projection's history is a single one too; since the two accounts have different resets, switching between them restarts the history on every switch, and the projection disappears until it gathers points again.
+- **Fable depends on the `/usage` text.** The panel reads the English lines of `/usage` (`Current session`, `Current week (all models)`, `Current week (Fable)`) with fixed rules. If a Claude Code version changes that text, Fable shows `—` or the tooltip shows `Última leitura falhou (formato).` (last reading failed: format); 5 h and the week keep coming from the status line.
+- **The panel needs `code` and `claude`.** Without the `code` command on `PATH`, the extension does not install itself. Without `claude` in `~/.local/bin` or on `PATH` (on Windows, only `claude.exe`, never `.cmd`), Fable has no reading and the tooltip says `claude não encontrado em ~/.local/bin nem no PATH.` (claude not found).
 - **Worktrees** of the same project show up as separate projects (the project is the folder name).
 - **The plugin does not switch model or effort.** The official documentation does not allow switching models mid-session from outside, and switching mid-session wastes the cache. The plugin measures and notifies; the decision is yours.
 
@@ -857,7 +918,15 @@ node "$HOME/.claude/hadouken/bin/cli.mjs" instalar --remover
 
 It removes **only** the claude-hadouken bar, with a backup. If the file's `statusLine` is someone else's, it touches nothing. This command needs the plugin installed, which is why it comes first; `/claude-hadouken:instalar` also reminds you of it when it finishes. If you added the bar by hand (the `caminho-inseguro` case), delete the `statusLine` key by hand.
 
-**2. Uninstall the plugin and, if you like, remove the marketplace:**
+**2. Remove the VS Code panel.** In a terminal:
+
+```bash
+code --uninstall-extension gariolilabs.claude-hadouken-painel
+```
+
+Then reload every open VS Code window (`Developer: Reload Window`): the item stays in them until the reload.
+
+**3. Uninstall the plugin and, if you like, remove the marketplace:**
 
 ```text
 /plugin uninstall claude-hadouken@claude-hadouken
@@ -866,7 +935,7 @@ It removes **only** the claude-hadouken bar, with a backup. If the file's `statu
 
 In a terminal: `claude plugin uninstall claude-hadouken@claude-hadouken` and `claude plugin marketplace remove claude-hadouken`.
 
-**3. Delete the data, if you like:**
+**4. Delete the data, if you like:**
 
 ```bash
 rm -rf ~/.claude/hadouken
@@ -874,45 +943,48 @@ rm -rf ~/.claude/hadouken
 
 In PowerShell: `Remove-Item -Recurse -Force "$HOME\.claude\hadouken"`. The `settings.json.bak-hadouken-*` backups sit next to your `settings.json`; delete them too if you no longer need them.
 
-Skipped step 1? Without the plugin, the bar is simply empty, with no error messages. Remove the `statusLine` key from `settings.json` by hand.
+Skipped step 1? Without the plugin, the bar is simply empty, with no error messages. Remove the `statusLine` key from `settings.json` by hand. Skipped step 2? Without the plugin, the VS Code item stays at `Hadouken: abra uma sessão do Claude Code` (open a Claude Code session) and reads nothing more; run the step 2 command whenever you like.
 
 ---
 
 ## FAQ
 
 **What does "no reading" (*sem leitura*) mean?**
-That the plugin has no trustworthy number right now and would rather say so than show a stale value as current. It happens when the last reading is more than 1 hour old, when the reset passed without a new reading, when the state file is out of format, or before the session's first API response. The bar receives the limits along with API responses: just keep working, or run `/usage`.
+That the plugin has no trustworthy number right now and would rather say so than show a stale value as current. It happens when the last reading is more than 1 hour old, when the reset passed without a new reading, when the state file is out of format, or before the first API response. The bar receives the limits along with API responses, and the panel also reads `/usage` every 30 s while a session is active: just keep working, or click the panel item.
 
-**Why does the bar show `5h —` and `7d —` all the time?**
-Your account does not send limits to the status bar (API key, or a plan without limits). Everything else (model, context, cache, token report) works normally, and the report says the limits are unavailable on this account (*Limites indisponíveis nesta conta*).
+**Why does the panel show `Hadouken: sem leitura` all the time?**
+Your account does not send limits to the status line (API key, or a plan without limits), and `/usage` does not bring the usage lines. Everything else (bar, token report) works normally, and the report says the limits are unavailable on this account (*Limites indisponíveis nesta conta*). If only Fable stays at `—`, the tooltip says why: there has been no official reading yet, `claude` was not found, or reading is paused or blocked.
+
+**Where did the bar's 5h and 7d go?**
+To the VS Code panel, since v0.3.0. They belong to the account, the same in every session, and the bar kept only what belongs to each session. See [The VS Code panel](#the-vs-code-panel).
 
 **My open session does not show the bar. Is it broken?**
 No, that is by design: only sessions started after installation use the plugin. In an old session, the bar command prints nothing and the hooks stay silent, so work already in progress does not change behaviour. Start a new session. (An empty bar is this; `—` in a segment is something else: the session belongs to the plugin, but that piece of data has not arrived yet.)
 
 **Why can the numbers differ from `/usage` or from Anthropic's console?**
 
-- **Limits:** the bar uses the same reading Claude Code receives, but shows the latest one that arrived (up to 1 hour old), rounded down. `/usage` shows the value of the moment.
+- **Limits:** the panel uses the newer reading between the status line and `/usage` (read every 30 s), rounded down, so it should match the claude.ai Usage tab, up to about 30 s behind. The notices and the report use the status line reading, the latest one that arrived (up to 1 hour old).
 - **Tokens:** the report only sees Claude Code's transcripts **on this machine**. Usage on claude.ai, in the app, on another machine or straight through the API does not show up in the tables, but it counts toward the account's limits. Transcripts Claude Code itself has already deleted drop out of the count too.
 - **Anthropic's console:** it shows the organisation's API key usage, which is something else: on Pro and Max plans, subscription usage does not go through it.
 - **GitHub minutes:** a list-price estimate, not the billed amount.
 
 **What data leaves my machine?**
-None, except the `gh api` queries (always GET, read-only) the report makes to the configured repos, or to `origin`, using your `gh` login. No telemetry, no calls to the Claude API. Details in [Privacy and security](#privacy-and-security).
+None, except the `gh api` queries (always GET, read-only) the report makes to the configured repos, or to `origin`, using your `gh` login, and the usage query Claude Code itself makes when the panel runs `claude -p /usage`. No telemetry, no calls to the Claude API. Details in [Privacy and security](#privacy-and-security).
 
 **How do I uninstall?**
-In three steps: remove the bar (`node "$HOME/.claude/hadouken/bin/cli.mjs" instalar --remover`), uninstall the plugin (`/plugin uninstall claude-hadouken@claude-hadouken`) and, if you like, delete `~/.claude/hadouken`. The full walkthrough is in [Uninstalling](#uninstalling).
+In four steps: remove the bar (`node "$HOME/.claude/hadouken/bin/cli.mjs" instalar --remover`), remove the panel (`code --uninstall-extension gariolilabs.claude-hadouken-painel`), uninstall the plugin (`/plugin uninstall claude-hadouken@claude-hadouken`) and, if you like, delete `~/.claude/hadouken`. The full walkthrough is in [Uninstalling](#uninstalling).
 
 **The report says "plugin files not found - open a new session".**
 The plugin was updated and the old version left the disk. The next session repoints the scripts to the version in use.
 
 **Does it work on Windows? And in VS Code's terminal?**
-Yes. The bar is a command that Claude Code runs wherever it is open, including VS Code's integrated terminal. CI runs the tests on Linux, Windows and macOS, with Node 20 and 24, and paths with spaces and accents are covered by tests.
+Yes. The bar is a command that Claude Code runs wherever it is open, including VS Code's integrated terminal. The panel is a VS Code extension; on Windows, it needs `code.cmd` on `PATH` to install itself and `claude.exe` to read Fable. CI runs the tests on Linux, Windows and macOS, with Node 20 and 24, and paths with spaces and accents are covered by tests.
 
 **I have several sessions open in VS Code. Does the plugin take all of them into account?**
-Yes, in two ways. The 5-hour and 7-day percentages already belong to the whole account, adding up every session (in VS Code, another terminal or another machine), and the `→100%` forecast comes from them. The bar also shows how many plugin sessions are active right now (`3 sessões`), and the projection notice takes that number to Claude, which can reduce parallelism. The plugin does not tell VS Code sessions apart from other terminals: it counts every Claude Code session on this machine that started after installation. See [Several sessions at once](#several-sessions-at-once).
+Yes, in two ways. The 5-hour, week and Fable percentages already belong to the whole account, adding up every session (in VS Code, another terminal or another machine), and the panel shows them once, with the forecast and the projection coming from them. The panel tooltip also shows how many plugin sessions are active right now (`Sessões ativas: 3`), and the projection notice takes that number to Claude, which can reduce parallelism. The plugin does not tell VS Code sessions apart from other terminals: it counts every Claude Code session on this machine that started after installation. See [Projection and several sessions](#projection-and-several-sessions).
 
 **How much does it cost?**
-The plugin is free and open source (MIT). It never calls the Claude API; its token cost is the short lines injected into the context, and only when a band or mode changes or when the forecast enters a projection band. The GitHub calls are API reads and do not spend Actions minutes.
+The plugin is free and open source (MIT). It never calls the Claude API; its token cost is the short lines injected into the context: the session-start one and the notices, only when a band or mode changes or when the projection enters a band. The panel spends no tokens: `/usage` is a local command, and every read checks `num_turns` 0 and cost 0. The GitHub calls are API reads and do not spend Actions minutes.
 
 ---
 
@@ -922,13 +994,15 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 
 | Subproject | What it does | Status |
 |---|---|---|
-| **A. Usage reader** | Status bar, notices and report. | **v0.2.0** (this one) |
+| **A. Usage reader** | Status bar, VS Code panel, notices and report. | **v0.3.0** (this one) |
 | B. Router | Dynamic session launcher, fixed main agent, agents per model × effort, injected rules and a divergence check against the project's rules. | Planned |
 | C. Planner | Session and week planning from the project plan and the measured cost per task. | Planned |
 | D. GitHub guards | Guards for pushes and for CI on documentation-only changes, plus improvement suggestions. | Planned |
 
-- **v0.2.0** (this one) = a prettier bar: percentages also as little squares (`▰▰▰▱▱▱▱▱`), the weekly pace mark on the 7-day bar, colours for ctx and cache, and an easier-to-read `/consumo` (panel with bars, share-of-total column, short names, decimal comma and thousands separator); and, for several sessions at once, the active session count on the bar, each window's run-out forecast (`→100% 13:10`), the projection notice to Claude and the "open sessions in the last hour" section in `/consumo`.
-- **v0.3.0** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
+- **v0.2.0** = a prettier bar: percentages also as little squares (`▰▰▰▱▱▱▱▱`), the weekly pace mark on the 7-day bar, colours for ctx and cache, and an easier-to-read `/consumo` (panel with bars, share-of-total column, short names, decimal comma and thousands separator); and, for several sessions at once, the active session count on the bar, each window's run-out forecast (`→100% 13:10`), the projection notice to Claude and the "open sessions in the last hour" section in `/consumo`.
+- **v0.3.0** (this one) = the VS Code panel: 5 h, week and Fable in a status bar item, with Fable read from the official `/usage` without spending tokens, the forecast worded like claude.ai, and a lean read that uses little RAM. The terminal bar keeps only the session (model·effort, ctx and cache), and the session-start line swaps the expected value and the mode for the week's forecast sentence.
+- **v0.4.0** = the guard: instead of only notifying, hold back subagent dispatch and Fable use when usage goes too far, with release only by the user. In spec.
+- **Later** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
 - **v1.0** = A + B + C + D.
 
 ---
@@ -943,7 +1017,7 @@ Contributions are welcome. House rules:
 - **Synthetic fixtures only:** no real transcripts, personal paths, e-mails or real session ids.
 - **Interface text in Brazilian Portuguese**; **commits in English**, prefixed by area (`core:`, `installer:`, `ci:`, `docs:`).
 - **Missing data never becomes zero:** `—`, `indisponível: <reason>` or "no reading".
-- **README images:** `node docs/imagens/gerar.mjs` rebuilds the images in `docs/imagens/` from the code's real output, on synthetic data. Run it again whenever the bar, the notices or the report change.
+- **README images:** `node docs/imagens/gerar.mjs` rebuilds the images in `docs/imagens/` from the code's real output, on synthetic data. Run it again whenever the bar, the panel, the notices or the report change.
 - Vulnerabilities: through [SECURITY.md](SECURITY.md), never in a public issue.
 
 ## License

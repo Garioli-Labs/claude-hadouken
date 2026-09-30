@@ -4,20 +4,26 @@
 //
 // Nada aqui é desenho à mão: cada linha das imagens é a saída de
 // formatarBarra (src/formato.js), avaliarAlertas (src/alerta.js), linhaEstado
-// (src/hooks/linha-estado.js) e formatarMarkdown (src/relatorio.js), rodados
-// sobre dados sintéticos. Os nomes são genéricos (meu-projeto, outro-projeto,
-// sua-org) e os ids de sessão são inventados. O script só converte o texto
-// (com as cores ANSI da barra) em SVG com cara de janela de terminal.
+// (src/hooks/linha-estado.js), estadoPainel (src/uso/painel.js) e
+// formatarMarkdown (src/relatorio.js), rodados sobre dados sintéticos. Os
+// nomes são genéricos (meu-projeto, outro-projeto, sua-org) e os ids de sessão
+// são inventados. O script só converte o texto (com as cores ANSI da barra)
+// em SVG com cara de janela de terminal, e o estado do painel em SVG com cara
+// de barra de status do VS Code, desenhado como vscode/extension.cjs o
+// desenha: "$(pulse) " + texto, a cor de fundo pelo nível e a dica em
+// Markdown (negrito e um parágrafo por linha).
 //
 // O relógio e o fuso são fixos para as imagens serem reprodutíveis:
 // sábado, 26/09/2026, 12:00 em America/Sao_Paulo (UTC-3, sem horário de
 // verão). A janela de 7 dias começou na segunda anterior às 22:00 e reinicia
 // na segunda seguinte às 22:00; a de 5 horas reinicia às 15:30.
 //
-// SVG sem script, sem link externo e sem fonte baixada: só <rect>, <circle>
-// e <text> com uma pilha de fontes monoespaçadas do sistema.
+// SVG sem script, sem link externo e sem fonte baixada: só <rect>, <circle>,
+// <path> e <text>, com pilhas de fontes do sistema (monoespaçada no
+// terminal, a de interface no VS Code).
 
-import { writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -28,6 +34,7 @@ const { avaliarAlertas } = await import('../../src/alerta.js');
 const { faixa5h, faixa7d } = await import('../../src/alerta.js');
 const { linhaEstado } = await import('../../src/hooks/linha-estado.js');
 const { formatarMarkdown } = await import('../../src/relatorio.js');
+const { estadoPainel } = await import('../../src/uso/painel.js');
 
 const PASTA = path.dirname(fileURLToPath(import.meta.url));
 const epoch = (iso) => Date.parse(iso) / 1000;
@@ -114,39 +121,30 @@ function gravar(nome, svg) {
 
 // ------------------------------------------------------------------ barra
 
-// A entrada é o JSON que o Claude Code manda para a statusline; os limites são
-// o que estado.js devolveria depois de validar a leitura. `extra` leva o que
-// a statusline passa além disso (spec v0.2.0 §12): sessoesAtivas (de
-// estado.js) e previsao (de previsao.js), com instantes em ms.
+// A entrada é o JSON que o Claude Code manda para a statusline. Desde a v0.3.0
+// (E6) a barra só mostra modelo·effort, ctx e cache: os limites da conta foram
+// para o painel do VS Code (abaixo), e formatarBarra nem os lê.
 const sessao = { model: { display_name: 'Opus 5.5' }, effort: 'high', context_window: { used_percentage: 37 }, prompt_cache: { hit_ratio: 0.92 } };
 const limites = (u5, u7) => ({
   five_hour: u5 === null ? null : { used_percentage: u5, resets_at: RESET_5H },
   seven_day: u7 === null ? null : { used_percentage: u7, resets_at: RESET_7D },
 });
-const barra = (entrada, lim, extra = {}) => formatarBarra({ entrada, limites: lim, agoraMs: AGORA_MS, cor: true, ...extra });
-const ESTOURO_5H = Date.parse('2026-09-26T13:10:00-03:00');
-const ESTOURO_7D = Date.parse('2026-09-27T18:00:00-03:00');
+const barra = (entrada) => formatarBarra({ entrada, cor: true });
 
-const calma = barra(sessao, limites(42, 59));
+const calma = barra(sessao);
 gravar('barra-calma.svg', janela({
   titulo: 'barra de status do Claude Code',
-  descricao: 'Barra de status do claude-hadouken: Opus 5.5·high; 5h com barrinha em 42% e reset às 15:30; 7d com barrinha em 59%, marca no esperado de 65% e reset segunda 22:00; contexto em 37% e acerto de cache em 92%, cada um com a sua barrinha; tudo em verde.',
+  descricao: 'Barra de status do claude-hadouken: Opus 5.5·high; contexto em 37% e acerto de cache em 92%, cada um com a sua barrinha, os dois em verde.',
   linhas: [deAnsi(calma)],
 }));
 
 const estados = [
-  ['# 5h passou de 70%: faixa atenção (amarelo)', barra(sessao, limites(74, 59))],
-  ['# 5h passou de 80%: faixa serializar (vermelho)', barra(sessao, limites(82, 59))],
-  ['# 5h passou de 90%: faixa fechar (vermelho)', barra(sessao, limites(93, 59))],
-  ['# 7d mais de 10 pontos acima do esperado: econ (amarelo)', barra(sessao, limites(42, 78))],
-  ['# 7d mais de 10 pontos abaixo do esperado: folga (verde)', barra(sessao, limites(42, 50))],
-  ['# 7d em 90% ou mais, reset a mais de 24 h: só leitura (vermelho)', barra(sessao, limites(42, 91))],
-  ['# ctx em 85% ou mais: contexto quase cheio (vermelho)', barra({ ...sessao, context_window: { used_percentage: 88 } }, limites(42, 59))],
-  ['# acerto de cache entre 50% e 79% (amarelo)', barra({ ...sessao, prompt_cache: { hit_ratio: 0.64 } }, limites(42, 59))],
-  ['# 3 sessões abertas ao mesmo tempo: o trecho de sessões, logo depois do modelo', barra(sessao, limites(42, 59), { sessoesAtivas: 3 })],
-  ['# no ritmo atual, 5h chega a 100% às 13:10, antes do reset: previsão (vermelho)', barra(sessao, limites(82, 59), { sessoesAtivas: 3, previsao: { five_hour: ESTOURO_5H, seven_day: null } })],
-  ['# no ritmo atual, 7d chega a 100% no domingo às 18:00, antes do reset de segunda', barra(sessao, limites(42, 84), { previsao: { five_hour: null, seven_day: ESTOURO_7D } })],
-  ['# sessão nova, antes da primeira resposta: ainda sem dado', barra({ model: { display_name: 'Opus 5.5' }, effort: 'high' }, null)],
+  ['# ctx de 70% a 84%: contexto enchendo (amarelo)', barra({ ...sessao, context_window: { used_percentage: 76 } })],
+  ['# ctx em 85% ou mais: contexto quase cheio (vermelho)', barra({ ...sessao, context_window: { used_percentage: 88 } })],
+  ['# acerto de cache de 50% a 79% (amarelo)', barra({ ...sessao, prompt_cache: { hit_ratio: 0.64 } })],
+  ['# acerto de cache abaixo de 50%: começo de sessão ou troca de modelo (vermelho)', barra({ ...sessao, context_window: { used_percentage: 4 }, prompt_cache: { hit_ratio: 0.31 } })],
+  ['# effort fora dos cinco níveis conhecidos: só o nome do modelo', barra({ ...sessao, effort: undefined })],
+  ['# sessão nova, antes da primeira resposta: ainda sem dado', barra({ model: { display_name: 'Opus 5.5' }, effort: 'high' })],
 ];
 const linhasEstados = [];
 for (const [i, [nota, linha]] of estados.entries()) {
@@ -155,9 +153,178 @@ for (const [i, [nota, linha]] of estados.entries()) {
 }
 gravar('barra-estados.svg', janela({
   titulo: 'a mesma barra em outras situações',
-  descricao: 'Doze estados da barra, cada um com as barrinhas: 5h 74% em amarelo; 5h 82% em vermelho; 5h 93% em vermelho; 7d 78%/65% econ em amarelo; 7d 50%/65% folga em verde; 7d 91%/65% só leitura em vermelho; ctx 88% em vermelho; cache 64% em amarelo; 3 sessões abertas, com o trecho 3 sessões depois do modelo; 5h em 82% com a previsão de chegar a 100% às 13:10, em vermelho; 7d em 84% com a previsão de chegar a 100% no domingo às 18:00, em vermelho; e uma sessão sem dado ainda, com travessões e sem barrinha.',
+  descricao: 'Seis estados da barra: ctx 76% em amarelo; ctx 88% em vermelho; cache 64% em amarelo; cache 31% em vermelho, com ctx 4%, no começo de uma sessão; um effort desconhecido, com só o nome do modelo; e uma sessão sem dado ainda, com travessões e sem barrinha.',
   linhas: linhasEstados,
 }));
+
+// ------------------------------------------------------------------ painel
+
+// O painel lê dois arquivos da pasta de dados: estado.json (gravado pela
+// statusline, com 5h, semana e as sessões) e uso-oficial.json (gravado pela
+// leitura de `claude -p /usage`, com o Fable). Aqui os dois são sintéticos,
+// numa pasta temporária apagada em seguida, e estadoPainel roda sobre eles
+// com o mesmo relógio fixo.
+const S_A = '3f2a9c1e-7b4d-4e21-9a0c-5d6e7f8a9b01';
+const S_B = '8c41d7b2-2e9f-4a63-b1d5-0f7e3c9a6d24';
+const iso = (ms) => new Date(ms).toISOString();
+function painel({ p5 = 42, p7 = 59, fable = 71, comEstado = true, comUso = true, ultimoMotivo } = {}) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hadouken-imagens-'));
+  try {
+    const at = AGORA_MS - 20_000;
+    const lido = AGORA_MS - 12_000;
+    const jan = (p, r) => ({ used_percentage: p, resets_at: r, at: iso(at) });
+    if (comEstado) {
+      writeFileSync(path.join(dir, 'estado.json'), JSON.stringify({
+        versao: 1, at: iso(at), five_hour: jan(p5, RESET_5H), seven_day: jan(p7, RESET_7D),
+        sessoes: { [S_A]: { at: iso(at) }, [S_B]: { at: iso(AGORA_MS - 90_000) } },
+      }));
+    }
+    if (comUso) {
+      writeFileSync(path.join(dir, 'uso-oficial.json'), JSON.stringify({
+        versao: 1, lidoEm: iso(lido),
+        sessao: { pct: p5, resetsAtMs: RESET_5H * 1000 },
+        semana: { pct: p7, resetsAtMs: RESET_7D * 1000 },
+        modelos: { fable: { pct: fable, resetsAtMs: RESET_7D * 1000 } },
+        estado: { motivo: 'ok', em: iso(lido) }, bloqueado: null,
+      }));
+    }
+    return estadoPainel({ dir, agoraMs: AGORA_MS, ...(ultimoMotivo === undefined ? {} : { ultimoMotivo }) });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// O texto que a extensão mostra sem o módulo do plugin (nenhuma sessão abriu
+// com o plugin nesta máquina), lido da própria extensão: ela faz
+// require('vscode'), então não dá para importá-la aqui.
+const fonteExtensao = readFileSync(path.join(PASTA, '..', '..', 'vscode', 'extension.cjs'), 'utf8');
+const TEXTO_SEM_MODULO = /^const TEXTO_SEM_MODULO = '([^'\n]+)';$/m.exec(fonteExtensao)?.[1];
+if (TEXTO_SEM_MODULO === undefined) throw new Error('TEXTO_SEM_MODULO não encontrado em vscode/extension.cjs');
+
+// Cores do tema Dark Modern do VS Code: barra de status, fundo de aviso e de
+// erro dos itens (statusBarItem.warningBackground e errorBackground, que a
+// extensão usa pelo nível) e a caixa da dica.
+const VS = {
+  fonte: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Ubuntu, 'Droid Sans', sans-serif",
+  editor: '#1F1F1F',
+  barra: '#181818',
+  bordaBarra: '#2B2B2B',
+  texto: '#CCCCCC',
+  realce: '#F1F1F133',
+  aviso: '#7A6400',
+  erro: '#C72E0F',
+  textoFundo: '#FFFFFF',
+  dica: '#202020',
+  bordaDica: '#454545',
+  forte: '#E8E8E8',
+  apagado: '#8B949E',
+};
+// Largura estimada de um caractere da fonte de interface, em em. A fonte
+// muda de sistema para sistema, então cada linha leva textLength com essa
+// estimativa (lengthAdjust="spacing": só o espaço entre as letras se ajusta),
+// e as caixas ficam do tamanho certo em qualquer fonte da pilha. O negrito
+// ocupa um pouco mais.
+const LARG_UI = 0.5;
+const LARG_NEGRITO = 0.56;
+const TAM_BARRA = 12;
+const ALT_BARRA = 22;
+
+// O ícone $(pulse) (codicon), como um traço de batimento.
+const pulso = (x, y, cor) => `<path d="M${x} ${y} h3 l2 -5 l3 10 l2 -7 l1.5 2 h3" fill="none" stroke="${cor}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>`;
+
+// Item da barra de status com o texto de estadoValido (extension.cjs):
+// "$(pulse) " + texto; o fundo segue o nível. `realcado`: com o mouse em cima.
+// Devolve { svg, largura }, alinhado à direita em `xDir`.
+function itemBarra({ texto, nivel, xDir, yTopo, realcado = false, icone = true }) {
+  const larguraTexto = Math.ceil(largura(texto) * TAM_BARRA * LARG_UI);
+  const w = 10 + (icone ? 20 : 0) + larguraTexto;
+  const x = xDir - w;
+  const fundo = nivel === 'aviso' ? VS.aviso : nivel === 'erro' ? VS.erro : realcado ? VS.realce : null;
+  const cor = nivel === 'aviso' || nivel === 'erro' ? VS.textoFundo : VS.texto;
+  const partes = [];
+  if (fundo !== null) partes.push(`<rect x="${x}" y="${yTopo}" width="${w}" height="${ALT_BARRA}" fill="${fundo}"/>`);
+  if (icone) partes.push(pulso(x + 5, yTopo + ALT_BARRA / 2, cor));
+  partes.push(`<text x="${x + 5 + (icone ? 20 : 0)}" y="${yTopo + 15}" font-family="${VS.fonte}" font-size="${TAM_BARRA}" fill="${cor}" textLength="${larguraTexto}" lengthAdjust="spacing" xml:space="preserve">${escapar(texto)}</text>`);
+  return { svg: partes.join('\n  '), largura: w };
+}
+
+// A dica é Markdown com um parágrafo por linha e só "**rótulo:**" em negrito.
+function linhaDica(linha) {
+  const m = /^\*\*(.+?)\*\*(.*)$/.exec(linha);
+  return m === null ? [{ texto: linha, negrito: false }] : [{ texto: m[1], negrito: true }, { texto: m[2], negrito: false }];
+}
+
+function imagemPainel(estado, descricao) {
+  const TAM_DICA = 13;
+  const ALT_PARAGRAFO = 26;
+  const paragrafos = estado.dica.split('\n\n').map(linhaDica);
+  const larguraLinha = (p) => Math.ceil(p.reduce((soma, s) => soma + largura(s.texto) * TAM_DICA * (s.negrito ? LARG_NEGRITO : LARG_UI), 0));
+  const larguraDica = 24 + Math.max(...paragrafos.map(larguraLinha));
+  const altDica = 16 + paragrafos.length * ALT_PARAGRAFO;
+  const margemDireita = 64;
+  const w = Math.max(560, larguraDica + margemDireita + 24);
+  const yDica = 16;
+  const yBarra = yDica + altDica + 10;
+  const h = yBarra + ALT_BARRA;
+  const xDica = w - margemDireita - larguraDica;
+  const item = itemBarra({ texto: estado.texto, nivel: estado.nivel, xDir: w - margemDireita, yTopo: yBarra, realcado: true });
+  const texto = paragrafos.map((p, i) => {
+    const y = yDica + 8 + i * ALT_PARAGRAFO + 18;
+    const spans = p.map((s) => `<tspan fill="${s.negrito ? VS.forte : VS.texto}"${s.negrito ? ' font-weight="700"' : ''}>${escapar(s.texto)}</tspan>`).join('');
+    return `    <text x="${xDica + 12}" y="${y}" textLength="${larguraLinha(p)}" lengthAdjust="spacing" xml:space="preserve">${spans}</text>`;
+  }).join('\n');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${escapar(descricao)}">
+  <title>${escapar(descricao)}</title>
+  <rect x="0" y="0" width="${w}" height="${h}" fill="${VS.editor}"/>
+  <rect x="${xDica + 0.5}" y="${yDica + 0.5}" width="${larguraDica - 1}" height="${altDica - 1}" rx="3" fill="${VS.dica}" stroke="${VS.bordaDica}"/>
+  <g font-family="${VS.fonte}" font-size="${TAM_DICA}">
+${texto}
+  </g>
+  <rect x="0" y="${yBarra}" width="${w}" height="${ALT_BARRA}" fill="${VS.barra}"/>
+  <path d="M0 ${yBarra + 0.5} H${w}" stroke="${VS.bordaBarra}"/>
+  ${item.svg}
+</svg>
+`;
+}
+
+const painelCalmo = painel();
+gravar('painel.svg', imagemPainel(painelCalmo, `Item do claude-hadouken na barra de status do VS Code, com o mouse em cima: ${painelCalmo.texto}. A dica mostra, por janela, a porcentagem, o reinício e a previsão: sessão de 5h em 42%, reinicia às 15:30 e, nesse ritmo, esgota por volta das 14:04; semana de todos os modelos em 59%, não esgota antes do reinício de segunda às 22:00; semana do Fable em 71%, esgota segunda de manhã. Depois, 2 sessões ativas, a idade da leitura oficial (12 s) e a fonte: statusline do Claude Code e claude /usage, sem tokens.`));
+
+// Estados do item: cada linha é um comentário e a barra de status com o item.
+const estadosPainel = [
+  ['# todas as janelas abaixo de 75%: sem cor', painelCalmo],
+  ['# pior janela de 75% a 89%: fundo de aviso', painel({ p5: 78 })],
+  ['# pior janela em 90% ou mais: fundo de erro', painel({ fable: 92 })],
+  ['# antes da primeira leitura oficial: o Fable fica em —', painel({ comUso: false })],
+  ['# nenhuma leitura válida', painel({ comEstado: false, comUso: false })],
+  ['# nenhuma sessão do Claude Code abriu com o plugin nesta máquina', { texto: null, nivel: undefined }],
+];
+{
+  const TAM_NOTA = 13;
+  const ALT_NOTA = 22;
+  const larguraNotas = Math.max(...estadosPainel.map(([n]) => largura(n))) * TAM_NOTA * LARG_UI;
+  const larguraItens = Math.max(...estadosPainel.map(([, e]) => largura(e.texto ?? TEXTO_SEM_MODULO.replace('$(pulse) ', '')))) * TAM_BARRA * LARG_UI + 30;
+  const w = Math.ceil(Math.max(larguraNotas, larguraItens) + 2 * MARGEM_X + 60);
+  const passo = ALT_NOTA + ALT_BARRA + 14;
+  const h = MARGEM_Y + estadosPainel.length * passo;
+  const corpo = estadosPainel.map(([nota, e], i) => {
+    const y = MARGEM_Y + i * passo;
+    // Sem o módulo, a extensão põe o texto fixo, com o ícone já nele.
+    const texto = e.texto === null ? TEXTO_SEM_MODULO.replace('$(pulse) ', '') : e.texto;
+    const item = itemBarra({ texto, nivel: e.nivel, xDir: w - 40, yTopo: y + ALT_NOTA });
+    return `  <text x="${MARGEM_X}" y="${y + 15}" font-family="${FONTE}" font-size="${TAM_NOTA}" fill="${VS.apagado}" xml:space="preserve">${escapar(nota)}</text>
+  <rect x="0" y="${y + ALT_NOTA}" width="${w}" height="${ALT_BARRA}" fill="${VS.barra}"/>
+  <path d="M0 ${y + ALT_NOTA + 0.5} H${w}" stroke="${VS.bordaBarra}"/>
+  ${item.svg}`;
+  }).join('\n');
+  const descricao = `Seis estados do item do painel na barra de status do VS Code: ${estadosPainel.map(([, e]) => (e.texto === null ? TEXTO_SEM_MODULO.replace('$(pulse) ', '') : e.texto) + (e.nivel === 'aviso' ? ' (fundo amarelo)' : e.nivel === 'erro' ? ' (fundo vermelho)' : '')).join('; ')}.`;
+  gravar('painel-estados.svg', `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${escapar(descricao)}">
+  <title>${escapar(descricao)}</title>
+  <rect x="0" y="0" width="${w}" height="${h}" fill="${VS.editor}"/>
+${corpo}
+</svg>
+`);
+}
 
 // ------------------------------------------------------------------ avisos
 
@@ -186,7 +353,7 @@ for (const [nota, lim, previsao] of passos) {
 }
 gravar('avisos.svg', janela({
   titulo: 'o que o Claude recebe no contexto',
-  descricao: 'Linhas que o Claude recebe: o estado no início da sessão e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Depois, com 3 sessões ativas, o aviso de projeção: a 5h chega a 100% às 12:50, antes do reset das 15:30; na mesma faixa de 60 minutos nada se repete; a 25 minutos do estouro, um aviso novo. Um prompt na mesma faixa não gera linha.',
+  descricao: 'Linhas que o Claude recebe: o consumo no início da sessão (5h 42% com reset às 15:30, 7d 59% com reset segunda 22:00 e, nesse ritmo, não esgota antes do reinício) e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Depois, com 3 sessões ativas, o aviso de projeção: a 5h chega a 100% às 12:50, antes do reset das 15:30; na mesma faixa de 60 minutos nada se repete; a 25 minutos do estouro, um aviso novo. Um prompt na mesma faixa não gera linha.',
   linhas: linhasAvisos,
 }));
 
