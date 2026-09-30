@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COBERTURA_MIN_MS, inclinacao, JANELA_5H_MS, JANELA_7D_MS, PONTOS_MIN, preverEstouro,
+  COBERTURA_MIN_MS, inclinacao, JANELA_5H_MS, JANELA_7D_MS, PONTOS_MIN, preverEstouro, REGRAS_JANELA,
 } from '../src/previsao.js';
 
 // Previsão de estouro (spec v0.2.0 §12.3 e §12.7): inclinação por mínimos
@@ -125,4 +125,33 @@ test('entradas hostis nunca lançam e dão as duas null', () => {
   for (const resetS of [String(agoraS + 3600), true, [agoraS + 3600], { valueOf: () => agoraS + 3600 }]) {
     assert.deepEqual(preverEstouro({ historico: subindo, limites: lim5(74, resetS), agoraMs: agora }), vazio, JSON.stringify(resetS));
   }
+});
+
+test('7d exige 2 h de cobertura e 10 pontos (B1: 26 min não projeta)', () => {
+  const curto = [];
+  for (let m = -26; m <= 0; m += 2) curto.push([m, null, 60 + m * 0.1]);
+  const limites = { seven_day: { used_percentage: 60, resets_at: agoraS + 3 * 86_400 } };
+  assert.equal(preverEstouro({ historico: hist(curto), limites, agoraMs: agora }).seven_day, null);
+  const longo = [];
+  for (let m = -120; m <= 0; m += 2) longo.push([m, null, 60 + m * 0.05]);
+  assert.equal(preverEstouro({ historico: hist(longo), limites, agoraMs: agora }).seven_day, agora + 800 * MIN);
+});
+
+test('7d com 2 h de cobertura mas só 9 pontos não projeta', () => {
+  const linhas = [];
+  for (let i = 0; i < 9; i++) linhas.push([-120 + i * 15, null, 50 + i]);
+  const limites = { seven_day: { used_percentage: 58, resets_at: agoraS + 3 * 86_400 } };
+  assert.equal(preverEstouro({ historico: hist(linhas), limites, agoraMs: agora }).seven_day, null);
+});
+
+test('REGRAS_JANELA: 5h 3 pontos em 6 min, 7d 10 pontos em 2 h', () => {
+  assert.deepEqual(REGRAS_JANELA.five_hour, { pontosMin: PONTOS_MIN, coberturaMinMs: COBERTURA_MIN_MS });
+  assert.deepEqual(REGRAS_JANELA.seven_day, { pontosMin: 10, coberturaMinMs: 2 * 3_600_000 });
+  assert.ok(Object.isFrozen(REGRAS_JANELA) && Object.isFrozen(REGRAS_JANELA.seven_day));
+});
+
+test('inclinacao com regras hostis usa as de 5h', () => {
+  const pts = [[0, 1], [3 * MIN, 2], [6 * MIN, 3]];
+  perto(inclinacao(pts, { pontosMin: 'x', coberturaMinMs: -1 }), 1 / 3);
+  perto(inclinacao(pts, null), 1 / 3);
 });
