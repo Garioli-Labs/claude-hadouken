@@ -4,12 +4,15 @@ import { sessaoAtiva } from '../ativas.js';
 import { chamaClaude, claudeComLiberar } from '../guarda/caminho.js';
 
 // Hook PreToolUse de Bash e PowerShell com `if: "Bash(claude *)"` e
-// `if: "PowerShell(claude *)"` (spec v0.4.0 §4.2 P4, spike S9). Com a guarda
-// disparada, nega abrir uma sessão claude filha: uma sessão -p não carrega a
-// trava desta conversa na cabeça e poderia despachar à vontade. O hook
-// confere o comando de novo (chamaClaude), para uma versão que ignore o `if`.
-// Best-effort: npx, node .../cli.js e comandos ofuscados escapam (R1). Erro:
-// passa e registra (fail-open visível, §4.5, falharAberto em comum.js).
+// `if: "PowerShell(claude *)"` (spec v0.4.0 §4.2 P4, spike S9) e, por decisão
+// do controlador na Task 18, um handler com `if` para cada lançador explícito
+// (npx, node, bash, sh, cmd, pwsh, powershell; no PowerShell, Start-Process),
+// nunca um curinga que traga o git commit. Com a guarda disparada, nega abrir
+// uma sessão claude filha: uma sessão -p não carrega a trava desta conversa na
+// cabeça e poderia despachar à vontade. O hook confere o comando de novo
+// (chamaClaude), para uma versão que ignore o `if`. Best-effort: lançadores
+// fora da lista e comandos ofuscados escapam (R1). Erro: passa e registra
+// (fail-open visível, §4.5, falharAberto em comum.js).
 //
 // Regra fixa, antes de tudo (decisão do controlador na revisão da Task 13):
 // claude junto com o comando de liberação é negado sempre, disparada ou não,
@@ -25,8 +28,8 @@ import { chamaClaude, claudeComLiberar } from '../guarda/caminho.js';
 // com ou sem claude; o texto do deny aponta o git commit -F.
 // Resíduo: um script fora da ferramenta Bash ou PowerShell (arquivo .sh ou
 // .ps1, npm run), o pedido lido de arquivo (claude -p < pedido.txt) e comandos
-// ofuscados ainda chegam ao liberar; o `if` do hooks.json (Task 18) decide
-// quais lançadores chegam a este hook. SECURITY.md declara (Task 18).
+// ofuscados ainda chegam ao liberar; o `if` do hooks.json decide quais
+// lançadores chegam a este hook. SECURITY.md declara (R1).
 
 const FERRAMENTAS = new Set(['Bash', 'PowerShell']);
 // Decisão do controlador na rodada 2 da revisão da Task 16: acima de 1 MiB,

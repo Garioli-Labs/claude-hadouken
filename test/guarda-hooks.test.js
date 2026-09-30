@@ -405,6 +405,23 @@ test('SessionStart grava a marca e o modelo da sessão', () => {
   assert.equal(modeloDaSessao(home, 's9', Date.now()), 'claude-fable-5-1');
 });
 
+// Regressão pedida pelo controlador na Task 18 (§4.5): a marca da guarda que
+// não grava (guarda-sessoes criado como arquivo) não tira a linha de consumo
+// nem a sincronia dos shims, e fica registrada como 'erro' do SessionStart.
+test('SessionStart: marca da guarda que falha registra erro; a linha de consumo e os shims seguem', () => {
+  const home = novoHome();
+  gravarEstado(home);
+  fs.writeFileSync(path.join(home, 'guarda-sessoes'), 'arquivo');
+  const o = saida(rodar('session-start.js', { session_id: 's9', hook_event_name: 'SessionStart', source: 'startup', model: 'claude-fable-5-1' }, home));
+  assert.equal(o.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(o.hookSpecificOutput.additionalContext, /^Consumo: 5h 20%/);
+  for (const shim of ['statusline.mjs', 'cli.mjs', 'painel.mjs']) assert.ok(fs.lstatSync(path.join(home, 'bin', shim)).isFile(), shim);
+  assert.equal(fs.readFileSync(path.join(home, 'guarda-sessoes'), 'utf8'), 'arquivo');
+  assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), ['SessionStart']);
+  // O modelo da sessão ainda é gravado: a falha da marca não pula o resto.
+  assert.equal(modeloDaSessao(home, 's9', Date.now()), 'claude-fable-5-1');
+});
+
 const ferramenta = (id, tool_name, tool_input) => ({ session_id: id, hook_event_name: 'PreToolUse', tool_name, tool_input, cwd: os.tmpdir() });
 const negacao = (razao) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
 const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');

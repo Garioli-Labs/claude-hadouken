@@ -49,6 +49,7 @@
 // - SessionStart: register, shim sync, state line.
 // - SessionEnd registered (gate, read state, append one history line) and
 //   unregistered.
+// - guard (v0.4.0): P1 denying a fable-max dispatch (the fixture's 7d forecast trips G2), P3 denying a switch to Fable, P5 denying a write in the data folder.
 // - a bare `node -e ""` as the floor of any Node script.
 //
 // The scenarios are interleaved: every round runs each scenario once, in a
@@ -141,6 +142,8 @@ try {
     fs.writeFileSync(arqEstado, JSON.stringify(cheio, null, 2));
     const r = sincronizarShims(repo);
     if (!r.ok) throw new Error(`fixture: shim sync failed: ${r.motivo}`);
+    fs.mkdirSync(path.join(home, 'cfg', 'agents'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'cfg', 'agents', 'fable-max.md'), '---\nname: fable-max\nmodel: fable\neffort: max\n---\nRevisor.\n');
   } finally {
     if (homeAntes === undefined) delete process.env.HADOUKEN_HOME;
     else process.env.HADOUKEN_HOME = homeAntes;
@@ -179,7 +182,12 @@ try {
 
   // HADOUKEN_SEM_PAINEL=1: the SessionStart runs never trigger the VS Code
   // panel install (it would call the real `code` from the PATH).
-  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1' };
+  // CLAUDE_CONFIG_DIR points the guard's agent profile (P1) at the fixture's
+  // fable-max.md; CLAUDE_EFFORT pins the session effort, and a
+  // CLAUDE_CODE_SUBAGENT_MODEL from the caller's shell would override the
+  // agent's model, so it is dropped.
+  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1', CLAUDE_CONFIG_DIR: path.join(home, 'cfg'), CLAUDE_EFFORT: 'high' };
+  delete env.CLAUDE_CODE_SUBAGENT_MODEL;
   // One untimed prompt settles the alert memory to what this fixture
   // evaluates to (the 7d band of the seeded memory differs from the reading,
   // and the 7d projection is announced once, for 50 active sessions).
@@ -265,6 +273,30 @@ try {
     },
     { id: 'session-end-registrada', nome: 'session end registered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe(uuid(0))), conferir: semSaida('session end registered'), alvo: true },
     { id: 'session-end-nao-registrada', nome: 'session end unregistered', argv: [hook('session-end.js')], stdin: JSON.stringify(fimDe('nao-registrada')), conferir: semSaida('session end unregistered'), alvo: true },
+    {
+      id: 'despacho-disparada',
+      nome: 'P1 dispatch, guard on',
+      argv: [hook('guarda-despacho.js')],
+      stdin: JSON.stringify({ ...comum(uuid(0), 'PreToolUse'), tool_name: 'Agent', tool_input: { subagent_type: 'fable-max', description: 'review', prompt: 'x' } }),
+      conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'deny') throw new Error(`P1: expected deny, got ${out}`); },
+      alvo: true,
+    },
+    {
+      id: 'troca-fable',
+      nome: 'P3 model switch',
+      argv: [hook('guarda-modelo.js')],
+      stdin: JSON.stringify({ ...comum(uuid(0), 'PreModelSwitch'), from_model: 'claude-opus-5-5', to_model: 'claude-fable-5-1' }),
+      conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'deny') throw new Error(`P3: expected deny, got ${out}`); },
+      alvo: true,
+    },
+    {
+      id: 'arquivo-negado',
+      nome: 'P5 file guard',
+      argv: [hook('guarda-arquivos.js')],
+      stdin: JSON.stringify({ ...comum(uuid(0), 'PreToolUse'), tool_name: 'Write', tool_input: { file_path: path.join(home, 'liberacao.json'), content: '{}' } }),
+      conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'deny') throw new Error(`P5: expected deny, got ${out}`); },
+      alvo: true,
+    },
     { id: 'node-vazio', nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
   ];
 

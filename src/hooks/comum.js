@@ -11,9 +11,10 @@ import { lerStdinVigiando } from '../base.js';
 // Prazos (spec 8.1, S9): só a leitura do stdin tem prazo próprio (1 s, em
 // lerStdinVigiando). O trabalho depois do gate é E/S síncrona sem prazo,
 // porque o Node não interrompe uma chamada síncrona sem um worker; o limite de
-// fora é o timeout de 5 s de cada hook em hooks/hooks.json. Numa home em rede
-// travada o prompt espera no máximo isso (resíduo aceito, M5 da revisão da
-// Task 7; a barra tem o mesmo formato).
+// fora é o timeout de cada hook em hooks/hooks.json (5 s; 10 s nos que
+// bloqueiam, desde a v0.4.0). Numa home em rede travada o prompt espera no
+// máximo isso (resíduo aceito, M5 da revisão da Task 7; a barra tem o mesmo
+// formato).
 
 // Se o Claude Code fechar o pipe antes da escrita, o EPIPE vira evento de
 // erro no stdout; sem ouvinte ele derrubaria o processo com código 1.

@@ -74,10 +74,12 @@ rodarHook(async (entrada) => {
   const registro = registrarSessao(sessionId, agoraMs);
   // Spec v0.4.0 §4.3 e §11: a marca "sessão com a guarda" e o modelo da
   // sessão (o campo model do SessionStart, quando vier). Uma exceção aqui
-  // registra 'erro' e não tira a linha de consumo nem os shims (§4.5).
+  // registra 'erro' e não tira a linha de consumo nem os shims (§4.5). A
+  // marca que não grava (marcarSessao devolve ok false, sem lançar; ex.:
+  // guarda-sessoes como arquivo) também vira 'erro', e o modelo segue.
   await falharAberto(dir, 'SessionStart', agoraMs, async () => {
     const reg = await import('../guarda/registros.js');
-    reg.marcarSessao(dir, sessionId);
+    if (!reg.marcarSessao(dir, sessionId).ok) reg.anexarEvento(dir, 'erro', 'SessionStart', agoraMs);
     const modelo = reg.normalizarModelo(entrada.model);
     if (modelo !== null) reg.gravarModeloSessao(dir, sessionId, modelo, agoraMs);
   });
