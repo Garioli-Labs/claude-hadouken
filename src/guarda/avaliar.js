@@ -34,6 +34,14 @@ function fableOficial(uso, agoraMs) {
   return { pct: f.pct, resetsAtMs: f.resetsAtMs, idadeMs: Math.max(0, agoraMs - lidoMs) };
 }
 
+// O modelo da sessão no estado.json (o display_name que a barra grava), para
+// quando modelos.json não tem a sessão. Também usado pela P2 (prompt.js, M9 da
+// revisão final da parte 1), que resolve o modelo antes de avaliar.
+export function modeloNoEstado(estado, sessionId) {
+  const sessao = estado?.sessoes?.[sessionId];
+  return typeof sessao?.model === 'string' && sessao.model.length > 0 ? sessao.model : null;
+}
+
 export function avaliarGuarda({ dir, agoraMs, sessionId } = {}) {
   try {
     if (typeof dir !== 'string' || !numeroFinito(agoraMs)) return vazia('erro');
@@ -97,9 +105,7 @@ export function avaliarGuarda({ dir, agoraMs, sessionId } = {}) {
     else if (cobertura.ativa) status = 'liberada';
     else if (semLeitura) status = 'sem-leitura';
 
-    const sessao = estado?.sessoes?.[sessionId];
-    const modeloSessao = modeloDaSessao(dir, sessionId, agoraMs)
-      ?? (typeof sessao?.model === 'string' && sessao.model.length > 0 ? sessao.model : null);
+    const modeloSessao = modeloDaSessao(dir, sessionId, agoraMs) ?? modeloNoEstado(estado, sessionId);
 
     return { status, ativas, motivos, cobertura, liberacao, config, leituras, despachosFable, modeloSessao, usoFable };
   } catch {

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { decidirPrompt } from '../src/guarda/prompt.js';
+import { avaliarGuarda } from '../src/guarda/avaliar.js';
 import { gravarTravas, travasVazias } from '../src/guarda/travas.js';
 import { gravarModeloSessao, lerEventos } from '../src/guarda/registros.js';
 import { gravarLiberacao, montarLiberacao, lerPedido, lerLiberacao } from '../src/guarda/liberacao.js';
@@ -68,4 +69,45 @@ test('erro na avaliação: não bloqueia e registra o evento erro (§4.5)', () =
   assert.deepEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora, avaliar: quebra }), { bloquear: null, linha: null });
   assert.deepEqual(lerEventos(d, agora).filter((e) => e.tipo === 'erro').map((e) => e.detalhe), ['P2', 'P2']);
   assert.deepEqual(decidirPrompt({ dir: null, sessionId: 's1', prompt: 'x', agoraMs: agora }), { bloquear: null, linha: null });
+});
+
+// M9 da revisão final da parte 1 (spec v0.4.0 §9.2): o modelo da sessão vem
+// primeiro (modelos.json, senão estado.sessoes); a avaliação completa só roda
+// numa sessão Fable. Fora do Fable, só liberacao.json para a linha
+// pós-liberação (e config.json e estado.json só quando há linha a dar).
+test('M9: fora do Fable a avaliação completa não roda; no Fable, roda uma vez', () => {
+  const d = novo();
+  travarG6(d);
+  let chamadas = 0;
+  const espia = (a) => { chamadas += 1; return avaliarGuarda(a); };
+  assert.deepEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora, avaliar: espia }), { bloquear: null, linha: null });
+  gravarModeloSessao(d, 's1', 'claude-opus-5-5', agora);
+  assert.deepEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora, avaliar: espia }), { bloquear: null, linha: null });
+  assert.equal(chamadas, 0);
+  gravarModeloSessao(d, 's1', 'claude-fable-5-1', agora);
+  assert.notEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora, avaliar: espia }).bloquear, null);
+  assert.equal(chamadas, 1);
+});
+
+test('M9: o modelo do estado.json vale quando modelos.json não tem a sessão', () => {
+  const d = novo();
+  travarG6(d);
+  fs.writeFileSync(path.join(d, 'estado.json'), JSON.stringify({ versao: 1, at: iso(agora), five_hour: null, seven_day: null,
+    sessoes: { s1: { at: iso(agora - 60_000), model: 'Fable 5.1' } }, historico: [] }));
+  assert.notEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora }).bloquear, null);
+  assert.equal(decidirPrompt({ dir: d, sessionId: 's2', prompt: 'x', agoraMs: agora }).bloquear, null);
+});
+
+test('M9: fora do Fable, sem linha com a guarda desligada ou a liberação acabada nos pontos', () => {
+  const d = novo();
+  const lib = montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: agora, usado7d: 84, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef01' });
+  gravarLiberacao(d, lib);
+  fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ guarda: { ligada: false } }));
+  assert.equal(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora }).linha, null);
+  fs.rmSync(path.join(d, 'config.json'));
+  // 7d em 94% = base 84 + teto 10: a liberação acabou pelos pontos.
+  fs.writeFileSync(path.join(d, 'estado.json'), JSON.stringify({ versao: 1, at: iso(agora), five_hour: null,
+    seven_day: { used_percentage: 94, resets_at: Math.floor(agora / 1000) + 86_400, at: iso(agora) }, sessoes: {}, historico: [] }));
+  assert.equal(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora }).linha, null);
+  assert.equal(lerLiberacao(d, agora).avisada, false);
 });
