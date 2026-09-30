@@ -27,6 +27,14 @@ export function emitirContexto(evento, texto) {
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: evento, additionalContext: texto } }));
 }
 
+// Escreve uma saída de hook já montada: as decisões da guarda (spec v0.4.0
+// §4.2: deny, continue:false, decision:block). Os textos vêm só de
+// src/guarda/mensagens.js; o JSON.stringify escapa todo controle C0.
+export function emitirJson(valor) {
+  if (valor === null || typeof valor !== 'object' || Array.isArray(valor)) return;
+  process.stdout.write(JSON.stringify(valor));
+}
+
 // Objeto JSON do stdin, ou null (vazio, inválido, lista, primitivo, acima do
 // teto de 1 MiB de lerStdin).
 function entradaDe(texto) {
