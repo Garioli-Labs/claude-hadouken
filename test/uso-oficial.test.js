@@ -343,11 +343,14 @@ test('rodarUso: o prazo próprio resolve com tempo sem esperar o close e mata a 
   const mortos = [];
   let cb = null;
   const inicio = Date.now();
+  // O prazo é unref (o filho de verdade segura o loop); o filho falso não
+  // segura nada, e o Node 20 encerraria o loop antes do prazo sem este timer.
+  const vivo = setInterval(() => {}, 1_000);
   const r = await rodarUso({
     exe: EXE, cwd: '/tmp', agoraMs: AGORA, prazoMs: 50,
     executar: (x, a, o, callback) => { cb = callback; return filho; },
     matar: (f) => mortos.push(f),
-  });
+  }).finally(() => clearInterval(vivo));
   assert.deepEqual(r, { ok: false, motivo: 'tempo' });
   assert.ok(Date.now() - inicio < 5_000);
   assert.deepEqual(mortos, [filho]);
