@@ -25,6 +25,9 @@
 // the bar's own validation (as bench/hooks-p95.mjs does for the hooks). Since
 // amendment E6 (2026-09-29) the bar shows only this session (model·effort,
 // ctx and cache), so every registered run must print exactly that line.
+// Since the guard (v0.4.0) the measured session carries the guard mark, so the
+// bar also evaluates the guard; the fixture's 7d forecast trips G2 and the line
+// ends with the guard segment.
 // Scenarios: registered (gate, merge, atomic write, render), unregistered (gate
 // only, prints nothing), the same two through the stable shim
 // <home>/bin/statusline.mjs (what settings.json runs), and a bare `node -e ""`
@@ -103,6 +106,10 @@ try {
       if (!r.ok) throw new Error(`fixture: register ${i} failed: ${r.motivo}`);
     }
     if (!registrarSessao(uuid(0), agora).ok) throw new Error('fixture: register target failed');
+    // Spec v0.4.0 §4.1 e §11: a sessão medida roda os hooks da guarda, então
+    // a barra mede o caminho com a avaliação (e a trava gravada na transição).
+    const { marcarSessao } = await importar('guarda/registros.js');
+    if (!marcarSessao(home, uuid(0)).ok) throw new Error('fixture: guard mark failed');
     for (let i = 49; i >= 0; i--) atualizarEstado(entrada(uuid(i)), agora - i * 1000);
     // Full history (spec v0.2.0 §12.8): 90 points 2 min apart, the newest 30 s
     // ago, both windows rising (5h 0.125 and 7d 0.035 points per minute), so
@@ -127,8 +134,9 @@ try {
 
   // The caller's NO_COLOR decides whether the bar is coloured; the check strips
   // the only escapes the bar may carry (the fixed colour codes). E6: the bar is
-  // the session line only, with nothing from estado.json on it.
-  const LINHA_BARRA = 'Opus 5.5\u00b7high \u2502 ctx \u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 31% \u2502 cache \u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b1 97%';
+  // the session line only; since v0.4.0 it ends with the guard segment, which
+  // the fixture's 7d forecast (from estado.json) sets to "guarda: 7d" (G2).
+  const LINHA_BARRA = 'Opus 5.5\u00b7high \u2502 ctx \u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 31% \u2502 cache \u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b1 97% \u2502 guarda: 7d';
   const CORES_FIXAS = /\x1b\[(?:3[123]|0)m/g;
   let barra = '';
   const barraCerta = (nome) => (out) => {

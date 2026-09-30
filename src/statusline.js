@@ -1,4 +1,4 @@
-import { lerStdin } from './base.js';
+import { lerStdin, dirDados } from './base.js';
 import { sessaoAtiva, renovarSessao } from './ativas.js';
 
 // Script da statusline: o Claude Code o executa a cada atualização da barra,
@@ -19,6 +19,31 @@ process.stdout.on('error', () => {});
 // cada execução seria cancelada pela seguinte e a barra congelaria. Os hooks
 // seguem com o padrão de 1 s de lerStdin.
 const PRAZO_STDIN_MS = 250;
+
+// Spec §8.3 e §11: o segmento da guarda. A avaliação também grava a trava na
+// transição (§5.3, "quem avaliar primeiro"). Sem a marca, a sessão roda hooks
+// antigos: "sem guarda nesta sessão". Qualquer falha dá '' (a barra da v0.3.0
+// segue igual).
+async function segmentoDaGuarda(dir, entrada, agoraMs) {
+  try {
+    if (dir === null) return '';
+    const [{ avaliarGuarda }, reg, { segmentoBarra }] = await Promise.all([
+      import('./guarda/avaliar.js'),
+      import('./guarda/registros.js'),
+      import('./guarda/mensagens.js'),
+    ]);
+    const g = avaliarGuarda({ dir, agoraMs, sessionId: entrada.session_id });
+    const m = entrada.model !== null && typeof entrada.model === 'object' ? entrada.model : {};
+    const nomeModelo = [m.id, m.display_name].filter((x) => typeof x === 'string').join(' ').slice(0, 200);
+    return segmentoBarra({
+      marcada: reg.sessaoMarcada(dir, entrada.session_id), status: g.status, ativas: g.ativas, liberacao: g.liberacao,
+      origemConhecida: g.liberacao ? reg.temEventoLiberacao(dir, g.liberacao.id, agoraMs) : true,
+      fableSessao: /fable/i.test(nomeModelo), despachosFable: g.despachosFable, config: g.config, usoFable: g.usoFable,
+    }, agoraMs);
+  } catch {
+    return '';
+  }
+}
 
 async function principal() {
   const texto = await lerStdin(PRAZO_STDIN_MS);
@@ -45,9 +70,11 @@ async function principal() {
   // limitesValidos, preverEstouro e sessoesAtivas saíram daqui: a barra não os
   // mostra mais, e cada redesenho economiza essa conta.
   atualizarEstado(entrada, agoraMs);
+  // A guarda lê a janela de 7 dias do estado.json recém-gravado, não da barra.
+  const guarda = await segmentoDaGuarda(dirDados(), entrada, agoraMs);
   // no-color.org: NO_COLOR presente e não vazio desliga as cores.
   const cor = !process.env.NO_COLOR;
-  process.stdout.write(formatarBarra({ entrada, cor }));
+  process.stdout.write(formatarBarra({ entrada, cor, guarda }));
 }
 
 principal().catch(() => {}).finally(() => { process.exitCode = 0; });

@@ -542,3 +542,47 @@ test('P5: edição na pasta de dados é negada sempre, inclusive com .. e maiús
   semSaida(rodar('guarda-arquivos.js', ferramenta('s1', 'Read', { file_path: path.join(home, 'liberacao.json') }), home));
   assert.equal(eventos(home, 'arquivo-negado').length, casos.length);
 });
+
+// Segmento da guarda na barra (spec v0.4.0 §8.3 e §11): a statusline num
+// processo filho, como o Claude Code a roda.
+function rodarBarra(entrada, home) {
+  return spawnSync(process.execPath, [path.join(repo, 'src', 'statusline.js')], { input: JSON.stringify(entrada), env: ambiente(home), encoding: 'utf8', timeout: 15_000 });
+}
+const barraDe = (id, u7, modelo = { id: 'claude-opus-5-5', display_name: 'Opus 5.5' }) => {
+  const s = Math.floor(Date.now() / 1000);
+  return { session_id: id, model: modelo, rate_limits: { five_hour: { used_percentage: 20, resets_at: s + 3600 }, seven_day: { used_percentage: u7, resets_at: s + 3 * 86_400 } } };
+};
+
+test('barra: sem marca diz "sem guarda nesta sessão"; marcada e disparada diz a janela', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const r1 = rodarBarra(barraDe('s1', 86), home);
+  assert.equal(r1.status, 0);
+  assert.ok(r1.stdout.endsWith(' │ sem guarda nesta sessão'), r1.stdout);
+  rodar('prompt-submit.js', promptDe('s1', 'oi'), home);
+  const r2 = rodarBarra(barraDe('s1', 86), home);
+  assert.ok(r2.stdout.endsWith(' │ guarda: 7d'), r2.stdout);
+  assert.ok(fs.existsSync(path.join(home, ARQ_GUARDA)));
+});
+
+test('barra: sessão Fable mostra a contagem e a semana do Fable (E2, E7); liberação sem evento aparece', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  rodar('prompt-submit.js', promptDe('s1', 'oi'), home);
+  registrarDespachoFable(home, Date.now() - 60_000);
+  const fable = { id: 'claude-fable-5-1', display_name: 'Fable 5.1' };
+  const r = rodarBarra(barraDe('s1', 40, fable), home);
+  assert.ok(r.stdout.endsWith(' │ Fable 1/4 em 5h · sem leitura oficial'), r.stdout);
+  const lido = new Date(Date.now() - 60_000).toISOString();
+  fs.writeFileSync(path.join(home, 'uso-oficial.json'), JSON.stringify({
+    versao: 1, lidoEm: lido, sessao: null, semana: null,
+    modelos: { fable: { pct: 57, resetsAtMs: Date.now() + 48 * H } }, estado: { motivo: 'ok', em: lido }, bloqueado: null,
+  }));
+  const rOficial = rodarBarra(barraDe('s1', 40, fable), home);
+  assert.ok(rOficial.stdout.endsWith(' │ Fable 1/4 em 5h · semana Fable 57%'), rOficial.stdout);
+  fs.rmSync(path.join(home, 'uso-oficial.json'));
+  const agora = Date.now();
+  gravarLiberacao(home, montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: agora, usado7d: 40, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef01' }));
+  const r2 = rodarBarra(barraDe('s1', 40), home);
+  assert.match(r2.stdout, / │ liberada até .+ · liberação sem origem$/);
+});
