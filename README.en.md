@@ -245,7 +245,7 @@ This sentence is not the projection in the notices to Claude. The projection use
 
 ### No tokens, little RAM
 
-- **No tokens.** Fable comes from the official `claude -p /usage` command. `/usage` is a local Claude Code command: it does not call the model. Every read checks the result (`local_command` equal to `usage`, `num_turns` 0 and cost 0). If it ever comes back different, the panel takes it as the command having started to cost, stops reading for 24 h and says so in the tooltip. Claude Code itself queries Anthropic, with your session; the plugin reads no credential and calls no endpoint.
+- **No tokens.** Fable comes from the official `claude -p /usage` command. `/usage` is a local Claude Code command: it does not call the model. Every read checks the result: `num_turns` 0, cost 0 and `local_command` equal to `usage`. If turns or cost ever come back other than 0, the panel takes it as the command having started to cost, stops reading for 24 h and says so in the tooltip; a zero-cost result that is not the `/usage` one counts as a format failure. Claude Code itself queries Anthropic, with your session; the plugin reads no credential and calls no endpoint.
 - **Lean mode.** The read runs without plugins, MCP, hooks, Chrome or session history (`--no-session-persistence --strict-mcp-config --no-chrome --setting-sources "" --settings {"disableAllHooks":true}`), in an empty folder inside the data folder (`uso-cwd/`), so Claude Code indexes nothing. Measured on the author's Windows machine:
 
   | Mode | Time | Peak RAM | Processes |

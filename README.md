@@ -241,7 +241,7 @@ Essa frase não é a projeção dos avisos ao Claude. A projeção usa o ritmo d
 
 ### Sem gastar tokens, com pouca RAM
 
-- **Sem tokens.** O Fable vem do comando oficial `claude -p /usage`. O `/usage` é comando local do Claude Code: não chama o modelo. Cada leitura confere o resultado (`local_command` igual a `usage`, `num_turns` 0 e custo 0). Se um dia vier diferente, o painel entende que o comando passou a ter custo, para de ler por 24 h e diz isso na dica. Quem consulta a Anthropic é o próprio Claude Code, com a sua sessão; o plugin não lê credencial nem chama endpoint nenhum.
+- **Sem tokens.** O Fable vem do comando oficial `claude -p /usage`. O `/usage` é comando local do Claude Code: não chama o modelo. Cada leitura confere o resultado: `num_turns` 0, custo 0 e `local_command` igual a `usage`. Se turnos ou custo vierem diferentes de 0, o painel entende que o comando passou a ter custo, para de ler por 24 h e diz isso na dica; um resultado sem custo que não seja o do `/usage` conta como falha de formato. Quem consulta a Anthropic é o próprio Claude Code, com a sua sessão; o plugin não lê credencial nem chama endpoint nenhum.
 - **Modo enxuto.** A leitura roda sem plugins, MCP, hooks, Chrome nem histórico de sessão (`--no-session-persistence --strict-mcp-config --no-chrome --setting-sources "" --settings {"disableAllHooks":true}`), numa pasta vazia da pasta de dados (`uso-cwd/`), para o Claude Code não indexar nada. Medido na máquina Windows do autor:
 
   | Modo | Tempo | Pico de RAM | Processos |
