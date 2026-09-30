@@ -793,3 +793,9 @@ Medido nesta máquina, com pico somando a árvore de processos:
 - **S26, o painel executa `claude`.** O executável é procurado só em `~/.local/bin/claude(.exe)` e nos diretórios do PATH. No Windows, só `.exe`. Os argumentos são fixos. A saída é limitada a 64 KiB e o tempo, a 30 s. Todo texto da saída passa por parser com regex ancorada: só números entram no arquivo.
 - **S27, o instalador executa o CLI do VS Code.** Só o `code` achado no PATH. O caminho do `.vsix` é validado pelo conjunto de caracteres seguro. A extensão só contém arquivos gerados pelo plugin.
 - **S28, `uso-oficial.json` adulterado.** A leitura valida o schema (números em [0, 100], instantes finitos). Um valor fora dele é tratado como "sem leitura".
+
+## Decisão de escopo (Sr. Garioli, 2026-09-29, noite)
+
+- **A v0.3.0 sai só com a emenda da noite (E1–E8):** painel no VS Code, leitura oficial pelo `/usage`, frase de previsão do claude.ai e barra só da sessão.
+- **A guarda (corpo desta spec, §1–§17, e as emendas de spikes, D1 e D4) passa para a v0.4.0.** O plano da parte 1 (`2026-09-29-guardiao-parte1-guarda.md`) vale para a v0.4.0, com os ajustes da E6 (Task 17) e da E7 (Tasks 7 e 10). A parte 2 também fica na v0.4.0.
+- Onde esta spec diz "v0.3.0" referindo-se à guarda, leia-se v0.4.0.

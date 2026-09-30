@@ -1,4 +1,6 @@
-# claude-hadouken v0.3.0, parte 1: guarda (plano de implementação)
+# claude-hadouken v0.4.0, parte 1: guarda (plano de implementação)
+
+> **Escopo (Sr. Garioli, 2026-09-29, noite):** a guarda saiu da v0.3.0 e entra na v0.4.0. A v0.3.0 foi lançada com o painel no VS Code e a barra só da sessão (plano `2026-09-29-painel-vscode.md`).
 
 > **Para agentes:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam checkbox (`- [ ]`).
 
