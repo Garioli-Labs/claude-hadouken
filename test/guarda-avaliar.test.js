@@ -213,3 +213,31 @@ test('entrada inválida: status erro, nunca lança', () => {
   assert.equal(avaliarGuarda({ dir: novo(), agoraMs: NaN, sessionId: 's' }).status, 'erro');
   assert.equal(avaliarGuarda().status, 'erro');
 });
+
+// Emenda E7: a leitura oficial do Fable (uso-oficial.json, gravada pelo
+// painel) entra no G6 e no G7 e segue na Avaliacao para a barra.
+const MIN = 60_000;
+// uso-oficial.json no schema que lerUso valida (versão 1, S28).
+function gravarUsoOficial(d, pct, lidoHaMs = MIN) {
+  fs.writeFileSync(path.join(d, 'uso-oficial.json'), JSON.stringify({
+    versao: 1, lidoEm: iso(agora - lidoHaMs), sessao: null, semana: null,
+    modelos: { fable: { pct, resetsAtMs: agora + 48 * H } }, estado: { motivo: 'ok', em: iso(agora - lidoHaMs) }, bloqueado: null,
+  }));
+}
+
+test('uso-oficial.json com Fable em 100% trava o Fable (G6 oficial); a leitura vai na Avaliacao', () => {
+  const d = novo();
+  gravarUsoOficial(d, 100);
+  const g = avaliarGuarda({ dir: d, agoraMs: agora, sessionId: 's1' });
+  assert.ok(g.motivos.some((mo) => mo.trava === 'fable' && mo.gatilho === 'G6' && mo.dados?.fonte === 'oficial'), JSON.stringify(g.motivos));
+  assert.deepEqual(g.usoFable, { pct: 100, resetsAtMs: agora + 48 * H, idadeMs: MIN });
+});
+
+test('uso-oficial.json com mais de 15 min não trava, mas segue na Avaliacao para a barra', () => {
+  const d = novo();
+  gravarUsoOficial(d, 100, 16 * MIN);
+  const g = avaliarGuarda({ dir: d, agoraMs: agora, sessionId: 's1' });
+  assert.deepEqual(g.ativas, []);
+  assert.equal(g.usoFable.idadeMs, 16 * MIN);
+  assert.equal(avaliarGuarda({ dir: novo(), agoraMs: agora, sessionId: 's1' }).usoFable, null);
+});

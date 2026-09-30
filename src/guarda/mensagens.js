@@ -1,5 +1,6 @@
 import { effortValido, horaLocal, quandoLocal } from '../util.js';
 import { numeroFinito } from '../base.js';
+import { FRESCA_FABLE_MS, contarNaJanela } from './gatilhos.js';
 
 // Textos da guarda (spec v0.4.0 §8, com D1 e D4 emendados). Modelos fixos,
 // preenchidos só com números validados aqui (Math.floor de porcentagem,
@@ -35,7 +36,9 @@ export function textoMotivo(mo, agoraMs) {
         case 'G3': return teto('5h', d);
         case 'G4': return teto('7d', d);
         case 'G6': return `limite do Fable atingido ${quandoLocal(segundos(d.atMs), agoraMs)}`;
-        case 'G7': return `${inteiro(d.n)} despachos Fable em ${inteiro(d.horas)} h, teto ${inteiro(d.max)}`;
+        case 'G7': return numeroFinito(d.pct)
+          ? `Fable em ${pct(d.pct)}% da semana: todo despacho Fable pede liberação`
+          : `${inteiro(d.n)} despachos Fable em ${inteiro(d.horas)} h, teto ${inteiro(d.max)}`;
         default: break;
       }
     }
@@ -96,6 +99,20 @@ export const recusadoArgs = (maxH) => `hadouken: nada liberado. Use /claude-hado
 export const RECUSADO_ENTRYPOINT = 'hadouken: nada liberado. A liberação só vale digitada pelo usuário numa sessão interativa.';
 export const NAO_GRAVADO = 'hadouken: nada liberado. A liberação não pôde ser gravada.';
 
+// Semana do Fable na barra (§8.3 com as emendas E2 e E7): a §7 mudou, e o
+// Fable tem leitura oficial (uso-oficial.json, pelo /usage). Até 15 min, o
+// número; mais velha, "≥" com a idade (a semana só sobe até o reset); sem
+// leitura válida, ou lida antes do reset do Fable, "sem leitura oficial".
+function semanaFable(u, agoraMs) {
+  const SEM = 'sem leitura oficial';
+  if (u === null || typeof u !== 'object') return SEM;
+  if (!numeroFinito(u.pct) || u.pct < 0 || u.pct > 100 || !numeroFinito(u.idadeMs) || u.idadeMs < 0) return SEM;
+  if (u.resetsAtMs !== null && !(numeroFinito(u.resetsAtMs) && u.resetsAtMs > agoraMs)) return SEM;
+  if (u.idadeMs <= FRESCA_FABLE_MS) return `semana Fable ${pct(u.pct)}%`;
+  const idade = u.idadeMs < H ? `${Math.floor(u.idadeMs / 60_000)} min` : `${Math.floor(u.idadeMs / H)} h`;
+  return `semana Fable ≥ ${pct(u.pct)}% (leitura de ${idade})`;
+}
+
 // Segmento da barra (§8.3). Vazio com a guarda armada e sessão fora do Fable.
 export function segmentoBarra(o, agoraMs) {
   try {
@@ -111,8 +128,8 @@ export function segmentoBarra(o, agoraMs) {
     }
     if (o.fableSessao) {
       const horas = o.config.fableDespachosHoras;
-      const n = o.despachosFable.filter((t) => t > agoraMs - horas * H).length;
-      partes.push(`Fable ${n}/${inteiro(o.config.fableDespachosMax)} em ${inteiro(horas)}h`, 'sem leitura oficial');
+      const n = contarNaJanela(o.despachosFable, horas, agoraMs).length;
+      partes.push(`Fable ${n}/${inteiro(o.config.fableDespachosMax)} em ${inteiro(horas)}h`, semanaFable(o.usoFable ?? null, agoraMs));
     }
     return partes.join(' · ');
   } catch {

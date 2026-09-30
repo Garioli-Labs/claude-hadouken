@@ -2,6 +2,7 @@ import path from 'node:path';
 import { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, leiturasComPiso } from '../estado.js';
 import { numeroFinito } from '../base.js';
 import { preverEstouro } from '../previsao.js';
+import { lerUso } from '../uso/ler-uso.js';
 import { lerConfigGuarda, PADRAO_GUARDA } from './config.js';
 import { avaliarGatilhos } from './gatilhos.js';
 import { CHAVES_TRAVA, lerTravas, gravarTravas, unirTravas } from './travas.js';
@@ -20,8 +21,18 @@ export const CHAVES_MOTIVO = Object.freeze(['ilegivel', 'seven_day', 'five_hour'
 
 const vazia = (status, config = PADRAO_GUARDA) => ({
   status, ativas: [], motivos: [], cobertura: { ativa: false, solta: new Set(), fim: null }, liberacao: null,
-  config, leituras: { five_hour: null, seven_day: null }, despachosFable: [], modeloSessao: null,
+  config, leituras: { five_hour: null, seven_day: null }, despachosFable: [], modeloSessao: null, usoFable: null,
 });
+
+// Emenda E7: a janela do Fable gravada pelo painel, com a idade da leitura.
+// Avaliacao.usoFable: { pct, resetsAtMs, idadeMs } | null, de qualquer
+// idade; o frescor é decidido em gatilhos.js e na barra (mensagens.js).
+function fableOficial(uso, agoraMs) {
+  const f = uso?.modelos?.fable;
+  const lidoMs = typeof uso?.lidoEm === 'string' ? Date.parse(uso.lidoEm) : Number.NaN;
+  if (!f || !numeroFinito(lidoMs)) return null;
+  return { pct: f.pct, resetsAtMs: f.resetsAtMs, idadeMs: Math.max(0, agoraMs - lidoMs) };
+}
 
 export function avaliarGuarda({ dir, agoraMs, sessionId } = {}) {
   try {
@@ -34,8 +45,9 @@ export function avaliarGuarda({ dir, agoraMs, sessionId } = {}) {
     const leituras = leiturasComPiso(estado, agoraMs);
     const previsao = preverEstouro({ historico: estado?.historico, limites: limitesValidos(estado, agoraMs), agoraMs });
     const despachosFable = despachosFableRecentes(dir, agoraMs);
+    const usoFable = fableOficial(lerUso(dir, agoraMs), agoraMs);
     const disparos = avaliarGatilhos({
-      leituras, previsao, config, agoraMs, despachosFable, limiteFable: ultimoLimiteFable(dir, agoraMs),
+      leituras, previsao, config, agoraMs, despachosFable, limiteFable: ultimoLimiteFable(dir, agoraMs), usoFable,
     });
 
     const liberacao = lerLiberacao(dir, agoraMs);
@@ -89,7 +101,7 @@ export function avaliarGuarda({ dir, agoraMs, sessionId } = {}) {
     const modeloSessao = modeloDaSessao(dir, sessionId, agoraMs)
       ?? (typeof sessao?.model === 'string' && sessao.model.length > 0 ? sessao.model : null);
 
-    return { status, ativas, motivos, cobertura, liberacao, config, leituras, despachosFable, modeloSessao };
+    return { status, ativas, motivos, cobertura, liberacao, config, leituras, despachosFable, modeloSessao, usoFable };
   } catch {
     return vazia('erro');
   }

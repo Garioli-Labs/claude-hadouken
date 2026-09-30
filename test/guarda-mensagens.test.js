@@ -20,6 +20,10 @@ test('motivos por gatilho', () => {
   assert.equal(m.textoMotivo(mot('five_hour', 'G3', { usado: 91, teto: 90, fresca: true, idadeMs: 0 }), agora), '5h em 91%, teto 90%');
   assert.equal(m.textoMotivo(mot('fable', 'G6', { atMs: agora - H }), agora), `limite do Fable atingido ${quandoLocal(agoraS - 3600, agora)}`);
   assert.equal(m.textoMotivo(mot('fable-despachos', 'G7', { n: 4, max: 4, horas: 5 }), agora), '4 despachos Fable em 5 h, teto 4');
+  assert.equal(m.textoMotivo(mot('fable-despachos', 'G7', { n: 0, max: 0, horas: 5, pct: 92 }), agora), 'Fable em 92% da semana: todo despacho Fable pede liberação');
+  // O /usage pode gravar porcentagem com casas (S28): o piso inteiro, como na barra.
+  assert.equal(m.textoMotivo(mot('fable-despachos', 'G7', { n: 0, max: 0, horas: 5, pct: 92.7 }), agora), 'Fable em 92% da semana: todo despacho Fable pede liberação');
+  assert.equal(m.textoMotivo(mot('fable', 'G6', { atMs: agora - H, fonte: 'oficial' }), agora), `limite do Fable atingido ${quandoLocal(agoraS - 3600, agora)}`);
   assert.equal(m.textoMotivo(mot('ilegivel', null, null, null, null), agora), 'estado da guarda ilegível');
   assert.equal(m.textoMotivo(mot('seven_day', 'G2', null), agora), `trava de 7d desde ${quandoLocal(agoraS - 3600, agora)}`);
   assert.equal(m.textoMotivos([mot('ilegivel', null, null), mot('fable', 'G6', null)], agora),
@@ -80,4 +84,17 @@ test('segmento da barra', () => {
   assert.equal(m.segmentoBarra({ ...base, status: 'liberada', liberacao: lib }, agora), `liberada até ${quandoLocal(agoraS + 7200, agora)}`);
   assert.equal(m.segmentoBarra({ ...base, status: 'liberada', liberacao: lib, origemConhecida: false }, agora), `liberada até ${quandoLocal(agoraS + 7200, agora)} · liberação sem origem`);
   assert.equal(m.segmentoBarra({ ...base, fableSessao: true, despachosFable: [agora - H, agora - 2 * H, agora - 6 * H] }, agora), 'Fable 2/4 em 5h · sem leitura oficial');
+});
+
+test('segmento da barra: semana do Fable pela leitura oficial (E2, E7)', () => {
+  const base = { marcada: true, status: 'armada', ativas: [], liberacao: null, origemConhecida: true, fableSessao: true, despachosFable: [agora - H], config: PADRAO_GUARDA };
+  const u = (pct, idadeMs, resetsAtMs = agora + 48 * H) => ({ pct, resetsAtMs, idadeMs });
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57.8, 60_000) }, agora), 'Fable 1/4 em 5h · semana Fable 57%');
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57, 15 * 60_000) }, agora), 'Fable 1/4 em 5h · semana Fable 57%');
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57, 60_000, null) }, agora), 'Fable 1/4 em 5h · semana Fable 57%');
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57, 40 * 60_000) }, agora), 'Fable 1/4 em 5h · semana Fable ≥ 57% (leitura de 40 min)');
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57, 3 * H + 10) }, agora), 'Fable 1/4 em 5h · semana Fable ≥ 57% (leitura de 3 h)');
+  for (const hostil of [undefined, null, 'x', u(101, 0), u(Number.NaN, 0), u(57, -1), u(57, 60_000, agora - 1)]) {
+    assert.equal(m.segmentoBarra({ ...base, usoFable: hostil }, agora), 'Fable 1/4 em 5h · sem leitura oficial', JSON.stringify(hostil));
+  }
 });

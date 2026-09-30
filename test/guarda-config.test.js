@@ -15,7 +15,16 @@ test('padrões quando não há chave guarda', () => {
   assert.deepEqual(PADRAO_GUARDA, {
     ligada: true, teto5h: 90, horizonte5hMin: 90, margemReset5hMin: 15, teto7d: 85, horizonte7dH: 24,
     fableDespachosMax: 4, fableDespachosHoras: 5, liberacaoPadraoH: 2, liberacaoMaxH: 24, liberacaoTetoPontos7d: 10,
+    fableTetoPct: 90,
   });
+});
+
+test('fable.tetoPct: padrão 90, faixa 50–100', () => {
+  assert.equal(PADRAO_GUARDA.fableTetoPct, 90);
+  assert.equal(guardaDaConfig({ guarda: { fable: { tetoPct: 75 } } }).config.fableTetoPct, 75);
+  const r = guardaDaConfig({ guarda: { fable: { tetoPct: 40 } } });
+  assert.equal(r.config.fableTetoPct, 90);
+  assert.equal(r.avisos.length, 1);
 });
 
 test('campos válidos entram, inválidos usam o padrão com aviso fixo', () => {

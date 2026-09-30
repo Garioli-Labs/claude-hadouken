@@ -18,9 +18,14 @@ const CONFIG_MAX_BYTES = 64 * 1024;
 // então nem um liberacao.json forjado solta a guarda por mais de um dia.
 export const LIBERACAO_TETO_H = 24;
 
+// ConfigGuarda: os campos abaixo. fableTetoPct (guarda.fable.tetoPct, emenda
+// E7) é a porcentagem oficial da semana do Fable a partir da qual todo
+// despacho Fable pede liberação (G7 com teto 0); padrão 90, confirmado pelo
+// usuário em 2026-09-30.
 export const PADRAO_GUARDA = Object.freeze({
   ligada: true, teto5h: 90, horizonte5hMin: 90, margemReset5hMin: 15, teto7d: 85, horizonte7dH: 24,
   fableDespachosMax: 4, fableDespachosHoras: 5, liberacaoPadraoH: 2, liberacaoMaxH: LIBERACAO_TETO_H, liberacaoTetoPontos7d: 10,
+  fableTetoPct: 90,
 });
 
 // [chave em ConfigGuarda, caminho no JSON, rótulo do aviso, mínimo, máximo]
@@ -35,6 +40,7 @@ const CAMPOS = Object.freeze([
   ['liberacaoPadraoH', ['liberacao', 'padraoH'], 'liberacao.padraoH', 1, LIBERACAO_TETO_H],
   ['liberacaoMaxH', ['liberacao', 'maxH'], 'liberacao.maxH', 1, LIBERACAO_TETO_H],
   ['liberacaoTetoPontos7d', ['liberacao', 'tetoPontos7d'], 'liberacao.tetoPontos7d', 1, 50],
+  ['fableTetoPct', ['fable', 'tetoPct'], 'fable.tetoPct', 50, 100],
 ]);
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
