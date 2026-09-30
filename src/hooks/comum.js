@@ -35,6 +35,23 @@ export function emitirJson(valor) {
   process.stdout.write(JSON.stringify(valor));
 }
 
+// Fail-open visível dos hooks da guarda (spec v0.4.0 §4.5): qualquer exceção
+// em fn (import que falha, avaliação, perfil, mensagem, escrita) deixa o hook
+// passar e registra o evento 'erro' com o detalhe do hook (rótulo fixo, ex.
+// 'P1'). Uma saída que fn já escreveu antes de lançar fica como está. O
+// registro vem por import dinâmico, para este arquivo seguir só com base.js no
+// caminho curto, e nunca lança: sem registro, o hook passa do mesmo jeito.
+export async function falharAberto(dir, detalhe, agoraMs, fn) {
+  try {
+    await fn();
+  } catch {
+    try {
+      const { anexarEvento } = await import('../guarda/registros.js');
+      anexarEvento(dir, 'erro', detalhe, agoraMs);
+    } catch { /* nada a fazer: o hook passa */ }
+  }
+}
+
 // Objeto JSON do stdin, ou null (vazio, inválido, lista, primitivo, acima do
 // teto de 1 MiB de lerStdin).
 function entradaDe(texto) {

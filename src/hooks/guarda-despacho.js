@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { rodarHook, emitirJson } from './comum.js';
+import { rodarHook, emitirJson, falharAberto } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva } from '../ativas.js';
 
@@ -11,7 +11,9 @@ import { sessaoAtiva } from '../ativas.js';
 // Na thread principal (sem agent_id, spike S1) acrescenta continue:false e
 // stopReason (D3 opção A, spike S5). Dentro de subagente, só o deny.
 // Quando passa, conta o despacho Fable (G7) e registra o perfil desconhecido.
-// Erro ao avaliar: passa e registra 'erro' (fail-open visível, §4.5).
+// Erro ao avaliar: passa e registra 'erro' (fail-open visível, §4.5), tanto
+// o status 'erro' de avaliarGuarda quanto qualquer exceção depois do gate
+// (falharAberto, em comum.js).
 // Caminho curto até o gate, como os outros hooks; a guarda vem por import
 // dinâmico depois dele.
 
@@ -30,14 +32,7 @@ function casa() {
   try { return os.homedir(); } catch { return null; }
 }
 
-rodarHook(async (entrada) => {
-  if (entrada === null || !FERRAMENTAS.has(entrada.tool_name)) return;
-  const sessionId = entrada.session_id;
-  if (!idValido(sessionId)) return;
-  const dir = dirDados();
-  if (dir === null) return;
-  const agoraMs = Date.now();
-  if (!sessaoAtiva(sessionId, agoraMs)) return;
+async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
   const [{ avaliarGuarda }, desp, reg, msg] = await Promise.all([
     import('../guarda/avaliar.js'),
     import('../guarda/despacho.js'),
@@ -75,4 +70,16 @@ rodarHook(async (entrada) => {
   if (perfil.modelo === 'fable') reg.registrarDespachoFable(dir, agoraMs);
   if (perfil.modelo === 'desconhecido') reg.anexarEvento(dir, 'desconhecido', 'modelo', agoraMs);
   else if (perfil.effort === null) reg.anexarEvento(dir, 'desconhecido', 'effort', agoraMs);
+}
+
+rodarHook(async (entrada) => {
+  if (entrada === null || !FERRAMENTAS.has(entrada.tool_name)) return;
+  const sessionId = entrada.session_id;
+  if (!idValido(sessionId)) return;
+  const dir = dirDados();
+  if (dir === null) return;
+  const agoraMs = Date.now();
+  if (!sessaoAtiva(sessionId, agoraMs)) return;
+  // Depois do gate, toda exceção passa e vira evento 'erro' (§4.5).
+  await falharAberto(dir, 'P1', agoraMs, () => avaliarDespacho(entrada, dir, sessionId, agoraMs));
 });
