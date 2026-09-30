@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { caminhoReal, dentroDe, chamaClaude, claudeComLiberar } from '../src/guarda/caminho.js';
+import { caminhoReal, dentroDe, chamaClaude, claudeComLiberar, pedeLiberacao } from '../src/guarda/caminho.js';
 
 const dirs = [];
 after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
@@ -89,4 +89,42 @@ test('claudeComLiberar: claude (ou o pacote) junto com o comando de liberação'
     null, undefined, 42, {},
   ];
   for (const c of nao) assert.equal(claudeComLiberar(c), false, String(c));
+});
+
+// C1 da revisão final da parte 1 (hook da agenda): o texto que vira prompt de
+// uma tarefa agendada, de um loop ou de uma rotina pede a liberação quando
+// tem o teste (a) do claudeComLiberar ('hadouken:liberar' no texto
+// normalizado) ou '/liberar' como palavra.
+test('pedeLiberacao: hadouken:liberar normalizado ou /liberar como palavra', () => {
+  const sim = [
+    '/claude-hadouken:liberar 24h fable caro',
+    '  /claude-hadouken:liberar',
+    'rode /Claude-Hadouken:LIBERAR agora',
+    '/claude-hadouken"":liberar',
+    '/claude-hadouken\\:lib\\erar',
+    '/claude-hadouken`:liberar',
+    '/claude-hadouken^:liberar',
+    '/claude-had\\\nouken:liberar',
+    'claude-hadouken:liberar',
+    '/liberar',
+    '/liberar 2h',
+    'depois rode /liberar.',
+    'texto\n/liberar fable',
+    '(/liberar)',
+    '"/liberar"',
+  ];
+  for (const t of sim) assert.equal(pedeLiberacao(t), true, t);
+  const nao = [
+    'check the build',
+    'revise src/hooks/liberar.js',
+    'liberar o deploy',
+    'skills/liberar/SKILL.md',
+    '/liberarx',
+    '/liberar-tudo',
+    'a/liberar',
+    './liberar',
+    '',
+    null, undefined, 42, {}, ['/liberar'],
+  ];
+  for (const t of nao) assert.equal(pedeLiberacao(t), false, String(t));
 });

@@ -77,6 +77,9 @@ export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuári
 // rodada 2 da revisão da Task 16 o texto que só cita 'hadouken:liberar' (numa
 // mensagem de commit, num grep) também nega; a última frase aponta a saída.
 export const P4_LIBERAR_TEXTO = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
+// Hook da agenda (C1 da revisão final da parte 1): CronCreate, ScheduleWakeup
+// e RemoteTrigger com o pedido de liberação no texto, negados sempre.
+export const AGENDA_LIBERAR_TEXTO = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando, tire-o do prompt agendado.';
 
 // Prazo da liberação (§6.2 e D4): a hora e, com base de 7d, o ponto de 7d
 // em que ela acaba antes.
@@ -102,6 +105,9 @@ export function posLiberacao(lib, agoraMs) {
 }
 export const recusadoArgs = (maxH) => `hadouken: nada liberado. Use /claude-hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a ${inteiro(maxH)}.`;
 export const RECUSADO_ENTRYPOINT = 'hadouken: nada liberado. A liberação só vale digitada pelo usuário numa sessão interativa.';
+// C1 da revisão final da parte 1: a expansão que não vem do comando digitado
+// (command_source ou expansion_type fora da lista fechada de liberar.js).
+export const RECUSADO_ORIGEM = 'hadouken: nada liberado. A liberação só vale digitada pelo usuário na conversa; tarefa agendada, /loop e ferramenta não liberam.';
 export const NAO_GRAVADO = 'hadouken: nada liberado. A liberação não pôde ser gravada.';
 
 // Semana do Fable na barra (§8.3 com as emendas E2 e E7): a §7 mudou, e o

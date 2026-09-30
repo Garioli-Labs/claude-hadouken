@@ -113,6 +113,46 @@ test('foco 5: recusa de -p ou SDK grava só o evento, nem a marca de sessão', (
   }
 });
 
+// C1 da revisão final da parte 1: só o prompt digitado libera. A lista de
+// origens é fechada (command_source 'plugin' com expansion_type
+// 'slash_command', os valores da doc e do spike S2); qualquer outro valor,
+// inclusive ausente, é recusado antes da marca de sessão, como a recusa do
+// entrypoint: só o evento 'liberacao-recusada' com o detalhe 'origem'.
+const RECUSADO_ORIGEM = 'hadouken: nada liberado. A liberação só vale digitada pelo usuário na conversa; tarefa agendada, /loop e ferramenta não liberam.';
+
+test('C1: origem que não é o comando digitado é recusada e grava só o evento', () => {
+  const casos = [
+    { command_source: 'skill_tool' }, { command_source: 'scheduled_task' }, { command_source: '/loop' },
+    { command_source: 'queued_prompt' }, { command_source: 'desconhecido' }, { command_source: 'Plugin' },
+    { command_source: '' }, { command_source: null }, { command_source: 7 }, { command_source: ['plugin'] },
+    { command_source: undefined },
+    { expansion_type: 'scheduled_task' }, { expansion_type: 'mcp_prompt' }, { expansion_type: undefined },
+  ];
+  for (const extra of casos) {
+    const home = novoHome();
+    registrar(home, 's1');
+    gravarEstado(home, 86);
+    fs.writeFileSync(path.join(home, ARQ_GUARDA), '{');
+    const entrada = expansao('s1', '24h fable caro', extra);
+    for (const [k, v] of Object.entries(extra)) if (v === undefined) delete entrada[k];
+    const antes = arvore(home);
+    const o = saida(rodar(entrada, home));
+    const rotulo = JSON.stringify(extra);
+    assert.deepEqual(o, { decision: 'block', reason: RECUSADO_ORIGEM }, rotulo);
+    assert.equal(fs.existsSync(path.join(home, DIR_MARCAS)), false, rotulo);
+    assert.deepEqual(arvore(home).filter(([rel]) => rel !== ARQ_EVENTOS), antes, rotulo);
+    assert.deepEqual(lerEventos(home, Date.now()).map((e) => [e.tipo, e.detalhe]), [['liberacao-recusada', 'origem']], rotulo);
+  }
+});
+
+test('C1: o comando digitado (plugin, slash_command) segue liberando', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const o = saida(rodar(expansao('s1', '2h'), home));
+  assert.match(o.reason, /^hadouken: liberado até /);
+  assert.equal(eventos(home, 'liberacao-recusada').length, 0);
+});
+
 // §4.5: o import de mensagens.js que falha (aqui por um gancho de carga posto
 // com --import: registerHooks no Node 22.15+/23.5+, register antes) ainda
 // bloqueia com "nada liberado", pelo texto de reserva do hook, e registra o

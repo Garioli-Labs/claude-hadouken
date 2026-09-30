@@ -40,7 +40,9 @@
       { "matcher": "MultiEdit",
         "hooks": [ { "type": "command", "if": "MultiEdit(~/.claude/hadouken/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 } ] },
       { "matcher": "NotebookEdit",
-        "hooks": [ { "type": "command", "if": "NotebookEdit(~/.claude/hadouken/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 } ] }
+        "hooks": [ { "type": "command", "if": "NotebookEdit(~/.claude/hadouken/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 } ] },
+      { "matcher": "CronCreate|ScheduleWakeup|RemoteTrigger",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-agenda.js"], "timeout": 10 } ] }
     ],
     "UserPromptExpansion": [
       { "matcher": "claude-hadouken:liberar",

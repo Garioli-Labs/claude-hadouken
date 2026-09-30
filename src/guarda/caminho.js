@@ -355,3 +355,24 @@ export function claudeComLiberar(comando) {
     return true;
   }
 }
+
+// Hook da agenda (C1 da revisão final da parte 1, guarda-agenda.js): o texto
+// que vai virar prompt de uma tarefa agendada (CronCreate), de um loop
+// (ScheduleWakeup) ou de uma rotina (RemoteTrigger) pede a liberação quando
+// tem o teste (a) do claudeComLiberar ('hadouken:liberar' no texto
+// normalizado: sem continuação de linha, aspas, crase, ^ e barra invertida,
+// em minúsculas) ou '/liberar' como palavra (a metade '/' de LIBERAR_PALAVRA:
+// fora de um caminho, sem outro nome grudado depois; 'liberar.' no fim da
+// frase conta). Nega a mais: um lembrete que só cita o comando também nega, e
+// o texto do deny pede para tirá-lo do prompt. Só texto, linear, e nunca
+// lança: na dúvida, true.
+const BARRA_LIBERAR = /(?<![a-z0-9_./-])\/liberar(?![a-z0-9_/-]|\.[a-z0-9_])/;
+export function pedeLiberacao(texto) {
+  try {
+    if (typeof texto !== 'string') return false;
+    const normal = semEscapeDe(semAspasDe(texto.toLowerCase().replace(/[\\`^]\r?\n/g, '')));
+    return normal.includes('hadouken:liberar') || BARRA_LIBERAR.test(normal);
+  } catch {
+    return true;
+  }
+}

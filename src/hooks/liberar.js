@@ -19,8 +19,30 @@ import { dirDados, idValido } from '../base.js';
 // `claude -p` aberto de uma sessão com outro entrypoint (ex.: claude-vscode)
 // herda esse valor e passa por aqui; quem fecha esse caminho é a P4 (Task 16),
 // e o spike da parte 2 procura um sinal melhor.
+//
+// Origem (C1 da revisão final da parte 1): só o comando digitado libera. A
+// lista de origens aceitas é fechada, e qualquer outro valor, inclusive
+// ausente, é recusado antes da marca de sessão, como a recusa do entrypoint.
+// Os valores aceitos são os que o comando digitado traz de fato: a doc
+// oficial (hooks, "UserPromptExpansion input", conferida em 2026-09-30) só
+// tipa `expansion_type` ('slash_command' ou 'mcp_prompt') e mostra
+// `command_source: "plugin"` no exemplo, com o campo opcional e sem lista de
+// valores; o spike S2 (2.1.284) viu 'plugin' e 'slash_command' neste comando.
+// Limite honesto: na 2.1.286 instalada, `command_source` é a fonte da
+// definição do comando (plugin, projeto, usuário), não quem o disparou, e
+// seria o mesmo 'plugin' numa tarefa agendada. Esta lista recusa as origens
+// que a revisão citou (skill_tool, scheduled_task, /loop, queued_prompt) e
+// qualquer rótulo novo; quem fecha a tarefa agendada e o /loop hoje são o
+// `disable-model-invocation: true` da skill (a doc de scheduled tasks: um
+// disparo agendado não roda essa skill, ela chega como texto) e o hook da
+// agenda (guarda-agenda.js), que nega criar a tarefa com o pedido. Se uma
+// versão nova rotular o comando digitado com outro valor, ele é recusado
+// (fail-closed) até a lista ganhar o valor.
 
 const COMANDO = 'claude-hadouken:liberar';
+const ORIGENS = Object.freeze(['plugin']);
+const EXPANSOES = Object.freeze(['slash_command']);
+const digitado = (entrada) => ORIGENS.includes(entrada.command_source) && EXPANSOES.includes(entrada.expansion_type);
 // O mesmo texto de NAO_GRAVADO (mensagens.js), só para quando o import dele
 // falha: a expansão continua bloqueada e nada é liberado.
 // test/guarda-liberar-extra.test.js confere que os dois são iguais.
@@ -44,6 +66,10 @@ async function decidir(entrada, dir, sessionId, agoraMs, msg) {
   if (typeof ep === 'string' && /^sdk/i.test(ep)) {
     reg.anexarEvento(dir, 'liberacao-recusada', 'entrypoint', agoraMs);
     return msg.RECUSADO_ENTRYPOINT;
+  }
+  if (!digitado(entrada)) {
+    reg.anexarEvento(dir, 'liberacao-recusada', 'origem', agoraMs);
+    return msg.RECUSADO_ORIGEM;
   }
   reg.marcarSessao(dir, sessionId);
   const { config } = lerConfigGuarda(dir);

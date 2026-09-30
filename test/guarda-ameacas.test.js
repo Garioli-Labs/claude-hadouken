@@ -27,7 +27,8 @@ test('S10: a skill liberar não pode ser carregada pelo modelo e o corpo não ma
 test('S24: módulos da guarda e hooks novos não importam rede nem child_process', () => {
   const arquivos = [
     ...fs.readdirSync(path.join(repo, 'src', 'guarda')).map((f) => path.join('src', 'guarda', f)),
-    ...['guarda-despacho.js', 'guarda-filha.js', 'guarda-arquivos.js', 'guarda-modelo.js', 'modelo-trocado.js', 'limite-atingido.js', 'liberar.js']
+    ...['guarda-despacho.js', 'guarda-filha.js', 'guarda-arquivos.js', 'guarda-modelo.js', 'modelo-trocado.js', 'limite-atingido.js', 'liberar.js',
+      'guarda-agenda.js']
       .map((f) => path.join('src', 'hooks', f)),
   ];
   for (const a of arquivos) {
@@ -62,10 +63,11 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   const h = JSON.parse(ler('hooks', 'hooks.json')).hooks;
   const handlers = Object.entries(h).flatMap(([evento, grupos]) => grupos.flatMap((g) => g.hooks.map((x) => ({ evento, matcher: g.matcher, ...x }))));
   const novos = handlers.filter((x) => Array.isArray(x.args));
-  // 24 = 9 fora da P4 (P1, P5 x4, liberar, P3, PostModelSwitch, StopFailure)
-  // + 15 da P4, um por `if` de IF_P4 (8 Bash, 7 PowerShell). O brief contava 11
-  // com a P4 em 2 handlers; a Task 18 trocou esses 2 pelos 15.
-  assert.equal(novos.length, 24);
+  // 25 = 10 fora da P4 (P1, P5 x4, liberar, P3, PostModelSwitch, StopFailure
+  // e o hook da agenda, C1 da revisão final) + 15 da P4, um por `if` de IF_P4
+  // (8 Bash, 7 PowerShell). O brief contava 11 com a P4 em 2 handlers; a
+  // Task 18 trocou esses 2 pelos 15.
+  assert.equal(novos.length, 25);
   for (const x of novos) {
     assert.equal(x.command, 'node');
     assert.equal(x.args.length, 1);
@@ -76,6 +78,9 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   for (const tool of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
     assert.ok(novos.some((x) => x.matcher === tool && x.if === `${tool}(~/.claude/hadouken/**)`), tool);
   }
+  // O hook da agenda: um handler PreToolUse, sem `if`, com a lista exata.
+  const agenda = novos.filter((x) => x.args[0].endsWith('/guarda-agenda.js'));
+  assert.deepEqual(agenda.map((x) => [x.evento, x.matcher, x.if, x.timeout]), [['PreToolUse', 'CronCreate|ScheduleWakeup|RemoteTrigger', undefined, 10]]);
   // A P4: um handler por `if`, cada um no grupo da sua ferramenta.
   const p4 = novos.filter((x) => x.args[0].endsWith('/guarda-filha.js'));
   assert.deepEqual(p4.map((x) => x.if), IF_P4);

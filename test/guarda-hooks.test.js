@@ -12,7 +12,7 @@ import { ARQ_LIBERACAO, gravarLiberacao, montarLiberacao, lerPedido } from '../s
 import { PADRAO_GUARDA } from '../src/guarda/config.js';
 import { travasVazias, lerTravas } from '../src/guarda/travas.js';
 import { ARQ_DESPACHOS, ARQ_LIMITES, lerEventos, registrarDespachoFable, gravarModeloSessao, modeloDaSessao } from '../src/guarda/registros.js';
-import { P4_LIBERAR_TEXTO } from '../src/guarda/mensagens.js';
+import { P4_LIBERAR_TEXTO, AGENDA_LIBERAR_TEXTO } from '../src/guarda/mensagens.js';
 
 // Hooks da guarda (spec v0.4.0 §4.2), cada um num processo filho como o
 // Claude Code os roda. Todo filho recebe HADOUKEN_HOME e CLAUDE_CONFIG_DIR
@@ -539,6 +539,61 @@ test('P4: entrada hostil nunca quebra o hook', () => {
   }
   const o = saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `claude -p "/claude-hadouken:liberar ${INSTRUCAO}"` }), home));
   assert.deepEqual(o, LIBERAR_NEGADO);
+});
+
+// C1 da revisão final da parte 1: o hook da agenda nega criar tarefa
+// agendada, loop ou rotina cujo texto peça a liberação, sempre (sem gate de
+// sessão, com a guarda armada, disparada ou desligada), como a regra fixa da P4.
+const AGENDA_NEGADO = negacao(AGENDA_LIBERAR_TEXTO);
+test('agenda: CronCreate, ScheduleWakeup e RemoteTrigger com o pedido de liberação são negados sempre', () => {
+  const home = novoHome();
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ guarda: { ligada: false } }));
+  const casos = [
+    ['CronCreate', { cron: '*/1 * * * *', prompt: '/claude-hadouken:liberar 24h fable caro', recurring: true, durable: true }],
+    ['CronCreate', { cron: '0 9 * * *', prompt: 'lembrete: rode /liberar' }],
+    ['CronCreate', '/claude-hadouken:liberar'],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: '/claude-hadouken:liberar' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: '/claude-hadouken"":liberar', prompt: 'continue', noop: false }],
+    ['RemoteTrigger', { action: 'create', body: { name: 'r', job_config: { ccr: { events: [{ data: { message: { content: '/claude-hadouken:liberar 2h' } } }] } } } }],
+    ['RemoteTrigger', { action: 'update', trigger_id: 't1', body: { prompt: '/liberar fable' } }],
+  ];
+  for (const [tool, input] of casos) {
+    assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
+  }
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), casos.map(([tool]) => tool));
+  // Sem o pedido, outra ferramenta ou entrada ruim: passa em silêncio.
+  const passam = [
+    ['CronCreate', { cron: '*/5 * * * *', prompt: 'check the build' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'x', prompt: 'revise src/hooks/liberar.js' }],
+    ['ScheduleWakeup', { stop: true }],
+    ['RemoteTrigger', { action: 'list' }],
+    ['RemoteTrigger', { action: 'run', trigger_id: 'liberar' }],
+    ['Bash', { command: 'echo /claude-hadouken:liberar' }],
+    ['CronCreate', null],
+  ];
+  for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
+  for (const e of ['', '{', '[]', '"x"', JSON.stringify({ tool_name: ['CronCreate'], tool_input: { prompt: '/liberar' } })]) {
+    semSaida(rodar('guarda-agenda.js', e, home));
+  }
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length);
+});
+
+// Na dúvida, nega (como a regra fixa da P4): sem mensagens.js, o texto de
+// reserva do hook, igual a AGENDA_LIBERAR_TEXTO; sem registros.js, o deny sai
+// sem o evento. Uma estrutura funda não quebra o hook.
+test('agenda: import que falha não solta a negação; estrutura funda também nega', () => {
+  const home = novoHome();
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/claude-hadouken:liberar' });
+  const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
+  const semNada = ganchoQueFalha(home, ['/src/guarda/mensagens.js', '/src/guarda/registros.js']);
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semNada)), AGENDA_NEGADO);
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), ['CronCreate']);
+  // 200 mil níveis: o JSON.parse aceita, e uma varredura recursiva estouraria
+  // a pilha (o JSON.stringify do teste também, por isso o texto é montado).
+  const n = 200_000;
+  const fundo = `{"session_id":"s1","tool_name":"RemoteTrigger","tool_input":{"action":"create","body":${'['.repeat(n)}"/claude-hadouken:liberar"${']'.repeat(n)}}}`;
+  assert.deepEqual(saida(rodar('guarda-agenda.js', fundo, home)), AGENDA_NEGADO);
 });
 
 test('P5: edição na pasta de dados é negada sempre, inclusive com .. e maiúsculas', () => {
