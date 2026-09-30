@@ -1,4 +1,4 @@
-import { numeroFinito } from './base.js';
+import { DATA_MAX_MS, numeroFinito } from './base.js';
 
 // numeroFinito mora em base.js e sai também daqui: formato.js, alerta.js e
 // hooks/linha-estado.js já importam este arquivo, e cada import novo custa
@@ -86,7 +86,7 @@ const inicioDoDia = (ms) => {
 export function quandoLocal(epochS, agoraMs) {
   if (!numeroFinito(epochS) || !numeroFinito(agoraMs)) return SEM_VALOR;
   const ms = epochS * 1000;
-  if (!numeroFinito(ms) || Math.abs(ms) > 8.64e15 || Math.abs(agoraMs) > 8.64e15) return SEM_VALOR;
+  if (!numeroFinito(ms) || Math.abs(ms) > DATA_MAX_MS || Math.abs(agoraMs) > DATA_MAX_MS) return SEM_VALOR;
   const dias = Math.round((inicioDoDia(ms) - inicioDoDia(agoraMs)) / 86_400_000);
   const hora = horaLocal(epochS);
   if (dias === 0) return `hoje ${hora}`;
