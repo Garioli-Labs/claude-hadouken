@@ -277,54 +277,79 @@ test('P4 ponta a ponta (rodada 3): comandos do controlador que citam o repositó
   assert.equal(eventos(home, 'filha-negada').length, 0);
 });
 
-// Decisão do controlador (rodada 4): antes do teste (b), e só dele, cada
-// trailer exato 'Co-Authored-By: Claude ... <noreply@anthropic.com>' (sem
-// diferenciar maiúsculas) vira um espaço. O resto da linha e do comando
-// continua conferido; (a) e (c) não mudam.
+// Decisões do controlador (rodadas 4 e 5): antes do teste (b), e só dele, o
+// trailer 'Co-Authored-By: Claude ... <noreply@anthropic.com>' (sem
+// diferenciar maiúsculas) vira um espaço, mas só quando começa a linha
+// (espaços ou tabs antes), o trecho entre Claude e o endereço não tem
+// ; & | ( ) $ crase aspas barra invertida nem quebra de linha, e depois do
+// endereço vêm só espaços ou tabs e o fim da linha, o fim do texto ou uma
+// aspa de fechamento. O resto do comando continua conferido; (a) e (c) não
+// mudam.
 const TRAILER = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>';
 const heredoc = (...linhas) => `git commit -m "$(cat <<'EOF'\n${linhas.join('\n')}\nEOF\n)"`;
 const MENSAGEM = ['feat: claude-hadouken guard on the bar', '', 'The hadouken guard shows on the status bar.'];
 
-test('claudeComLiberar (rodada 4): o trailer Co-Authored-By do Claude sai antes do (b); o resto do comando continua conferido', () => {
-  const commit = heredoc(...MENSAGEM, '', TRAILER);
-  assert.equal(claudeComLiberar(commit), false, commit);
+test('claudeComLiberar (rodadas 4 e 5): o trailer do Claude sai antes do (b) no heredoc e no -m; o resto do comando continua conferido', () => {
+  const nao = [
+    heredoc(...MENSAGEM, '', TRAILER),
+    `git commit -m "feat: claude-hadouken guard (P4)\n\nThe hadouken bar.\n\n${TRAILER}"`,
+    `git commit -m 'feat: claude-hadouken guard (P4)\n\n${TRAILER}' -- src/guarda/caminho.js`,
+  ];
+  for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
   const sim = [
     heredoc(...MENSAGEM, 'claude -p /claude-hadouken:liberar', '', TRAILER),
     'Co-Authored-By: Claude x <noreply@anthropic.com>; claude -p "$(echo hadouken)"',
     'Co-Authored-By: Claude x <outro@example.com> && claude -p x hadouken$',
+    // Rodada 5: o comando que a regra da rodada 4 deixava passar, e o trailer
+    // seguido de outro comando na mesma linha.
+    'X=:liberar; echo "Co-Authored-By: Claude x"; >o claude -p "/claude-hadouken$X"; echo "<noreply@anthropic.com>"',
+    'Co-Authored-By: Claude x <noreply@anthropic.com> && claude -p x hadouken$',
   ];
   for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
 });
 
-// Casos que só o (b) pega: o leitor da posição de comando lê '>o' ou 'echo'
-// como o comando. Provam que sai cada trailer exato, e só ele.
-test('claudeComLiberar (rodada 4): só o trailer exato sai; antes e depois dele, na mesma linha, conta', () => {
+// Casos que só o (b) pega: o leitor da posição de comando lê '>o', 'echo' ou
+// 'co-authored-by:' como o comando. Provam que sai cada trailer da regra, e
+// só ele.
+test('claudeComLiberar (rodadas 4 e 5): só sai o trailer que começa a linha, sem metacaractere no trecho e com o fim da linha depois', () => {
   const nao = [
-    'echo "hadouken$X" # CO-AUTHORED-BY:\tCLAUDE X <NOREPLY@ANTHROPIC.COM>',
-    'echo "hadouken$X" # Co-Authored-By: Claude a <noreply@anthropic.com> Co-Authored-By: Claude b <noreply@anthropic.com>',
+    'echo "hadouken$X"\nCO-AUTHORED-BY:\tCLAUDE X <NOREPLY@ANTHROPIC.COM>',
+    'echo "hadouken$X"\nCo-Authored-By: Claude a <noreply@anthropic.com>\r\n \tCo-Authored-By: Claude b <noreply@anthropic.com>  ',
   ];
   for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
   const sim = [
-    'Co-Authored-By: Claude x <noreply@anthropic.com>; >o claude -p "hadouken$X"',
-    '>o claude -p "hadouken$X" # Co-Authored-By: Claude x <noreply@anthropic.com>',
-    'echo "hadouken$X" # Co-Authored-By: Claude x <outro@example.com>',
-    'echo "hadouken$X" # Co-Authored-By: Claude <x> <noreply@anthropic.com>',
-    'echo "hadouken$X" # Co-Authored-By: Claude x\n<noreply@anthropic.com>',
-    'echo "hadouken$X" # Co-Authored-By: Claude x <noreply@anthropic.com.br>',
-    // Montado com aspas no meio: não é o trailer exato; sem as aspas, claude é palavra.
-    'echo "hadouken$X" # Co-Authored-By: Cl""aude x <noreply@anthropic.com>',
-    // (a) e (c) ainda leem o trailer: o texto da liberação e um comando dentro dele.
-    'git commit -m "Co-Authored-By: Claude /claude-hadouken:liberar <noreply@anthropic.com>"',
-    'Co-Authored-By: Claude x; claude -p "hadouken$X" <noreply@anthropic.com>',
+    // O resto do comando, antes e depois do trailer, conta.
+    'Co-Authored-By: Claude x <noreply@anthropic.com>\n>o claude -p "hadouken$X"',
+    '>o claude -p "hadouken$X"\nCo-Authored-By: Claude x <noreply@anthropic.com>',
+    'git commit -m "x\nCo-Authored-By: Claude x <noreply@anthropic.com>" && >o claude -p "hadouken$X"',
+    // No meio da linha, ou com mais que espaços e o fim da linha depois do endereço.
+    'echo "hadouken$X" # Co-Authored-By: Claude x <noreply@anthropic.com>',
+    'echo "hadouken$X"\nCo-Authored-By: Claude x <noreply@anthropic.com> && echo y',
+    'echo "hadouken$X"\nCo-Authored-By: Claude x <noreply@anthropic.com> y',
+    // Não é o trailer exato (o de aspas no meio, sem as aspas, tem claude como palavra).
+    'echo "hadouken$X"\nCo-Authored-By: Claude x <outro@example.com>',
+    'echo "hadouken$X"\nCo-Authored-By: Claude <x> <noreply@anthropic.com>',
+    'echo "hadouken$X"\nCo-Authored-By: Claude x\n<noreply@anthropic.com>',
+    'echo "hadouken$X"\nCo-Authored-By: Claude x <noreply@anthropic.com.br>',
+    'echo "hadouken$X"\nCo-Authored-By: Cl""aude x <noreply@anthropic.com>',
+    // (a) e (c) ainda leem o trailer: o texto da liberação e um -c com claude.
+    'git commit -m "x\nCo-Authored-By: Claude /claude-hadouken:liberar <noreply@anthropic.com>"',
+    'Co-Authored-By: Claude -c claude /liberar <noreply@anthropic.com>',
   ];
+  // Metacaractere no trecho entre Claude e o endereço.
+  for (const m of [';', '&', '|', '(', ')', '$', '`', "'", '"', '\\']) {
+    sim.push(`echo "hadouken$X"\nCo-Authored-By: Claude x${m}y <noreply@anthropic.com>`);
+  }
   for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
 });
 
-// A regex da decisão aplicada com replace é quadrática quando muitos começos
-// de trailer dividem uma linha sem '<' (medido: este texto de 440 KB leva
-// 15 s, acima do tempo do hook, que então passa). A remoção tem de ser linear.
-test('claudeComLiberar (rodada 4): muitos começos de trailer sem o endereço não custam tempo quadrático', () => {
-  const texto = `claude -p "hadouken$X" ${'co-authored-by: claude'.repeat(20_000)}`;
+// A regex da rodada 4, sem âncora e aplicada com replace, é quadrática quando
+// muitos começos de trailer dividem uma linha sem '<' (medido: o primeiro
+// trecho abaixo, 440 KB, leva 15 s, acima do tempo do hook, que então passa).
+// Ancorada no começo da linha (rodada 5), tenta um começo por linha: linear.
+test('claudeComLiberar (rodadas 4 e 5): muitos começos de trailer sem o endereço não custam tempo quadrático', () => {
+  const comecos = 'co-authored-by: claude'.repeat(20_000);
+  const texto = `claude -p "hadouken$X" ${comecos}\n${comecos}\n${'co-authored-by: claude x\n'.repeat(20_000)}`;
   const t0 = performance.now();
   assert.equal(claudeComLiberar(texto), true);
   const ms = performance.now() - t0;

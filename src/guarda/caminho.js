@@ -192,6 +192,10 @@ function lancamento(texto, nivel) {
 // tamanho (a regex é linear; na revisão, 9 KB antes do claude escapavam), e
 // também o leitor acima (claude entre aspas, $(which claude), npx do pacote,
 // continuação de linha). Nunca lança; na dúvida, conta como claude.
+// Casa também o 'Claude' do trailer 'Co-Authored-By: Claude ...' de um
+// commit, e a P4 comum, com a guarda disparada, nega esse commit. Decisão do
+// controlador na rodada 5 da revisão da Task 16: fica assim, porque a fiação
+// da Task 18 deixa o git commit fora da P4.
 const CLAUDE = /(?:^|[\s;&|(])(?:[^\s;&|()"']*[\\/])?claude(?:\.exe|\.cmd|\.ps1)?(?=\s|$|["'])/i;
 export function chamaClaude(comando) {
   if (typeof comando !== 'string') return false;
@@ -234,8 +238,8 @@ export function chamaClaude(comando) {
 // cru ou normalizado (com espaços no meio), nega sem o leitor. A busca crua
 // vem antes, para não copiar o texto (16 MiB: 17 ms contra segundos).
 // Nega a mais, e o texto do deny aponta a saída: uma linha de heredoc que
-// comece por claude. O trailer 'Co-Authored-By: Claude ...' de um commit em
-// heredoc não conta desde a rodada 4 (ver semTrailer).
+// comece por claude. O trailer 'Co-Authored-By: Claude ...' numa linha só
+// dele não conta no (b) desde as rodadas 4 e 5 (ver semTrailer).
 // Resíduo (R1; SECURITY.md na Task 18): a ofuscação que monta o próprio
 // 'hadouken' em tempo de execução ($'\x68adouken', printf, códigos de
 // caractere, -EncodedCommand), com ou sem claude como palavra; o nome claude
@@ -265,41 +269,32 @@ const EXPANSAO_LARGA = /[{$`*?+(!%]/;
 const semAspasDe = (t) => t.replace(/["'`^]/g, '');
 const semEscapeDe = (t) => t.replace(/\\/g, '');
 
-// Decisão do controlador na rodada 4 da revisão da Task 16: antes do teste
-// (b), e só dele, cada trailer exato que casa, sem diferenciar maiúsculas,
-// com /Co-Authored-By:[ \t]*Claude[^<\n]*<noreply@anthropic\.com>/ vira um
-// espaço. Um commit em heredoc ($(cat <<'EOF' ...)) que cite hadouken trazia
-// 'Claude' como palavra junto de $ e ( e era negado. O resto da linha e do
-// comando continua conferido; (a) e (c) leem o comando com o trailer. Sai do
-// texto sem continuação de linha, antes de tirar aspas e escapes: um trailer
-// montado com aspas no meio (Cl"aude) não é o exato e continua contando.
-// Feito à mão, com o mesmo resultado do replace global dessa regex: aplicada
-// direto, ela é quadrática quando muitos começos dividem uma linha sem '<'
-// (420 KB em 11 s, 1 MiB em 71 s; o hook estoura o tempo e passa). Aqui, o
-// trecho de cada começo acaba no primeiro '<' ou quebra de linha; se ali não
-// está o endereço, nenhum começo antes desse ponto casa, e a busca segue
-// dali. Linear. O texto já vem em minúsculas.
-// Limite (R1): o trecho entre Claude e o endereço aceita qualquer coisa sem
-// '<' nem quebra de linha, então um comando inteiro posto ali some do (b);
-// (a) e (c) ainda o leem.
-const TRAILER_INICIO = /co-authored-by:[ \t]*claude/gi;
-const TRAILER_FIM = '<noreply@anthropic.com>';
-const MENOR_OU_QUEBRA = /[<\n]/g;
-function semTrailer(texto) {
-  let saida = '';
-  let desde = 0;
-  TRAILER_INICIO.lastIndex = 0;
-  for (let m; (m = TRAILER_INICIO.exec(texto)) !== null;) {
-    MENOR_OU_QUEBRA.lastIndex = m.index + m[0].length;
-    const fim = MENOR_OU_QUEBRA.exec(texto)?.index ?? texto.length;
-    if (texto.startsWith(TRAILER_FIM, fim)) {
-      saida += `${texto.slice(desde, m.index)} `;
-      desde = fim + TRAILER_FIM.length;
-    }
-    TRAILER_INICIO.lastIndex = Math.max(fim, desde);
-  }
-  return desde === 0 ? texto : saida + texto.slice(desde);
-}
+// Decisões do controlador nas rodadas 4 e 5 da revisão da Task 16: antes do
+// teste (b), e só dele, o trailer 'Co-Authored-By: Claude ...
+// <noreply@anthropic.com>' (sem diferenciar maiúsculas) vira um espaço. Um
+// commit em heredoc ($(cat <<'EOF' ...)) ou em -m "..." com quebras de linha
+// que cite hadouken trazia 'Claude' como palavra junto de $ e ( e era negado.
+// Rodada 5: sai só o trailer que
+// - começa a linha (no começo do texto ou depois de \n; espaços e tabs antes
+//   valem);
+// - não tem ; & | ( ) $ crase ' " \ nem quebra de linha entre Claude e o
+//   endereço (nem '<', como na rodada 4);
+// - tem depois do endereço só espaços ou tabs e então o fim da linha (\r?\n),
+//   o fim do texto ou uma aspa de fechamento (" ou '), que fica no texto com
+//   o que vier depois dela.
+// Na rodada 4 o trecho aceitava qualquer coisa sem '<' nem quebra de linha e
+// um comando inteiro posto ali ('echo "Co-Authored-By: Claude x"; >o claude
+// ...; echo "<noreply@anthropic.com>"') sumia do (b). Um trailer num segundo
+// -m "Co-Authored-By: ..." não começa a linha e continua contando.
+// O resto da linha e do comando continua conferido; (a) e (c) leem o comando
+// com o trailer. Sai do texto sem continuação de linha, antes de tirar aspas e
+// escapes: um trailer montado com aspas no meio (Cl"aude) não é o exato.
+// Linear: a âncora deixa um começo por linha, e cada tentativa anda só na sua
+// linha (16 MiB adversariais em menos de 0,25 s). Sem a âncora, a regex da
+// rodada 4 aplicada com replace era quadrática (420 KB em 11 s, acima do
+// tempo do hook, que então passa).
+const TRAILER = /(?<=^|\n)[ \t]*co-authored-by:[ \t]*claude[^;&|()$`'"\\\n<]*<noreply@anthropic\.com>(?=[ \t]*(?:\r?\n|$|["']))/gi;
+const semTrailer = (t) => t.replace(TRAILER, ' ');
 
 export function claudeComLiberar(comando) {
   try {
