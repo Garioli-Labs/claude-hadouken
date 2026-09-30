@@ -2363,7 +2363,7 @@ git commit -m "feat: fixed guard message templates" -- src/guarda/mensagens.js t
 A v0.3.0 passou a gravar a porcentagem oficial da semana do Fable em `uso-oficial.json` (painel, E2–E4), de graça. G6 e G7 ganham um piso por ela:
 
 - **G6 também dispara pela leitura oficial:** Fable com 100% ou mais, numa leitura de até 15 min, trava o Fable até o reset que o `/usage` informou. O StopFailure (Task 15) continua valendo; o que vier primeiro trava.
-- **G7 aperta perto do limite:** com o Fable em `fable.tetoPct` ou mais (padrão **90**, PROPOSTA a confirmar com o Sr. Garioli), numa leitura de até 15 min, o teto de despachos vira 0 (todo despacho Fable pede liberação), até o reset do Fable.
+- **G7 aperta perto do limite:** com o Fable em `fable.tetoPct` ou mais (padrão **90**, confirmado pelo Sr. Garioli em 2026-09-30), numa leitura de até 15 min, o teto de despachos vira 0 (todo despacho Fable pede liberação), até o reset do Fable.
 - **Leitura velha (mais de 15 min), ausente ou ilegível:** o piso não se aplica, e G6 e G7 seguem só com os dados locais. Sem leitura não se inventa número (§5.5).
 
 **Files:**
