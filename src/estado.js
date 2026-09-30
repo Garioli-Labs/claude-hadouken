@@ -522,3 +522,32 @@ export function limitesValidos(estado, agoraMs) {
     return null;
   }
 }
+
+// Idade máxima de uma leitura usada como piso pela guarda (spec v0.4.0 §5.1).
+export const LEITURA_PISO_MAX_MS = 24 * 3_600_000;
+
+// Leituras da guarda (spec v0.4.0 §5.1): por janela, a leitura fresca (até
+// LIMITE_VELHO_MS) ou o piso (até LEITURA_PISO_MAX_MS, com reset ainda no
+// futuro). O uso só sobe dentro de uma janela, então o valor antigo é um
+// mínimo. Mesmo schema e mesma idade por janela de limitesValidos
+// (janelaGuardada e leituraDe); `fresca` separa os dois casos. Nunca lança.
+export function leiturasComPiso(estado, agoraMs) {
+  const vazio = { five_hour: null, seven_day: null };
+  try {
+    if (!ehObjeto(estado) || estado.versao !== VERSAO || !numeroFinito(agoraMs)) return vazio;
+    const tTopo = instante(estado.at, agoraMs);
+    const r = { five_hour: null, seven_day: null };
+    for (const k of JANELAS) {
+      const j = janelaGuardada(estado[k], tTopo, agoraMs);
+      if (j === null) continue;
+      const lidaEm = leituraDe(j, tTopo);
+      if (!numeroFinito(lidaEm) || j.resets_at * 1000 <= agoraMs) continue;
+      const idadeMs = Math.max(0, agoraMs - lidaEm);
+      if (idadeMs > LEITURA_PISO_MAX_MS) continue;
+      r[k] = { used_percentage: j.used_percentage, resets_at: j.resets_at, idadeMs, fresca: idadeMs <= LIMITE_VELHO_MS };
+    }
+    return r;
+  } catch {
+    return vazio;
+  }
+}

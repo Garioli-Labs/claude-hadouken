@@ -8,6 +8,7 @@ import path from 'node:path';
 import {
   dirDados, lerJson, gravarJsonAtomico, atualizarEstado, limitesValidos, validarEstado,
   idValido, instante, LIMITE_VELHO_MS, MAX_SESSOES, SESSAO_MAX_MS, ARQ_ESTADO,
+  leiturasComPiso, LEITURA_PISO_MAX_MS,
 } from '../src/estado.js';
 import { EFFORTS_VALIDOS, TOLERANCIA_JANELA_S } from '../src/util.js';
 import { formatarBarra } from '../src/formato.js';
@@ -1282,4 +1283,32 @@ test('I-2: at por janela ausente, nulo, so no prototipo, invalido ou sem o do to
   const misto = validarEstado({ versao: 1, at: iso(agora - 5000), five_hour: f5, seven_day: s7, sessoes: {} }, agora);
   assert.deepEqual([misto.at, misto.five_hour.at, misto.seven_day.at], [iso(agora - 5000), null, iso(agora - 1000)]);
   semPoluicao();
+});
+
+test('leiturasComPiso: fresca até 1 h, piso até 24 h com reset no futuro, nada depois', () => {
+  const agora = Date.UTC(2026, 8, 29, 12, 0);
+  const iso = (ms) => new Date(ms).toISOString();
+  const est = (idadeMs, resetS) => ({
+    versao: 1, at: iso(agora - idadeMs), sessoes: {}, historico: [],
+    five_hour: null,
+    seven_day: { used_percentage: 86, resets_at: resetS, at: iso(agora - idadeMs) },
+  });
+  const futuro = agora / 1000 + 3 * 86_400;
+  const casos = [
+    [59 * 60_000, true], [61 * 60_000, false], [23 * 3_600_000, false],
+  ];
+  for (const [idade, fresca] of casos) {
+    const r = leiturasComPiso(est(idade, futuro), agora);
+    assert.deepEqual(r.seven_day, { used_percentage: 86, resets_at: futuro, idadeMs: idade, fresca });
+    assert.equal(r.five_hour, null);
+  }
+  assert.equal(leiturasComPiso(est(25 * 3_600_000, futuro), agora).seven_day, null);
+  assert.equal(leiturasComPiso(est(2 * 3_600_000, agora / 1000 - 1), agora).seven_day, null);
+  assert.equal(LEITURA_PISO_MAX_MS, 86_400_000);
+});
+
+test('leiturasComPiso: entrada inválida nunca lança', () => {
+  const vazio = { five_hour: null, seven_day: null };
+  for (const ruim of [null, 1, 'x', [], { versao: 2 }]) assert.deepEqual(leiturasComPiso(ruim, Date.now()), vazio);
+  assert.deepEqual(leiturasComPiso({ versao: 1 }, NaN), vazio);
 });
