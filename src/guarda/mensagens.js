@@ -72,6 +72,9 @@ export const p2Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: 
 export const p3Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Troca para o Fable bloqueada; libere com /claude-hadouken:liberar${sufixoLiberar(ativas)}.`;
 export const P4_TEXTO = 'hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.';
 export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuário edita.';
+// Regra fixa da P4 (decisão do controlador na revisão da Task 13): claude
+// junto com o comando de liberação, negado sempre, disparada ou não.
+export const P4_LIBERAR_TEXTO = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar.';
 
 // Prazo da liberação (§6.2 e D4): a hora e, com base de 7d, o ponto de 7d
 // em que ela acaba antes.

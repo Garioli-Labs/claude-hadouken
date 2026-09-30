@@ -12,6 +12,7 @@ import { ARQ_LIBERACAO, gravarLiberacao, montarLiberacao, lerPedido } from '../s
 import { PADRAO_GUARDA } from '../src/guarda/config.js';
 import { travasVazias, lerTravas } from '../src/guarda/travas.js';
 import { ARQ_DESPACHOS, ARQ_LIMITES, lerEventos, registrarDespachoFable, gravarModeloSessao, modeloDaSessao } from '../src/guarda/registros.js';
+import { P4_LIBERAR_TEXTO } from '../src/guarda/mensagens.js';
 
 // Hooks da guarda (spec v0.4.0 §4.2), cada um num processo filho como o
 // Claude Code os roda. Todo filho recebe HADOUKEN_HOME e CLAUDE_CONFIG_DIR
@@ -402,4 +403,142 @@ test('SessionStart grava a marca e o modelo da sessão', () => {
   assert.equal(r.status, 0);
   assert.equal(fs.existsSync(path.join(home, 'guarda-sessoes', Buffer.from('s9').toString('hex'))), true);
   assert.equal(modeloDaSessao(home, 's9', Date.now()), 'claude-fable-5-1');
+});
+
+const ferramenta = (id, tool_name, tool_input) => ({ session_id: id, hook_event_name: 'PreToolUse', tool_name, tool_input, cwd: os.tmpdir() });
+const negacao = (razao) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
+const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar.');
+
+// O brief da Task 16 usava 'claude -p "/claude-hadouken:liberar"' aqui; com a
+// regra fixa (decisão do controlador na revisão da Task 13) esse comando é
+// negado sempre, então a P4 comum é conferida com um pedido qualquer.
+test('P4: claude por Bash ou PowerShell é negado só com a guarda disparada', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home);
+  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'claude -p "revise o diff"' }), home));
+  gravarEstado(home, { u7: 86 });
+  const o = saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'cd . && claude -p "revise o diff"' }), home));
+  assert.deepEqual(o, negacao('hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.'));
+  assert.equal(saida(rodar('guarda-filha.js', ferramenta('s1', 'PowerShell', { command: '& claude -p x' }), home)).hookSpecificOutput.permissionDecision, 'deny');
+  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'git status' }), home));
+  semSaida(rodar('guarda-filha.js', ferramenta('nao-registrada', 'Bash', { command: 'claude -p x' }), home));
+  assert.equal(eventos(home, 'filha-negada').length, 2);
+});
+
+// Regra fixa da P4 (decisão do controlador na revisão da Task 13): uma sessão
+// `claude -p` aberta do VS Code herda CLAUDE_CODE_ENTRYPOINT=claude-vscode e o
+// liberar não a recusa; a P4 nega o lançamento antes de qualquer outra regra.
+test('P4: claude com o comando de liberação é negado sempre: armada, disparada, desligada, sem sessão', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home);
+  const casos = [
+    ['Bash', 'claude -p "/claude-hadouken:liberar 2h"'],
+    ['Bash', 'npx @anthropic-ai/claude-code -p "/claude-hadouken:liberar caro"'],
+    ['Bash', "FOO=1 claude.exe -p 'claude-hadouken:liberar'"],
+    ['Bash', 'echo "/claude-hadouken:liberar fable" | claude -p'],
+    ['PowerShell', '& claude -p "/claude-hadouken`:liberar"'],
+  ];
+  for (const [tool, command] of casos) assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', tool, { command }), home)), LIBERAR_NEGADO, command);
+  const cmd = { command: 'cd . && claude -p "/claude-hadouken:liberar"' };
+  // Antes do gate: sessão sem registro e id inválido também.
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('nao-registrada', 'Bash', cmd), home)), LIBERAR_NEGADO);
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('__proto__', 'Bash', cmd), home)), LIBERAR_NEGADO);
+  // Disparada: o texto é o da liberação, não o da P4 comum.
+  gravarEstado(home, { u7: 86 });
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', cmd), home)), LIBERAR_NEGADO);
+  // Desligada: a regra nem lê a configuração.
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ guarda: { ligada: false } }));
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', cmd), home)), LIBERAR_NEGADO);
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), Array(casos.length + 4).fill('P4'));
+  assert.equal(eventos(home, 'filha-negada').length, 0);
+  assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
+});
+
+test('P4: comando que só menciona liberar, sem claude, passa; claude sem liberar com a guarda armada passa', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  for (const command of ['git log --grep liberar', 'echo liberar', 'grep -rn "/claude-hadouken:liberar" src']) {
+    semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command }), home));
+  }
+  const armada = novoHome();
+  registrar(armada, 's1');
+  gravarEstado(armada);
+  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'claude -p "revise src/hooks/liberar.js"' }), armada));
+  assert.equal(eventos(home, 'liberacao-recusada').length + eventos(armada, 'liberacao-recusada').length, 0);
+});
+
+// Gancho de carga (posto com --import, como em guarda-liberar-extra.test.js:
+// registerHooks no Node 22.15+/23.5+, register antes) que faz falhar o import
+// dos módulos com os sufixos dados.
+function ganchoQueFalha(home, sufixos) {
+  const pasta = fs.mkdtempSync(path.join(home, 'ganchos '));
+  const falhar = `if (${JSON.stringify(sufixos)}.some((s) => url.endsWith(s))) throw new Error('falha simulada');`;
+  const ganchos = path.join(pasta, 'ganchos.mjs');
+  fs.writeFileSync(ganchos, `export async function load(url, context, next) { ${falhar} return next(url, context); }\n`);
+  const registrador = path.join(pasta, 'registrar.mjs');
+  fs.writeFileSync(registrador, `import * as m from 'node:module';
+if (typeof m.registerHooks === 'function') m.registerHooks({ load(url, context, next) { ${falhar} return next(url, context); } });
+else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
+`);
+  return ['--import', pathToFileURL(registrador).href];
+}
+
+// Na dúvida, nega: o import de mensagens.js ou de registros.js que falha não
+// solta a regra fixa, e o texto de reserva do hook é o de P4_LIBERAR_TEXTO. A
+// P4 comum segue o §4.5: passa e registra 'erro'. Se o gancho não rodasse, o
+// 'claude -p x' com a guarda disparada seria negado e o teste falharia.
+test('P4: import que falha não solta a regra fixa; a P4 comum passa e registra erro', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  const liberar = ferramenta('s1', 'Bash', { command: 'claude -p "/claude-hadouken:liberar"' });
+  const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
+  assert.deepEqual(saida(rodar('guarda-filha.js', liberar, home, {}, semMensagens)), negacao(P4_LIBERAR_TEXTO));
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), ['P4']);
+  semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'claude -p x' }), home, {}, semMensagens));
+  assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), ['P4']);
+  const semNada = ganchoQueFalha(home, ['/src/guarda/mensagens.js', '/src/guarda/registros.js']);
+  assert.deepEqual(saida(rodar('guarda-filha.js', liberar, home, {}, semNada)), negacao(P4_LIBERAR_TEXTO));
+  assert.equal(eventos(home, 'liberacao-recusada').length, 1);
+});
+
+test('P4: entrada hostil nunca quebra o hook', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  for (const e of ['', '{', '[]', '"x"', JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: 'claude -p x' }),
+    JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: { command: ['claude', '-p', '/claude-hadouken:liberar'] } }),
+    JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: null })]) {
+    semSaida(rodar('guarda-filha.js', e, home));
+  }
+  const o = saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `claude -p "/claude-hadouken:liberar ${INSTRUCAO}"` }), home));
+  assert.deepEqual(o, LIBERAR_NEGADO);
+});
+
+test('P5: edição na pasta de dados é negada sempre, inclusive com .. e maiúsculas', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  const negado = negacao('hadouken: bloqueado: arquivos do hadouken só o usuário edita.');
+  const casos = [
+    ['Write', { file_path: path.join(home, 'liberacao.json'), content: '{}' }],
+    ['Edit', { file_path: path.join(home, 'x', '..', 'guarda.json'), old_string: 'a', new_string: 'b' }],
+    ['MultiEdit', { file_path: path.join(home, 'config.json'), edits: [] }],
+    ['NotebookEdit', { notebook_path: path.join(home, 'n.ipynb'), new_source: '' }],
+  ];
+  if (process.platform === 'win32') {
+    casos.push(['Write', { file_path: path.join(home.toUpperCase(), 'guarda.json'), content: '' }]);
+    casos.push(['Edit', { file_path: path.join(home, 'config.json').replaceAll('\\', '/'), old_string: 'a', new_string: 'b' }]);
+    // os.tmpdir() pode vir no nome curto 8.3 (LUCASG~1): o caminho longo do
+    // mesmo arquivo também é negado.
+    const longo = fs.realpathSync.native(home);
+    if (longo !== home) casos.push(['Write', { file_path: path.join(longo, 'liberacao.json'), content: '' }]);
+  }
+  for (const [tool, input] of casos) assert.deepEqual(saida(rodar('guarda-arquivos.js', ferramenta('s1', tool, input), home)), negado, tool);
+  semSaida(rodar('guarda-arquivos.js', ferramenta('s1', 'Write', { file_path: path.join(os.tmpdir(), 'fora-do-hadouken.txt'), content: '' }), home));
+  semSaida(rodar('guarda-arquivos.js', ferramenta('s1', 'Write', { file_path: 'relativo.json' }), home));
+  semSaida(rodar('guarda-arquivos.js', ferramenta('s1', 'Read', { file_path: path.join(home, 'liberacao.json') }), home));
+  assert.equal(eventos(home, 'arquivo-negado').length, casos.length);
 });
