@@ -42,4 +42,4 @@ rodarHook(async (entrada) => {
     emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: msg.P5_TEXTO } });
     reg.anexarEvento(dir, 'arquivo-negado', entrada.tool_name, agoraMs);
   });
-});
+}, undefined, undefined, 'P5');

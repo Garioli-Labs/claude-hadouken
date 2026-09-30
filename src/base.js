@@ -258,7 +258,7 @@ export function lerStdin(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES) {
 // partida entre dois pedaços do pipe. A vigia procura palavras curtas.
 const VIGIA_SOBRA = 64;
 
-// O mesmo que lerStdin, devolvendo { texto, excedeu, casou }. Sem vigia,
+// O mesmo que lerStdin, devolvendo { texto, excedeu, casou, cortado }. Sem vigia,
 // acima de maxBytes fecha o stdin na hora (texto '', excedeu true). Com vigia
 // (uma RegExp), acima de maxBytes nada é devolvido nem acumulado: o resto do
 // stdin é lido até o fim ou o prazo, e só se procura a vigia no texto cru (o
@@ -266,12 +266,16 @@ const VIGIA_SOBRA = 64;
 // um byte de UTF-8 multibyte). casou é true na primeira vez que ela casa, e
 // aí o stdin fecha sem esperar o fim. Só a P4 usa a vigia (spec v0.4.0 §4.2,
 // decisão do controlador na Task 18: acima de 4 MiB nega sem ler o comando
-// se o texto tiver 'claude' ou 'liberar'). Nunca rejeita.
+// se o texto tiver 'claude' ou 'liberar'). cortado é true quando o prazo (ou
+// um erro do pipe) chega com bytes já lidos, abaixo do teto e sem o fim: o
+// texto devolvido é o pedaço lido, e o hook registra o evento 'erro' (M5 da
+// revisão final da parte 1, spec v0.4.0 §4.5; rodarHook em hooks/comum.js).
+// Nunca rejeita.
 export function lerStdinVigiando(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES, vigia = null) {
   return new Promise((resolve) => {
     const entrada = process.stdin;
     if (entrada.isTTY) {
-      resolve({ texto: '', excedeu: false, casou: false });
+      resolve({ texto: '', excedeu: false, casou: false, cortado: false });
       return;
     }
     const teto = Number.isFinite(maxBytes) && maxBytes >= 0 ? maxBytes : STDIN_MAX_BYTES;
@@ -282,13 +286,13 @@ export function lerStdinVigiando(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES, vig
     let terminado = false;
     let vigiando = false;
     let sobra = '';
-    const terminar = (excedeu = false, casou = false) => {
+    const terminar = (excedeu = false, casou = false, cortado = false) => {
       if (terminado) return;
       terminado = true;
       clearTimeout(prazo);
       entrada.off('data', aoLer);
       entrada.off('end', aoTerminar);
-      entrada.off('error', aoTerminar);
+      entrada.off('error', aoCortar);
       entrada.off('error', ignorarErroTardio);
       entrada.on('error', ignorarErroTardio);
       entrada.pause();
@@ -302,10 +306,12 @@ export function lerStdinVigiando(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES, vig
         try { texto = Buffer.concat(partes, total).toString('utf8'); } catch { texto = ''; }
       }
       partes.length = 0;
-      resolve({ texto, excedeu, casou });
+      resolve({ texto, excedeu, casou, cortado });
     };
     // Fim, erro ou prazo: depois do teto, a vigia não casou no que chegou.
+    // Erro ou prazo abaixo do teto com algum byte lido: leitura cortada.
     const aoTerminar = () => terminar(vigiando, false);
+    const aoCortar = () => terminar(vigiando, false, !vigiando && total > 0);
     const procurar = (texto) => {
       const s = sobra + texto;
       if (re.test(s)) return true;
@@ -334,9 +340,9 @@ export function lerStdinVigiando(prazoMs = 1000, maxBytes = STDIN_MAX_BYTES, vig
       }
       partes.push(pedaco);
     };
-    const prazo = setTimeout(aoTerminar, prazoMs);
+    const prazo = setTimeout(aoCortar, prazoMs);
     entrada.on('data', aoLer);
     entrada.on('end', aoTerminar);
-    entrada.on('error', aoTerminar);
+    entrada.on('error', aoCortar);
   });
 }

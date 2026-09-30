@@ -72,4 +72,4 @@ rodarHook(async (entrada, leitura) => {
     pede = true;
   }
   if (pede) await negar(entrada.tool_name);
-}, undefined, VIGIA);
+}, undefined, VIGIA, 'agenda');

@@ -394,12 +394,12 @@ const semMs = ({ ms, ...r }) => r;
 
 test('lerStdinVigiando: abaixo do teto devolve o texto; acima, só diz se a vigia casou', async () => {
   const casos = [
-    ['1000, 8, /claude|liberar/i', 'abc', { texto: 'abc', excedeu: false, casou: false }],
-    ['1000, 8, /claude|liberar/i', `CLAUDE${'x'.repeat(20)}`, { texto: '', excedeu: true, casou: true }],
-    ['1000, 8, /claude|liberar/i', `${'ç'.repeat(40)}liberar`, { texto: '', excedeu: true, casou: true }],
-    ['1000, 8, /claude|liberar/i', 'x'.repeat(64), { texto: '', excedeu: true, casou: false }],
+    ['1000, 8, /claude|liberar/i', 'abc', { texto: 'abc', excedeu: false, casou: false, cortado: false }],
+    ['1000, 8, /claude|liberar/i', `CLAUDE${'x'.repeat(20)}`, { texto: '', excedeu: true, casou: true, cortado: false }],
+    ['1000, 8, /claude|liberar/i', `${'ç'.repeat(40)}liberar`, { texto: '', excedeu: true, casou: true, cortado: false }],
+    ['1000, 8, /claude|liberar/i', 'x'.repeat(64), { texto: '', excedeu: true, casou: false, cortado: false }],
     // Sem vigia, o mesmo que lerStdin: acima do teto, vazio.
-    ['1000, 8', `claude${'x'.repeat(20)}`, { texto: '', excedeu: true, casou: false }],
+    ['1000, 8', `claude${'x'.repeat(20)}`, { texto: '', excedeu: true, casou: false, cortado: false }],
   ];
   for (const [args, entrada, esperado] of casos) {
     const r = await rodarFilho(vigiado(args), { entrada });
@@ -413,10 +413,10 @@ test('lerStdinVigiando: a palavra partida entre dois pedaços casa; sem ela, o f
   const emitir = (...ps) => ps.map((p) => `process.stdin.emit('data', Buffer.from(${JSON.stringify(p)}));`).join('\n');
   let r = await rodarFilho(vigiado('2000, 8, /claude|liberar/i', emitir('x'.repeat(10), 'y'.repeat(100), 'cla', 'UDE')), { entrada: '', semFim: true });
   assert.equal(r.codigo, 0, r.erro);
-  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: true, casou: true });
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: true, casou: true, cortado: false });
   r = await rodarFilho(vigiado('2000, 8, /claude|liberar/i', `${emitir('x'.repeat(10), 'cla', 'u de')}\nprocess.stdin.emit('end');`), { entrada: '', semFim: true });
   assert.equal(r.codigo, 0, r.erro);
-  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: true, casou: false });
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: true, casou: false, cortado: false });
 });
 
 test('lerStdinVigiando: a vigia que casa termina sem esperar o fim; sem casar, o prazo termina', async () => {
@@ -424,13 +424,29 @@ test('lerStdinVigiando: a vigia que casa termina sem esperar o fim; sem casar, o
   let r = await rodarFilho(vigiado('10000, 16, /claude|liberar/i'), { entrada: `${'x'.repeat(64)}liberar`, semFim: true, timeoutMs: 8000 });
   assert.equal(r.codigo, 0, r.erro);
   let o = JSON.parse(r.saida);
-  assert.deepEqual(semMs(o), { texto: '', excedeu: true, casou: true });
+  assert.deepEqual(semMs(o), { texto: '', excedeu: true, casou: true, cortado: false });
   assert.ok(o.ms < 2000, `demorou ${o.ms} ms`);
   r = await rodarFilho(vigiado('200, 16, /claude|liberar/i'), { entrada: 'x'.repeat(64), semFim: true, timeoutMs: 8000 });
   assert.equal(r.codigo, 0, r.erro);
   o = JSON.parse(r.saida);
-  assert.deepEqual(semMs(o), { texto: '', excedeu: true, casou: false });
+  assert.deepEqual(semMs(o), { texto: '', excedeu: true, casou: false, cortado: false });
   assert.ok(o.ms >= 150 && o.ms < 2000, `demorou ${o.ms} ms`);
+});
+
+// M5 da revisão final da parte 1 (spec v0.4.0 §4.5): o prazo que chega com
+// bytes já lidos e sem o fim do stdin é leitura cortada; o hook registra o
+// evento 'erro' (rodarHook em hooks/comum.js). Sem byte nenhum, ou com o fim,
+// não é corte.
+test('lerStdinVigiando: prazo com bytes lidos e sem o fim marca cortado', async () => {
+  let r = await rodarFilho(vigiado('200'), { entrada: '{"a":', semFim: true, timeoutMs: 8000 });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '{"a":', excedeu: false, casou: false, cortado: true });
+  r = await rodarFilho(vigiado('200'), { semFim: true, timeoutMs: 8000 });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: false, casou: false, cortado: false });
+  r = await rodarFilho(vigiado('2000'), { entrada: '{"a":' });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '{"a":', excedeu: false, casou: false, cortado: false });
 });
 
 // Datas montadas com componentes locais: o teste vale em qualquer fuso.

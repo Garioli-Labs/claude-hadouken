@@ -1,4 +1,5 @@
-import { lerStdinVigiando } from '../base.js';
+import fs from 'node:fs';
+import { lerStdinVigiando, dirDados } from '../base.js';
 
 // O que os três hooks do plugin (spec 6.5) têm em comum: ler o JSON do
 // stdin, escrever o contexto no formato do Claude Code e sair sempre com
@@ -6,7 +7,8 @@ import { lerStdinVigiando } from '../base.js';
 // Claude: qualquer falha termina calada.
 //
 // Este arquivo fica no caminho curto de todo hook (antes do gate de ativação,
-// spec 8.2), então só importa base.js (lerStdinVigiando).
+// spec 8.2), então só importa base.js (lerStdinVigiando, dirDados) e o
+// node:fs, que base.js já carrega.
 //
 // Prazos (spec 8.1, S9): só a leitura do stdin tem prazo próprio (1 s, em
 // lerStdinVigiando). O trabalho depois do gate é E/S síncrona sem prazo,
@@ -46,11 +48,29 @@ export async function falharAberto(dir, detalhe, agoraMs, fn) {
   try {
     await fn();
   } catch {
-    try {
-      const { anexarEvento } = await import('../guarda/registros.js');
-      anexarEvento(dir, 'erro', detalhe, agoraMs);
-    } catch { /* nada a fazer: o hook passa */ }
+    await registrarErro(dir, detalhe, agoraMs);
   }
+}
+
+async function registrarErro(dir, detalhe, agoraMs) {
+  try {
+    const { anexarEvento } = await import('../guarda/registros.js');
+    anexarEvento(dir, 'erro', detalhe, agoraMs);
+  } catch { /* nada a fazer: o hook passa */ }
+}
+
+// M5 da revisão final da parte 1 (spec v0.4.0 §4.5, fail-open visível): o
+// stdin acima do teto (sem a vigia casar) ou cortado pelo prazo, sem JSON
+// inteiro, deixa a chamada passar e registra 'erro' com o rótulo do hook. Sem
+// o JSON não há session_id, então não há gate de sessão; por isso só grava na
+// pasta de dados que já existe (anexarEvento criaria a pasta de quem nunca
+// ativou o plugin). Nunca lança.
+async function avisarLeituraFalha(rotulo) {
+  try {
+    const dir = dirDados();
+    if (dir === null || fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory() !== true) return;
+    await registrarErro(dir, rotulo, Date.now());
+  } catch { /* o hook passa */ }
 }
 
 // Objeto JSON do stdin, ou null (vazio, inválido, lista, primitivo, acima do
@@ -69,11 +89,22 @@ function entradaDe(texto) {
 // (nunca process.exit) para que a escrita no stdout termine antes da saída.
 // maxBytes troca o teto de 1 MiB do stdin (spec 8.1, S9) e vigia procura uma
 // RegExp no texto cru acima dele (lerStdinVigiando em base.js); leitura é
-// { excedeu, casou }. Só a P4 os usa (guarda-filha.js), porque a regra fixa
-// precisa ver o comando inteiro.
-export function rodarHook(fn, maxBytes, vigia) {
+// { excedeu, casou, cortado }. A P4 (guarda-filha.js) troca o teto e usa a
+// vigia, porque a regra fixa precisa ver o comando inteiro; o hook da agenda
+// usa a vigia. rotulo (o detalhe do evento, ex. 'P1') liga o aviso de leitura
+// que falhou (avisarLeituraFalha, M5), depois de fn: o deny da vigia sai
+// primeiro. Os hooks de antes da guarda não passam rótulo.
+export function rodarHook(fn, maxBytes, vigia, rotulo) {
   lerStdinVigiando(undefined, maxBytes, vigia)
-    .then((r) => fn(entradaDe(r.texto), { excedeu: r.excedeu, casou: r.casou }))
+    .then(async (r) => {
+      const entrada = entradaDe(r.texto);
+      try {
+        await fn(entrada, { excedeu: r.excedeu, casou: r.casou, cortado: r.cortado });
+      } finally {
+        const falhou = (r.excedeu && !r.casou) || (r.cortado && entrada === null);
+        if (typeof rotulo === 'string' && falhou) await avisarLeituraFalha(rotulo);
+      }
+    })
     .catch(() => {})
     .finally(() => { process.exitCode = 0; });
 }

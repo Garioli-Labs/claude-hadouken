@@ -82,4 +82,4 @@ rodarHook(async (entrada) => {
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   // Depois do gate, toda exceção passa e vira evento 'erro' (§4.5).
   await falharAberto(dir, 'P1', agoraMs, () => avaliarDespacho(entrada, dir, sessionId, agoraMs));
-});
+}, undefined, undefined, 'P1');

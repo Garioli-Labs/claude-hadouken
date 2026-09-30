@@ -105,4 +105,4 @@ rodarHook(async (entrada, leitura) => {
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   // Depois do gate, toda exceção passa e vira evento 'erro' (§4.5).
   await falharAberto(dir, 'P4', agoraMs, () => avaliarFilha(entrada.tool_name, dir, sessionId, agoraMs));
-}, TETO_STDIN, VIGIA_ACIMA);
+}, TETO_STDIN, VIGIA_ACIMA, 'P4');

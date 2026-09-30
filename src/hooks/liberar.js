@@ -113,4 +113,4 @@ rodarHook(async (entrada) => {
     reason = await decidir(entrada, dir, sessionId, agoraMs, msg);
   });
   emitirJson({ decision: 'block', reason });
-});
+}, undefined, undefined, 'liberar');

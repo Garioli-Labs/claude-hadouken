@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -599,6 +599,73 @@ test('agenda: import que falha não solta a negação; estrutura funda também n
   const n = 200_000;
   const fundo = `{"session_id":"s1","tool_name":"RemoteTrigger","tool_input":{"action":"create","body":${'['.repeat(n)}"/claude-hadouken:liberar"${']'.repeat(n)}}}`;
   assert.deepEqual(saida(rodar('guarda-agenda.js', fundo, home)), AGENDA_NEGADO);
+});
+
+// M5 da revisão final da parte 1 (spec v0.4.0 §4.5, fail-open visível): stdin
+// acima do teto ou cortado pelo prazo deixa a chamada passar e registra o
+// evento 'erro' com o rótulo do hook, sem gate de sessão (sem o JSON não há
+// session_id). Só na pasta de dados que já existe: um hook nunca a cria.
+test('M5: stdin acima do teto passa calado e registra erro com o rótulo do hook', () => {
+  const grande = (extra) => JSON.stringify({ session_id: 's1', ...extra, pad: 'x'.repeat(1_100_000) });
+  const casos = [
+    ['guarda-despacho.js', grande({ tool_name: 'Agent', tool_input: { subagent_type: 'general-purpose' } }), 'P1'],
+    ['prompt-submit.js', grande({ prompt: 'oi' }), 'P2'],
+    ['guarda-modelo.js', grande({ to_model: 'fable' }), 'P3'],
+    // A P4 lê até 4 MiB; acima, sem 'claude' nem 'liberar' no texto cru.
+    ['guarda-filha.js', JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: { command: 'x'.repeat(4_300_000) } }), 'P4'],
+    ['guarda-arquivos.js', grande({ tool_name: 'Write', tool_input: { file_path: 'a.txt' } }), 'P5'],
+    ['liberar.js', grande({ command_name: 'claude-hadouken:liberar' }), 'liberar'],
+    ['guarda-agenda.js', grande({ tool_name: 'CronCreate', tool_input: { prompt: 'oi' } }), 'agenda'],
+  ];
+  for (const [script, entrada, rotulo] of casos) {
+    const home = novoHome();
+    semSaida(rodar(script, entrada, home));
+    assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), [rotulo], script);
+  }
+  // A vigia que casa acima do teto não é erro: é a negação da regra fixa.
+  const home = novoHome();
+  const casou = JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: { command: `claude -p ${'x'.repeat(4_300_000)}` } });
+  assert.equal(saida(rodar('guarda-filha.js', casou, home)).hookSpecificOutput.permissionDecision, 'deny');
+  assert.deepEqual(eventos(home, 'erro'), []);
+  // Pasta de dados ausente: nada é criado.
+  const ausente = path.join(novoHome(), 'sem-pasta');
+  semSaida(rodar('guarda-despacho.js', casos[0][1], ausente));
+  assert.equal(fs.existsSync(ausente), false);
+});
+
+// Stdin que nunca fecha: o hook termina pelo prazo de 1 s de lerStdinVigiando.
+function rodarSemFim(script, parcial, home) {
+  return new Promise((resolve, reject) => {
+    const filho = spawn(process.execPath, [scriptDe(script)], { env: ambiente(home), stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    filho.stdout.setEncoding('utf8');
+    filho.stderr.setEncoding('utf8');
+    filho.stdout.on('data', (c) => { stdout += c; });
+    filho.stderr.on('data', (c) => { stderr += c; });
+    const limite = setTimeout(() => { filho.kill(); reject(new Error(`${script} não terminou; stderr: ${stderr}`)); }, 8000);
+    filho.on('error', (e) => { clearTimeout(limite); reject(e); });
+    filho.on('close', (status) => {
+      clearTimeout(limite);
+      filho.stdin.destroy();
+      resolve({ status, stdout, stderr });
+    });
+    filho.stdin.on('error', () => {});
+    filho.stdin.write(parcial);
+  });
+}
+
+test('M5: stdin cortado pelo prazo, com bytes lidos, passa e registra erro', async () => {
+  const parcial = '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"claude -p';
+  for (const [script, rotulo] of [['guarda-filha.js', 'P4'], ['guarda-despacho.js', 'P1']]) {
+    const home = novoHome();
+    semSaida(await rodarSemFim(script, parcial, home));
+    assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), [rotulo], script);
+  }
+  // A entrada inteira que só não fechou o stdin foi lida: sem erro.
+  const home = novoHome();
+  semSaida(await rodarSemFim('guarda-despacho.js', JSON.stringify({ session_id: 'nao-registrada', tool_name: 'Agent', tool_input: {} }), home));
+  assert.deepEqual(eventos(home, 'erro'), []);
 });
 
 test('P5: edição na pasta de dados é negada sempre, inclusive com .. e maiúsculas', () => {

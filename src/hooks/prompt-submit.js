@@ -89,4 +89,4 @@ rodarHook(async (entrada) => {
   const registroProjecao = projecaoParaGravar(novos.projecao);
   if (precisaGravarProjecao(registroProjecao, projecaoLida)) gravarJsonAtomico(arqProjecao, registroProjecao);
   emitirContexto('UserPromptSubmit', (p2.linha === null ? linhas : [...linhas, p2.linha]).join('\n'));
-});
+}, undefined, undefined, 'P2');
