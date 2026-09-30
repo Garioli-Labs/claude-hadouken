@@ -5,8 +5,9 @@ import {
 } from '../src/previsao.js';
 
 // Previsão de estouro (spec v0.2.0 §12.3 e §12.7): inclinação por mínimos
-// quadrados, alcance de 20 min (5h) e 3 h (7d), mínimo de 3 pontos em 6 min,
-// previsão só antes do reset.
+// quadrados, alcance de 20 min (5h) e 3 h (7d), mínimo de 3 pontos em 6 min
+// (5h) e de 10 pontos em 2 h (7d, spec v0.4.0 §10, item 2), previsão só antes
+// do reset.
 
 const MIN = 60_000;
 const agora = Date.UTC(2026, 8, 25, 18, 0);
