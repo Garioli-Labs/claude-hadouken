@@ -44,6 +44,7 @@ Esta é a **v0.3.0** do primeiro subprojeto do plugin, o **Leitor de consumo**. 
   - [Janela de 5 horas: as faixas](#janela-de-5-horas-as-faixas)
   - [Janela de 7 dias: o ritmo esperado e os modos](#janela-de-7-dias-o-ritmo-esperado-e-os-modos)
   - [Projeção e várias sessões](#projeção-e-várias-sessões)
+- [A guarda de consumo](#a-guarda-de-consumo)
 - [O relatório `/claude-hadouken:consumo`](#o-relatório-claude-hadoukenconsumo)
   - [Sessões abertas (última hora)](#sessões-abertas-última-hora)
   - [Glossário das colunas](#glossário-das-colunas)
@@ -378,6 +379,51 @@ Na linha do início de sessão, o fim vem da [frase de previsão](#a-previsão) 
 No início da sessão, se algo der errado com o próprio plugin, o Claude recebe mais uma linha fixa, por exemplo `claude-hadouken: sessão não registrada (...); barra e alertas desligados nesta sessão.` ou `claude-hadouken: barra indisponível (...)`.
 
 Toda linha é montada só com números validados e frases fixas do código; nenhum texto lido de arquivo entra nela. Os avisos nunca bloqueiam o prompt: se algo falhar num hook, ele termina em silêncio (código 0) e o Claude segue normalmente.
+
+---
+
+## A guarda de consumo
+
+Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subagente, no uso do Fable e no despacho caro. A trava fica até **você** liberar com `/claude-hadouken:liberar`; o Claude não consegue se liberar sozinho.
+
+### O que trava
+
+| Gatilho | Quando | O que bloqueia |
+|---|---|---|
+| G1 | a janela de 5h projeta 100% em até 90 min, com o reset a pelo menos 15 min | todo despacho de subagente, a troca para o Fable e, numa sessão Fable, o prompt |
+| G2 | a semana projeta 100% em até 24 h, com pelo menos 2 h de leituras | o mesmo |
+| G3 | a janela de 5h em 90% ou mais, com o reset a pelo menos 15 min | o mesmo |
+| G4 | a semana em 85% ou mais | o mesmo |
+| G5 | despacho caro: effort `max` em qualquer modelo, ou Fable em `xhigh` ou `max` | aquele despacho |
+| G6 | o limite do Fable foi atingido (aviso de limite do Claude Code, ou a leitura oficial da semana do Fable em 100%, com até 15 min) | despacho Fable, a troca para o Fable e o prompt numa sessão Fable |
+| G7 | o quinto despacho Fable em 5 h, ou qualquer despacho Fable com a semana do Fable em 90% ou mais (leitura oficial com até 15 min) | o mesmo |
+
+Os números são ajustáveis na chave `guarda` do `config.json` (o 90% do Fable é `guarda.fable.tetoPct`). Afrouxar a configuração não solta uma trava que já disparou.
+
+Quando o reset oficial do Fable não se lê, a trava do G7 não tem fim marcado: fica até `/claude-hadouken:liberar fable`.
+
+### Como liberar
+
+- `/claude-hadouken:liberar`: libera por 2 h.
+- `/claude-hadouken:liberar 8h`: de 1 a 24 h.
+- `/claude-hadouken:liberar janela`: até o reset da janela que travou, no máximo 24 h.
+- Acrescente `fable` para soltar também o limite do Fable. Depois do limite, o Fable pode consumir créditos de uso.
+- Acrescente `caro` para soltar o despacho caro, por exemplo antes da revisão final de um bloco.
+
+Toda liberação acaba antes do prazo se a semana subir 10 pontos. Ela vale para todas as sessões, porque o limite é da conta. A barra mostra "liberada até …" enquanto ela vale.
+
+### O que a barra diz
+
+- `guarda: 7d`: disparada, com a janela ou `Fable`.
+- `liberada até hoje 16:40`: liberação ativa.
+- `guarda desligada`: `"ligada": false` no `config.json`.
+- `guarda sem leitura`: sem leitura de limite; só G5, G6 e G7 valem.
+- `sem guarda nesta sessão`: a sessão foi aberta antes da atualização.
+- `Fable 3/4 em 5h · semana Fable 57%`: numa sessão Fable, a contagem de despachos e a semana do Fable pela leitura oficial (o mesmo `/usage` do painel no VS Code), com até 15 min.
+- `semana Fable ≥ 57% (leitura de 40 min)`: a leitura oficial está mais velha que 15 min; o número é um piso, e a guarda não o usa.
+- `sem leitura oficial`: não há leitura válida do Fable (o painel ainda não leu, pausou por pouca RAM ou o arquivo está fora do schema), ou ela é de antes do reset do Fable.
+
+**Sessões abertas só ganham a guarda depois de `/reload-plugins` ou de reiniciar.**
 
 ---
 

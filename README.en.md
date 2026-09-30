@@ -44,6 +44,7 @@ This is **v0.3.0** of the plugin's first subproject, the **Usage reader** (*Leit
   - [5-hour window: the bands](#5-hour-window-the-bands)
   - [7-day window: the expected pace and the modes](#7-day-window-the-expected-pace-and-the-modes)
   - [Projection and several sessions](#projection-and-several-sessions)
+- [The usage guard](#the-usage-guard)
 - [The `/claude-hadouken:consumo` report](#the-claude-hadoukenconsumo-report)
   - [Open sessions in the last hour](#open-sessions-in-the-last-hour)
   - [Column glossary](#column-glossary)
@@ -384,6 +385,51 @@ In the session-start line, the ending comes from the week's [forecast sentence](
 At session start, if something goes wrong with the plugin itself, Claude gets one more fixed line, for example `claude-hadouken: sessão não registrada (...); barra e alertas desligados nesta sessão.` (session not registered; bar and alerts off in this session) or `claude-hadouken: barra indisponível (...)` (bar unavailable).
 
 Every line is built only from validated numbers and fixed phrases in the code; no text read from a file goes into it. Notices never block the prompt: if anything fails in a hook, it exits silently (code 0) and Claude carries on normally.
+
+---
+
+## The usage guard
+
+Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch, at Fable use and at the expensive dispatch. The lock stays until **you** release it with `/claude-hadouken:liberar`; Claude cannot release itself.
+
+### What locks
+
+| Trigger | When | What it blocks |
+|---|---|---|
+| G1 | the 5h window projects 100% within 90 min, with the reset at least 15 min away | every subagent dispatch, the switch to Fable and, in a Fable session, the prompt |
+| G2 | the week projects 100% within 24 h, with at least 2 h of readings | the same |
+| G3 | the 5h window at 90% or more, with the reset at least 15 min away | the same |
+| G4 | the week at 85% or more | the same |
+| G5 | expensive dispatch: effort `max` on any model, or Fable at `xhigh` or `max` | that dispatch |
+| G6 | the Fable limit was reached (Claude Code's limit notice, or the official Fable week reading at 100%, at most 15 min old) | Fable dispatch, the switch to Fable and the prompt in a Fable session |
+| G7 | the fifth Fable dispatch in 5 h, or any Fable dispatch with the Fable week at 90% or more (official reading at most 15 min old) | the same |
+
+The numbers can be tuned under the `guarda` key of `config.json` (the Fable 90% is `guarda.fable.tetoPct`). Loosening the configuration does not lift a lock that has already tripped.
+
+When the official Fable reset cannot be read, a G7 lock has no set end: it stays until `/claude-hadouken:liberar fable`.
+
+### How to release
+
+- `/claude-hadouken:liberar`: releases for 2 h.
+- `/claude-hadouken:liberar 8h`: from 1 to 24 h.
+- `/claude-hadouken:liberar janela`: until the reset of the window that locked, at most 24 h.
+- Add `fable` to lift the Fable limit as well. After the limit, Fable may consume usage credits.
+- Add `caro` to lift the expensive dispatch, for example before the final review of a block.
+
+Every release ends early if the week rises 10 points. It applies to every session, because the limit belongs to the account. The bar shows "liberada até …" (released until …) while it holds.
+
+### What the bar says
+
+- `guarda: 7d`: tripped, with the window or `Fable` (guard: 7d).
+- `liberada até hoje 16:40`: an active release (released until today 16:40).
+- `guarda desligada`: `"ligada": false` in `config.json` (guard off).
+- `guarda sem leitura`: no limits reading; only G5, G6 and G7 apply (guard without a reading).
+- `sem guarda nesta sessão`: the session was opened before the update (no guard in this session).
+- `Fable 3/4 em 5h · semana Fable 57%`: in a Fable session, the dispatch count and the Fable week from the official reading (the same `/usage` as the VS Code panel), at most 15 min old (Fable 3/4 in 5h · Fable week 57%).
+- `semana Fable ≥ 57% (leitura de 40 min)`: the official reading is older than 15 min; the number is a floor, and the guard does not use it (Fable week ≥ 57%, 40-minute-old reading).
+- `sem leitura oficial`: there is no valid Fable reading (the panel has not read yet, paused on low RAM, or the file is out of schema), or it predates the Fable reset (no official reading).
+
+**Open sessions only get the guard after `/reload-plugins` or a restart.**
 
 ---
 
