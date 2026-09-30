@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { rodarHook, emitirContexto } from './comum.js';
+import { rodarHook, emitirContexto, falharAberto } from './comum.js';
 import { caminhoDoAmbiente, dirDados, idValido } from '../base.js';
 import { registrarSessao } from '../ativas.js';
 
@@ -16,7 +16,8 @@ import { registrarSessao } from '../ativas.js';
 // 4. depois da saída, com os shims em dia e sem HADOUKEN_SEM_PAINEL=1,
 //    dispara em segundo plano a instalação da extensão do painel no VS Code
 //    (dispararPainel). Nada deste passo entra no contexto (zero tokens), e o
-//    hook não espera o filho.
+//    hook não espera o filho;
+// 5. grava a marca da guarda e o modelo da sessão (spec v0.4.0 §4.3).
 // session_id ausente ou inválido, ou sem diretório de dados: nenhum registro,
 // nenhuma linha, nenhuma escrita.
 //
@@ -71,6 +72,15 @@ rodarHook(async (entrada) => {
   if (dir === null) return;
   const agoraMs = Date.now();
   const registro = registrarSessao(sessionId, agoraMs);
+  // Spec v0.4.0 §4.3 e §11: a marca "sessão com a guarda" e o modelo da
+  // sessão (o campo model do SessionStart, quando vier). Uma exceção aqui
+  // registra 'erro' e não tira a linha de consumo nem os shims (§4.5).
+  await falharAberto(dir, 'SessionStart', agoraMs, async () => {
+    const reg = await import('../guarda/registros.js');
+    reg.marcarSessao(dir, sessionId);
+    const modelo = reg.normalizarModelo(entrada.model);
+    if (modelo !== null) reg.gravarModeloSessao(dir, sessionId, modelo, agoraMs);
+  });
   const [{ sincronizarShims }, { ARQ_ESTADO, lerJson, validarEstado, limitesValidos }, linhas] = await Promise.all([
     import('../shim.js'),
     import('../estado.js'),

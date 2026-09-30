@@ -31,6 +31,16 @@ export const TIPOS_EVENTO = Object.freeze([
 ]);
 const DETALHE = /^[A-Za-z0-9:._-]{0,40}$/;
 export const MODELO_VALIDO = /^[A-Za-z0-9._:[\]-]{1,80}$/;
+
+// Nome de modelo vindo de hook (SessionStart `model`, PostModelSwitch
+// `to_model`): o nome, se casa MODELO_VALIDO; senão só o rótulo 'fable' ou
+// 'outro', para uma troca para nome estranho nunca deixar o modelo antigo
+// gravado (a P2 decidiria pelo nome velho). Nunca repete o texto.
+export function normalizarModelo(bruto) {
+  if (typeof bruto !== 'string' || bruto.length === 0) return null;
+  if (MODELO_VALIDO.test(bruto)) return bruto;
+  return /fable/i.test(bruto.slice(0, 200)) ? 'fable' : 'outro';
+}
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const nomeMarca = (id) => Buffer.from(id, 'utf8').toString('hex');
 

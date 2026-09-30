@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   ARQ_EVENTOS, ARQ_DESPACHOS, ARQ_LIMITES, ARQ_MODELOS, DIR_MARCAS,
   anexarEvento, lerEventos, temEventoLiberacao, registrarDespachoFable, despachosFableRecentes,
-  registrarLimite, ultimoLimiteFable, gravarModeloSessao, modeloDaSessao, marcarSessao, sessaoMarcada,
+  registrarLimite, ultimoLimiteFable, gravarModeloSessao, modeloDaSessao, marcarSessao, sessaoMarcada, normalizarModelo,
 } from '../src/guarda/registros.js';
 
 // Registros locais da guarda (spec v0.4.0 §4.3, §5.2 G6/G7, §6.5 R1, §14).
@@ -198,4 +198,13 @@ test('pasta de dados inválida: nada lança', () => {
     assert.deepEqual(marcarSessao(dir, 'sess-1'), { ok: false });
     assert.equal(sessaoMarcada(dir, 'sess-1'), false);
   }
+});
+
+test('normalizarModelo: nome válido fica; outro vira fable ou outro; não texto vira null', () => {
+  assert.equal(normalizarModelo('claude-fable-5-1[1m]'), 'claude-fable-5-1[1m]');
+  assert.equal(normalizarModelo('Fable 5.1'), 'fable');
+  assert.equal(normalizarModelo('Opus 5.5'), 'outro');
+  assert.equal(normalizarModelo('x'.repeat(300)), 'outro');
+  assert.equal(normalizarModelo(null), null);
+  assert.equal(normalizarModelo(''), null);
 });

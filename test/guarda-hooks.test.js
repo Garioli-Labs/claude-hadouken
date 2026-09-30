@@ -10,8 +10,8 @@ import { quandoLocal } from '../src/util.js';
 import { ARQ_GUARDA } from '../src/guarda/travas.js';
 import { ARQ_LIBERACAO, gravarLiberacao, montarLiberacao, lerPedido } from '../src/guarda/liberacao.js';
 import { PADRAO_GUARDA } from '../src/guarda/config.js';
-import { travasVazias } from '../src/guarda/travas.js';
-import { ARQ_DESPACHOS, lerEventos, registrarDespachoFable, gravarModeloSessao } from '../src/guarda/registros.js';
+import { travasVazias, lerTravas } from '../src/guarda/travas.js';
+import { ARQ_DESPACHOS, ARQ_LIMITES, lerEventos, registrarDespachoFable, gravarModeloSessao, modeloDaSessao } from '../src/guarda/registros.js';
 
 // Hooks da guarda (spec v0.4.0 §4.2), cada um num processo filho como o
 // Claude Code os roda. Todo filho recebe HADOUKEN_HOME e CLAUDE_CONFIG_DIR
@@ -346,4 +346,60 @@ test('P2 ponta a ponta: depois do liberar, o prompt seguinte leva a linha uma ve
   assert.match(o.hookSpecificOutput.additionalContext, /hadouken: o usuário liberou a guarda até .+ ou até 7d 96%\.$/);
   const r2 = rodar('prompt-submit.js', promptDe('s1', 'e agora'), home);
   assert.ok(!r2.stdout.includes('liberou a guarda'));
+});
+
+const troca = (id, to_model, evento = 'PreModelSwitch') => ({ session_id: id, hook_event_name: evento, from_model: 'claude-opus-5-5', to_model });
+
+test('P3: troca para o Fable com trava ativa é negada; para fora do Fable, nunca', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  const o = saida(rodar('guarda-modelo.js', troca('s1', 'claude-fable-5-1'), home));
+  assert.deepEqual(o, { hookSpecificOutput: { hookEventName: 'PreModelSwitch', permissionDecision: 'deny',
+    permissionDecisionReason: 'hadouken: guarda ativa: 7d em 86%, teto 85%. Troca para o Fable bloqueada; libere com /claude-hadouken:liberar.' } });
+  semSaida(rodar('guarda-modelo.js', troca('s1', 'claude-sonnet-5-5'), home));
+  assert.equal(eventos(home, 'troca-bloqueada').length, 1);
+  const livre = novoHome();
+  registrar(livre, 's1');
+  gravarEstado(livre);
+  semSaida(rodar('guarda-modelo.js', troca('s1', 'fable'), livre));
+});
+
+test('PostModelSwitch grava o modelo; nome estranho vira rótulo', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  semSaida(rodar('modelo-trocado.js', troca('s1', 'claude-fable-5-1', 'PostModelSwitch'), home));
+  assert.equal(modeloDaSessao(home, 's1', Date.now()), 'claude-fable-5-1');
+  semSaida(rodar('modelo-trocado.js', troca('s1', `Opus ${INSTRUCAO}`, 'PostModelSwitch'), home));
+  assert.equal(modeloDaSessao(home, 's1', Date.now()), 'outro');
+});
+
+test('StopFailure rate_limit do Fable trava o Fable (G6) sem repetir o texto', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home);
+  const falha = { session_id: 's1', hook_event_name: 'StopFailure', error_type: 'rate_limit', error_details: `You've reached your Fable limit. ${INSTRUCAO}`, last_assistant_message: '' };
+  semSaida(rodar('limite-atingido.js', falha, home));
+  assert.ok(!fs.readFileSync(path.join(home, ARQ_LIMITES), 'utf8').includes('Ignore'));
+  gravarModeloSessao(home, 's1', 'claude-fable-5-1', Date.now());
+  const o = saida(rodar('prompt-submit.js', promptDe('s1', 'continue'), home));
+  assert.match(o.reason, /^hadouken: guarda ativa: limite do Fable atingido .+\. Esta sessão está no Fable\. Troque com \/model ou libere com \/claude-hadouken:liberar fable\.$/);
+  assert.equal(lerTravas(home, Date.now()).travas.fable.gatilho, 'G6');
+});
+
+test('StopFailure de outro tipo ou limite geral não trava o Fable', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home);
+  semSaida(rodar('limite-atingido.js', { session_id: 's1', error_type: 'server_error', error_details: 'Fable' }, home));
+  semSaida(rodar('limite-atingido.js', { session_id: 's1', error_type: 'rate_limit', error_details: 'usage limit reached' }, home));
+  assert.equal(lerTravas(home, Date.now()).travas.fable, null);
+});
+
+test('SessionStart grava a marca e o modelo da sessão', () => {
+  const home = novoHome();
+  const r = rodar('session-start.js', { session_id: 's9', hook_event_name: 'SessionStart', source: 'startup', model: 'claude-fable-5-1' }, home);
+  assert.equal(r.status, 0);
+  assert.equal(fs.existsSync(path.join(home, 'guarda-sessoes', Buffer.from('s9').toString('hex'))), true);
+  assert.equal(modeloDaSessao(home, 's9', Date.now()), 'claude-fable-5-1');
 });
