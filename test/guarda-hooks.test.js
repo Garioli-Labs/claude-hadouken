@@ -1018,3 +1018,19 @@ test('G6 com o texto do S4: limite geral ou de outro modelo não trava o Fable',
     assert.equal(typeof v.geral, 'number');
   }
 });
+
+test('liberar grava também o escopo e o prazo (liberacao-escopo), sem mudar o evento liberacao', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { u7: 86 });
+  const o = saida(rodar('liberar.js', expansao('s1', 'fable 3h'), home));
+  assert.equal(o.decision, 'block');
+  const lib = JSON.parse(fs.readFileSync(path.join(home, ARQ_LIBERACAO), 'utf8'));
+  assert.deepEqual(eventos(home, 'liberacao').map((e) => e.detalhe), [lib.id]);
+  assert.deepEqual(eventos(home, 'liberacao-escopo').map((e) => e.detalhe), ['3h:180:fable']);
+  // Pedido recusado: nenhum escopo.
+  const outro = novoHome();
+  registrar(outro, 's1');
+  saida(rodar('liberar.js', expansao('s1', `2h ${INSTRUCAO}`), outro));
+  assert.equal(eventos(outro, 'liberacao-escopo').length, 0);
+});

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  ARQ_LIBERACAO, lerPedido, montarLiberacao, liberacaoValida, coberturaAtual, lerLiberacao, gravarLiberacao,
+  ARQ_LIBERACAO, lerPedido, montarLiberacao, liberacaoValida, coberturaAtual, lerLiberacao, gravarLiberacao, detalheEscopo,
 } from '../src/guarda/liberacao.js';
 import { PADRAO_GUARDA, LIBERACAO_TETO_H } from '../src/guarda/config.js';
 import { ARQ_GUARDA, travasVazias, gravarTravas, lerTravas, limparTravas } from '../src/guarda/travas.js';
@@ -180,4 +180,21 @@ test('solta de uma liberação comum passada a limparTravas: ilegível zera tudo
   const t = lerTravas(d2, agora).travas;
   assert.equal(t.seven_day, null);
   assert.deepEqual(t.fable, { resets_at: null, gatilho: 'G6', desde });
+});
+
+test('detalheEscopo (spec v0.4.0 §9.4): prazo pedido, minutos até o fim e escopos, dentro de DETALHE', () => {
+  const par = (args, travas = null) => {
+    const pedido = lerPedido(args, PADRAO_GUARDA);
+    return [montarLiberacao({ pedido, agoraMs: agora, usado7d: 50, travas, config: PADRAO_GUARDA, sessionId: 's1', id: 'a1b2c3d4' }), pedido];
+  };
+  assert.equal(detalheEscopo(...par('2h')), '2h:120');
+  assert.equal(detalheEscopo(...par('fable caro 3h')), '3h:180:fable:caro');
+  assert.equal(detalheEscopo(...par('janela fable', { five_hour: { resets_at: agoraS + 95 * 60 } })), 'janela:95:fable');
+  assert.equal(detalheEscopo(...par('')), `${PADRAO_GUARDA.liberacaoPadraoH}h:${PADRAO_GUARDA.liberacaoPadraoH * 60}`);
+  for (const d of ['2h:120', '3h:180:fable:caro', 'janela:1440:fable:caro']) assert.match(d, /^[A-Za-z0-9:._-]{0,40}$/);
+  const [lib] = par('2h');
+  assert.equal(detalheEscopo(null, { ok: true, horas: 2 }), null);
+  assert.equal(detalheEscopo(lib, { ok: false }), null);
+  assert.equal(detalheEscopo({ ...lib, ate: 'x' }, lerPedido('2h', PADRAO_GUARDA)), null);
+  assert.equal(detalheEscopo(lib, { ok: true, horas: 99, janela: false }), null);
 });

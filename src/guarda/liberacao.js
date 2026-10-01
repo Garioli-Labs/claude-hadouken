@@ -89,6 +89,31 @@ export function montarLiberacao({ pedido, agoraMs, usado7d, travas, config, sess
   };
 }
 
+// Escopo e prazo de uma liberação para o evento 'liberacao-escopo' (spec
+// v0.4.0 §9.4, "liberações, com escopo e prazo"; decisão 9 do plano da parte
+// 2): "2h:120", "janela:95:fable" ou "3h:180:fable:caro". Só o prazo pedido
+// (Nh de 1 a 24, ou janela), os minutos de criadaEm até `ate` (0 a 1440) e os
+// escopos extras. Cabe na regra DETALHE de registros.js (até 40 caracteres).
+// null com entrada inválida. Nunca lança.
+const MINUTOS_MAX = 24 * 60;
+export function detalheEscopo(lib, pedido) {
+  try {
+    if (!ehObjeto(lib) || !ehObjeto(pedido) || pedido.ok !== true) return null;
+    const minutos = Math.round((Date.parse(lib.ate) - Date.parse(lib.criadaEm)) / 60_000);
+    if (!Number.isFinite(minutos)) return null;
+    let prazo = null;
+    if (pedido.janela === true) prazo = 'janela';
+    else if (Number.isInteger(pedido.horas) && pedido.horas >= 1 && pedido.horas <= 24) prazo = `${pedido.horas}h`;
+    if (prazo === null) return null;
+    const partes = [prazo, String(Math.min(MINUTOS_MAX, Math.max(0, minutos)))];
+    if (pedido.fable === true) partes.push('fable');
+    if (pedido.caro === true) partes.push('caro');
+    return partes.join(':');
+  } catch {
+    return null;
+  }
+}
+
 // Esquema estrito (§6.4): arquivo inválido é "sem liberação". Reconstrói só
 // os campos conhecidos; `solta` só com nomes conhecidos e sem repetição; o
 // teto de pontos na mesma faixa de liberacao.tetoPontos7d em config.js. O

@@ -7,6 +7,7 @@ import {
   ARQ_EVENTOS, ARQ_DESPACHOS, ARQ_LIMITES, ARQ_MODELOS, DIR_MARCAS,
   anexarEvento, lerEventos, temEventoLiberacao, sinaisDaBarra, ERRO_RECENTE_MS, registrarDespachoFable, despachosFableRecentes,
   registrarLimite, ultimoLimiteFable, gravarModeloSessao, modeloDaSessao, marcarSessao, sessaoMarcada, normalizarModelo,
+  ultimosLimites, EVENTOS_MAX, TIPOS_EVENTO,
 } from '../src/guarda/registros.js';
 
 // Registros locais da guarda (spec v0.4.0 §4.3, §5.2 G6/G7, §6.5 R1, §14).
@@ -238,4 +239,25 @@ test('normalizarModelo: nome válido fica; outro vira fable ou outro; não texto
   assert.equal(normalizarModelo('x'.repeat(300)), 'outro');
   assert.equal(normalizarModelo(null), null);
   assert.equal(normalizarModelo(''), null);
+});
+
+test('liberacao-escopo é um tipo de evento; EVENTOS_MAX exportado', () => {
+  assert.equal(TIPOS_EVENTO.at(-1), 'liberacao-escopo');
+  assert.equal(EVENTOS_MAX, 200);
+  const d = novo();
+  assert.deepEqual(anexarEvento(d, 'liberacao-escopo', '3h:180:fable:caro', agora), { ok: true });
+  assert.deepEqual(lerEventos(d, agora).map((e) => [e.tipo, e.detalhe]), [['liberacao-escopo', '3h:180:fable:caro']]);
+});
+
+test('ultimosLimites (§9.4): Fable e geral em 7 dias; futuro, velho ou ilegível viram null', () => {
+  const d = novo();
+  assert.deepEqual(ultimosLimites(d, agora), { fable: null, geral: null });
+  registrarLimite(d, 'fable', agora - 2 * H);
+  registrarLimite(d, 'geral', agora - 6 * 24 * H);
+  assert.deepEqual(ultimosLimites(d, agora), { fable: agora - 2 * H, geral: agora - 6 * 24 * H });
+  assert.deepEqual(ultimosLimites(d, agora + 2 * 24 * H), { fable: agora - 2 * H, geral: null });
+  assert.deepEqual(ultimosLimites(d, agora - 3 * H), { fable: null, geral: agora - 6 * 24 * H });
+  fs.writeFileSync(path.join(d, ARQ_LIMITES), '{');
+  assert.deepEqual(ultimosLimites(d, agora), { fable: null, geral: null });
+  assert.deepEqual(ultimosLimites(d, Number.NaN), { fable: null, geral: null });
 });

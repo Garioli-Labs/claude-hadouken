@@ -18,7 +18,7 @@ export const ARQ_MODELOS = 'modelos.json';
 export const DIR_MARCAS = 'guarda-sessoes';
 const EVENTOS_MAX_BYTES = 64 * 1024;
 const PEQUENO_MAX_BYTES = 16 * 1024;
-const EVENTOS_MAX = 200;
+export const EVENTOS_MAX = 200;
 const DESPACHOS_MAX = 200;
 const MODELOS_MAX = 50;
 const H = 3_600_000;
@@ -28,6 +28,9 @@ const FUTURO_MS = 5 * 60_000;
 export const TIPOS_EVENTO = Object.freeze([
   'disparo', 'negado', 'prompt-bloqueado', 'troca-bloqueada', 'liberacao', 'liberacao-recusada',
   'filha-negada', 'arquivo-negado', 'desconhecido', 'erro',
+  // 'liberacao-escopo' (spec v0.4.0 §9.4): o escopo e o prazo da liberação, à
+  // parte do evento 'liberacao', que só leva o id do sinal de R1.
+  'liberacao-escopo',
 ]);
 const DETALHE_MAX = 40;
 const DETALHE = new RegExp(`^[A-Za-z0-9:._-]{0,${DETALHE_MAX}}$`);
@@ -153,6 +156,24 @@ export function registrarLimite(dir, tipo, agoraMs) {
     return gravar(dir, ARQ_LIMITES, atual);
   } catch {
     return { ok: false };
+  }
+}
+
+// Últimos limites atingidos, do Fable e geral (spec v0.4.0 §9.4, "Guarda (7
+// dias)" do /consumo): cada um em ms, ou null se ausente, ilegível, mais de
+// 5 min no futuro ou mais velho que LIMITE_IDADE_MS. Só leitura. Nunca lança.
+export function ultimosLimites(dir, agoraMs) {
+  const r = { fable: null, geral: null };
+  try {
+    if (!numeroFinito(agoraMs)) return r;
+    const v = ler(dir, ARQ_LIMITES, PEQUENO_MAX_BYTES);
+    for (const k of ['fable', 'geral']) {
+      const t = v?.[k];
+      if (numeroFinito(t) && t <= agoraMs + FUTURO_MS && agoraMs - t <= LIMITE_IDADE_MS) r[k] = t;
+    }
+    return r;
+  } catch {
+    return { fable: null, geral: null };
   }
 }
 

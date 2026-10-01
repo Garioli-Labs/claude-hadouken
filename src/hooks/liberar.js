@@ -49,9 +49,9 @@ const digitado = (entrada) => ORIGENS.includes(entrada.command_source) && EXPANS
 const NAO_GRAVADO_RESERVA = 'hadouken: nada liberado. A liberação não pôde ser gravada.';
 
 // O texto da resposta. Tudo o que pode lançar (inclusive o próprio texto de
-// confirmação) vem antes de gravarLiberacao; depois dela só limparTravas e
-// anexarEvento, que nunca lançam. Assim uma exceção nunca deixa liberação
-// gravada junto com a resposta "nada liberado".
+// confirmação e o escopo do evento) vem antes de gravarLiberacao; depois dela
+// só limparTravas e anexarEvento, que nunca lançam. Assim uma exceção nunca
+// deixa liberação gravada junto com a resposta "nada liberado".
 async function decidir(entrada, dir, sessionId, agoraMs, msg) {
   const [{ lerConfigGuarda }, est, trv, lib, reg] = await Promise.all([
     import('../guarda/config.js'),
@@ -89,12 +89,20 @@ async function decidir(entrada, dir, sessionId, agoraMs, msg) {
     id: crypto.randomBytes(4).toString('hex'),
   });
   const texto = msg.liberado(liberacao, agoraMs);
+  // Escopo e prazo para a "Guarda (7 dias)" do /consumo (spec v0.4.0 §9.4;
+  // decisão 9 do plano da parte 2), calculado antes de gravar. null com
+  // entrada inválida: o evento não sai.
+  const escopo = lib.detalheEscopo(liberacao, pedido);
   if (!lib.gravarLiberacao(dir, liberacao).ok) return msg.NAO_GRAVADO;
   // Com guarda.json ilegível, limparTravas regrava as quatro chaves null
   // (§4.5: só a liberação limpa); a avaliação seguinte retrava o que a
   // condição ainda sustentar e a liberação não cobrir.
   trv.limparTravas(dir, liberacao.solta.filter((k) => trv.CHAVES_TRAVA.includes(k)), agoraMs);
   reg.anexarEvento(dir, 'liberacao', liberacao.id, agoraMs);
+  // Evento à parte: o de 'liberacao' continua só com o id, que
+  // temEventoLiberacao (R1) compara. Uma liberação ocupa agora 2 dos
+  // EVENTOS_MAX (200) lugares do registro.
+  if (escopo !== null) reg.anexarEvento(dir, 'liberacao-escopo', escopo, agoraMs);
   return texto;
 }
 
