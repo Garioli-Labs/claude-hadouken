@@ -78,6 +78,10 @@ export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuári
 // na conversa por conta própria.
 export const P5_PROTEGIDO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude editar este arquivo (settings do Claude Code ou o próprio plugin). Mostre a mudança na conversa; o usuário a aplica à mão.';
 export const P5_SETTINGS_PROJETO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude mexer em hooks, disableAllHooks, enabledPlugins nem no claude-hadouken nos settings do projeto. Mostre a mudança na conversa; o usuário a aplica à mão. O resto do arquivo segue editável.';
+// Stdin da P5 acima de 1 MiB que cita settings ou hadouken (rodada 3 da
+// revisão da Task 0): o JSON não é lido; a edição menor passa pela
+// conferência de sempre.
+export const P5_GRANDE_TEXTO = 'hadouken: bloqueado: esta edição passa de 1 MiB e cita settings ou o hadouken; grande assim, o hadouken não a confere. Divida a edição em partes menores.';
 // Regra fixa da P4 (decisão do controlador na revisão da Task 13): claude
 // junto com o comando de liberação, negado sempre, disparada ou não. Desde a
 // rodada 2 da revisão da Task 16 o texto que só cita 'hadouken:liberar' (numa

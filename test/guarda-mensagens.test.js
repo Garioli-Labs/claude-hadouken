@@ -57,6 +57,7 @@ test('P2, P3, P4, P5', () => {
   assert.equal(m.P5_TEXTO, 'hadouken: bloqueado: arquivos do hadouken só o usuário edita.');
   assert.equal(m.P5_PROTEGIDO_TEXTO, 'hadouken: bloqueado: o hadouken não deixa o Claude editar este arquivo (settings do Claude Code ou o próprio plugin). Mostre a mudança na conversa; o usuário a aplica à mão.');
   assert.equal(m.P5_SETTINGS_PROJETO_TEXTO, 'hadouken: bloqueado: o hadouken não deixa o Claude mexer em hooks, disableAllHooks, enabledPlugins nem no claude-hadouken nos settings do projeto. Mostre a mudança na conversa; o usuário a aplica à mão. O resto do arquivo segue editável.');
+  assert.equal(m.P5_GRANDE_TEXTO, 'hadouken: bloqueado: esta edição passa de 1 MiB e cita settings ou o hadouken; grande assim, o hadouken não a confere. Divida a edição em partes menores.');
   assert.equal(m.P4_LIBERAR_TEXTO, 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
 });
 

@@ -116,14 +116,20 @@ export function arquivoProtegido(alvo, { casa, configDir, raizPlugin } = {}) {
   return ehSettingsDeProjeto(path.resolve(alvo)) || ehSettingsDeProjeto(b) ? 'settings-projeto' : null;
 }
 
-// Os escapes \uXXXX do JSON desfeitos: "disableAllHooks" é a mesma
-// chave para o Claude Code. Também usado no texto cru da agenda.
-const ESCAPE_U = /\\u([0-9a-fA-F]{4})/g;
-export const desfazEscapeU = (t) => t.replace(ESCAPE_U, (_, h) => String.fromCharCode(parseInt(h, 16)));
+// Os escapes do JSON desfeitos numa passada só, como o JSON.parse faria:
+// \uXXXX, \n, \t, \r, \b, \f, \", \\ e \/ ("disableAllHooks" é a mesma
+// chave para o Claude Code). Também usado no texto cru da agenda, que não
+// chega ao JSON.parse: lá o '\n' antes de '/liberar' é uma quebra de linha,
+// não a letra n colada na barra (rodada 3 da revisão da Task 0). A barra
+// invertida escapada (\\n) vira uma barra e a letra, e escape inválido fica
+// como está.
+const ESCAPES_JSON = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+const ESCAPE_JSON = /\\(?:u([0-9a-fA-F]{4})|(["\\/bfnrt]))/g;
+export const desfazEscapesJson = (t) => t.replace(ESCAPE_JSON, (_, h, c) => (h === undefined ? ESCAPES_JSON[c] : String.fromCharCode(parseInt(h, 16))));
 
 // Settings de projeto (decisão do controlador na Task 0 da parte 2): a edição
 // mexe nos hooks ou nos plugins quando o texto dela tem, sem diferenciar
-// maiúsculas e com os escapes \u desfeitos, disableAllHooks, enabledPlugins,
+// maiúsculas e com os escapes do JSON desfeitos, disableAllHooks, enabledPlugins,
 // "hooks" (a chave, entre aspas) ou claude-hadouken. Conta o texto novo do
 // Write (content), do Edit (new_string) e do MultiEdit (cada
 // edits[].new_string) e, desde a rodada 1 da revisão, o texto antigo
@@ -145,7 +151,7 @@ const CHAVES_DA_GUARDA = ['disableallhooks', 'enabledplugins', '"hooks"', 'claud
 const OLD_CURTO = 40;
 const temChave = (t) => {
   if (typeof t !== 'string') return false;
-  const n = desfazEscapeU(t).toLowerCase();
+  const n = desfazEscapesJson(t).toLowerCase();
   return CHAVES_DA_GUARDA.some((c) => n.includes(c));
 };
 

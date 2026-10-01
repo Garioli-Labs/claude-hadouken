@@ -2,6 +2,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { rodarHook, emitirJson, falharAberto } from './comum.js';
 import { dirDados } from '../base.js';
+// Estático (rodada 3 da revisão da Task 0): um arquivo.js que não carrega
+// derruba o processo antes de qualquer decisão, e o Claude Code trata a saída
+// diferente de 0 e de 2 como erro que não bloqueia: a edição passa, sem o
+// evento 'erro'. Fora do §4.5, declarado em R2 (SECURITY.md); o mesmo vale
+// para comum.js e base.js.
+import { lerTextoSemLink } from '../guarda/arquivo.js';
 
 // Hook PreToolUse de Write, Edit, MultiEdit e NotebookEdit, cada um com os
 // seus `if` (spec v0.4.0 §4.2 P5, S13; spike S9: o `if` segue o nome da
@@ -32,6 +38,30 @@ const COM_TEXTO = new Set(['Write', 'Edit', 'MultiEdit']);
 // Teto da leitura do settings de projeto atual (rodada 1 da revisão da Task
 // 0): o mesmo 1 MiB do stdin. Acima dele, a leitura falha e a P5 nega.
 const TETO_SETTINGS = 1_048_576;
+// Stdin acima de 1 MiB (o teto comum, spec 8.1, S9; rodada 3 da revisão da
+// Task 0): o JSON não é lido. Como a P4, 'settings' ou 'hadouken' em qualquer
+// ponto do texto cru, sem diferenciar maiúsculas, nega (lerStdinVigiando em
+// base.js; evento 'P5:grande'); senão, passa e registra o 'erro' P5 (rodarHook
+// em comum.js, R2). 'hadouken' cobre o claude-hadouken do plugin e também a
+// pasta de dados padrão (~/.claude/hadouken), que não tem 'claude-hadouken'.
+const VIGIA_ACIMA = /settings|hadouken/i;
+// O mesmo texto de P5_GRANDE_TEXTO (mensagens.js), só para quando o import
+// dele falha. test/guarda-hooks.test.js confere que os dois são iguais.
+const P5_GRANDE_RESERVA = 'hadouken: bloqueado: esta edição passa de 1 MiB e cita settings ou o hadouken; grande assim, o hadouken não a confere. Divida a edição em partes menores.';
+
+// O deny sai primeiro; o evento vem depois e nunca o impede.
+async function negarGrande() {
+  let razao = P5_GRANDE_RESERVA;
+  try {
+    const msg = await import('../guarda/mensagens.js');
+    if (typeof msg.P5_GRANDE_TEXTO === 'string') razao = msg.P5_GRANDE_TEXTO;
+  } catch { /* texto de reserva */ }
+  emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
+  try {
+    const dir = dirDados();
+    if (dir !== null) (await import('../guarda/registros.js')).anexarEvento(dir, 'arquivo-negado', 'P5:grande', Date.now());
+  } catch { /* o deny já saiu */ }
+}
 
 // O alvo como caminho absoluto (rodada 1 da revisão da Task 16): '~', '~/'
 // e '~\' viram a casa do usuário, e um caminho relativo se resolve no cwd da
@@ -46,7 +76,11 @@ function alvoAbsoluto(bruto, cwd) {
   return path.resolve(typeof cwd === 'string' && path.isAbsolute(cwd) ? cwd : process.cwd(), bruto);
 }
 
-rodarHook(async (entrada) => {
+rodarHook(async (entrada, leitura) => {
+  if (leitura?.casou === true) {
+    await negarGrande();
+    return;
+  }
   if (entrada === null || !FERRAMENTAS.has(entrada.tool_name)) return;
   const dir = dirDados();
   if (dir === null) return;
@@ -61,7 +95,6 @@ rodarHook(async (entrada) => {
       if (classe === null) return;
       if (classe === 'settings-projeto') {
         if (!COM_TEXTO.has(entrada.tool_name)) return;
-        const { lerTextoSemLink } = await import('../guarda/arquivo.js');
         if (!caminho.mexeNaGuarda(entrada.tool_input, () => lerTextoSemLink(alvo, TETO_SETTINGS), entrada.tool_name)) return;
         texto = 'P5_SETTINGS_PROJETO_TEXTO';
       } else {
@@ -73,4 +106,4 @@ rodarHook(async (entrada) => {
     emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: msg[texto] } });
     reg.anexarEvento(dir, 'arquivo-negado', detalhe, agoraMs);
   });
-}, undefined, undefined, 'P5');
+}, undefined, VIGIA_ACIMA, 'P5');

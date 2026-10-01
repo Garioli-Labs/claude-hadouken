@@ -13,6 +13,7 @@ import { PADRAO_GUARDA } from '../src/guarda/config.js';
 import { travasVazias, lerTravas } from '../src/guarda/travas.js';
 import { ARQ_DESPACHOS, ARQ_LIMITES, lerEventos, registrarDespachoFable, gravarModeloSessao, modeloDaSessao, registrarLimite, anexarEvento } from '../src/guarda/registros.js';
 import { P4_LIBERAR_TEXTO, AGENDA_LIBERAR_TEXTO } from '../src/guarda/mensagens.js';
+import * as mensagens from '../src/guarda/mensagens.js';
 
 // Hooks da guarda (spec v0.4.0 §4.2), cada um num processo filho como o
 // Claude Code os roda. Todo filho recebe HADOUKEN_HOME e CLAUDE_CONFIG_DIR
@@ -41,13 +42,22 @@ function conferirHome(home) {
   assert.ok(home.startsWith(os.tmpdir()), `HADOUKEN_HOME fora do temporário: ${home}`);
 }
 
+// HOME e USERPROFILE falsos (rodada 3 da revisão da Task 0, como em
+// test/guarda-p5-extra.test.js): o ~ do filho fica dentro do temporário, e
+// nenhum hook chega ao ~/.claude de verdade. No Windows o ambiente não
+// diferencia maiúsculas: nenhuma grafia antiga dessas variáveis sobra.
+const CASA = new Set(['HOME', 'USERPROFILE']);
 function ambiente(home, extra = {}) {
+  const casa = path.join(home, 'casa');
   const env = {
-    ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, CLAUDE_CONFIG_DIR: path.join(home, 'cfg'),
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !CASA.has(k.toUpperCase()))),
+    HOME: casa, USERPROFILE: casa,
+    HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, CLAUDE_CONFIG_DIR: path.join(home, 'cfg'),
     HADOUKEN_SEM_PAINEL: '1', CLAUDE_EFFORT: undefined, CLAUDE_CODE_SUBAGENT_MODEL: undefined, CLAUDE_CODE_ENTRYPOINT: 'cli', ...extra,
   };
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
   conferirHome(env.HADOUKEN_HOME);
+  assert.ok(env.HOME.startsWith(os.tmpdir()) && env.USERPROFILE.startsWith(os.tmpdir()), 'casa fora do temporário');
   return env;
 }
 
@@ -641,6 +651,24 @@ test('agenda: stdin ilegível com o pedido escrito em escapes \\u nega', () => {
   assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), ['agenda']);
 });
 
+// Rodada 3 da revisão da Task 0: no texto cru, todos os escapes do JSON são
+// desfeitos numa passada (\n, \t, \r, \b, \f, \", \\, \/ e \uXXXX). O '\n'
+// antes de '/liberar' é a quebra de linha que o JSON.parse daria, não a letra
+// n colada na barra. A barra invertida escapada (\\n) segue como texto, como
+// no caminho com JSON.
+test('agenda: stdin ilegível com o pedido depois de \\n, \\t ou \\r\\n nega', () => {
+  const home = novoHome();
+  const truncados = [
+    '{"tool_name":"CronCreate","tool_input":{"prompt":"check the build\\n/liberar 2h',
+    '{"tool_name":"ScheduleWakeup","tool_input":{"prompt":"x\\t/liberar',
+    '{"tool_name":"RemoteTrigger","tool_input":{"body":"oi\\r\\n/claude-hadouken:liberar',
+  ];
+  for (const e of truncados) assert.deepEqual(saida(rodar('guarda-agenda.js', e, home)), AGENDA_NEGADO, e);
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), ['agenda', 'agenda', 'agenda']);
+  semSaida(rodar('guarda-agenda.js', '{"tool_name":"CronCreate","tool_input":{"prompt":"x\\\\n/liberar', home));
+  assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), ['agenda']);
+});
+
 // Task 0 da parte 2: os schedulers MCP (mcp__...cron|schedule|trigger|task,
 // sem diferenciar maiúsculas) passam pela agenda; o detalhe do evento é o
 // rótulo fixo 'agenda:mcp', nunca o nome vindo do stdin.
@@ -691,6 +719,41 @@ test('M5: stdin acima do teto passa calado e registra erro com o rótulo do hook
   const ausente = path.join(novoHome(), 'sem-pasta');
   semSaida(rodar('guarda-despacho.js', casos[0][1], ausente));
   assert.equal(fs.existsSync(ausente), false);
+});
+
+// Rodada 3 da revisão da Task 0: acima de 1 MiB a P5 não lê o JSON. Como a
+// P4, nega quando o texto cru cita settings ou hadouken (o claude-hadouken do
+// plugin e a pasta de dados padrão), sem diferenciar maiúsculas (evento
+// 'arquivo-negado' 'P5:grande', sem 'erro'); senão, passa com o 'erro' P5 (o
+// caso de a.txt do teste M5). Sem mensagens.js, sai o texto de reserva do
+// hook, igual a P5_GRANDE_TEXTO.
+test('P5: stdin acima de 1 MiB que cita settings ou hadouken é negado sem ler o JSON', () => {
+  const home = novoHome();
+  const pad = 'x'.repeat(1_100_000);
+  const casos = [
+    { session_id: 's1', tool_name: 'Write', tool_input: { file_path: path.join(home, 'casa', '.claude', 'Settings.json'), content: pad } },
+    { session_id: 's1', tool_name: 'Edit', tool_input: { file_path: path.join(home, 'plugins', 'CLAUDE-HADOUKEN', 'x.js'), old_string: 'a', new_string: pad } },
+    { session_id: 's1', tool_name: 'Write', tool_input: { file_path: path.join(home, 'casa', '.claude', 'Hadouken', 'liberacao.json'), content: pad } },
+  ];
+  assert.equal(typeof mensagens.P5_GRANDE_TEXTO, 'string');
+  const negado = negacao(mensagens.P5_GRANDE_TEXTO);
+  for (const e of casos) assert.deepEqual(saida(rodar('guarda-arquivos.js', e, home)), negado, e.tool_input.file_path);
+  assert.deepEqual(saida(rodar('guarda-arquivos.js', casos[0], home, {}, ganchoQueFalha(home, ['/src/guarda/mensagens.js']))), negado);
+  assert.deepEqual(eventos(home, 'arquivo-negado').map((e) => e.detalhe), Array(casos.length + 1).fill('P5:grande'));
+  assert.deepEqual(eventos(home, 'erro'), []);
+});
+
+// Rodada 3 da revisão da Task 0: arquivo.js é import estático da P5. Se ele
+// não carrega, o processo cai antes de qualquer decisão: código diferente de
+// 0, sem deny nem evento. O Claude Code trata essa saída como erro que não
+// bloqueia, e a edição passa; fora do §4.5 (sair sempre com 0), declarado em
+// R2 (SECURITY.md).
+test('P5: arquivo.js que não carrega derruba o hook antes de qualquer decisão (R2)', () => {
+  const home = novoHome();
+  const r = rodar('guarda-arquivos.js', ferramenta('s1', 'Write', { file_path: path.join(home, 'liberacao.json'), content: '{}' }), home, {}, ganchoQueFalha(home, ['/src/guarda/arquivo.js']));
+  assert.notEqual(r.status, 0);
+  assert.equal(r.stdout, '');
+  assert.deepEqual(eventos(home, 'arquivo-negado'), []);
 });
 
 // Stdin que nunca fecha: o hook termina pelo prazo de 1 s de lerStdinVigiando.
