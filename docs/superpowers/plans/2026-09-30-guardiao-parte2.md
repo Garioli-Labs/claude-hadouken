@@ -1,6 +1,8 @@
 # claude-hadouken v0.4.0, parte 2: linhas de alerta, `/consumo` da guarda e spikes restantes (plano de implementação)
 
-> **Escopo:** a parte 2 da v0.4.0 (decisão de escopo do Sr. Garioli, 2026-09-29, noite). Pela linha 17 do plano da parte 1: §10 itens 1 (linhas de alerta), 3, 4, 5, 6, 8, 9, 10 e 11; `/consumo` com "Guarda (7 dias)" e o custo dos hooks (§9.4); spikes S4, S6 (cron e `/loop`), S7, S8, S10 e S11; tabela de latência no README. Entram também o resto dos itens 2 e 7, que a parte 1 deixou pela metade: a frase de §8.1, regra 2, no aviso de projeção e a troca dos `diaHora` que já existem.
+Pré-voo (2026-10-01): F1–F6 e D1–D7 aplicados (`.superpowers/sdd/2026-09-30-guardiao-parte2/preflight.md`).
+
+> **Escopo:** a parte 2 da v0.4.0 (decisão de escopo do Sr. Garioli, 2026-09-29, noite). Pela linha 17 do plano da parte 1: §10 itens 1 (linhas de alerta), 3, 4, 5, 6, 8, 9, 10 e 11; `/consumo` com "Guarda (7 dias)" e o custo dos hooks (§9.4); spikes S4, S6 (cron e `/loop`), S7, S8, S10 e S11, mais o S12 (entrypoint) e o S13 (`ConfigChange` e os filtros `if` da P5); tabela de latência no README. Entram também o resto dos itens 2 e 7, que a parte 1 deixou pela metade: a frase de §8.1, regra 2, no aviso de projeção e a troca dos `diaHora` que já existem.
 
 > **Para agentes:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam checkbox (`- [ ]`).
 
@@ -79,13 +81,19 @@
 | `src/relatorio.js` (mod.) | `quandoLocal` (8); "Guarda (7 dias)" (15); "Custo dos hooks" (18) | 8, 15, 18 |
 | `src/hooks/comum.js`, `src/hooks/session-start.js` (mod.) | mudo em subagente (9); linha de retomada (12) | 9, 12 |
 | `src/configuracao.js`, `src/instalar-cli.js`, `skills/instalar/SKILL.md` (mod.) | `refreshInterval` (só com S7) | 11 |
-| `src/guarda/registros.js`, `src/guarda/liberacao.js`, `src/hooks/liberar.js` (mod.) | evento `liberacao-escopo`, `ultimosLimites`, `EVENTOS_MAX` | 14 |
+| `src/guarda/registros.js`, `src/guarda/liberacao.js`, `src/hooks/liberar.js` (mod.) | evento `liberacao-escopo`, `ultimosLimites`, `EVENTOS_MAX` (14); comentário do entrypoint com o spike S12 (13) | 13, 14 |
 | `src/guarda/resumo.js` | resumo da guarda em 7 dias (só leitura) | 15 |
 | `src/custo-hooks.js` | linhas de hook → números; mapa de plugins; agregação | 16 |
 | `src/transcripts.js` (mod.), `src/indice-hooks.js` | leitura segura exportada; índice `indice-hooks.json` | 17 |
 | `src/consumo.js` (mod.) | coleta da guarda e do custo dos hooks | 15, 18 |
-| `bench/hooks-p95.mjs`, `README.md`, `README.en.md` (mod.) | caso do liberar; tabela de latência | 19 |
+| `bench/hooks-p95.mjs`, `bench/statusline-p95.mjs`, `README.md`, `README.en.md` (mod.) | caso do liberar; transcript real na barra; tabela de latência | 19 |
 | `README.md`, `README.en.md`, `SECURITY.md`, `docs/imagens/avisos.svg`, manifestos (mod.) | textos novos, seções novas, ameaças, 0.4.0 | 20 |
+
+---
+
+### Task 0: P5 cobre o próprio plugin e os settings; agenda falha fechada
+
+Brief: `.superpowers/sdd/2026-09-30-guardiao-parte2/task-0-brief.md`. Estado: já implementada (a42a414 e correções). As Tasks 15, 16, 18, 19 e 20 levam em conta o que ela mudou (F4, F5 e F6 do pré-voo); o spike S13 da Task 2 confere o que ela deixou em aberto.
 
 ---
 
@@ -99,7 +107,7 @@ Quem faz: um implementador `opus-high` com o PowerShell e o Bash. Nada entra no 
 - Create: `varrer.mjs`, `analisar-s7.mjs`
 
 **Interfaces:**
-- Produz: a sonda e a barra-sonda que a Task 2 usa; o registro com o resultado de S4 (parte local), das formas das linhas de hook (base das Tasks 16 e 17), de S10 (tentativa sem custo) e de S11.
+- Produz: a sonda e a barra-sonda que a Task 2 usa; o registro com o resultado de S4 (parte local), das formas das linhas de hook, inclusive a forma exec (`execForma`; base das Tasks 16 e 17), de S10 (tentativa sem custo) e de S11.
 
 - [ ] **Step 1: Criar a pasta e a sonda**
 
@@ -114,7 +122,7 @@ Crie `sonda/hooks/hooks.json`:
 ```json
 {
   "hooks": {
-    "SessionStart": [ { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/sonda.js\"", "timeout": 5 } ] } ],
+    "SessionStart": [ { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/sonda.js\"", "timeout": 5 }, { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/sonda.js", "exec"], "timeout": 5 } ] } ],
     "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/sonda.js\"", "timeout": 5 } ] } ],
     "PreToolUse": [ { "matcher": "Agent|Task|Workflow|Skill|SendMessage|CronCreate", "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/sonda.js\"", "timeout": 5 } ] } ],
     "SubagentStart": [ { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/sonda.js\"", "timeout": 5 } ] } ],
@@ -123,6 +131,8 @@ Crie `sonda/hooks/hooks.json`:
   }
 }
 ```
+
+O segundo handler do `SessionStart` está na forma exec (`command` + `args`), a mesma de 45 dos 48 handlers do próprio plugin (F5 do pré-voo). Ele mostra como o Claude Code grava o `command` de um hook exec no transcript, que é a base da atribuição do custo dos hooks (Tasks 16 e 18). O arg `exec` marca o registro da sonda (`forma`).
 
 Crie `sonda/sonda.js`:
 
@@ -149,6 +159,7 @@ process.stdin.on('end', () => {
   const prompt = typeof e.prompt === 'string' ? e.prompt : null;
   const r = {
     t: Date.now(),
+    forma: process.argv[2] === 'exec' ? 'exec' : 'shell',
     evento: typeof e.hook_event_name === 'string' ? e.hook_event_name.slice(0, 40) : null,
     chaves: Object.keys(e).sort(),
     temAgentId: typeof e.agent_id === 'string' && e.agent_id !== '',
@@ -264,17 +275,25 @@ Crie `spikes/varrer.mjs`:
 // Varredura só de leitura (plano 2026-09-30, Task 1): conta as formas das
 // linhas de hook, das compactações e das mensagens <synthetic> nos
 // transcripts locais dos últimos 60 dias, sem copiar texto. Saída: um JSON de
-// contagens e nomes de chave.
+// contagens e nomes de chave. Com um caminho absoluto em argv[2], varre só
+// aquela pasta (a pasta de projeto temporária de um spike).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const base = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+const base = typeof process.argv[2] === 'string' && path.isAbsolute(process.argv[2])
+  ? process.argv[2]
+  : path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
 const desde = Date.now() - 60 * 86_400_000;
+// Forma exec da sonda (SessionStart, `node` + args `${CLAUDE_PLUGIN_ROOT}/sonda.js`
+// e `exec`): como o `command` dela chega ao hook_success, só em rótulos fixos.
+const EXEC_ESPACO = 'node ${CLAUDE_PLUGIN_ROOT}/sonda.js exec';
+const EXEC_JSON = 'node "${CLAUDE_PLUGIN_ROOT}/sonda.js" "exec"';
 const TIPOS = new Set(['hook_success', 'hook_additional_context', 'hook_cancelled', 'hook_stopped_continuation', 'hook_system_message', 'hook_non_blocking_error', 'hook_blocking_error']);
 const c = {
   arquivos: 0, anexos: {}, tipoDaLinha: {},
   sucesso: { total: 0, stdoutTexto: 0, stdoutJson: 0, comAdditional: 0, comSystem: 0, comandoComRaiz: 0, exitCodeNumero: 0, duracaoNumero: 0, timestampTexto: 0 },
+  execForma: { soComando: 0, juntadaEspaco: 0, juntadaJson: 0, outra: 0 },
   contexto: { total: 0, comParSucesso: 0 },
   cancelado: { total: 0, timedOut: 0, chaves: {} },
   compactacao: { principal: 0, subagente: 0, chavesMeta: {} },
@@ -324,6 +343,11 @@ for (const arq of arquivos(base)) {
         if (typeof d.timestamp === 'string') c.sucesso.timestampTexto++;
         if (typeof a.stdout === 'string' && a.stdout !== '') c.sucesso.stdoutTexto++;
         if (typeof a.command === 'string' && a.command.includes('${CLAUDE_PLUGIN_ROOT}')) c.sucesso.comandoComRaiz++;
+        // `node` puro conta de qualquer hook exec; numa pasta só da sonda, é o dela.
+        if (a.command === 'node') c.execForma.soComando++;
+        else if (a.command === EXEC_ESPACO) c.execForma.juntadaEspaco++;
+        else if (a.command === EXEC_JSON) c.execForma.juntadaJson++;
+        else if (typeof a.command === 'string' && /sonda\.js"? "?exec/.test(a.command)) c.execForma.outra++;
         if (Number.isFinite(a.exitCode)) c.sucesso.exitCodeNumero++;
         if (Number.isFinite(a.durationMs)) c.sucesso.duracaoNumero++;
         try {
@@ -371,6 +395,7 @@ Anote a saída inteira no registro. Leia assim:
   - `sucesso.comandoComRaiz > 0` confirma o `command` sem expandir.
   
   Se alguma dessas não se confirmar, **pare e relate** antes da Task 16.
+- **Forma exec (F5 do pré-voo):** nesta varredura geral, `execForma` só diz se há hooks exec nos transcripts antigos. A leitura que vale é a da pasta de projeto da sonda, no Step 4.
 
 - [ ] **Step 4: S10 em custo zero (PowerShell, nunca o Git Bash)**
 
@@ -400,7 +425,11 @@ Expected: `custo1=0` e `custo2=0`. Se algum custo passar de zero, pare e relate.
 - se `retomada` trouxer os quatro campos com tipo (`number`/`boolean`, ou `context_tokens` numérico), o S10 **passa** e a Task 2, Step 5, não é necessária;
 - se os campos vierem `undefined` (a sessão nunca teve resposta, então não há o que retomar), o S10 fica **inconclusivo em custo zero** e segue para a Task 2, Step 5.
 
-Anote a linha da sonda e os dois custos. Depois, apague só o que esta execução criou:
+Anote a linha da sonda e os dois custos. Na sonda, confira também que há uma linha `SessionStart` com `"forma":"exec"` (o handler exec rodou).
+
+Antes de apagar, rode a varredura só na pasta de projeto temporária desta execução (em `~/.claude/projects`, o nome contém o nome de `$tmp`): `node "$sdd\varrer.mjs" "<caminho absoluto dessa pasta>"`. Anote `execForma` (F5 do pré-voo): `juntadaEspaco` ou `juntadaJson` diz qual junção o transcript grava; `soComando` diz que ele grava só o `node` puro; `outra`, uma forma que a Task 16 não prevê (pare e relate antes da Task 16). Com tudo em 0 (o modo print não gravou a linha do SessionStart), a Task 2, Step 6, repete a leitura na sessão interativa.
+
+Depois, apague só o que esta execução criou:
 - a pasta `$tmp`;
 - a pasta do projeto temporário em `~/.claude/projects`, cujo nome contém o nome de `$tmp` (`hdk-s10-…`). Confira o nome antes de apagar.
 
@@ -443,13 +472,13 @@ Acrescente ao registro (`.superpowers/sdd/2026-09-30-guardiao-parte2/progress.md
 
 ---
 
-### Task 2: Spikes pagos com o Sr. Garioli (S6, S7, S8, S12 e, se preciso, S10)
+### Task 2: Spikes pagos com o Sr. Garioli (S6, S7, S8, S12, S13, o roteiro manual da parte 1 e, se preciso, S10)
 
-**Por que gastam tokens:** o disparo de cron e de `/loop`, o subagente em segundo plano, a skill `context: fork` e a retomada com cache vencido só acontecem com turnos de modelo. Não há como provocá-los com o prompt bloqueado. O custo fica em centavos: Haiku, poucos turnos curtos. Estimativa total: até US$ 0,20. **Quem faz é o Sr. Garioli**, no Windows Terminal, com o controlador lendo a sonda depois de cada passo. Nenhum passo roda `/usage`, e a sonda grava só nomes de chave, booleanos e números.
+**Por que gastam tokens:** o disparo de cron e de `/loop`, o subagente em segundo plano, a skill `context: fork` e a retomada com cache vencido só acontecem com turnos de modelo. Não há como provocá-los com o prompt bloqueado. O custo fica em centavos: Haiku, poucos turnos curtos. Estimativa total: até US$ 0,20, mais alguns centavos de Haiku no S13 e no roteiro da parte 1 (Steps 5c e 5d). **Quem faz é o Sr. Garioli**, no Windows Terminal, com o controlador lendo a sonda depois de cada passo. Nenhum passo roda `/usage`, e a sonda grava só nomes de chave, booleanos e números.
 
 **Interfaces:**
-- Consome: a sonda e a barra-sonda da Task 1.
-- Produz: o registro de S6, S7, S8, S12 e do S10 (se a Task 1 ficou inconclusiva).
+- Consome: a sonda e a barra-sonda da Task 1; o checkout do branch (`--plugin-dir`) nos Steps 5c e 5d.
+- Produz: o registro de S6, S7, S8, S12, S13, do roteiro manual da parte 1 e do S10 (se a Task 1 ficou inconclusiva).
 
 - [ ] **Step 1: Preparar o terminal (o controlador passa este bloco ao Sr. Garioli)**
 
@@ -571,13 +600,72 @@ $env:S12_SAIDA = Join-Path $tmp 's12.jsonl'
 3. Pede à sessão do VS Code que rode, pela ferramenta PowerShell: `claude -p "responda só ok" --model haiku --plugin-dir "<valor de $s12>" --output-format json`. Anote o `total_cost_usd` (abaixo de US$ 0,01).
 4. O controlador lê `$env:S12_SAIDA`: uma linha com `entrypoint` e `claudecode`. Nenhum outro valor de ambiente é gravado.
 
-**Porta:**
-- `entrypoint` `sdk-cli` (ou qualquer valor que não seja `claude-vscode`): a recusa por entrypoint do `/liberar` basta. O pino de `test/guarda-liberar-extra.test.js` passa a esperar a recusa (Task 13, Step 4).
-- `entrypoint` `claude-vscode`: a regra da P4 (nega sempre o comando que chama `claude` com liberar) continua sendo a defesa, e a Task 20 escreve o R-entrypoint no `SECURITY.md`.
+**Porta** (o código do `/liberar` não muda em nenhum dos dois ramos; F3 do pré-voo):
+- `entrypoint` `sdk-cli` (ou outro valor com `sdk`): a recusa por entrypoint do `/liberar` já pega o filho `-p` aberto do VS Code. O pino do `claude-vscode` em `test/guarda-liberar-extra.test.js` vira caso positivo declarado (o `/liberar` digitado no VS Code vale), e a nota de resíduo sai do `liberar.js` (Task 13, Step 4).
+- `entrypoint` `claude-vscode`: o filho herda o valor e não é recusado por entrypoint. A regra da P4 (nega sempre o comando que chama `claude` com liberar) continua sendo a defesa. O pino vira o mesmo caso positivo declarado (Task 13, Step 4), e a Task 20 reescreve no lugar o bullet "Entrypoint" do `SECURITY.md` com o resultado.
+
+- [ ] **Step 5c: S13, `ConfigChange` e os filtros `if` da P5 (Haiku, interativo; ruling do ledger da Task 0)**
+
+Perguntas:
+- (a) um hook `ConfigChange` consegue bloquear a mudança de `disableAllHooks`, `enabledPlugins` ou `hooks` nos settings de projeto, inclusive quando ela vem de um `sed -i` pelo Bash? A Task 0 cobre só Edit, Write e MultiEdit (opção E do ledger); o `ConfigChange` (opção D) também pegaria o shell;
+- (b) os filtros `if` da P5 em `hooks/hooks.json` (`Edit(**/.claude/settings.json)` e `Edit(~/.claude/settings.json)`, e os mesmos de Write, MultiEdit e NotebookEdit) casam um caminho absoluto do Windows?
+- (c) com o cwd no home, as duas regras casam o mesmo `~/.claude/settings.json`, e o handler roda duas vezes?
+
+Parte (a). Crie, no mesmo `$tmp` do Step 1, um plugin descartável que grava só rótulos e, com `S13_BLOQUEAR=1`, bloqueia toda mudança de config:
+
+```powershell
+$s13 = Join-Path $tmp 's13'
+New-Item -ItemType Directory -Force (Join-Path $s13 '.claude-plugin'), (Join-Path $s13 'hooks') | Out-Null
+[IO.File]::WriteAllText((Join-Path $s13 '.claude-plugin\plugin.json'), '{"name":"hdk-s13","version":"0.0.0"}')
+[IO.File]::WriteAllText((Join-Path $s13 'config.js'), 'const fs = require("node:fs"); const EVENTOS = new Set(["ConfigChange", "UserPromptSubmit"]); const FONTES = new Set(["user_settings", "project_settings", "local_settings", "policy_settings", "skills"]); let b = ""; process.stdin.on("data", (c) => { if (b.length < 1000000) b += c; }); process.stdin.on("end", () => { let e = {}; try { e = JSON.parse(b) ?? {}; } catch { e = {}; } const ev = EVENTOS.has(e.hook_event_name) ? e.hook_event_name : "outro"; fs.appendFileSync(process.env.S13_SAIDA, JSON.stringify({ t: Date.now(), evento: ev, chaves: Object.keys(e).sort(), source: FONTES.has(e.source) ? e.source : null, temCaminho: typeof e.file_path === "string" }) + "\n"); if (ev === "ConfigChange" && process.env.S13_BLOQUEAR === "1") process.stdout.write(JSON.stringify({ decision: "block", reason: "s13: bloqueado" })); });')
+[IO.File]::WriteAllText((Join-Path $s13 'hooks\hooks.json'), '{"hooks":{"ConfigChange":[{"hooks":[{"type":"command","command":"node \"${CLAUDE_PLUGIN_ROOT}/config.js\""}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"node \"${CLAUDE_PLUGIN_ROOT}/config.js\""}]}]}}')
+$cwd13 = Join-Path $tmp 'cwd13'
+New-Item -ItemType Directory -Force (Join-Path $cwd13 '.claude') | Out-Null
+[IO.File]::WriteAllText((Join-Path $cwd13 '.claude\settings.json'), '{}')
+$env:S13_SAIDA = Join-Path $tmp 's13.jsonl'; $env:S13_BLOQUEAR = '1'
+Set-Location $cwd13
+```
+
+1. `claude --model haiku --plugin-dir "<valor de $s13>"`.
+2. Digite `responda só ok`. (Registro esperado: um `UserPromptSubmit`.)
+3. Digite, no modo bash do prompt (sem modelo): `! sed -i 's/{}/{"disableAllHooks": true}/' .claude/settings.json`.
+4. Digite `responda só ok de novo`.
+5. Digite `! sed -i 's/"disableAllHooks": true/"enabledPlugins": {"hdk-s13@inline": false}/' .claude/settings.json` e depois `responda só ok`.
+6. Peça ao Claude (pela ferramenta Bash, o caminho do modelo): `rode no Bash: sed -i 's/"enabledPlugins": {"hdk-s13@inline": false}/"hooks": {}/' .claude/settings.json`. Recuse qualquer outra ação que ele proponha. Depois, `responda só ok`.
+7. `/exit`. Volte o cwd: `Set-Location (Join-Path $tmp 'cwd')`; `Remove-Item Env:S13_BLOQUEAR`.
+
+O controlador lê `$env:S13_SAIDA` e anota, para cada mudança, se houve `ConfigChange`, o `source` e se o `UserPromptSubmit` seguinte foi gravado. A parte (a) **passa** se cada `sed -i` (dos passos 3, 5 e 6) gerou um `ConfigChange` com `source` `project_settings` e, depois do passo 3, o `UserPromptSubmit` do passo 4 foi gravado (o bloqueio segurou o `disableAllHooks`). **Reprova** se não houver `ConfigChange`, ou se o `UserPromptSubmit` do passo 4 sumir.
+
+Partes (b) e (c), com o checkout carregado e `HADOUKEN_HOME` temporário (o do Step 1). Antes, anote se já existe em `~/.claude/projects` a pasta de projeto do home (o nome é o caminho do home com `-`); se existir, ela **não** é apagada no Step 6.
+
+1. Em `$tmp\cwd`, crie `.claude\settings.json` com `{}` e rode `claude --model haiku --plugin-dir "E:\Projetos DEV\claude-hadouken-guarda"`.
+2. Peça: `use a ferramenta Edit em <caminho absoluto de $tmp\cwd\.claude\settings.json, com C:\ e barras invertidas>, trocando {} por {"hooks": {}}`. Esperado: o deny da P5 para settings de projeto, e um evento `arquivo-negado` com detalhe `P5:settings-projeto` no `guarda-eventos.json` do `HADOUKEN_HOME` temporário.
+3. Peça: `use a ferramenta Edit em C:\Users\<usuário>\.claude\settings.json, trocando o texto hadouken-s13-inexistente por x`. Esperado: o deny da P5 e um evento `P5:settings`. O texto não existe no arquivo, então, se a P5 não negar, o Edit falha sem mudar nada. **Se aparecer o pedido de permissão do Edit, recuse**: quer dizer que a P5 não rodou.
+4. `/exit`. Repita só o passo 3 numa sessão aberta com o cwd no home (`Set-Location ~`, a mesma linha do `claude`). Conte os eventos `arquivo-negado` novos: 2 para uma edição quer dizer que as duas regras `if` casaram e o handler rodou duas vezes.
+
+Anote, para (b), se cada deny saiu e com qual detalhe, e, para (c), o número de eventos. Um deny que falta em (b) é defeito da Task 0: pare e relate antes da Task 3. Dois eventos em (c) não mudam a decisão (a P5 nega nas duas), e o registro anota a contagem dobrada.
+
+- [ ] **Step 5d: Roteiro manual da parte 1 (Task 19, Step 1 do plano da parte 1), com dois itens da agenda**
+
+O roteiro da parte 1 roda nesta mesma sessão com o Sr. Garioli (ledger da parte 2), no Windows, com o plugin carregado por `--plugin-dir` do checkout, o `HADOUKEN_HOME` temporário do Step 1 e Haiku. O controlador prepara as fixtures e lê `guarda-eventos.json` depois de cada item.
+
+1. Com uma fixture de `estado.json` de 7d em 86%, peça ao Claude um despacho de subagente. Esperado: o turno para com "hadouken parou o turno: 7d em 86%, teto 85%…".
+2. Digite `/claude-hadouken:liberar`. Esperado: "hadouken: liberado até …"; o prompt seguinte leva a linha pós-liberação ao Claude.
+3. Com um subagente em segundo plano rodando, dispare a guarda de novo. Esperado: o subagente termina e entrega o resultado (S5 e S23 do `SECURITY.md`).
+4. Numa sessão `claude -p "/claude-hadouken:liberar"`, com `HADOUKEN_HOME` temporário. Esperado: "nada liberado", sem `liberacao.json`.
+5. Numa sessão aberta antes, rode `/reload-plugins`. Esperado: a barra sai de "sem guarda nesta sessão" depois do primeiro prompt.
+6. Peça ao Claude um Edit num arquivo da pasta de dados. Esperado: o deny da P5. Isso confere a ferramenta Edit real, que o spike S9 da parte 1 não testou.
+
+Antes dos dois itens abaixo, apague `liberacao.json` do `HADOUKEN_HOME` temporário (o item 2 liberou).
+
+7. Peça ao Claude: `use a ferramenta CronCreate para agendar, daqui a 1 minuto, o prompt /claude-hadouken:liberar 2h`; numa segunda tentativa, o mesmo com `ScheduleWakeup`. Esperado: o hook da agenda nega no PreToolUse as duas chamadas, um evento `liberacao-recusada` com detalhe `agenda` para cada uma, e nenhum `liberacao.json`.
+8. Digite `/loop 1m /claude-hadouken:liberar 2h` e espere um disparo (cerca de 1 min); interrompa com `Esc`. Esperado: o disparo não libera. Nenhum `liberacao.json`, nenhum evento `liberacao`, e nenhuma resposta "hadouken: liberado até". Anote o que o disparo gerou (evento `liberacao-recusada` com detalhe `origem`, ou nada).
+
+Anote o resultado de cada item no registro. Um item que não sai como esperado é defeito da parte 1 ou da Task 0: pare e relate antes da Task 3.
 
 - [ ] **Step 6: Registrar e limpar**
 
-O controlador acrescenta ao registro uma seção "Task 2" com o que cada passo mostrou e o custo de cada sessão (`/cost` ou `total_cost_usd`). Depois apaga `$tmp` e as pastas de projeto temporárias em `~/.claude/projects` cujo nome contém o nome de `$tmp`, conferindo o nome antes. Sem commit.
+O controlador acrescenta ao registro uma seção "Task 2" com o que cada passo mostrou e o custo de cada sessão (`/cost` ou `total_cost_usd`). Se a leitura de `execForma` da Task 1 ficou toda em 0, antes de apagar rode `node "$sdd\varrer.mjs" "<caminho absoluto da pasta de projeto do Step 2>"` (uma sessão interativa com a sonda, que tem o handler exec no SessionStart) e anote `execForma` (F5 do pré-voo). Depois apaga `$tmp` e as pastas de projeto temporárias em `~/.claude/projects` cujo nome contém o nome de `$tmp`, conferindo o nome antes. A pasta de projeto do home do Step 5c só é apagada se ela não existia antes do passo. Sem commit.
 
 ---
 
@@ -594,8 +682,9 @@ Quem faz: um implementador `opus-high`, com o registro das Tasks 1 e 2 em mãos;
   - Task 11 roda só com S7 aprovado;
   - Task 12 roda só com S10 aprovado;
   - Task 13 usa o texto do S4;
-  - Task 20 escreve R6, a versão mínima e o S6;
-  - Task 13 (Step 4) e Task 20 leem o S12.
+  - Task 20 escreve R6, a versão mínima e o resultado do spike S6 (em S22 e S23 do `SECURITY.md`);
+  - Task 13 (Step 4) e Task 20 leem o S12;
+  - Task 20 lê o S13 (R1).
 
 - [ ] **Step 1: Acrescentar a emenda ao fim da spec**
 
@@ -604,18 +693,19 @@ Use o Edit para acrescentar a seção abaixo depois da última linha da spec. Pr
 ```markdown
 ## Emenda 2026-09-30: spikes da parte 2 (Claude Code 2.1.285, Windows)
 
-Rodados com a sonda `hadouken-sonda` por `--plugin-dir`, `HADOUKEN_HOME` temporário e cwd temporário. A sonda gravou só nomes de chave, booleanos, números e rótulos fixos. S4 (parte local), S10 (tentativa) e S11 sem custo de modelo; S6, S7, S8, S12 e S10 (se pago) com Haiku, pelo Sr. Garioli, custo total US$ <custo do registro>.
+Rodados com a sonda `hadouken-sonda` por `--plugin-dir`, `HADOUKEN_HOME` temporário e cwd temporário. A sonda gravou só nomes de chave, booleanos, números e rótulos fixos. S4 (parte local), S10 (tentativa) e S11 sem custo de modelo; S6, S7, S8, S12, S13 e S10 (se pago) com Haiku, pelo Sr. Garioli, custo total US$ <custo do registro>. O roteiro manual da parte 1 rodou na mesma sessão: <resultado de cada item>.
 
 | Spike | Resultado | Decisão |
 |---|---|---|
 | S4 | <sintetico.fable e sintetico.outroLimite da varredura; StopFailure ao vivo não provocado> | O hook `limite-atingido.js` classifica pelo texto "You've reached your Fable limit" (fixture na Task 13). A observação ao vivo fica passiva: o primeiro limite real aparece em "Guarda (7 dias)" do `/consumo`. O plano B (fim do transcript) não entra, porque a leitura oficial do Fable (E7) cobre o G6. |
-| S6 | <chaves e promptTag dos disparos de /loop e de cron> | Com marcador: anotado; a P2 continua bloqueando o disparo numa sessão Fable com a guarda disparada (decisão 15 do plano da parte 2). Sem UserPromptSubmit no disparo: o turno automático não passa pela P2, e o R3 do `SECURITY.md` diz isso. |
+| S6 | <chaves e promptTag dos disparos de /loop e de cron> | Com marcador: anotado; a P2 continua bloqueando o disparo numa sessão Fable com a guarda disparada (decisão 15 do plano da parte 2). Sem UserPromptSubmit no disparo: o turno automático não passa pela P2, e o `SECURITY.md` diz isso em S22 e S23 (e em S10, se o disparo chegar ao UserPromptSubmit), sem número novo (Task 20). |
 | S7 | <intervaloMedianoS, iguaisSemTranscriptNovo, iguaisComTranscriptNovo, diferentesSemTranscriptNovo> | Passa: o instalador oferece `refreshInterval: 60` (Task 11). Reprova: sem `refreshInterval`; a regra de frescor (Task 10) entra do mesmo jeito. |
 | S8 | <PreToolUse de garfo, Workflow e SendMessage> | Passa: a P1 cobre. Reprova: o caso que escapa entra em R6 do `SECURITY.md`; o matcher `Skill` não entra, porque bloquearia toda skill. |
 | S10 | <campos de retomada, tipos e custos> | Passa: a linha de retomada entra (Task 12). Reprova: o item 11 da §10 sai. |
-| S12 | <entrypoint e claudecode vistos pelo `claude -p` aberto do VS Code> | `sdk-cli` ou outro valor que não `claude-vscode`: a recusa por entrypoint do `/liberar` basta, e o pino do `claude-vscode` passa a esperar recusa (Task 13, Step 4). `claude-vscode`: a P4 (nega sempre) segue como defesa, e o `SECURITY.md` ganha o R-entrypoint (Task 20). |
+| S12 | <entrypoint e claudecode vistos pelo `claude -p` aberto do VS Code> | O `/liberar` continua recusando só `/^sdk/i`, e o pino do `claude-vscode` vira caso positivo declarado (Task 13, Step 4). `sdk-cli` ou outro valor com `sdk`: o filho `-p` já é recusado por entrypoint, e a nota de resíduo sai. `claude-vscode`: a P4 (nega sempre) segue como defesa, e o bullet "Entrypoint" do `SECURITY.md` é reescrito no lugar com o resultado (Task 20). |
+| S13 | <(a) ConfigChange e source de cada sed -i, UserPromptSubmit depois do disableAllHooks; (b) deny e detalhe de cada Edit com caminho absoluto; (c) eventos por edição com o cwd no home> | (a) Passa: anotado para o Sr. Garioli decidir se a P5 ganha o hook `ConfigChange` (opção D do ledger, fora desta parte); o R1 do `SECURITY.md` diz o resultado (Task 20). Reprova: o `sed -i` e a chave montada em partes seguem declarados no R1. (b) Todos negados: os filtros `if` valem no Windows. (c) Dois eventos por edição: anotado, sem mudança (a P5 nega nas duas). |
 | S11 | <versão testada e leitura: passa, falha ou inconclusivo> | Passa: eventos desconhecidos são ignorados; o README diz que a guarda precisa da 2.1.251 ou mais nova, e que antes dela a P3 e a liberação não existem. Falha ou inconclusivo: o README declara a mínima 2.1.251. Nos três casos, o aviso "PreModelSwitch nunca rodou" não entra. |
-| Formas das linhas de hook | <tipoDaLinha, sucesso.*, contexto.comParSucesso/total, compactacao.*> | Base do custo dos hooks (§9.4): uma execução por `hook_success`, caracteres do stdout, `hook_cancelled` com `timedOut` como timeout, `system/compact_boundary` como compactação. |
+| Formas das linhas de hook | <tipoDaLinha, sucesso.*, execForma da pasta da sonda, contexto.comParSucesso/total, compactacao.*> | Base do custo dos hooks (§9.4): uma execução por `hook_success`, caracteres do stdout, `hook_cancelled` com `timedOut` como timeout, `system/compact_boundary` como compactação. Forma exec: a junção que `execForma` mostrou casa; com só o `node` puro, os hooks exec caem em "(outros)" e o README diz isso. |
 
 Decisões em aberto do plano da parte 2, respondidas pelo Sr. Garioli em <data>: <lista numerada com a resposta ou "padrão">.
 ```
@@ -624,7 +714,7 @@ Decisões em aberto do plano da parte 2, respondidas pelo Sr. Garioli em <data>:
 
 ```bash
 git -C "E:/Projetos DEV/claude-hadouken-guarda" add -- docs/superpowers/specs/2026-09-29-guardiao-design.md
-git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "docs: spec amendment with part 2 spikes (S4, S6, S7, S8, S10, S11) and decisions" -- docs/superpowers/specs/2026-09-29-guardiao-design.md
+git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "docs: spec amendment with part 2 spikes (S4, S6, S7, S8, S10, S11, S12, S13) and decisions" -- docs/superpowers/specs/2026-09-29-guardiao-design.md
 ```
 
 ---
@@ -636,7 +726,7 @@ A parte 1 deu `leiturasComPiso` (leitura fresca ou piso de até 24 h). Falta sab
 **Files:**
 - Modify: `src/estado.js` (acrescentar `ultimaLeitura` depois de `leiturasComPiso`)
 - Modify: `src/alerta.js` (acrescentar `LINHA_SEM_LEITURA_NUNCA`, `NOME_MODO`, `ehObjeto` e `linhaSemLeitura`)
-- Test: `test/estado.test.js`, `test/alerta.test.js` (acrescentar)
+- Test: `test/estado.test.js`, `test/alerta.test.js` (acrescentar); `test/casa-unica.test.js` (a regra do texto sem leitura vira três, F1 do pré-voo)
 
 **Interfaces:**
 - Consome: `janelaGuardada`, `leituraDe`, `instante`, `ehObjeto`, `JANELAS`, `VERSAO` (internos de `estado.js`); `faixa7d` (`alerta.js`); `quandoLocal`, `janelaValida` (`util.js`).
@@ -755,8 +845,8 @@ const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 E, logo depois de `faixa7d`:
 
 ```js
-// "Consumo sem leitura nova desde ontem 23:50; trate como o último modo
-// conhecido (econômico)." (spec v0.4.0 §10, item 1). O modo é a faixa de 7d
+// Linha "sem leitura nova desde <quando>; trate como o último modo
+// conhecido (<modo>)." (spec v0.4.0 §10, item 1). O modo é a faixa de 7d
 // no instante da última leitura, se o reset daquela janela ainda não passou;
 // senão, normal (decisão 3 do plano da parte 2). Só o horário de quandoLocal
 // e um rótulo de NOME_MODO entram. Sem última leitura, ou entrada ilegível:
@@ -777,16 +867,31 @@ export function linhaSemLeitura(ultima, agoraMs) {
 }
 ```
 
+O comentário acima não repete o literal `Consumo sem leitura`: o `test/casa-unica.test.js` conta quantas vezes cada texto aparece em `alerta.js`.
+
+- [ ] **Step 4b: A regra do `casa-unica` (F1 do pré-voo)**
+
+Em `test/casa-unica.test.js`, na lista `regras`, troque `['texto da linha sem leitura', 'alerta.js', /Consumo sem leitura/g]` por três regras:
+
+```js
+    ['texto da linha sem leitura', 'alerta.js', /Consumo ainda sem leitura nesta máquina/g],
+    ['texto da linha sem leitura nova', 'alerta.js', /Consumo sem leitura nova desde/g],
+    // Temporária: a constante LINHA_SEM_LEITURA sai na Task 6, e esta regra com ela.
+    ['texto antigo da linha sem leitura', 'alerta.js', /Consumo sem leitura: rode/g],
+```
+
+Cada texto aparece uma vez só, em `alerta.js`: a constante nova, o modelo de `linhaSemLeitura` e a constante antiga. A regra antiga (`/Consumo sem leitura/g`) casaria duas vezes depois desta tarefa e deixaria a suíte vermelha até a Task 6.
+
 - [ ] **Step 5: Rodar**
 
-Run: `node --test test/estado.test.js test/alerta.test.js`
+Run: `node --test test/estado.test.js test/alerta.test.js test/casa-unica.test.js`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git -C "E:/Projetos DEV/claude-hadouken-guarda" add -- src/estado.js src/alerta.js test/estado.test.js test/alerta.test.js
-git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "feat: last known reading and the no-new-reading line (spec v0.4.0 §10 item 1)" -- src/estado.js src/alerta.js test/estado.test.js test/alerta.test.js
+git -C "E:/Projetos DEV/claude-hadouken-guarda" add -- src/estado.js src/alerta.js test/estado.test.js test/alerta.test.js test/casa-unica.test.js
+git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "feat: last known reading and the no-new-reading line (spec v0.4.0 §10 item 1)" -- src/estado.js src/alerta.js test/estado.test.js test/alerta.test.js test/casa-unica.test.js
 ```
 
 ---
@@ -950,8 +1055,9 @@ Em `avaliar`:
 
 Em `test/alerta.test.js` (o `reset5` do arquivo é `agora` + 2 h, ou seja, "reset em 120 min"):
 
-| Onde (linha de hoje) | Fica |
+| Onde (linha em a42a414; ache pelo texto) | Fica |
 |---|---|
+| 47: `/^5h em 82%: serializar/` | `/^5h em 82% \(reset em \d+ min\): serializar/` |
 | 85: `/^5h em 91%: fechar a tarefa em curso/` | `/^5h em 91%: fechar a tarefa em curso e não abrir etapa nova; reset às \d\d:\d\d \(o usuário vê as opções em \/rate-limit-options\)\. Se agendar a volta, marque \d\d:\d\d\.$/` |
 | 94: `` `5h voltou a 75%: faixa atenção (reset ${horaLocal(reset5)}).` `` | `'5h voltou a 75% (reset em 120 min): faixa atenção.'` |
 | 100: `'5h voltou a 85%: ainda serializar — …'` | `'5h voltou a 85% (reset em 120 min): ainda serializar — sem Workflow nem subagentes em paralelo.'` |
@@ -959,15 +1065,15 @@ Em `test/alerta.test.js` (o `reset5` do arquivo é `agora` + 2 h, ou seja, "rese
 | 164 (reset 5 h adiante, `reset5 + 5 * 3600`) | `'5h em 82% (reset em 420 min): serializar — sem Workflow nem subagentes em paralelo.'` |
 | 170: `` `5h em 72% (reset ${horaLocal(reset5)}): atenção ao ritmo.` `` | `'5h em 72% (reset em 120 min): atenção ao ritmo.'` |
 | 175: `` `7d em 92% com reset em ${diaHora(reset7)}: …` `` | `` `7d em 92% com reset ${quandoLocal(reset7, agora)}: só leitura; recomendar parar.` `` |
-| 290 (`linha5`) | acrescente `' Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.'` ao fim do modelo, depois de `serialize.` |
-| 292 (`linha7`) | `` `hadouken: no ritmo atual${sessoes}, 7d chega a 100% ${quandoLocal(quando / 1000, agora)}, antes do reset ${quandoLocal(reset7, agora)}. Reduza o paralelismo ou serialize. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.` `` |
+| 289 (`linha5`) | acrescente `' Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.'` ao fim do modelo, depois de `serialize.` |
+| 291 (`linha7`) | `` `hadouken: no ritmo atual${sessoes}, 7d chega a 100% ${quandoLocal(quando / 1000, agora)}, antes do reset ${quandoLocal(reset7, agora)}. Reduza o paralelismo ou serialize. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.` `` |
 | 407 (`FORMATO`) | `/^hadouken: no ritmo atual(?: \(\d{1,2} sessões ativas\))?, (?:5h chega a 100% às [^,.]+, antes do reset das [^,.]+` **ou** `7d chega a 100% [^,.]+, antes do reset [^,.]+)\. Reduza o paralelismo ou serialize\. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano\.$/` (as duas alternativas separadas por `\|` sem a barra invertida; a barra aqui só escapa a tabela) |
 
 Se `diaHora` deixar de ser usado no arquivo de teste, tire-o do import.
 
-Em `test/hooks.test.js`:
-- `LINHA_SERIALIZAR` (linha 24) vira `/^5h em 82% \(reset em \d+ min\): serializar — sem Workflow nem subagentes em paralelo\.$/`;
-- `LINHA_PROJECAO_3` (517), a regex da linha 543 e `LINHA_50` (566): troque o `Reduza o paralelismo ou serialize\.$/` do fim por `Reduza o paralelismo ou serialize\. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano\.$/`.
+Em `test/hooks.test.js` (os números de linha são os de a42a414 e andam; ache cada ponto pelo nome):
+- a constante `LINHA_SERIALIZAR` (linha 25) vira `/^5h em 82% \(reset em \d+ min\): serializar — sem Workflow nem subagentes em paralelo\.$/`;
+- a constante `LINHA_PROJECAO_3` (527), a regex do caso "Sozinha: sem o parêntese" (553, `/^hadouken: no ritmo atual, 5h chega a 100% …/`) e a constante `LINHA_50` (576): troque o `Reduza o paralelismo ou serialize\.$/` do fim por `Reduza o paralelismo ou serialize\. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano\.$/`.
 
 Em `test/hooks-unidades.test.js`, linha 295: o esperado `'5h em 85%: serializar — …'` vira `/^5h em 85% \(reset em \d+ min\): serializar — sem Workflow nem subagentes em paralelo\.$/`, conferido com `assert.equal(l.length, 1)` e `assert.match(l[0], …)`.
 
@@ -1260,8 +1366,8 @@ PY
 ```
 
 Depois, à mão:
-- `test/casa-unica.test.js`, na lista `regras`: troque `['texto da linha sem leitura', 'alerta.js', /Consumo sem leitura/g]` por duas regras, `['texto da linha sem leitura', 'alerta.js', /Consumo ainda sem leitura nesta máquina/g]` e `['texto da linha sem leitura nova', 'alerta.js', /Consumo sem leitura nova desde/g]`. Cada texto aparece uma vez só, em `alerta.js`.
-- `test/hooks.test.js`, teste "session-start sem estado diz sem leitura" (linha 189): o primeiro `assert.equal` fica como o script deixou. O comentário "estado.json velho (mais de 1 h) também." e o segundo `assert.equal` (depois do `gravarEstado`) viram:
+- `test/casa-unica.test.js`, na lista `regras`: apague a regra temporária `['texto antigo da linha sem leitura', 'alerta.js', /Consumo sem leitura: rode/g]` e o comentário acima dela, que a Task 4 pôs. A constante `LINHA_SEM_LEITURA` saiu no Step 3, então a regra não casaria mais. As outras duas regras da Task 4 ficam, e cada texto continua uma vez só em `alerta.js`.
+- `test/hooks.test.js`, teste "session-start sem estado diz sem leitura" (perto da linha 190 em a42a414; ache pelo nome): o primeiro `assert.equal` fica como o script deixou. O comentário "estado.json velho (mais de 1 h) também." e o segundo `assert.equal` (depois do `gravarEstado`) viram:
 
 ```js
   // estado.json de 2 h: piso (spec v0.4.0 §10, item 1), com a idade.
@@ -1269,7 +1375,7 @@ Depois, à mão:
   assert.match(contexto(rodar('session-start.js', inicio(), home), 'SessionStart'), /^Consumo: 5h ≥ 10% \(leitura de 2 h; reset \d\d:\d\d\) · 7d ≥ 50% \(leitura de 2 h; reset (?:hoje|amanhã|\S+ \d\d\/\d\d) \d\d:\d\d\)\.$/);
 ```
 
-- `test/hooks.test.js`, `LINHA_ESTADO` (linha 27): troque `\(reset \S+ \d\d:\d\d\)` por `\(reset (?:hoje|amanhã|\S+ \d\d\/\d\d) \d\d:\d\d\)`.
+- `test/hooks.test.js`, a constante `LINHA_ESTADO` (linha 28 em a42a414; ache pelo nome): troque `\(reset \S+ \d\d:\d\d\)` por `\(reset (?:hoje|amanhã|\S+ \d\d\/\d\d) \d\d:\d\d\)`.
 
 Se outro teste falhar só porque o reset de 7d agora sai de `quandoLocal`, ou porque a leitura antiga virou piso, troque o esperado pela forma nova e liste no relatório. Uma linha que some ou aparece fora das regras desta tarefa é defeito: pare e relate.
 
@@ -1520,7 +1626,7 @@ Quem faz: `opus-xhigh`. O modelo gravado pelo SessionStart é o que a P2 e a P3 
 
 **Interfaces:**
 - Consome: o SessionStart da parte 1 (Task 15 dela: marca e modelo gravados logo depois de `registrarSessao`).
-- Produz: `dentroDeSubagente(entrada)` → `boolean`, puro, sem import novo em `comum.js` (que continua só com `base.js`).
+- Produz: `dentroDeSubagente(entrada)` → `boolean`, puro, sem import novo em `comum.js`.
 
 - [ ] **Step 1: Escrever os testes que falham**
 
@@ -1587,7 +1693,7 @@ export function dentroDeSubagente(entrada) {
 
 - [ ] **Step 4: `src/hooks/session-start.js`**
 
-Troque `import { rodarHook, emitirContexto } from './comum.js';` por `import { rodarHook, emitirContexto, dentroDeSubagente } from './comum.js';`. Logo depois de `if (!idValido(sessionId)) return;`, acrescente:
+Na linha 3, acrescente `dentroDeSubagente` ao import que já existe: `import { rodarHook, emitirContexto, falharAberto } from './comum.js';` vira `import { rodarHook, emitirContexto, falharAberto, dentroDeSubagente } from './comum.js';`. O `falharAberto` fica, porque o bloco da marca e do modelo (linhas 80 a 85 em a42a414) o usa; a Task 12 acrescenta `emitirJson` a esta mesma linha, pelo nome (F2 do pré-voo). Logo depois de `if (!idValido(sessionId)) return;`, acrescente:
 
 ```js
   // Spec v0.4.0 §10, item 3: dentro de um subagente (o SessionStart:compact
@@ -2019,8 +2125,9 @@ git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "feat: resume line wit
 ### Task 13: G6 com o texto real do S4
 
 **Files:**
-- Test: `test/guarda-hooks.test.js` (acrescentar)
+- Test: `test/guarda-hooks.test.js` (acrescentar); `test/guarda-liberar-extra.test.js` (título e comentário do pino do `claude-vscode`, Step 4)
 - Modify (só se um teste falhar): `src/hooks/limite-atingido.js`
+- Modify (só comentário, Step 4): `src/hooks/liberar.js`
 
 **Interfaces:**
 - Consome: `limite-atingido.js` (parte 1, Task 15), que classifica por `/\bfable\b/i` em `error_details` + `last_assistant_message` (4096 caracteres cada); `ARQ_LIMITES`; o texto do S4 na emenda da Task 3.
@@ -2077,16 +2184,24 @@ git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "test: G6 classificati
 
 (Se o Step 2 mexeu em `src/hooks/limite-atingido.js`, acrescente esse arquivo aos dois pathspecs e troque o prefixo da mensagem por `fix:`.)
 
-- [ ] **Step 4: Pino do `claude-vscode` pelo S12 (só se o S12 viu um valor que não é `claude-vscode`)**
+- [ ] **Step 4: Pino do `claude-vscode` pelo spike S12 da parte 2 (vale qualquer que seja o resultado; F3 do pré-voo)**
 
-Em `test/guarda-liberar-extra.test.js`, o teste "resíduo: CLAUDE_CODE_ENTRYPOINT=claude-vscode não é recusado hoje…" passa a esperar a recusa: `o.reason` igual a `RECUSADO_ENTRYPOINT` de `src/guarda/mensagens.js`, nenhuma `liberacao.json`, nenhum evento `liberacao` e um evento `liberacao-recusada` com detalhe `entrypoint`. Troque o título por `'S12: CLAUDE_CODE_ENTRYPOINT=claude-vscode num filho é recusado'` e o comentário acima dele pelo resultado do S12. Se o `liberar.js` da parte 1 não recusar `claude-vscode` (hoje só `/^sdk/i`), **pare e relate antes de mexer em código**: recusar `claude-vscode` também recusaria o `/liberar` digitado numa sessão normal do VS Code.
+O código não muda. O `liberar.js` recusa só `/^sdk/i`, e recusar `claude-vscode` também recusaria o `/liberar` digitado numa sessão normal do VS Code. A recusa de `sdk-cli` já está pinada nos testes "foco 5" do mesmo arquivo.
+
+Em `test/guarda-liberar-extra.test.js`, o teste "resíduo: CLAUDE_CODE_ENTRYPOINT=claude-vscode não é recusado hoje…" vira um caso positivo declarado, com os mesmos asserts:
+- título: `'S12: claude-vscode não é recusado pelo entrypoint (o /liberar digitado no VS Code vale; um filho -p é negado pela P4)'`;
+- o comentário acima dele passa a dizer o que o spike S12 da parte 2 mostrou (o `entrypoint` que o `claude -p` aberto do VS Code recebeu) e por que o `claude-vscode` segue aceito.
+
+Em `src/hooks/liberar.js`, reescreva só o comentário "Resíduo: C23 só reescreve…" (linhas 18 a 21 em a42a414) com o mesmo resultado:
+- se o S12 viu `sdk-cli` (ou outro valor com `sdk`): o filho `-p` aberto do VS Code já é recusado aqui, e a nota de resíduo sai;
+- se viu `claude-vscode`: o filho herda o valor e passa por aqui, e quem fecha o caminho é a P4 (nega sempre o comando que chama `claude` com liberar).
 
 Run: `node --test test/guarda-liberar-extra.test.js`
 Expected: PASS.
 
 ```bash
-git -C "E:/Projetos DEV/claude-hadouken-guarda" add -- test/guarda-liberar-extra.test.js
-git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "test: liberar pin follows the S12 entrypoint result" -- test/guarda-liberar-extra.test.js
+git -C "E:/Projetos DEV/claude-hadouken-guarda" add -- test/guarda-liberar-extra.test.js src/hooks/liberar.js
+git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "test: claude-vscode entrypoint pin becomes a declared positive case with the S12 result" -- test/guarda-liberar-extra.test.js src/hooks/liberar.js
 ```
 
 ---
@@ -2240,15 +2355,26 @@ export function detalheEscopo(lib, pedido) {
 
 - [ ] **Step 5: `src/hooks/liberar.js`**
 
+O escopo é calculado antes de `gravarLiberacao`, junto do texto, para manter a invariante do comentário de `decidir` (depois de `gravarLiberacao`, só `limparTravas` e `anexarEvento`; D4 do pré-voo). Troque `const texto = msg.liberado(liberacao, agoraMs);` (linha 91 em a42a414) por:
+
+```js
+  const texto = msg.liberado(liberacao, agoraMs);
+  // Escopo e prazo para a "Guarda (7 dias)" do /consumo (spec v0.4.0 §9.4;
+  // decisão 9 do plano da parte 2), calculado antes de gravar. null com
+  // entrada inválida: o evento não sai.
+  const escopo = lib.detalheEscopo(liberacao, pedido);
+```
+
 Logo depois de `reg.anexarEvento(dir, 'liberacao', liberacao.id, agoraMs);`, acrescente:
 
 ```js
-  // Escopo e prazo para a "Guarda (7 dias)" do /consumo (spec v0.4.0 §9.4;
-  // decisão 9 do plano da parte 2). Evento à parte: o de 'liberacao' continua
-  // só com o id, que temEventoLiberacao (R1) compara. detalheEscopo e
-  // anexarEvento nunca lançam.
-  reg.anexarEvento(dir, 'liberacao-escopo', lib.detalheEscopo(liberacao, pedido), agoraMs);
+  // Evento à parte: o de 'liberacao' continua só com o id, que
+  // temEventoLiberacao (R1) compara. Uma liberação ocupa agora 2 dos
+  // EVENTOS_MAX (200) lugares do registro.
+  if (escopo !== null) reg.anexarEvento(dir, 'liberacao-escopo', escopo, agoraMs);
 ```
+
+No comentário acima de `decidir`, troque "Tudo o que pode lançar (inclusive o próprio texto de confirmação) vem antes de gravarLiberacao; depois dela só limparTravas e anexarEvento, que nunca lançam." por "Tudo o que pode lançar (inclusive o próprio texto de confirmação e o escopo do evento) vem antes de gravarLiberacao; depois dela só limparTravas e anexarEvento, que nunca lançam."
 
 - [ ] **Step 6: Rodar**
 
@@ -2275,7 +2401,7 @@ git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "feat: release scope e
 **Interfaces:**
 - Consome: `lerEventos`, `ultimosLimites`, `EVENTOS_MAX` (Task 14; `registros.js`); `quandoLocal` já importado em `relatorio.js` (Task 8).
 - Produz:
-  - `resumoGuarda(dir, agoraMs)` → `null` ou `{ desde, disparos: { G1..G7 }, negados, negadosCaro, prompts, trocas, liberacoes, recusadas, escopos: [{ at, prazo, minutos, fable, caro }], desconhecidos, filhas, arquivos, erros, limites: { fable, geral }, parcial }`;
+  - `resumoGuarda(dir, agoraMs)` → `null` ou `{ desde, disparos: { G1..G7 }, negados, negadosCaro, prompts, trocas, liberacoes, recusadas, escopos: [{ at, prazo, minutos, fable, caro }], desconhecidos, filhas, arquivos, protegidos, erros, limites: { fable, geral }, parcial }`. O evento `arquivo-negado` se divide pelo detalhe (F4 do pré-voo): desde a Task 0, a P5 grava o nome da ferramenta para a pasta de dados e `P5:settings`, `P5:plugin` ou `P5:settings-projeto` para os settings e o próprio plugin (`src/hooks/guarda-arquivos.js`). Sem o prefixo `P5:` conta em `arquivos`; com ele, em `protegidos`;
   - `escopoDe(detalhe)`, `GATILHOS`, `ESCOPOS_MAX` (20);
   - no relatório, a chave `guarda` logo depois de `sessoesAbertas` (a Task 18 põe `custoHooks` depois dela).
 
@@ -2324,7 +2450,9 @@ test('resumoGuarda conta por tipo e gatilho só nos últimos 7 dias, e lista os 
   anexarEvento(d, 'liberacao-recusada', 'args', agora - 20 * 60_000);
   anexarEvento(d, 'desconhecido', 'modelo', agora - 10 * 60_000);
   anexarEvento(d, 'filha-negada', 'P4', agora - 10 * 60_000);
-  anexarEvento(d, 'arquivo-negado', 'P5', agora - 10 * 60_000);
+  anexarEvento(d, 'arquivo-negado', 'Edit', agora - 10 * 60_000);
+  anexarEvento(d, 'arquivo-negado', 'P5:settings', agora - 10 * 60_000);
+  anexarEvento(d, 'arquivo-negado', 'P5:plugin', agora - 10 * 60_000);
   anexarEvento(d, 'erro', 'P1', agora - 10 * 60_000);
   registrarLimite(d, 'fable', agora - 3 * H);
   const r = resumoGuarda(d, agora);
@@ -2339,7 +2467,9 @@ test('resumoGuarda conta por tipo e gatilho só nos últimos 7 dias, e lista os 
   assert.deepEqual(r.escopos, [{ at: new Date(agora - 30 * 60_000).toISOString(), prazo: '3h', minutos: 180, fable: true, caro: false }]);
   assert.equal(r.desconhecidos, 1);
   assert.equal(r.filhas, 1);
+  // A pasta de dados (detalhe = ferramenta) e os settings e o plugin (P5:*) contam à parte.
   assert.equal(r.arquivos, 1);
+  assert.equal(r.protegidos, 2);
   assert.equal(r.erros, 1);
   assert.deepEqual(r.limites, { fable: new Date(agora - 3 * H).toISOString(), geral: null });
   assert.equal(r.parcial, false);
@@ -2374,7 +2504,7 @@ const guarda = (extra = {}) => ({
   disparos: { G1: 0, G2: 1, G3: 0, G4: 0, G5: 0, G6: 0, G7: 2 },
   negados: 3, negadosCaro: 1, prompts: 1, trocas: 0, liberacoes: 2, recusadas: 1,
   escopos: [{ at: new Date(agora - 3_600_000).toISOString(), prazo: '3h', minutos: 180, fable: true, caro: true }],
-  desconhecidos: 1, filhas: 0, arquivos: 0, erros: 0,
+  desconhecidos: 1, filhas: 0, arquivos: 0, protegidos: 2, erros: 0,
   limites: { fable: new Date(agora - 7_200_000).toISOString(), geral: null }, parcial: false, ...extra,
 });
 
@@ -2406,6 +2536,7 @@ test('guarda no markdown: contagens, liberações com escopo e prazo, limites', 
   assert.match(t, /^Liberações: 2 \(pedidos recusados: 1\)\.$/m);
   assert.match(t, /^- .+: 3 h \(180 min\), Fable e caro\.$/m);
   assert.match(t, /^Despachos de modelo ou effort desconhecido: 1\.$/m);
+  assert.match(t, /^Sessões claude filhas negadas: 0\. Escritas negadas na pasta de dados: 0\. Edições negadas nos settings e no plugin: 2\. Falhas da guarda: 0\.$/m);
   assert.match(t, /^Último limite do Fable: .+\. Último limite geral: nenhum em 7 dias\.$/m);
   assert.ok(!t.includes('Registro cheio'));
   assert.match(md({ guarda: guarda({ parcial: true }) }), /^Registro cheio \(200 eventos\): contagens mais antigas podem faltar\.$/m);
@@ -2458,13 +2589,17 @@ export const GATILHOS = Object.freeze(['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7']
 export const ESCOPOS_MAX = 20;
 const MINUTOS_MAX = 1440;
 const ESCOPO = /^(janela|(?:[1-9]|1\d|2[0-4])h):(\d{1,4})(:fable)?(:caro)?$/;
-// Tipo de evento → contador do resumo. 'disparo', 'negado' e
-// 'liberacao-escopo' têm tratamento próprio.
+// Tipo de evento → contador do resumo. 'disparo', 'negado',
+// 'liberacao-escopo' e 'arquivo-negado' têm tratamento próprio.
 const CONTADOR = Object.freeze({
   __proto__: null,
   'prompt-bloqueado': 'prompts', 'troca-bloqueada': 'trocas', liberacao: 'liberacoes', 'liberacao-recusada': 'recusadas',
-  desconhecido: 'desconhecidos', 'filha-negada': 'filhas', 'arquivo-negado': 'arquivos', erro: 'erros',
+  desconhecido: 'desconhecidos', 'filha-negada': 'filhas', erro: 'erros',
 });
+// 'arquivo-negado' com detalhe P5:settings, P5:plugin ou P5:settings-projeto
+// é uma edição negada nos settings ou no próprio plugin (Task 0 da parte 2);
+// os outros detalhes (o nome da ferramenta) são escritas na pasta de dados.
+const PREFIXO_PROTEGIDO = 'P5:';
 
 // Detalhe de um evento 'liberacao-escopo' (detalheEscopo, liberacao.js) →
 // { prazo, minutos, fable, caro }, ou null fora da forma.
@@ -2488,7 +2623,7 @@ export function resumoGuarda(dir, agoraMs) {
       desde: new Date(desde).toISOString(),
       disparos: Object.fromEntries(GATILHOS.map((g) => [g, 0])),
       negados: 0, negadosCaro: 0, prompts: 0, trocas: 0, liberacoes: 0, recusadas: 0, escopos: [],
-      desconhecidos: 0, filhas: 0, arquivos: 0, erros: 0,
+      desconhecidos: 0, filhas: 0, arquivos: 0, protegidos: 0, erros: 0,
       limites: { fable: null, geral: null },
       parcial: eventos.length >= EVENTOS_MAX && Date.parse(eventos[0].at) >= desde,
     };
@@ -2503,6 +2638,9 @@ export function resumoGuarda(dir, agoraMs) {
       } else if (e.tipo === 'liberacao-escopo') {
         const s = escopoDe(e.detalhe);
         if (s !== null) r.escopos.push({ at: e.at, ...s });
+      } else if (e.tipo === 'arquivo-negado') {
+        if (typeof e.detalhe === 'string' && e.detalhe.startsWith(PREFIXO_PROTEGIDO)) r.protegidos++;
+        else r.arquivos++;
       } else if (CONTADOR[e.tipo] !== undefined) {
         r[CONTADOR[e.tipo]]++;
       }
@@ -2528,7 +2666,7 @@ Acrescente o import `import { ESCOPOS_MAX, GATILHOS, escopoDe } from './guarda/r
 // são do resumo não passam. A ordem das chaves é a de resumoGuarda. Entrada
 // ausente ou que não é objeto → null.
 const CONTADORES_ANTES = ['negados', 'negadosCaro', 'prompts', 'trocas', 'liberacoes', 'recusadas'];
-const CONTADORES_DEPOIS = ['desconhecidos', 'filhas', 'arquivos', 'erros'];
+const CONTADORES_DEPOIS = ['desconhecidos', 'filhas', 'arquivos', 'protegidos', 'erros'];
 function montarGuarda(v) {
   try {
     if (!ehObjeto(v)) return null;
@@ -2586,7 +2724,7 @@ function blocoGuarda(o) {
   }
   linhas.push('');
   linhas.push(`Despachos de modelo ou effort desconhecido: ${numero(g.desconhecidos)}.`, '');
-  linhas.push(`Sessões claude filhas negadas: ${numero(g.filhas)}. Escritas negadas na pasta de dados: ${numero(g.arquivos)}. Falhas da guarda: ${numero(g.erros)}.`, '');
+  linhas.push(`Sessões claude filhas negadas: ${numero(g.filhas)}. Escritas negadas na pasta de dados: ${numero(g.arquivos)}. Edições negadas nos settings e no plugin: ${numero(g.protegidos)}. Falhas da guarda: ${numero(g.erros)}.`, '');
   const limite = (iso) => (iso === null ? 'nenhum em 7 dias' : quando(iso));
   linhas.push(`Último limite do Fable: ${limite(g.limites.fable)}. Último limite geral: ${limite(g.limites.geral)}.`);
   if (g.parcial) linhas.push('', 'Registro cheio (200 eventos): contagens mais antigas podem faltar.');
@@ -2716,10 +2854,12 @@ test('registroDeLinha: execução, erro, timeout e compactação; o resto é nul
 test('comandosDeHooks: formas shell e exec; formas hostis ignoradas', () => {
   const hooks = { hooks: {
     SessionStart: [{ hooks: [{ type: 'command', command: CMD_H, timeout: 5 }] }],
-    PreToolUse: [{ matcher: 'Agent', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/g.js', '--x'] }, { type: 'prompt', prompt: 'x' }, { type: 'command', command: 42 }] }],
+    PreToolUse: [{ matcher: 'Agent', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/g.js', '--x'] }, { type: 'command', command: 'node', args: [42] }, { type: 'prompt', prompt: 'x' }, { type: 'command', command: 42 }] }],
     Stop: 'x',
   } };
-  assert.deepEqual(comandosDeHooks(hooks), [CMD_H, 'node', 'node ${CLAUDE_PLUGIN_ROOT}/g.js --x', 'node "${CLAUDE_PLUGIN_ROOT}/g.js" "--x"']);
+  // Forma exec: só as duas junções, nunca o `node` puro, que todo hook exec de
+  // todo plugin compartilha (F5 do pré-voo). `args` que não é lista de texto: nada.
+  assert.deepEqual(comandosDeHooks(hooks), [CMD_H, 'node ${CLAUDE_PLUGIN_ROOT}/g.js --x', 'node "${CLAUDE_PLUGIN_ROOT}/g.js" "--x"']);
   for (const v of [null, [], { hooks: [] }, { hooks: null }]) assert.deepEqual(comandosDeHooks(v), []);
 });
 
@@ -2731,8 +2871,7 @@ test('mapaDePlugins: nome antes do @; rótulo inválido fora; o mesmo comando em
     [`${INSTRUCAO}@x`]: [{ installPath: '/p/hostil' }],
     'sem-caminho@x': [{ installPath: 42 }],
     'a`b@x': [{ installPath: '/p/hostil' }],
-    'a
-b@x': [{ installPath: '/p/hostil' }],
+    'a\nb@x': [{ installPath: '/p/hostil' }],
   } };
   const arquivos = {
     '/p/hadouken': { hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: CMD_H }] }] } },
@@ -2894,9 +3033,12 @@ export function ITEM_VALIDO(it) {
 }
 
 // Textos de comando de um hooks/hooks.json (decisão 11): a forma shell
-// (`command`) e, quando há `args` só de texto, as duas formas em que a forma
-// exec pode aparecer no transcript (juntada com espaço, e com cada arg entre
-// aspas JSON). Até HOOKS_MAX textos; formas estranhas são ignoradas.
+// (`command` sem `args`) e, na forma exec (`args` só de texto), as duas formas
+// em que ela pode aparecer no transcript (juntada com espaço, e com cada arg
+// entre aspas JSON). O `command` puro de uma forma exec (`node`) não entra:
+// todo hook exec de todo plugin o compartilha, e ele atribuiria ao plugin os
+// hooks dos outros (F5 do pré-voo). Até HOOKS_MAX textos; formas estranhas são
+// ignoradas.
 export function comandosDeHooks(valor) {
   const r = [];
   try {
@@ -2910,8 +3052,9 @@ export function comandosDeHooks(valor) {
         for (const h of hs) {
           if (r.length >= HOOKS_MAX) return r;
           if (!ehObjeto(h) || h.type !== 'command' || typeof h.command !== 'string' || h.command === '' || h.command.length > COMANDO_MAX) continue;
-          r.push(h.command);
-          if (Array.isArray(h.args) && h.args.length > 0 && h.args.length <= 64 && h.args.every((x) => typeof x === 'string')) {
+          if (h.args === undefined) {
+            r.push(h.command);
+          } else if (Array.isArray(h.args) && h.args.length > 0 && h.args.length <= 64 && h.args.every((x) => typeof x === 'string')) {
             r.push([h.command, ...h.args].join(' '), [h.command, ...h.args.map((x) => JSON.stringify(x))].join(' '));
           }
         }
@@ -3002,6 +3145,8 @@ export function resumirCusto(itens, mapa, desdeMs) {
 }
 ```
 
+Forma exec (F5 do pré-voo): o próprio plugin usa a forma exec em 45 dos 48 handlers (`command: 'node'` com `args`). Antes de implementar, leia no registro da Task 1 como o `hook_success.command` da forma exec da sonda apareceu (`execForma`). Com `juntadaEspaco` ou `juntadaJson`, as duas junções de `comandosDeHooks` cobrem. Com `soComando` (o transcript grava só o `node` puro), nenhuma junção casa: esses hooks caem em "(outros)", e a Task 20 diz isso no README. Em nenhum caso o `node` puro entra no mapa. Com `outra`, pare e relate.
+
 - [ ] **Step 4: Rodar**
 
 Run: `node --test test/custo-hooks.test.js`
@@ -3024,7 +3169,7 @@ git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "feat: hook cost model
 - Test: `test/indice-hooks.test.js` (novo)
 
 **Interfaces:**
-- Consome: `registroDeLinha`, `ITEM_VALIDO` (Task 16); de `transcripts.js`: `listarTranscripts`, `abrirConferido`, `lerFaixa`, `bytesAntes`, `hash48`, `mtimeDe`, `fechar`, `sumiu`, `formaDaChave`, `ARQUIVOS_MAX`; `dirDados`, `gravarJsonAtomico`, `lerJson` (`estado.js`, os mesmos que `transcripts.js` importa); `lerSemLink` (`guarda/arquivo.js`); `dirConfigClaude` (`guarda/despacho.js`).
+- Consome: `registroDeLinha`, `ITEM_VALIDO` (Task 16); de `transcripts.js`: `listarTranscripts`, `abrirConferido`, `lerFaixa`, `bytesAntes`, `hash48`, `mtimeDe`, `fechar`, `sumiu`, `formaDaChave`, `ARQUIVOS_MAX`; `dirDados`, `gravarJsonAtomico` (`estado.js`, os mesmos que `transcripts.js` importa); `lerSemLink` (`guarda/arquivo.js`; também na leitura do próprio índice); `dirConfigClaude` (`guarda/despacho.js`).
 - Produz:
   - `ARQ_INDICE_HOOKS` (`'indice-hooks.json'`);
   - `indexarHooks({ raiz, desdeMs, agoraMs, maxArquivos })` → `{ itens, arquivos, ilegiveis, truncado }`, nunca rejeita;
@@ -3179,7 +3324,7 @@ Expected: PASS (nada mudou para quem já usava).
 import os from 'node:os';
 import path from 'node:path';
 import { numeroFinito } from './base.js';
-import { dirDados, gravarJsonAtomico, lerJson } from './estado.js';
+import { dirDados, gravarJsonAtomico } from './estado.js';
 import { ITEM_VALIDO, registroDeLinha } from './custo-hooks.js';
 import { lerSemLink } from './guarda/arquivo.js';
 import { dirConfigClaude } from './guarda/despacho.js';
@@ -3240,8 +3385,10 @@ function entradaDoDisco(e) {
   return { offset, size, mtimeMs, ancora, itens };
 }
 
+// lerSemLink (lstat antes, link = inválido): o lerJson de estado.js abre sem
+// O_NOFOLLOW e seguiria um índice trocado por link (Foco de revisão 5).
 function carregar(arq, chaveRaiz) {
-  const lido = lerJson(arq, INDICE_MAX_BYTES);
+  const lido = lerSemLink(arq, INDICE_MAX_BYTES);
   if (!lido.ok) return null;
   try {
     const v = lido.valor;
@@ -3368,7 +3515,7 @@ export function lerHooksDoPlugin(installPath) {
 }
 ```
 
-O teste "foco 5" prende duas coisas: `carregar` não lê um índice que é link, e `gravarJsonAtomico` troca o link por arquivo (grava num temporário e renomeia por cima; não escreve no alvo). Se `lerJson` de `estado.js` seguir link (confira no código dele), troque a leitura de `carregar` por `lerSemLink(arq, INDICE_MAX_BYTES)` de `guarda/arquivo.js`, que já está importado. Se `gravarJsonAtomico` escrever no alvo do link, pare e relate: é um defeito que também atinge `indice-transcripts.json`.
+O teste "foco 5" prende duas coisas: `carregar` não lê um índice que é link, e `gravarJsonAtomico` troca o link por arquivo (grava num temporário e renomeia por cima; não escreve no alvo). `carregar` já usa `lerSemLink` (D6 do pré-voo): o `lerJson` de `estado.js` abre com `O_RDONLY | O_NONBLOCK`, sem `O_NOFOLLOW` (`ABRIR_LEITURA`, estado.js:56), e seguiria o link. O `gravarJsonAtomico` renomeia por cima do link (estado.js:149-176), então o alvo não é escrito; se o teste mostrar o contrário, pare e relate: é um defeito que também atinge `indice-transcripts.json`.
 
 - [ ] **Step 5: Rodar**
 
@@ -3458,11 +3605,23 @@ test('custo dos hooks: 3 plugins pelo hash do comando, outros e compactações; 
     'alfa@mkt': 'node "${CLAUDE_PLUGIN_ROOT}/a.js"',
     'beta@mkt': 'bash "${CLAUDE_PLUGIN_ROOT}/b.sh"',
   };
+  // Forma exec (F5 do pré-voo): o próprio plugin usa command + args em 45 dos
+  // 48 handlers. FORMA_EXEC é o que a Task 1 registrou em `execForma` na pasta
+  // da sonda: 'juntadaEspaco', 'juntadaJson' ou 'soComando' (troque o valor).
+  const FORMA_EXEC = 'juntadaEspaco';
+  const ARGS_EXEC = ['${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-despacho.js'];
+  const comandoExec = {
+    juntadaEspaco: ['node', ...ARGS_EXEC].join(' '),
+    juntadaJson: ['node', ...ARGS_EXEC.map((x) => JSON.stringify(x))].join(' '),
+    soComando: 'node',
+  }[FORMA_EXEC];
   const instalados = { version: 2, plugins: {} };
   for (const [chave, command] of Object.entries(plugins)) {
     const dirP = path.join(cfg, 'cache', chave.split('@')[0]);
     fs.mkdirSync(path.join(dirP, 'hooks'), { recursive: true });
-    fs.writeFileSync(path.join(dirP, 'hooks', 'hooks.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command }] }] } }));
+    const hooks = { UserPromptSubmit: [{ hooks: [{ type: 'command', command }] }] };
+    if (chave.startsWith('claude-hadouken@')) hooks.PreToolUse = [{ matcher: 'Agent', hooks: [{ type: 'command', command: 'node', args: ARGS_EXEC }] }];
+    fs.writeFileSync(path.join(dirP, 'hooks', 'hooks.json'), JSON.stringify({ hooks }));
     instalados.plugins[chave] = [{ installPath: dirP }];
   }
   fs.mkdirSync(path.join(cfg, 'plugins'), { recursive: true });
@@ -3478,6 +3637,7 @@ test('custo dos hooks: 3 plugins pelo hash do comando, outros e compactações; 
     hook('h2', plugins['alfa@mkt'], 200),
     hook('h3', plugins['beta@mkt'], 300, INSTRUCAO),
     hook('h4', 'node ~/meu-hook.js', 50),
+    hook('h5', comandoExec, 80),
     JSON.stringify({ type: 'system', subtype: 'compact_boundary', uuid: 'c1', timestamp: iso(agora - 3_600_000) }),
   ]);
   const r = await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home, dirConfigClaude: cfg });
@@ -3486,6 +3646,10 @@ test('custo dos hooks: 3 plugins pelo hash do comando, outros e compactações; 
   assert.deepEqual(Object.keys(por).sort(), ['(outros)', 'alfa', 'beta', 'claude-hadouken']);
   assert.equal(por['claude-hadouken'].caracteres, INSTRUCAO.length);
   assert.equal(por['claude-hadouken'].injecoes, 1);
+  // O hook exec do plugin: com uma junção, é dele; com o `node` puro, cai em (outros).
+  const execNoPlugin = FORMA_EXEC !== 'soComando';
+  assert.equal(por['claude-hadouken'].execucoes, execNoPlugin ? 2 : 1);
+  assert.equal(por['(outros)'].execucoes, execNoPlugin ? 1 : 2);
   assert.equal(por.beta.caracteres, INSTRUCAO.length, 'texto puro no UserPromptSubmit conta');
   assert.equal(por.alfa.p50, 200);
   assert.deepEqual(c.compactacoes, { sessao: 1, subagente: 0 });
@@ -3497,7 +3661,7 @@ test('custo dos hooks: 3 plugins pelo hash do comando, outros e compactações; 
 
 `linha`, `transcript`, `iso`, `raiz`, `home`, `config`, `ghFalso` e `agora` são os ajudantes que o arquivo já tem.
 
-Em `test/guarda-ameacas.test.js` (criado pela Task 18 da parte 1), no teste "S24", acrescente à lista `arquivos`, depois do `.map(...)` dos hooks, a linha:
+Em `test/guarda-ameacas.test.js` (criado pela Task 18 da parte 1), no teste "S24", acrescente à lista `arquivos` a linha abaixo logo depois do `.map(...)` dos hooks e **antes** do comentário M6 e de `path.join('src', 'uso', 'ler-uso.js')`, que a parte 1 pôs ali (D7 do pré-voo):
 
 ```js
     path.join('src', 'custo-hooks.js'), path.join('src', 'indice-hooks.js'),
@@ -3646,7 +3810,8 @@ git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "feat: /consumo hook c
 ### Task 19: Bench do `/liberar`, medições e a tabela de latência do README
 
 **Files:**
-- Modify: `bench/hooks-p95.mjs` (cenário do liberar; `preparar` que tira a liberação antes de P1, P3 e P5)
+- Modify: `bench/hooks-p95.mjs` (cenário do liberar; `preparar` que tira a liberação e restaura `guarda.json` antes de P1 e P3)
+- Modify: `bench/statusline-p95.mjs` (`transcript_path` aponta para um arquivo que existe; D3 do pré-voo)
 - Modify: `README.md`, `README.en.md` (só a seção de desempenho: tabela e notas)
 
 **Interfaces:**
@@ -3666,21 +3831,40 @@ Na lista `cenarios`, antes de `node-vazio`, acrescente:
         ...comum(uuid(0), 'UserPromptExpansion'), expansion_type: 'slash_command', command_name: 'claude-hadouken:liberar',
         command_args: '2h', command_source: 'plugin', prompt: '/claude-hadouken:liberar 2h',
       }),
-      conferir: (out) => { if (JSON.parse(out).decision !== 'block') throw new Error(`liberar: expected block, got ${out}`); },
+      // liberar.js responde decision 'block' em todo desfecho, inclusive "nada
+      // liberado" e as recusas: só o texto de liberado e o arquivo gravado
+      // provam que a liberação aconteceu.
+      conferir: (out) => {
+        const o = JSON.parse(out);
+        if (o.decision !== 'block' || !/^hadouken: liberado até /.test(o.reason ?? '')) throw new Error(`liberar: expected a release, got ${out}`);
+        if (!fs.existsSync(path.join(home, 'liberacao.json'))) throw new Error('liberar: liberacao.json not written');
+      },
       alvo: true,
     },
 ```
 
-Nos três cenários P1, P3 e P5 da parte 1 (`despacho-disparada`, `troca-fable`, `arquivo-negado`), acrescente `preparar: semLiberacao,` e, antes da lista `cenarios`:
+Nos dois cenários P1 e P3 da parte 1 (`despacho-disparada`, `troca-fable`), acrescente `preparar: semLiberacao,`. O P5 (`arquivo-negado`) não precisa: a P5 nunca é liberada. Antes da lista `cenarios`:
 
 ```js
   // A liberação que o cenário do /liberar grava soltaria a P1 e a P3 na
-  // rodada seguinte; cada cenário da guarda começa sem ela (o pior caminho:
-  // trava lida, nada coberto).
-  const semLiberacao = () => fs.rmSync(path.join(home, 'liberacao.json'), { force: true });
+  // rodada seguinte, e o limparTravas dele apaga as travas: sem restaurar
+  // guarda.json, a P1 e a P3 mediriam "trava gravada" em vez de "trava lida".
+  // Cada cenário da guarda começa sem liberação e com as travas do preparo (o
+  // pior caminho: trava lida, nada coberto).
+  const arqGuarda = path.join(home, 'guarda.json');
+  const guardaPreparada = fs.existsSync(arqGuarda) ? fs.readFileSync(arqGuarda) : null;
+  const semLiberacao = () => {
+    fs.rmSync(path.join(home, 'liberacao.json'), { force: true });
+    if (guardaPreparada === null) fs.rmSync(arqGuarda, { force: true });
+    else fs.writeFileSync(arqGuarda, guardaPreparada);
+  };
 ```
 
+Se `guardaPreparada` for `null` (o preparo da parte 1 não grava `guarda.json` antes dos cenários), a P1 e a P3 medem a trava gravada em toda rodada: diga isso na nota do README (Step 3) em vez de calar.
+
 Se o objeto `env` do bench não tiver `CLAUDE_CODE_ENTRYPOINT: 'cli'`, acrescente (o liberar recusa `-p` e SDK). No comentário de cenários do topo, acrescente: "- /liberar 2h (v0.4.0 part 2): the release hook, writing liberacao.json and the two events."
+
+Em `bench/statusline-p95.mjs`, o `transcript_path` da `entrada` (`'C:/Users/sintetico/.claude/projects/proj-x/abc.jsonl'`, linha 84 em a42a414) aponta para um arquivo que não existe, e o caminho do mtime da Task 10 nunca é medido. Crie, no preparo, um transcript de uma linha dentro do `home` temporário do bench (por exemplo `path.join(home, 'transcript.jsonl')`) e aponte o `transcript_path` para ele.
 
 Run: `node bench/hooks-p95.mjs`
 Expected: a tabela sai sem erro de `conferir`; cole-a inteira no relatório.
@@ -3722,19 +3906,20 @@ Atualize também as linhas que já existem com os números novos da barra e dos 
 - troque "Os números da tabela foram medidos na v0.2.0. A v0.3.0 tira…" por "Os números da tabela foram medidos na v0.4.0, com a guarda ligada nos hooks.";
 - acrescente, depois da nota do A/B da v0.2.0: "A v0.4.0 contra a v0.3.0, no mesmo A/B pareado: <diferença do p50 por cenário do ab-raizes>. O custo vem da guarda (trava, liberação e eventos lidos a cada despacho e prompt) e da leitura-piso nos avisos.";
 - acrescente: "O `/consumo` agora também monta o índice do custo dos hooks (`indice-hooks.json`), incremental como o dos transcripts.";
+- corrija a nota "Além da meta, todo hook tem um teto de 5 s no `hooks.json`." (README.md:921 e README.en.md:929 em a42a414; D5 do pré-voo), que está errada desde a parte 1: o teto é de 10 s no hook de prompt e nos hooks da guarda (PreToolUse, `/liberar` e a P3) e de 5 s nos de início e fim de sessão e nos dois que só registram (troca de modelo feita e limite atingido). Confira os valores em `hooks/hooks.json` antes de escrever;
 - se a Task 11 rodou, acrescente: "Com `refreshInterval: 60`, a barra roda também uma vez por minuto em cada terminal aberto, mesmo com a sessão parada: um processo Node de cerca de <p50 da barra> ms por minuto."
 
 Em `README.en.md`, a mesma mudança na seção "Performance", com a tradução fiel (rótulos: "Guard before dispatching a subagent (P1), Windows", "Guard before switching models (P3), Windows", "Plugin file guard (P5), Windows", "`/claude-hadouken:liberar`, Windows", "Guard hooks, Linux/macOS", "to be measured in CI").
 
 - [ ] **Step 4: Conferência manual da forma exec**
 
-A decisão 11 conta com a forma exec (`command` + `args`) aparecendo no transcript como uma das duas junções de `comandosDeHooks`. O plugin não usa a forma exec. Se o registro da Task 1 (`sucesso.comandoComRaiz`) mostrar algum hook de outro plugin em forma exec, compare o `command` do transcript com o `hooks.json` dele e anote no relatório se casou; se não casar, o hook cai em "(outros)" e o README (Task 20) diz isso.
+A decisão 11 conta com a forma exec (`command` + `args`) aparecendo no transcript como uma das duas junções de `comandosDeHooks`. O próprio plugin usa a forma exec em 45 dos 48 handlers (todos os hooks da guarda; F5 do pré-voo), e a sonda da Task 1 registrou em `execForma` como o transcript grava essa forma. Confira num transcript real, com a v0.4.0 carregada (`--plugin-dir` do checkout numa sessão curta do Sr. Garioli, com `HADOUKEN_HOME` temporário e um despacho de subagente que passe pela P1), a linha do plugin da P1 (`guarda-despacho.js`) na seção "Custo dos hooks (7 dias)" do `/consumo`: com uma junção, a P1 conta em `claude-hadouken`; com o `node` puro, conta em "(outros)", e o README (Task 20) diz isso. Anote no relatório qual dos dois aconteceu.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C "E:/Projetos DEV/claude-hadouken-guarda" add -- bench/hooks-p95.mjs README.md README.en.md
-git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "bench: /liberar scenario and v0.4.0 latency table (Windows measured, Linux/macOS pending CI)" -- bench/hooks-p95.mjs README.md README.en.md
+git -C "E:/Projetos DEV/claude-hadouken-guarda" add -- bench/hooks-p95.mjs bench/statusline-p95.mjs README.md README.en.md
+git -C "E:/Projetos DEV/claude-hadouken-guarda" commit -m "bench: /liberar scenario and v0.4.0 latency table (Windows measured, Linux/macOS pending CI)" -- bench/hooks-p95.mjs bench/statusline-p95.mjs README.md README.en.md
 ```
 
 ---
@@ -3768,13 +3953,13 @@ Troque o texto alternativo da imagem `docs/imagens/avisos.svg` para descrever as
 
 Em "Instalar, desligar e remover" (linha ~256), acrescente: "Desde a v0.4.0, o instalador grava `refreshInterval: 60`: a barra se redesenha a cada minuto também com a sessão parada, e a idade da leitura continua certa (uma leitura repetida sem conversa nova não conta como nova). Custo: um processo Node por minuto em cada terminal aberto. Quem já tinha a barra da v0.3.0 vê a ação `atualizar`, que só acrescenta essa chave, com backup."
 
-- [ ] **Step 3: O relatório `/claude-hadouken:consumo` (linha ~384)**
+- [ ] **Step 3: O relatório `/claude-hadouken:consumo` (README.md:436 e README.en.md:442 em a42a414; a linha ~385 é "A guarda de consumo", outra seção)**
 
 Acrescente duas subseções, com exemplos gerados de verdade (rode `node --input-type=module -e` sobre `formatarMarkdown(montarRelatorio(...))` com as fixtures `guarda()` e `custo()` dos testes das Tasks 15 e 18, num `HADOUKEN_HOME` temporário, e cole a saída):
-- "Guarda (7 dias)": o que cada linha conta, de onde vem (`guarda-eventos.json` e `limites-atingidos.json`, só leitura), e o aviso "Registro cheio".
-- "Custo dos hooks (7 dias)": por plugin, o hadouken incluído; só tamanhos e durações; o texto injetado e o stdout nunca são guardados nem mostrados; o plugin é identificado pelo nome, sem o caminho, pelo comando declarado no `hooks/hooks.json` dele; o que não casa (hooks do `settings.json`, hooks declarados em outro arquivo, a forma exec que não casar) vai para "(outros)"; o mesmo comando em dois plugins, "(ambíguo)"; o índice fica em `indice-hooks.json` e pode ser apagado. Não sugere desligar nada.
+- "Guarda (7 dias)": o que cada linha conta, de onde vem (`guarda-eventos.json` e `limites-atingidos.json`, só leitura), e o aviso "Registro cheio". As edições negadas pela P5 saem em duas contagens (F4 do pré-voo): "Escritas negadas na pasta de dados" e "Edições negadas nos settings e no plugin" (os `settings.json` do usuário, os de projeto que mexem nos hooks e os arquivos do próprio plugin).
+- "Custo dos hooks (7 dias)": por plugin, o hadouken incluído; só tamanhos e durações; o texto injetado e o stdout nunca são guardados nem mostrados; o plugin é identificado pelo nome, sem o caminho, pelo comando declarado no `hooks/hooks.json` dele, nas formas shell e exec (o próprio hadouken usa a exec na maioria dos hooks); o que não casa (hooks do `settings.json`, hooks declarados em outro arquivo, a forma exec se o transcript gravar só o `node` puro, conforme o registro da Task 1 e o Step 4 da Task 19) vai para "(outros)"; o mesmo comando em dois plugins, "(ambíguo)"; o índice fica em `indice-hooks.json` e pode ser apagado. Não sugere desligar nada.
 
-- [ ] **Step 4: Requisitos (linha ~678)**
+- [ ] **Step 4: Requisitos (README.md:730 e README.en.md:738 em a42a414)**
 
 Com o resultado do S11 na emenda: "A guarda precisa do Claude Code 2.1.251 ou mais novo. Em versões anteriores, a troca de modelo (P3) e a liberação pelo `/claude-hadouken:liberar` não existem, e <o que o S11 mostrou: eventos desconhecidos ignorados, ou 'não foi possível testar'>." Nada de aviso "PreModelSwitch nunca rodou" (decisão 17).
 
@@ -3783,10 +3968,15 @@ Com o resultado do S11 na emenda: "A guarda precisa do Claude Code 2.1.251 ou ma
 Na seção portuguesa, depois do último S da parte 1, acrescente:
 - **S29, texto de outros plugins no relatório.** O custo dos hooks lê transcripts com o stdout de hooks de qualquer plugin. Só saem números, o hash do comando e o nome do plugin que casa `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`; o texto nunca é guardado (o índice `indice-hooks.json` guarda só números e hashes, revalidados ao ler) nem mostrado. Conferido por teste com instrução no stdout.
 - **S30, leitura repetida da barra.** Com a barra rodando sem conversa (`refreshInterval`, ou a mesma leitura reenviada), um valor parado não passa por leitura nova: a idade só é renovada quando o valor muda ou o transcript da sessão foi escrito depois da última leitura. Sem transcript utilizável no stdin, vale a regra antiga (renova).
-- No R6: o resultado do S8 (garfo, Workflow, SendMessage), com a decisão 16 (o que escapa da P1 fica declarado; o matcher `Skill` não entra).
-- No R3: o resultado do S6 (cron e `/loop`): se o disparo automático passa pelo UserPromptSubmit e é bloqueado pela P2, ou se não passa.
-- Só se o S12 viu `claude-vscode`: **R-entrypoint.** Um `claude -p` aberto de dentro de uma sessão do VS Code herda `CLAUDE_CODE_ENTRYPOINT=claude-vscode`, e o `/liberar` dele não é recusado pelo entrypoint. A defesa é a P4, que nega sempre o comando Bash ou PowerShell que chama `claude` com liberar; um comando ofuscado escapa dela (R1).
+- No R6: o resultado do spike S8 da parte 2 (garfo, Workflow, SendMessage), com a decisão 16 (o que escapa da P1 fica declarado; o matcher `Skill` não entra).
+- Em S22 e S23 (a P2 e os turnos automáticos): o resultado do spike S6 da parte 2 (cron e `/loop`), ou seja, se o disparo automático passa pelo UserPromptSubmit e é bloqueado pela P2, ou se não passa. Se o disparo agendado chega ao UserPromptSubmit, o mesmo resultado entra também em S10 (liberação agendada), com o que a sessão manual da Task 2 mostrou sobre o `/claude-hadouken:liberar` disparado por `/loop` ou por agenda. O R3 (sessões sem guarda) não muda (F6 do pré-voo).
+- O bullet **Entrypoint:** que já existe (SECURITY.md:98 na seção portuguesa e :219 na inglesa, em a42a414), que hoje termina "O spike S12, na parte 2, resolve o caso", é reescrito no lugar com o resultado do spike S12 da parte 2 (F3 e F6 do pré-voo). Nenhum bullet novo:
+  - se o filho `-p` aberto do VS Code recebeu `sdk-cli` (ou outro valor com `sdk`): o hook do liberar já o recusa pelo entrypoint, e o bullet diz isso;
+  - se recebeu `claude-vscode`: o `/liberar` dele não é recusado pelo entrypoint, porque recusar `claude-vscode` também recusaria o `/liberar` digitado no VS Code; a defesa é a P4, que nega sempre o comando Bash ou PowerShell que chama `claude` com liberar, e um comando ofuscado escapa dela (R1).
+- No R1: o resultado do spike S13 da parte 2 (um hook `ConfigChange` bloqueando a mudança de `disableAllHooks`, `enabledPlugins` ou `hooks` nos settings de projeto, inclusive por `sed -i` no Bash). Sem bloqueio, o `sed -i` e a edição que monta a chave em partes continuam declarados no R1 como hoje.
 - Um parágrafo sobre o SessionStart dentro de subagente (Task 9): nada é gravado, e o modelo da sessão mãe não muda.
+
+Nenhum resultado de spike ganha número S ou R novo: S29 e S30 são os únicos números novos. No texto do `SECURITY.md`, escreva sempre "o spike S6 da parte 2" (e o mesmo para S4, S7, S8, S10, S11, S12 e S13), nunca o número do spike solto: todos esses números já são ameaças lá (por exemplo S6 o shim, S8 a cadeia de suprimentos, S12 "não se aplica", S13 a forja pelas ferramentas de edição).
 
 Na seção inglesa, a tradução fiel dos mesmos itens, no tom que já existe.
 
