@@ -180,13 +180,14 @@ else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
   assert.equal(eventos(home, 'liberacao').length, 0);
 });
 
-// Resíduo declarado (revisão da Task 13): C23 só reescreve `cli` para
-// `sdk-cli` no modo print. Um `claude -p` aberto do Bash de uma sessão do VS
-// Code herda CLAUDE_CODE_ENTRYPOINT=claude-vscode, e este hook libera. Quem
-// fecha o caminho é a regra da P4 na Task 16 (nega sempre o comando Bash ou
-// PowerShell que chama claude com liberar); o spike da parte 2 procura um
-// sinal melhor. Quando houver esse sinal, este teste passa a esperar a recusa.
-test('resíduo: CLAUDE_CODE_ENTRYPOINT=claude-vscode não é recusado hoje (a P4 da Task 16 fecha o caminho)', () => {
+// Caso positivo declarado (spike S12 da parte 2, 2.1.287): o `claude -p`
+// aberto de uma sessão do VS Code recebeu CLAUDE_CODE_ENTRYPOINT=sdk-cli (com
+// CLAUDECODE=1), e a recusa por `sdk` (testes "foco 5") já o pega. O
+// `claude-vscode` é o entrypoint da sessão interativa do VS Code, onde o
+// /liberar digitado vale; recusá-lo quebraria esse uso. Um filho -p que ainda
+// assim chamasse liberar é negado pela P4 (nega sempre o comando que chama
+// claude com liberar).
+test('S12: claude-vscode não é recusado pelo entrypoint (o /liberar digitado no VS Code vale; um filho -p é negado pela P4)', () => {
   const home = novoHome();
   registrar(home, 's1');
   const o = saida(rodar(expansao('s1', '2h'), home, { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' }));
