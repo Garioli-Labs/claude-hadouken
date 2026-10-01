@@ -16,7 +16,9 @@ import * as msg from '../src/guarda/mensagens.js';
 // Task 19b (spike S13 (a) da Task 2 da parte 2): o hook ConfigChange segura,
 // na sessão em curso, a mudança de disableAllHooks, enabledPlugins ou hooks
 // nos settings, comparando a impressão atual com a fotografia que o
-// SessionStart tirou. Os testes de hook rodam em processo filho, com HOME e
+// SessionStart tirou. Fix round 1: a fotografia é da sessão (chave sessão +
+// caminho), tirada só no primeiro SessionStart dela; compact, clear e resume
+// não a regravam, e outra sessão nunca a usa. Os testes de hook rodam em processo filho, com HOME e
 // USERPROFILE falsos (o ~ do filho), CLAUDE_CONFIG_DIR e HADOUKEN_HOME
 // temporários e HADOUKEN_SEM_PAINEL=1. Nenhum teste toca o ~/.claude de
 // verdade.
@@ -147,34 +149,57 @@ test('settingsDaSessao: CLAUDE_CONFIG_DIR absoluto ou ~/.claude, e os dois do pr
   assert.deepEqual(settingsDaSessao({}), []);
 });
 
-test('fotografar grava as impressões sob a chave normalizada; lerConfigBase as devolve', () => {
+test('fotografar grava sob (sessão, caminho normalizado), só na primeira vez da sessão; lerConfigBase as devolve', () => {
   const dados = novaPasta();
   const cwd = novaPasta();
   const proj = path.join(cwd, '.claude', 'settings.json');
   escrever(proj, { hooks: { Stop: [] }, model: 'x' });
   const local = path.join(cwd, '.claude', 'settings.local.json');
+  const arqBase = path.join(dados, ARQ_CONFIG_BASE);
   const agora = Date.now();
-  assert.deepEqual(fotografar(dados, [proj, local, 'relativo.json'], agora), { ok: true });
+  assert.deepEqual(fotografar(dados, 's1', [proj, local, 'relativo.json'], agora), { ok: true });
   const base = lerConfigBase(dados, agora);
-  assert.deepEqual([...base.keys()], [chaveDoArquivo(proj), chaveDoArquivo(local)]);
-  assert.deepEqual(base.get(chaveDoArquivo(proj)), { at: agora, ...impressaoDoArquivo(proj) });
-  assert.deepEqual(base.get(chaveDoArquivo(local)), { at: agora, ...impressaoDe({}) });
-  // Arquivo da pasta de dados: { v: 1, arquivos: { chave: { at, impressao, campos } } }.
-  const cru = JSON.parse(fs.readFileSync(path.join(dados, ARQ_CONFIG_BASE), 'utf8'));
-  assert.equal(cru.v, 1);
-  assert.deepEqual(cru.arquivos[chaveDoArquivo(proj)], { at: new Date(agora).toISOString(), ...impressaoDoArquivo(proj) });
-  // Uma nova fotografia do mesmo arquivo troca a entrada.
+  assert.deepEqual([...base.keys()], ['s1']);
+  assert.deepEqual([...base.get('s1').keys()], [chaveDoArquivo(proj), chaveDoArquivo(local)]);
+  const fotoProj = { at: agora, ...impressaoDoArquivo(proj) };
+  assert.deepEqual(base.get('s1').get(chaveDoArquivo(proj)), fotoProj);
+  assert.deepEqual(base.get('s1').get(chaveDoArquivo(local)), { at: agora, ...impressaoDe({}) });
+  // Arquivo da pasta de dados: { v: 2, sessoes: { id: { chave: { at, impressao, campos } } } }.
+  const cru = JSON.parse(fs.readFileSync(arqBase, 'utf8'));
+  assert.equal(cru.v, 2);
+  assert.deepEqual(cru.sessoes.s1[chaveDoArquivo(proj)], { at: new Date(agora).toISOString(), ...impressaoDoArquivo(proj) });
+  // O mesmo SessionStart de novo na sessão (compact, clear, resume), com o
+  // arquivo mudado: a fotografia da sessão fica a primeira, e nada é regravado.
   escrever(proj, { disableAllHooks: true });
-  assert.deepEqual(fotografar(dados, [proj], agora + 1000), { ok: true });
-  assert.deepEqual(lerConfigBase(dados, agora + 1000).get(chaveDoArquivo(proj)), { at: agora + 1000, ...impressaoDoArquivo(proj) });
-  assert.equal(lerConfigBase(dados, agora + 1000).size, 2);
-  // Pasta de dados ou instante inválidos: nada gravado.
-  assert.deepEqual(fotografar(null, [proj], agora), { ok: false });
-  assert.deepEqual(fotografar(dados, [proj], Number.NaN), { ok: false });
+  const antes = fs.readFileSync(arqBase, 'utf8');
+  assert.deepEqual(fotografar(dados, 's1', [proj, local], agora + 1000), { ok: true });
+  assert.equal(fs.readFileSync(arqBase, 'utf8'), antes);
+  assert.deepEqual(lerConfigBase(dados, agora + 1000).get('s1').get(chaveDoArquivo(proj)), fotoProj);
+  // Um caminho novo na mesma sessão (outro cwd) entra; os que ela já tem, não.
+  const outroProj = path.join(novaPasta(), '.claude', 'settings.json');
+  assert.deepEqual(fotografar(dados, 's1', [proj, outroProj], agora + 2000), { ok: true });
+  const s1 = lerConfigBase(dados, agora + 2000).get('s1');
+  assert.deepEqual([...s1.keys()], [chaveDoArquivo(proj), chaveDoArquivo(local), chaveDoArquivo(outroProj)]);
+  assert.deepEqual(s1.get(chaveDoArquivo(proj)), fotoProj);
+  assert.deepEqual(s1.get(chaveDoArquivo(outroProj)), { at: agora + 2000, ...impressaoDe({}) });
+  // Outra sessão tira a sua, do arquivo de agora, sem mexer na da s1.
+  assert.deepEqual(fotografar(dados, 's2', [proj], agora + 3000), { ok: true });
+  const depois = lerConfigBase(dados, agora + 3000);
+  assert.deepEqual(depois.get('s2').get(chaveDoArquivo(proj)), { at: agora + 3000, ...impressaoDoArquivo(proj) });
+  assert.notEqual(depois.get('s2').get(chaveDoArquivo(proj)).impressao, fotoProj.impressao);
+  assert.deepEqual(depois.get('s1').get(chaveDoArquivo(proj)), fotoProj);
+  // Pasta de dados, sessão ou instante inválidos: nada gravado.
+  const vazia = novaPasta();
+  for (const id of [undefined, null, 42, '', '../x', '__proto__', 'a b', 'x'.repeat(65)]) {
+    assert.deepEqual(fotografar(vazia, id, [proj], agora), { ok: false }, String(id));
+  }
+  assert.deepEqual(fotografar(null, 's1', [proj], agora), { ok: false });
+  assert.deepEqual(fotografar(vazia, 's1', [proj], Number.NaN), { ok: false });
+  assert.equal(fs.existsSync(path.join(vazia, ARQ_CONFIG_BASE)), false);
   // Gravação que falha (o arquivo é uma pasta): ok false, sem lançar.
   const outra = novaPasta();
   fs.mkdirSync(path.join(outra, ARQ_CONFIG_BASE));
-  assert.deepEqual(fotografar(outra, [proj], agora), { ok: false });
+  assert.deepEqual(fotografar(outra, 's1', [proj], agora), { ok: false });
 });
 
 test('lerConfigBase: corrompido vira vazio; entrada fora da forma sai, as outras ficam', () => {
@@ -183,11 +208,14 @@ test('lerConfigBase: corrompido vira vazio; entrada fora da forma sai, as outras
   const arq = path.join(dados, ARQ_CONFIG_BASE);
   const boa = { at: new Date(agora - H).toISOString(), ...impressaoDe({ hooks: {} }) };
   const chave = path.join(os.tmpdir(), 'p', '.claude', 'settings.json');
-  for (const texto of ['{', '[]', 'null', '{"v":2,"arquivos":{}}', '{"v":1}', '{"v":1,"arquivos":[]}']) {
+  // O formato da primeira versão (v 1, um caminho para todas as sessões) não
+  // vale mais: vazio.
+  const v1 = JSON.stringify({ v: 1, arquivos: { [chave]: boa } });
+  for (const texto of ['{', '[]', 'null', v1, '{"v":2}', '{"v":2,"sessoes":[]}', '{"v":3,"sessoes":{}}']) {
     fs.writeFileSync(arq, texto);
     assert.equal(lerConfigBase(dados, agora).size, 0, texto);
   }
-  fs.writeFileSync(arq, JSON.stringify({ v: 1, arquivos: {
+  const fotos = {
     [chave]: boa,
     'relativo/settings.json': boa,
     [path.join(os.tmpdir(), 'futuro.json')]: { ...boa, at: new Date(agora + 2 * H).toISOString() },
@@ -196,10 +224,21 @@ test('lerConfigBase: corrompido vira vazio; entrada fora da forma sai, as outras
     [path.join(os.tmpdir(), 'campos-ruins.json')]: { ...boa, campos: { ...boa.campos, hooks: 1 } },
     [path.join(os.tmpdir(), 'ilegivel-com-campos.json')]: { ...boa, impressao: ILEGIVEL },
     [path.join(os.tmpdir(), 'ilegivel.json')]: { at: boa.at, impressao: ILEGIVEL, campos: null },
-  } }));
+  };
+  // Sessão com id fora do padrão (idValido) ou que não é objeto: sai inteira.
+  // O __proto__ vai pelo texto, que o JSON.parse lê como chave própria.
+  const texto = JSON.stringify({ v: 2, sessoes: { s1: fotos, '../x': { [chave]: boa }, 'a b': { [chave]: boa }, s2: [], s3: 'x', s4: { [chave]: boa } } })
+    .replace('"s3":"x"', `"s3":"x","__proto__":${JSON.stringify({ [chave]: boa })}`);
+  fs.writeFileSync(arq, texto);
   const base = lerConfigBase(dados, agora);
-  assert.deepEqual([...base.keys()], [chave, path.join(os.tmpdir(), 'ilegivel.json')]);
-  assert.deepEqual(base.get(chave), { at: agora - H, impressao: boa.impressao, campos: boa.campos });
+  assert.deepEqual([...base.keys()], ['s1', 's4']);
+  assert.deepEqual([...base.get('s1').keys()], [chave, path.join(os.tmpdir(), 'ilegivel.json')]);
+  assert.deepEqual(base.get('s1').get(chave), { at: agora - H, impressao: boa.impressao, campos: boa.campos });
+  assert.deepEqual(base.get('s4').get(chave), base.get('s1').get(chave));
+  // Sessão sem nenhuma entrada válida não aparece.
+  fs.writeFileSync(arq, JSON.stringify({ v: 2, sessoes: { s1: { 'relativo.json': boa }, s2: {} } }));
+  assert.equal(lerConfigBase(dados, agora).size, 0);
+  fs.writeFileSync(arq, texto);
   // Link no lugar do arquivo não é seguido.
   const fora = path.join(novaPasta(), 'fora.json');
   fs.copyFileSync(arq, fora);
@@ -212,46 +251,64 @@ test('lerConfigBase: corrompido vira vazio; entrada fora da forma sai, as outras
   assert.equal(lerConfigBase(dados, agora).size, 0);
 });
 
-test('a poda guarda os 200 caminhos mais novos pelo at, e o arquivo cabe no teto de leitura', () => {
+// As entradas (sessão, caminho) de um Map lido, na ordem do arquivo.
+const entradas = (base) => [...base].flatMap(([s, m]) => [...m].map(([c, e]) => [s, c, e]));
+
+test('a poda guarda as 600 entradas (sessão, caminho) mais novas pelo at, e o arquivo cabe no teto de leitura', () => {
   const dados = novaPasta();
   const agora = Date.now();
-  assert.equal(CONFIG_BASE_MAX, 200);
-  assert.equal(CONFIG_BASE_MAX_BYTES, 256 * 1024);
+  assert.equal(CONFIG_BASE_MAX, 600);
+  assert.equal(CONFIG_BASE_MAX_BYTES, 512 * 1024);
   const imp = impressaoDe({});
-  // 205 entradas com o at fora da ordem de inserção.
-  const idades = Array.from({ length: 205 }, (_, i) => (i * 37) % 205);
-  const arquivos = {};
-  for (const i of idades) arquivos[path.join(os.tmpdir(), `p${i}`, 'settings.json')] = { at: new Date(agora - (i + 1) * 60_000).toISOString(), ...imp };
-  fs.writeFileSync(path.join(dados, ARQ_CONFIG_BASE), JSON.stringify({ v: 1, arquivos }));
-  assert.equal(lerConfigBase(dados, agora).size, 205);
+  // 605 entradas, 3 por sessão (como o SessionStart grava), com o at fora da
+  // ordem de inserção e caminhos repetidos entre sessões.
+  const idades = Array.from({ length: 605 }, (_, i) => (i * 37) % 605);
+  const sessoes = {};
+  const ondeEsta = (i) => [`s${Math.floor(i / 3)}`, path.join(os.tmpdir(), `p${i % 7}`, `settings${i % 3}.json`)];
+  for (const i of idades) {
+    const [s, c] = ondeEsta(i);
+    (sessoes[s] ??= {})[c] = { at: new Date(agora - (i + 1) * 60_000).toISOString(), ...imp };
+  }
+  fs.writeFileSync(path.join(dados, ARQ_CONFIG_BASE), JSON.stringify({ v: 2, sessoes }));
+  assert.equal(entradas(lerConfigBase(dados, agora)).length, 605);
   const novo = path.join(novaPasta(), 'settings.json');
-  assert.deepEqual(fotografar(dados, [novo], agora), { ok: true });
+  assert.deepEqual(fotografar(dados, 'nova', [novo], agora), { ok: true });
   const base = lerConfigBase(dados, agora);
-  assert.equal(base.size, 200);
-  assert.ok(base.has(chaveDoArquivo(novo)));
-  // Saem as 6 mais velhas (idades 199 a 204 minutos).
-  for (let i = 0; i < 205; i++) assert.equal(base.has(path.join(os.tmpdir(), `p${i}`, 'settings.json')), i < 199, `p${i}`);
+  assert.equal(entradas(base).length, 600);
+  assert.ok(base.get('nova').has(chaveDoArquivo(novo)));
+  // Saem as 6 mais velhas (idades 599 a 604 minutos), mesmo que a sessão
+  // delas fique com parte das entradas.
+  for (let i = 0; i < 605; i++) {
+    const [s, c] = ondeEsta(i);
+    assert.equal(base.get(s)?.has(c) ?? false, i < 599, `${s} ${c}`);
+  }
+  assert.equal(base.has('s201'), false);
+  assert.deepEqual([...base.get('s199').keys()].sort(), [ondeEsta(597)[1], ondeEsta(598)[1]].sort());
   // Do mais velho para o mais novo.
-  const ats = [...base.values()].map((e) => e.at);
+  const ats = entradas(base).map(([, , e]) => e.at);
   assert.deepEqual(ats, [...ats].sort((a, b) => a - b));
+  // A sessão cuja fotografia saiu na poda fotografa de novo no próximo
+  // SessionStart dela (um resume antigo), com o arquivo de agora.
+  escrever(novo, { hooks: {} });
+  assert.deepEqual(fotografar(dados, 's200', [novo], agora + 1000), { ok: true });
+  assert.deepEqual(lerConfigBase(dados, agora + 1000).get('s200').get(chaveDoArquivo(novo)), { at: agora + 1000, ...impressaoDoArquivo(novo) });
 
-  // Caminhos longos: 200 entradas de 3 mil caracteres passariam do teto de
-  // leitura (o arquivo seria ilegível na próxima vez); saem as mais velhas
-  // até caber, e a fotografia de agora fica.
+  // Caminhos longos: 220 entradas de 3 mil caracteres (uns 750 KB) passariam
+  // do teto de leitura (o arquivo seria ilegível na próxima vez); saem as mais
+  // velhas até caber, e a fotografia de agora fica inteira.
   const longo = (letra, i) => path.join(os.tmpdir(), `${letra.repeat(3000)}${i}`, 'settings.json');
   const velhos = {};
-  for (let i = 0; i < 60; i++) velhos[longo('l', i)] = { at: new Date(agora - (i + 1) * 60_000).toISOString(), ...imp };
-  fs.writeFileSync(path.join(dados, ARQ_CONFIG_BASE), JSON.stringify({ v: 1, arquivos: velhos }));
-  assert.equal(lerConfigBase(dados, agora).size, 60);
-  const muitos = Array.from({ length: 40 }, (_, i) => longo('m', i));
-  assert.deepEqual(fotografar(dados, [...muitos, novo], agora), { ok: true });
+  for (let i = 0; i < 120; i++) velhos[`v${i}`] = { [longo('l', i)]: { at: new Date(agora - (i + 1) * 60_000).toISOString(), ...imp } };
+  fs.writeFileSync(path.join(dados, ARQ_CONFIG_BASE), JSON.stringify({ v: 2, sessoes: velhos }));
+  assert.equal(lerConfigBase(dados, agora).size, 120);
+  const muitos = Array.from({ length: 100 }, (_, i) => longo('m', i));
+  assert.deepEqual(fotografar(dados, 'nova', [...muitos, novo], agora), { ok: true });
   assert.ok(fs.statSync(path.join(dados, ARQ_CONFIG_BASE)).size <= CONFIG_BASE_MAX_BYTES);
   const depois = lerConfigBase(dados, agora);
-  assert.ok(depois.size > 41 && depois.size < 101, String(depois.size));
-  assert.ok(depois.has(chaveDoArquivo(novo)));
-  for (const m of muitos) assert.ok(depois.has(chaveDoArquivo(m)));
+  assert.equal(depois.get('nova').size, 101);
+  assert.ok(depois.size > 1 && depois.size < 121, String(depois.size));
   // Dos velhos, ficam os mais novos.
-  const ficaram = Object.keys(velhos).map((k) => depois.has(k));
+  const ficaram = Object.keys(velhos).map((s) => depois.has(s));
   assert.deepEqual(ficaram, ficaram.map((_, i) => i < ficaram.filter(Boolean).length));
 });
 
@@ -262,50 +319,61 @@ test('mudancaNaGuarda: o primeiro campo que mudou, na ordem disableAllHooks, ena
   const agora = Date.now();
   const inicial = { disableAllHooks: false, enabledPlugins: { 'claude-hadouken@m': true }, hooks: { Stop: [] }, model: 'a' };
   escrever(arq, inicial);
-  fotografar(dados, [arq], agora);
-  assert.equal(mudancaNaGuarda(dados, arq, agora), null);
+  fotografar(dados, 's1', [arq], agora);
+  assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), null);
   escrever(arq, { ...inicial, model: 'b', theme: 'x' });
-  assert.equal(mudancaNaGuarda(dados, arq, agora), null);
+  assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), null);
   escrever(arq, { ...inicial, hooks: {} });
-  assert.equal(mudancaNaGuarda(dados, arq, agora), 'hooks');
+  assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), 'hooks');
   escrever(arq, { ...inicial, hooks: {}, enabledPlugins: { 'claude-hadouken@m': false } });
-  assert.equal(mudancaNaGuarda(dados, arq, agora), 'enabledPlugins');
+  assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), 'enabledPlugins');
   escrever(arq, { ...inicial, hooks: {}, disableAllHooks: true });
-  assert.equal(mudancaNaGuarda(dados, arq, agora), 'disableAllHooks');
+  assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), 'disableAllHooks');
   escrever(arq, { enabledPlugins: { 'claude-hadouken@m': true }, hooks: { Stop: [] }, model: 'a' });
-  assert.equal(mudancaNaGuarda(dados, arq, agora), 'disableAllHooks', 'apagar a chave também é mudar');
+  assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), 'disableAllHooks', 'apagar a chave também é mudar');
   escrever(arq, '{ quebrado');
-  assert.equal(mudancaNaGuarda(dados, arq, agora), 'ilegivel');
-  // Fotografia ilegível: qualquer arquivo legível difere, com detalhe ilegivel;
-  // ilegível dos dois lados não muda.
-  fotografar(dados, [arq], agora);
-  assert.equal(mudancaNaGuarda(dados, arq, agora), null);
+  assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), 'ilegivel');
+  // Fotografia ilegível (a s2 começou com o arquivo quebrado): qualquer
+  // arquivo legível difere, com detalhe ilegivel; ilegível dos dois lados não
+  // muda.
+  fotografar(dados, 's2', [arq], agora);
+  assert.equal(mudancaNaGuarda(dados, 's2', arq, agora), null);
   escrever(arq, inicial);
-  assert.equal(mudancaNaGuarda(dados, arq, agora), 'ilegivel');
+  assert.equal(mudancaNaGuarda(dados, 's2', arq, agora), 'ilegivel');
+  assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), null);
+  // Cada sessão só com a sua: a s3, sem fotografia, compara com o arquivo
+  // ausente, mesmo com a da s1 igual ao arquivo de agora. Id inválido, o mesmo.
+  for (const id of ['s3', undefined, 42, '../x', '__proto__']) assert.equal(mudancaNaGuarda(dados, id, arq, agora), 'disableAllHooks', String(id));
   // Sem fotografia: compara com o arquivo ausente.
   const outro = path.join(novaPasta(), '.claude', 'settings.local.json');
-  assert.equal(mudancaNaGuarda(dados, outro, agora), null);
+  assert.equal(mudancaNaGuarda(dados, 's1', outro, agora), null);
   escrever(outro, { model: 'x', permissions: {} });
-  assert.equal(mudancaNaGuarda(dados, outro, agora), null);
+  assert.equal(mudancaNaGuarda(dados, 's1', outro, agora), null);
   escrever(outro, { hooks: {} });
-  assert.equal(mudancaNaGuarda(dados, outro, agora), 'hooks');
+  assert.equal(mudancaNaGuarda(dados, 's1', outro, agora), 'hooks');
 });
 
 test('decisaoConfig: só as três origens; sem file_path, projeto e local bloqueiam (sem-caminho)', () => {
   const dados = novaPasta();
   const arq = path.join(novaPasta(), '.claude', 'settings.json');
-  escrever(arq, { disableAllHooks: true });
+  escrever(arq, { model: 'opus' });
   const agora = Date.now();
+  fotografar(dados, 's1', [arq], agora);
+  escrever(arq, { disableAllHooks: true });
   for (const source of ['policy_settings', 'skills', undefined, null, 42, 'PROJECT_SETTINGS', '']) {
-    assert.equal(decisaoConfig(dados, source, arq, agora), null, String(source));
-    assert.equal(decisaoConfig(dados, source, undefined, agora), null, String(source));
+    assert.equal(decisaoConfig(dados, 's1', source, arq, agora), null, String(source));
+    assert.equal(decisaoConfig(dados, 's1', source, undefined, agora), null, String(source));
   }
-  for (const source of ['user_settings', 'project_settings', 'local_settings']) assert.equal(decisaoConfig(dados, source, arq, agora), 'disableAllHooks', source);
+  for (const source of ['user_settings', 'project_settings', 'local_settings']) assert.equal(decisaoConfig(dados, 's1', source, arq, agora), 'disableAllHooks', source);
   for (const fp of [undefined, null, 42, {}, ['a'], '', 'relativo/.claude/settings.json']) {
-    assert.equal(decisaoConfig(dados, 'project_settings', fp, agora), 'sem-caminho', JSON.stringify(fp));
-    assert.equal(decisaoConfig(dados, 'local_settings', fp, agora), 'sem-caminho', JSON.stringify(fp));
-    assert.equal(decisaoConfig(dados, 'user_settings', fp, agora), null, JSON.stringify(fp));
+    assert.equal(decisaoConfig(dados, 's1', 'project_settings', fp, agora), 'sem-caminho', JSON.stringify(fp));
+    assert.equal(decisaoConfig(dados, 's1', 'local_settings', fp, agora), 'sem-caminho', JSON.stringify(fp));
+    assert.equal(decisaoConfig(dados, 's1', 'user_settings', fp, agora), null, JSON.stringify(fp));
   }
+  // A fotografia de quem pergunta: a s2, que começou com o arquivo de agora, aceita.
+  fotografar(dados, 's2', [arq], agora);
+  assert.equal(decisaoConfig(dados, 's2', 'project_settings', arq, agora), null);
+  assert.equal(decisaoConfig(dados, 's1', 'project_settings', arq, agora), 'disableAllHooks');
 });
 
 // --- hooks em processo filho ---------------------------------------------------
@@ -353,8 +421,8 @@ function rodar(c, script, entrada, argsNode = []) {
   });
 }
 const SAIDA_INICIO = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'Consumo ainda sem leitura nesta máquina.' } };
-function inicio(c, { id = 's1', cwd = c.projeto, argsNode } = {}) {
-  const r = rodar(c, 'session-start.js', { session_id: id, hook_event_name: 'SessionStart', source: 'startup', cwd, model: 'claude-opus-5' }, argsNode);
+function inicio(c, { id = 's1', cwd = c.projeto, source = 'startup', argsNode } = {}) {
+  const r = rodar(c, 'session-start.js', { session_id: id, hook_event_name: 'SessionStart', source, cwd, model: 'claude-opus-5' }, argsNode);
   // A saída do SessionStart não muda com a fotografia.
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
@@ -388,8 +456,9 @@ test('hook: SessionStart fotografa os três settings; o ConfigChange com os mesm
   escrever(c.local, { disableAllHooks: false });
   inicio(c);
   const base = lerConfigBase(c.dados, Date.now());
-  assert.deepEqual([...base.keys()].sort(), [chaveDoArquivo(c.usuario), chaveDoArquivo(c.proj), chaveDoArquivo(c.local)].sort());
-  assert.deepEqual(base.get(chaveDoArquivo(c.proj)).impressao, impressaoDoArquivo(c.proj).impressao);
+  assert.deepEqual([...base.keys()], ['s1']);
+  assert.deepEqual([...base.get('s1').keys()].sort(), [chaveDoArquivo(c.usuario), chaveDoArquivo(c.proj), chaveDoArquivo(c.local)].sort());
+  assert.deepEqual(base.get('s1').get(chaveDoArquivo(c.proj)).impressao, impressaoDoArquivo(c.proj).impressao);
   semSaida(config(c, mudanca(c, c.proj)));
   semSaida(config(c, mudanca(c, c.local, { source: 'local_settings' })));
   semSaida(config(c, mudanca(c, c.usuario, { source: 'user_settings' })));
@@ -411,11 +480,66 @@ test('hook: disableAllHooks true, enabledPlugins mudado e hooks: {} acrescentado
   bloqueado(config(c, mudanca(c, c.local, { source: 'local_settings' })));
   assert.deepEqual(eventos(c, 'config-bloqueada'), ['disableAllHooks', 'enabledPlugins', 'hooks']);
   // O arquivo no disco continua mudado (o bloqueio é da sessão): o próximo
-  // ConfigChange do mesmo arquivo segue bloqueado, até a próxima fotografia.
+  // ConfigChange do mesmo arquivo segue bloqueado na s1.
   escrever(c.proj, { model: 'sonnet', disableAllHooks: true });
   bloqueado(config(c, mudanca(c, c.proj)));
-  inicio(c, { id: 's2' });
-  semSaida(config(c, mudanca(c, c.proj, { id: 's2' })));
+});
+
+test('hook: compact, clear e resume da mesma sessão não regravam a fotografia: a mudança segurada segue segurada', () => {
+  const c = cenario();
+  escrever(c.proj, { model: 'opus', enabledPlugins: { 'claude-hadouken@hadouken': true } });
+  inicio(c);
+  const foto = fs.readFileSync(path.join(c.dados, ARQ_CONFIG_BASE), 'utf8');
+  escrever(c.proj, { model: 'opus', enabledPlugins: { 'claude-hadouken@hadouken': false } });
+  bloqueado(config(c, mudanca(c, c.proj)));
+  for (const source of ['compact', 'clear', 'resume', 'startup']) {
+    inicio(c, { source });
+    assert.equal(fs.readFileSync(path.join(c.dados, ARQ_CONFIG_BASE), 'utf8'), foto, source);
+    // Qualquer escrita depois (aqui, só o model) continua comparando com a
+    // fotografia do começo da sessão.
+    escrever(c.proj, { model: source, enabledPlugins: { 'claude-hadouken@hadouken': false } });
+    bloqueado(config(c, mudanca(c, c.proj)));
+  }
+  assert.deepEqual(eventos(c, 'config-bloqueada'), Array(5).fill('enabledPlugins'));
+  assert.deepEqual(eventos(c, 'erro'), []);
+});
+
+test('hook: a sessão B, aberta depois da mudança, aceita o arquivo novo; a A continua segurando', () => {
+  const c = cenario();
+  escrever(c.proj, { model: 'opus' });
+  inicio(c, { id: 'sA' });
+  escrever(c.proj, { model: 'opus', disableAllHooks: true });
+  bloqueado(config(c, mudanca(c, c.proj, { id: 'sA' })));
+  inicio(c, { id: 'sB' });
+  semSaida(config(c, mudanca(c, c.proj, { id: 'sB' })));
+  bloqueado(config(c, mudanca(c, c.proj, { id: 'sA' })));
+  // Um compact da A depois do início da B não troca a base da A.
+  inicio(c, { id: 'sA', source: 'compact' });
+  bloqueado(config(c, mudanca(c, c.proj, { id: 'sA' })));
+  // A B segura o que muda a partir da fotografia dela.
+  escrever(c.proj, { model: 'opus', disableAllHooks: true, hooks: {} });
+  bloqueado(config(c, mudanca(c, c.proj, { id: 'sB' })));
+  assert.deepEqual(eventos(c, 'config-bloqueada'), ['disableAllHooks', 'disableAllHooks', 'disableAllHooks', 'hooks']);
+});
+
+test('hook: a fotografia de outra sessão nunca é usada', () => {
+  const c = cenario();
+  escrever(c.proj, { hooks: { Stop: [] } });
+  inicio(c, { id: 'sA' });
+  inicio(c, { id: 'sB' });
+  // A fotografia da B some (corrida ou poda); a da A, igual ao arquivo, fica.
+  const arq = path.join(c.dados, ARQ_CONFIG_BASE);
+  const cru = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  assert.deepEqual(Object.keys(cru.sessoes).sort(), ['sA', 'sB']);
+  delete cru.sessoes.sB;
+  fs.writeFileSync(arq, JSON.stringify(cru));
+  // A B compara com o arquivo ausente, não com a fotografia da A.
+  bloqueado(config(c, mudanca(c, c.proj, { id: 'sB' })));
+  semSaida(config(c, mudanca(c, c.proj, { id: 'sA' })));
+  // Uma sessão registrada com outro id também não usa a da A.
+  inicio(c, { id: 'sC', argsNode: quebraHash(c) });
+  bloqueado(config(c, mudanca(c, c.proj, { id: 'sC' })));
+  assert.deepEqual(eventos(c, 'config-bloqueada'), ['hooks', 'hooks']);
 });
 
 test('hook: mudança só em model passa; policy_settings e skills passam sempre', () => {
@@ -470,12 +594,18 @@ test('hook: config-base.json corrompido não derruba: sem fotografia, compara co
   escrever(c.proj, { hooks: { Stop: [] } });
   escrever(c.local, { model: 'opus' });
   inicio(c);
-  for (const lixo of ['{', '[]', '{"v":1,"arquivos":"x"}', 'x'.repeat(300 * 1024)]) {
-    fs.writeFileSync(path.join(c.dados, ARQ_CONFIG_BASE), lixo);
+  const arq = path.join(c.dados, ARQ_CONFIG_BASE);
+  const cru = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  // A fotografia boa, mas num arquivo acima do teto de leitura; e no formato
+  // da primeira versão (v 1, sem sessão).
+  const grande = JSON.stringify({ ...cru, folga: 'x'.repeat(CONFIG_BASE_MAX_BYTES) });
+  const v1 = JSON.stringify({ v: 1, arquivos: cru.sessoes.s1 });
+  for (const lixo of ['{', '[]', '{"v":2,"sessoes":"x"}', grande, v1]) {
+    fs.writeFileSync(arq, lixo);
     bloqueado(config(c, mudanca(c, c.proj)));
     semSaida(config(c, mudanca(c, c.local, { source: 'local_settings' })));
   }
-  assert.deepEqual(eventos(c, 'config-bloqueada'), ['hooks', 'hooks', 'hooks', 'hooks']);
+  assert.deepEqual(eventos(c, 'config-bloqueada'), Array(5).fill('hooks'));
   assert.deepEqual(eventos(c, 'erro'), []);
 });
 

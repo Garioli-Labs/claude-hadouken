@@ -16,7 +16,9 @@ import { sessaoAtiva } from '../ativas.js';
 // enabledPlugins e de hooks: {}). O arquivo no disco fica mudado; a próxima
 // sessão o lê.
 // A decisão (decisaoConfig em guarda/config-base.js) compara a impressão
-// atual dos três campos com a fotografia que o SessionStart tirou:
+// atual dos três campos com a fotografia que o primeiro SessionStart desta
+// sessão tirou (a do session_id do stdin; a de outra sessão nunca vale, fix
+// round 1):
 // - source fora de user_settings, project_settings e local_settings: passa;
 // - diferente: bloqueia com CONFIG_BLOQUEADA_TEXTO e o evento
 //   'config-bloqueada' (o primeiro campo que mudou, 'ilegivel' ou
@@ -42,7 +44,7 @@ rodarHook(async (entrada) => {
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   await falharAberto(dir, 'P5:config', agoraMs, async () => {
     const [cfg, msg] = await Promise.all([import('../guarda/config-base.js'), import('../guarda/mensagens.js')]);
-    const detalhe = cfg.decisaoConfig(dir, entrada.source, entrada.file_path, agoraMs);
+    const detalhe = cfg.decisaoConfig(dir, sessionId, entrada.source, entrada.file_path, agoraMs);
     if (detalhe === null) return;
     emitirJson({ decision: 'block', reason: msg.CONFIG_BLOQUEADA_TEXTO });
     try {

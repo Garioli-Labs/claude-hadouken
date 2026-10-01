@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { gravarJsonAtomico, lerLimitado } from '../estado.js';
-import { caminhoDoAmbiente, instante, numeroFinito } from '../base.js';
+import { caminhoDoAmbiente, idValido, instante, numeroFinito } from '../base.js';
 import { lerSemLink } from './arquivo.js';
 import { caminhoComparavel } from './caminho.js';
 
@@ -12,12 +12,18 @@ import { caminhoComparavel } from './caminho.js';
 // qualquer escrita pelo shell, ou do próprio usuário) num settings que liga
 // disableAllHooks, desliga o plugin em enabledPlugins ou mexe em hooks.
 // - O SessionStart grava em <dirDados>/config-base.json a impressão dos três
-//   campos de cada settings da sessão (settingsDaSessao), sob a chave do
-//   caminho normalizado (caminhoComparavel: caminho real, 8.3 e caixa no
-//   win32, a mesma regra da P5).
+//   campos de cada settings da sessão (settingsDaSessao), sob a chave
+//   (session_id, caminho normalizado) (caminhoComparavel: caminho real, 8.3 e
+//   caixa no win32, a mesma regra da P5). Só a primeira vez da sessão grava
+//   (fix round 1 da Task 19b): um compact, clear ou resume da mesma sessão
+//   acha a fotografia dela e não a troca, senão a mudança segurada viraria a
+//   base e passaria na escrita seguinte.
 // - O hook ConfigChange (hooks/guarda-config.js) compara a impressão atual do
-//   arquivo com a da fotografia (decisaoConfig) e bloqueia o que mudou. Sem
-//   fotografia do caminho, compara com a do arquivo ausente.
+//   arquivo com a fotografia da própria sessão (decisaoConfig) e bloqueia o
+//   que mudou. A de outra sessão nunca vale: uma sessão aberta depois da
+//   mudança não solta a que a segurou. Sem fotografia da sessão para o
+//   caminho (corrida de dois SessionStart, poda), compara com a do arquivo
+//   ausente.
 // Fatos medidos no S13 (Claude Code 2.1.287, Windows): o ConfigChange não
 // traz conteúdo velho nem novo, só o file_path absoluto; o
 // {"decision":"block"} segura a mudança nesta sessão, e o arquivo no disco
@@ -29,11 +35,14 @@ import { caminhoComparavel } from './caminho.js';
 export const ARQ_CONFIG_BASE = 'config-base.json';
 export const CAMPOS_GUARDA = Object.freeze(['disableAllHooks', 'enabledPlugins', 'hooks']);
 export const ILEGIVEL = 'ilegivel';
-// No máximo 200 caminhos (saem os de `at` mais velho) e 256 KiB na leitura;
-// a gravação poda até caber no teto, para nunca deixar um arquivo que a
-// próxima leitura recusaria.
-export const CONFIG_BASE_MAX = 200;
-export const CONFIG_BASE_MAX_BYTES = 256 * 1024;
+// No máximo 600 entradas (sessão, caminho), umas 200 sessões de três
+// settings; saem as de `at` mais velho. Teto de leitura de 512 KiB: uma
+// entrada tem uns 370 bytes além do caminho, e 600 delas com caminhos comuns
+// passam dos 256 KiB da primeira versão. A gravação ainda poda até caber no
+// teto (caminhos muito longos), para nunca deixar um arquivo que a próxima
+// leitura recusaria.
+export const CONFIG_BASE_MAX = 600;
+export const CONFIG_BASE_MAX_BYTES = 512 * 1024;
 // Teto do settings lido: 1 MiB (o mesmo da leitura da P5). Acima dele, o
 // arquivo é ilegível.
 export const SETTINGS_MAX_BYTES = 1_048_576;
@@ -186,23 +195,32 @@ function fotoValida(e) {
   return { impressao: e.impressao, campos };
 }
 
-// Map chave → { at (ms), impressao, campos }, do mais velho para o mais novo
-// na ordem do arquivo. Leitura como a dos outros arquivos novos da guarda
-// (lerSemLink: lstat antes, link não é seguido, teto de 256 KiB). Ilegível
-// ou fora da forma: vazio (sem fotografia, o hook compara com o arquivo
-// ausente). Entrada fora da forma, com `at` inválido ou no futuro, ou com
-// chave que não é caminho absoluto: sai, e as outras ficam. Nunca lança.
+// Map session_id → Map chave → { at (ms), impressao, campos }, na ordem do
+// arquivo. Arquivo: { v: 2, sessoes: { <session_id>: { <chave>: { at,
+// impressao, campos } } } }. Leitura como a dos outros arquivos novos da
+// guarda (lerSemLink: lstat antes, link não é seguido, teto de 512 KiB).
+// Ilegível, fora da forma ou de outra versão (a v 1, sem sessão): vazio (sem
+// fotografia, o hook compara com o arquivo ausente). Sessão com id fora do
+// padrão (idValido) ou que não é objeto: sai inteira. Entrada fora da forma,
+// com `at` inválido ou no futuro, ou com chave que não é caminho absoluto:
+// sai, e as outras ficam. Sessão sem nenhuma entrada válida não aparece.
+// Nunca lança.
 export function lerConfigBase(dir, agoraMs) {
   const r = new Map();
   try {
     if (typeof dir !== 'string') return r;
     const lido = lerSemLink(path.join(dir, ARQ_CONFIG_BASE), CONFIG_BASE_MAX_BYTES);
-    if (!lido.ok || !ehObjeto(lido.valor) || lido.valor.v !== 1 || !ehObjeto(lido.valor.arquivos)) return r;
-    for (const [chave, e] of Object.entries(lido.valor.arquivos)) {
-      if (!absoluto(chave) || !ehObjeto(e)) continue;
-      const at = instante(e.at, agoraMs);
-      const foto = fotoValida(e);
-      if (at !== null && foto !== null) r.set(chave, { at, ...foto });
+    if (!lido.ok || !ehObjeto(lido.valor) || lido.valor.v !== 2 || !ehObjeto(lido.valor.sessoes)) return r;
+    for (const [sessao, fotos] of Object.entries(lido.valor.sessoes)) {
+      if (!idValido(sessao) || !ehObjeto(fotos)) continue;
+      const daSessao = new Map();
+      for (const [chave, e] of Object.entries(fotos)) {
+        if (!absoluto(chave) || !ehObjeto(e)) continue;
+        const at = instante(e.at, agoraMs);
+        const foto = fotoValida(e);
+        if (at !== null && foto !== null) daSessao.set(chave, { at, ...foto });
+      }
+      if (daSessao.size > 0) r.set(sessao, daSessao);
     }
     return r;
   } catch {
@@ -210,47 +228,63 @@ export function lerConfigBase(dir, agoraMs) {
   }
 }
 
-const tamanho = (chave, e) => Buffer.byteLength(JSON.stringify(chave), 'utf8') + Buffer.byteLength(JSON.stringify(e), 'utf8') + 2;
+// Bytes de uma entrada no arquivo: a chave e o valor e, por folga, o id da
+// sessão de novo (conta a mais quando a sessão tem várias entradas, nunca a
+// menos).
+const tamanho = (sessao, chave, e) => Buffer.byteLength(JSON.stringify(sessao), 'utf8') + Buffer.byteLength(JSON.stringify(chave), 'utf8')
+  + Buffer.byteLength(JSON.stringify(e), 'utf8') + 6;
 
-// Fotografa os arquivos (a impressão de agora, sob a chave de cada um) sobre
-// o que config-base.json já tem, e grava atômico (gravarJsonAtomico, como os
-// outros arquivos da pasta de dados). Ficam os CONFIG_BASE_MAX caminhos de
-// `at` mais novo e, deles, os mais novos que cabem em CONFIG_BASE_MAX_BYTES.
-// Arquivo sem chave (relativo) fica de fora. Devolve { ok }. Uma falha do
-// hash sobe (o SessionStart registra 'erro' config-foto); a gravação que
-// falha devolve ok false.
-export function fotografar(dir, arquivos, agoraMs) {
-  if (typeof dir !== 'string' || !numeroFinito(agoraMs)) return { ok: false };
+// Fotografa os arquivos da sessão (regra 1 da Task 19b, com o fix round 1):
+// cada (session_id, chave) que config-base.json ainda não tem ganha a
+// impressão de agora; a que já existe fica como está (a base da sessão é a do
+// primeiro SessionStart dela). Sem nada novo, não grava. Com algo novo, grava
+// atômico (gravarJsonAtomico, como os outros arquivos da pasta de dados): ficam
+// as CONFIG_BASE_MAX entradas de `at` mais novo e, delas, as mais novas que
+// cabem em CONFIG_BASE_MAX_BYTES. Uma sessão cuja fotografia saiu na poda
+// fotografa de novo no próximo SessionStart dela. Arquivo sem chave
+// (relativo) fica de fora. Devolve { ok }. Uma falha do hash sobe (o
+// SessionStart registra 'erro' config-foto); a gravação que falha devolve ok
+// false.
+export function fotografar(dir, sessionId, arquivos, agoraMs) {
+  if (typeof dir !== 'string' || !idValido(sessionId) || !numeroFinito(agoraMs)) return { ok: false };
   const base = lerConfigBase(dir, agoraMs);
+  const daSessao = base.get(sessionId) ?? new Map();
+  let novas = 0;
   for (const arquivo of Array.isArray(arquivos) ? arquivos : []) {
     const chave = chaveDoArquivo(arquivo);
-    if (chave === null) continue;
-    const foto = impressaoDoArquivo(arquivo);
-    base.delete(chave);
-    base.set(chave, { at: agoraMs, ...foto });
+    if (chave === null || daSessao.has(chave)) continue;
+    daSessao.set(chave, { at: agoraMs, ...impressaoDoArquivo(arquivo) });
+    novas++;
   }
+  if (novas === 0) return { ok: true };
+  base.set(sessionId, daSessao);
   // sort estável: com o mesmo `at`, vale a ordem de inserção.
   const lista = [...base]
-    .sort((a, b) => a[1].at - b[1].at)
+    .flatMap(([sessao, fotos]) => [...fotos].map(([chave, e]) => [sessao, chave, e]))
+    .sort((a, b) => a[2].at - b[2].at)
     .slice(-CONFIG_BASE_MAX)
-    .map(([chave, e]) => [chave, { at: new Date(e.at).toISOString(), impressao: e.impressao, campos: e.campos }]);
-  const tamanhos = lista.map(([chave, e]) => tamanho(chave, e));
-  // {"v":1,"arquivos":{}} e folga.
+    .map(([sessao, chave, e]) => [sessao, chave, { at: new Date(e.at).toISOString(), impressao: e.impressao, campos: e.campos }]);
+  const tamanhos = lista.map(([sessao, chave, e]) => tamanho(sessao, chave, e));
+  // {"v":2,"sessoes":{}} e folga.
   let total = 64 + tamanhos.reduce((s, t) => s + t, 0);
   let inicio = 0;
   while (inicio < lista.length && total > CONFIG_BASE_MAX_BYTES) total -= tamanhos[inicio++];
-  const valor = { v: 1, arquivos: Object.fromEntries(lista.slice(inicio)) };
-  return { ok: gravarJsonAtomico(path.join(dir, ARQ_CONFIG_BASE), valor, { compacto: true }).ok };
+  // Objetos sem protótipo: id e caminho já validados viram só chaves próprias.
+  const sessoes = Object.create(null);
+  for (const [sessao, chave, e] of lista.slice(inicio)) (sessoes[sessao] ??= Object.create(null))[chave] = e;
+  return { ok: gravarJsonAtomico(path.join(dir, ARQ_CONFIG_BASE), { v: 2, sessoes }, { compacto: true }).ok };
 }
 
-// O que mudou no arquivo desde a fotografia: null (nada nos três campos) ou o
-// detalhe do evento 'config-bloqueada' — o primeiro campo que mudou, na ordem
-// de CAMPOS_GUARDA, ou 'ilegivel' quando o arquivo atual (ou o fotografado)
-// não se lê. Sem fotografia para a chave, a base é o arquivo ausente.
-export function mudancaNaGuarda(dir, arquivo, agoraMs) {
+// O que mudou no arquivo desde a fotografia da sessão: null (nada nos três
+// campos) ou o detalhe do evento 'config-bloqueada' — o primeiro campo que
+// mudou, na ordem de CAMPOS_GUARDA, ou 'ilegivel' quando o arquivo atual (ou
+// o fotografado) não se lê. Só vale a fotografia da própria sessão; sem ela
+// para a chave (ou com id inválido), a base é o arquivo ausente.
+export function mudancaNaGuarda(dir, sessionId, arquivo, agoraMs) {
   const chave = chaveDoArquivo(arquivo);
   const atual = impressaoDoArquivo(arquivo);
-  const base = (chave === null ? undefined : lerConfigBase(dir, agoraMs).get(chave)) ?? impressaoAusente();
+  const fotos = chave !== null && idValido(sessionId) ? lerConfigBase(dir, agoraMs).get(sessionId) : undefined;
+  const base = fotos?.get(chave) ?? impressaoAusente();
   if (atual.impressao === base.impressao) return null;
   if (atual.campos === null || base.campos === null) return ILEGIVEL;
   // Impressões diferentes com os três campos iguais só com um
@@ -261,9 +295,10 @@ export function mudancaNaGuarda(dir, arquivo, agoraMs) {
 // A decisão do hook ConfigChange (regra 2 da Task 19b): null passa; um texto
 // é o detalhe do bloqueio. source fora das três origens: passa. file_path que
 // não é caminho absoluto (ausente, não texto, vazio, relativo): bloqueia
-// ('sem-caminho') nos settings de projeto e locais e passa nos do usuário.
-export function decisaoConfig(dir, source, filePath, agoraMs) {
+// ('sem-caminho') nos settings de projeto e locais e passa nos do usuário. A
+// comparação é com a fotografia da sessão sessionId (o session_id do stdin).
+export function decisaoConfig(dir, sessionId, source, filePath, agoraMs) {
   if (!ORIGENS.includes(source)) return null;
   if (!absoluto(filePath)) return ORIGENS_SEM_CAMINHO.includes(source) ? 'sem-caminho' : null;
-  return mudancaNaGuarda(dir, filePath, agoraMs);
+  return mudancaNaGuarda(dir, sessionId, filePath, agoraMs);
 }

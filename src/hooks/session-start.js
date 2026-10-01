@@ -21,9 +21,10 @@ import { registrarSessao } from '../ativas.js';
 // 5. grava a marca da guarda e o modelo da sessão (spec v0.4.0 §4.3);
 // 6. fotografa os campos da guarda (disableAllHooks, enabledPlugins, hooks)
 //    dos três settings da sessão em <dirDados>/config-base.json, a base do
-//    hook ConfigChange (Task 19b, guarda/config-base.js). Em toda origem. A
-//    fotografia nunca derruba nem muda a saída: erro vira o evento 'erro'
-//    config-foto.
+//    hook ConfigChange (Task 19b, guarda/config-base.js). Roda em toda origem,
+//    mas só grava o que a sessão ainda não tem: um compact, clear ou resume
+//    da mesma sessão não troca a base dela (fix round 1). A fotografia nunca
+//    derruba nem muda a saída: erro vira o evento 'erro' config-foto.
 // session_id ausente ou inválido, ou sem diretório de dados: nenhum registro,
 // nenhuma linha, nenhuma escrita. O mesmo dentro de um subagente
 // (dentroDeSubagente, spec v0.4.0 §10, item 3).
@@ -97,15 +98,16 @@ rodarHook(async (entrada) => {
   });
   // Task 19b: a fotografia dos settings da sessão (o do usuário e os dois do
   // projeto no cwd; sem cwd absoluto na entrada, o do processo, que o Claude
-  // Code abre no projeto). Exceção (o hash, a casa que não se lê) ou gravação
-  // que falha: 'erro' config-foto, e o SessionStart segue igual.
+  // Code abre no projeto), sob o session_id; o que a sessão já tem fica.
+  // Exceção (o hash, a casa que não se lê) ou gravação que falha: 'erro'
+  // config-foto, e o SessionStart segue igual.
   await falharAberto(dir, 'config-foto', agoraMs, async () => {
     const foto = await import('../guarda/config-base.js');
     const cwd = typeof entrada.cwd === 'string' && path.isAbsolute(entrada.cwd) ? entrada.cwd : process.cwd();
     let casa = null;
     try { casa = os.homedir(); } catch { /* sem casa: o do usuário só pelo CLAUDE_CONFIG_DIR */ }
     const arquivos = foto.settingsDaSessao({ cwd, configDir: process.env.CLAUDE_CONFIG_DIR, casa });
-    if (!foto.fotografar(dir, arquivos, agoraMs).ok) (await import('../guarda/registros.js')).anexarEvento(dir, 'erro', 'config-foto', agoraMs);
+    if (!foto.fotografar(dir, sessionId, arquivos, agoraMs).ok) (await import('../guarda/registros.js')).anexarEvento(dir, 'erro', 'config-foto', agoraMs);
   });
   const [{ sincronizarShims }, { ARQ_ESTADO, lerJson, validarEstado, leiturasComPiso, ultimaLeitura }, linhas] = await Promise.all([
     import('../shim.js'),
