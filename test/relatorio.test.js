@@ -1186,7 +1186,7 @@ const guarda = (extra = {}) => ({
   disparos: { G1: 0, G2: 1, G3: 0, G4: 0, G5: 0, G6: 0, G7: 2 },
   negados: 3, negadosCaro: 1, prompts: 1, trocas: 0, liberacoes: 2, recusadas: 1,
   escopos: [{ at: new Date(agora - 3_600_000).toISOString(), prazo: '3h', minutos: 180, fable: true, caro: true }],
-  desconhecidos: 1, filhas: 0, arquivos: 0, protegidos: 2, erros: 0,
+  desconhecidos: 1, filhas: 0, arquivos: 0, protegidos: 2, configs: 3, erros: 0,
   limites: { fable: new Date(agora - 7_200_000).toISOString(), geral: null }, parcial: false, ...extra,
 });
 
@@ -1205,6 +1205,13 @@ test('guarda: chave depois de sessoesAbertas, revalidada; sem resumo, null e nen
   assert.deepEqual(hostil.limites, { fable: null, geral: null });
   assert.equal(hostil.parcial, false);
   assert.equal(Object.hasOwn(hostil, 'extra'), false);
+  // Task 19b: configs entre protegidos e erros; ausente ou inválido vira 0.
+  const kg = Object.keys(r.guarda);
+  assert.deepEqual(kg.slice(kg.indexOf('protegidos'), kg.indexOf('erros') + 1), ['protegidos', 'configs', 'erros']);
+  assert.equal(montarRelatorio({ estado, agoraMs: agora, claude, github, guarda: guarda({ configs: -2 }) }).guarda.configs, 0);
+  const semConfigs = guarda();
+  delete semConfigs.configs;
+  assert.equal(montarRelatorio({ estado, agoraMs: agora, claude, github, guarda: semConfigs }).guarda.configs, 0);
   assert.equal(montarRelatorio({ estado, agoraMs: agora, claude, github }).guarda, null);
   assert.ok(!md({}).includes('## Guarda (7 dias)'));
 });
@@ -1219,6 +1226,9 @@ test('guarda no markdown: contagens, liberações com escopo e prazo, limites', 
   assert.match(t, /^- .+: 3 h \(180 min\), Fable e caro\.$/m);
   assert.match(t, /^Despachos de modelo ou effort desconhecido: 1\.$/m);
   assert.match(t, /^Sessões claude filhas negadas: 0\. Escritas negadas na pasta de dados: 0\. Edições negadas nos settings e no plugin: 2\. Falhas da guarda: 0\.$/m);
+  // Task 19b: uma linha própria para o ConfigChange.
+  assert.match(t, /^Mudanças de config bloqueadas: 3\.$/m);
+  assert.match(md({ guarda: guarda({ configs: 0 }) }), /^Mudanças de config bloqueadas: 0\.$/m);
   assert.match(t, /^Último limite do Fable: .+\. Último limite geral: nenhum em 7 dias\.$/m);
   assert.ok(!t.includes('Registro cheio'));
   assert.match(md({ guarda: guarda({ parcial: true }) }), /^Registro cheio \(200 eventos\): contagens mais antigas podem faltar\.$/m);

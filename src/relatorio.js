@@ -418,7 +418,7 @@ function montarSessoesAbertas(c) {
 // são do resumo não passam. A ordem das chaves é a de resumoGuarda. Entrada
 // ausente ou que não é objeto → null.
 const CONTADORES_ANTES = ['negados', 'negadosCaro', 'prompts', 'trocas', 'liberacoes', 'recusadas'];
-const CONTADORES_DEPOIS = ['desconhecidos', 'filhas', 'arquivos', 'protegidos', 'erros'];
+const CONTADORES_DEPOIS = ['desconhecidos', 'filhas', 'arquivos', 'protegidos', 'configs', 'erros'];
 function montarGuarda(v) {
   try {
     if (!ehObjeto(v)) return null;
@@ -1013,6 +1013,9 @@ function blocoGuarda(o) {
   linhas.push('');
   linhas.push(`Despachos de modelo ou effort desconhecido: ${numero(g.desconhecidos)}.`, '');
   linhas.push(`Sessões claude filhas negadas: ${numero(g.filhas)}. Escritas negadas na pasta de dados: ${numero(g.arquivos)}. Edições negadas nos settings e no plugin: ${numero(g.protegidos)}. Falhas da guarda: ${numero(g.erros)}.`, '');
+  // Task 19b: as mudanças nos campos da guarda dos settings que o hook
+  // ConfigChange segurou.
+  linhas.push(`Mudanças de config bloqueadas: ${numero(g.configs)}.`, '');
   const limite = (iso) => (iso === null ? 'nenhum em 7 dias' : quando(iso));
   linhas.push(`Último limite do Fable: ${limite(g.limites.fable)}. Último limite geral: ${limite(g.limites.geral)}.`);
   if (g.parcial) linhas.push('', 'Registro cheio (200 eventos): contagens mais antigas podem faltar.');

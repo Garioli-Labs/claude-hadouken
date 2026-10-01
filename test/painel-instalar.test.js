@@ -328,11 +328,13 @@ test('CLI painel instalar: {"ok":true} com 0, {"ok":false,"motivo"} com 1, e a r
 
 // Ambiente de filho: HADOUKEN_HOME temporário, PATH só com uma pasta vazia
 // (acharCode não acha code nenhum) e sem HADOUKEN_SEM_PAINEL de quem roda.
+// CLAUDE_CONFIG_DIR numa pasta temporária que não existe (Task 19b): a
+// fotografia do SessionStart nunca lê o settings de ~/.claude de verdade.
 function ambienteIsolado(home, extra = {}) {
   assert.ok(home.startsWith(os.tmpdir()), 'HADOUKEN_HOME sempre temporário');
   const env = { ...process.env };
-  for (const k of Object.keys(env)) if (/^(path|hadouken_home|hadouken_sem_painel|claude_plugin_root)$/i.test(k)) delete env[k];
-  Object.assign(env, { PATH: novoTmp('hdk path vazio '), HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo }, extra);
+  for (const k of Object.keys(env)) if (/^(path|hadouken_home|hadouken_sem_painel|claude_plugin_root|claude_config_dir)$/i.test(k)) delete env[k];
+  Object.assign(env, { PATH: novoTmp('hdk path vazio '), HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, CLAUDE_CONFIG_DIR: path.join(home, 'sem-config') }, extra);
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
   return env;
 }

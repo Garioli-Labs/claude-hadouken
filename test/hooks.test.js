@@ -47,9 +47,11 @@ function conferirHome(home) {
 // um valor undefined em `extra` tira a variável. HADOUKEN_SEM_PAINEL=1: o
 // SessionStart não dispara a instalação do painel, que com o PATH de quem
 // roda os testes chamaria o `code` de verdade (o disparo é testado em
-// painel-instalar.test.js, com o PATH vazio).
+// painel-instalar.test.js, com o PATH vazio). CLAUDE_CONFIG_DIR numa pasta
+// temporária que não existe (Task 19b): a fotografia do SessionStart lê o
+// settings do usuário, e nunca o de ~/.claude de verdade.
 function ambiente(home, extra = {}) {
-  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1', ...extra };
+  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1', CLAUDE_CONFIG_DIR: path.join(home, 'sem-config'), ...extra };
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
   conferirHome(env.HADOUKEN_HOME);
   return env;

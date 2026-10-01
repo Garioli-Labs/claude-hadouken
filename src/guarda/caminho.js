@@ -68,6 +68,16 @@ export function dentroDe(pasta, alvo) {
   return relativoReal(caminhoReal(pasta), caminhoReal(alvo)) !== null;
 }
 
+// O caminho real com a caixa do Windows normalizada: a mesma comparação do
+// dentroDe (links, '..', 8.3, compartilhamento administrativo, caixa no
+// win32), como texto, para servir de chave (a fotografia dos settings da Task
+// 19b, config-base.js). Relativo, vazio, longo demais ou não texto: null.
+// Nunca lança.
+export function caminhoComparavel(p) {
+  const real = caminhoReal(p);
+  return real === null ? null : normal(real);
+}
+
 // --- P5 estendida: settings e o próprio plugin (Task 0 da parte 2) ---------
 // A revisão final da parte 1 achou que o Write ou o Edit no cache do plugin
 // ou no settings.json desligam a guarda a partir do próximo hook, sem shell:

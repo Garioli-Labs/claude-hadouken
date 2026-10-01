@@ -31,6 +31,10 @@ export const TIPOS_EVENTO = Object.freeze([
   // 'liberacao-escopo' (spec v0.4.0 §9.4): o escopo e o prazo da liberação, à
   // parte do evento 'liberacao', que só leva o id do sinal de R1.
   'liberacao-escopo',
+  // 'config-bloqueada' (Task 19b, spike S13 (a)): o hook ConfigChange segurou
+  // uma mudança de disableAllHooks, enabledPlugins ou hooks nos settings. O
+  // detalhe é o primeiro campo que mudou, 'ilegivel' ou 'sem-caminho'.
+  'config-bloqueada',
 ]);
 const DETALHE_MAX = 40;
 const DETALHE = new RegExp(`^[A-Za-z0-9:._-]{0,${DETALHE_MAX}}$`);

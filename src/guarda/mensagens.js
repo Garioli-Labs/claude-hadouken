@@ -82,6 +82,10 @@ export const P5_SETTINGS_PROJETO_TEXTO = 'hadouken: bloqueado: o hadouken não d
 // revisão da Task 0): o JSON não é lido; a edição menor passa pela
 // conferência de sempre.
 export const P5_GRANDE_TEXTO = 'hadouken: bloqueado: esta edição passa de 1 MiB e cita settings ou o hadouken; grande assim, o hadouken não a confere. Divida a edição em partes menores.';
+// Hook ConfigChange (Task 19b, spike S13 (a)): o reason do bloqueio da
+// mudança nos campos da guarda dos settings, feita fora da P5 (sed -i pelo
+// shell, ou o próprio usuário). Nunca ecoa o arquivo nem o caminho.
+export const CONFIG_BLOQUEADA_TEXTO = 'hadouken: bloqueado: uma mudança em disableAllHooks, enabledPlugins ou hooks nos settings não vale nesta sessão. Se foi o usuário, ela passa a valer na próxima sessão; o Claude não deve repetir a mudança.';
 // Regra fixa da P4 (decisão do controlador na revisão da Task 13): claude
 // junto com o comando de liberação, negado sempre, disparada ou não. Desde a
 // rodada 2 da revisão da Task 16 o texto que só cita 'hadouken:liberar' (numa

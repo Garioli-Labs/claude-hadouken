@@ -28,7 +28,7 @@ test('S24: módulos da guarda, hooks novos e o custo dos hooks não importam red
   const arquivos = [
     ...fs.readdirSync(path.join(repo, 'src', 'guarda')).map((f) => path.join('src', 'guarda', f)),
     ...['guarda-despacho.js', 'guarda-filha.js', 'guarda-arquivos.js', 'guarda-modelo.js', 'modelo-trocado.js', 'limite-atingido.js', 'liberar.js',
-      'guarda-agenda.js']
+      'guarda-agenda.js', 'guarda-config.js']
       .map((f) => path.join('src', 'hooks', f)),
     path.join('src', 'custo-hooks.js'), path.join('src', 'indice-hooks.js'),
     // M6 da revisão final da parte 1: avaliar.js importa a leitura do uso
@@ -75,8 +75,9 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   // + 18 da P5 estendida (Task 0 da parte 2, ifP5 abaixo: 3 `if` a mais em
   // cada uma das 4 ferramentas e 2 de settings de projeto em Write, Edit e
   // MultiEdit). O brief da parte 1 contava 11 com a P4 em 2 handlers; a Task
-  // 18 trocou esses 2 pelos 15, e o M8 da revisão final somou 2.
-  assert.equal(novos.length, 45);
+  // 18 trocou esses 2 pelos 15, e o M8 da revisão final somou 2. 46 desde a
+  // Task 19b: + 1 do ConfigChange (guarda-config.js).
+  assert.equal(novos.length, 46);
   for (const x of novos) {
     assert.equal(x.command, 'node');
     assert.equal(x.args.length, 1);
@@ -112,6 +113,13 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
     assert.ok(re.test(t), t);
   }
   for (const t of ['Bash', 'Agent', 'Task', 'TaskCreate', 'mcp__github__create_issue']) assert.ok(!re.test(t), t);
+  // Task 19b (spike S13 (a)): o ConfigChange segura a mudança de
+  // disableAllHooks, enabledPlugins ou hooks nos settings. Um grupo, um
+  // handler exec, sem matcher (o hook confere o source por conta própria) e
+  // sem `if`, timeout 10.
+  assert.deepEqual(h.ConfigChange, [{ hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-config.js'], timeout: 10 }] }]);
+  const cfg = novos.filter((x) => x.args[0].endsWith('/guarda-config.js'));
+  assert.deepEqual(cfg.map((x) => [x.evento, x.matcher, x.if, x.timeout]), [['ConfigChange', undefined, undefined, 10]]);
   // A P4: um handler por `if`, cada um no grupo da sua ferramenta.
   const p4 = novos.filter((x) => x.args[0].endsWith('/guarda-filha.js'));
   assert.deepEqual(p4.map((x) => x.if), IF_P4);

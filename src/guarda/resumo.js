@@ -4,7 +4,8 @@ import { EVENTOS_MAX, lerEventos, ultimosLimites } from './registros.js';
 // Resumo da guarda nos últimos 7 dias para o /consumo (spec v0.4.0 §9.4;
 // decisão 10 do plano da parte 2): disparos por gatilho, despachos negados,
 // prompts e trocas bloqueados, liberações com escopo e prazo, despachos de
-// modelo desconhecido e os últimos limites atingidos. Só lê
+// modelo desconhecido, mudanças de config bloqueadas (Task 19b) e os últimos
+// limites atingidos. Só lê
 // guarda-eventos.json e limites-atingidos.json; nunca avalia nem grava (nada
 // de avaliarGuarda, que grava travas). Os detalhes dos eventos já passaram
 // pela regra DETALHE de registros.js; aqui só viram números e rótulos fixos.
@@ -21,6 +22,9 @@ const CONTADOR = Object.freeze({
   __proto__: null,
   'prompt-bloqueado': 'prompts', 'troca-bloqueada': 'trocas', liberacao: 'liberacoes', 'liberacao-recusada': 'recusadas',
   desconhecido: 'desconhecidos', 'filha-negada': 'filhas', erro: 'erros',
+  // Task 19b: mudanças nos campos da guarda dos settings que o hook
+  // ConfigChange segurou.
+  'config-bloqueada': 'configs',
 });
 // 'arquivo-negado' com detalhe P5:settings, P5:plugin ou P5:settings-projeto
 // é uma edição negada nos settings ou no próprio plugin (Task 0 da parte 2);
@@ -49,7 +53,7 @@ export function resumoGuarda(dir, agoraMs) {
       desde: new Date(desde).toISOString(),
       disparos: Object.fromEntries(GATILHOS.map((g) => [g, 0])),
       negados: 0, negadosCaro: 0, prompts: 0, trocas: 0, liberacoes: 0, recusadas: 0, escopos: [],
-      desconhecidos: 0, filhas: 0, arquivos: 0, protegidos: 0, erros: 0,
+      desconhecidos: 0, filhas: 0, arquivos: 0, protegidos: 0, configs: 0, erros: 0,
       limites: { fable: null, geral: null },
       parcial: eventos.length >= EVENTOS_MAX && Date.parse(eventos[0].at) >= desde,
     };

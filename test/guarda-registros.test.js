@@ -242,11 +242,26 @@ test('normalizarModelo: nome válido fica; outro vira fable ou outro; não texto
 });
 
 test('liberacao-escopo é um tipo de evento; EVENTOS_MAX exportado', () => {
-  assert.equal(TIPOS_EVENTO.at(-1), 'liberacao-escopo');
+  // Desde a Task 19b, 'config-bloqueada' vem depois dele.
+  assert.deepEqual(TIPOS_EVENTO.slice(-2), ['liberacao-escopo', 'config-bloqueada']);
   assert.equal(EVENTOS_MAX, 200);
   const d = novo();
   assert.deepEqual(anexarEvento(d, 'liberacao-escopo', '3h:180:fable:caro', agora), { ok: true });
   assert.deepEqual(lerEventos(d, agora).map((e) => [e.tipo, e.detalhe]), [['liberacao-escopo', '3h:180:fable:caro']]);
+});
+
+// Task 19b: o hook ConfigChange registra 'config-bloqueada' com o primeiro
+// campo que mudou, 'ilegivel' ou 'sem-caminho'.
+test('config-bloqueada é um tipo de evento, com os detalhes do hook ConfigChange', () => {
+  assert.ok(TIPOS_EVENTO.includes('config-bloqueada'));
+  const d = novo();
+  const detalhes = ['disableAllHooks', 'enabledPlugins', 'hooks', 'ilegivel', 'sem-caminho'];
+  for (const det of detalhes) assert.deepEqual(anexarEvento(d, 'config-bloqueada', det, agora), { ok: true });
+  assert.deepEqual(anexarEvento(d, 'erro', 'config-foto', agora), { ok: true });
+  assert.deepEqual(anexarEvento(d, 'erro', 'P5:config', agora), { ok: true });
+  assert.deepEqual(lerEventos(d, agora).map((e) => [e.tipo, e.detalhe]), [
+    ...detalhes.map((det) => ['config-bloqueada', det]), ['erro', 'config-foto'], ['erro', 'P5:config'],
+  ]);
 });
 
 test('ultimosLimites (§9.4): Fable e geral em 7 dias; futuro, velho ou ilegível viram null', () => {

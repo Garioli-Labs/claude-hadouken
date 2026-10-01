@@ -24,6 +24,7 @@ test('escopoDe: as formas do liberacao-escopo e nada mais', () => {
 test('resumoGuarda conta por tipo e gatilho só nos últimos 7 dias, e lista os escopos', () => {
   const d = novo();
   anexarEvento(d, 'disparo', 'G2', agora - 8 * 24 * H);
+  anexarEvento(d, 'config-bloqueada', 'disableAllHooks', agora - 8 * 24 * H);
   anexarEvento(d, 'disparo', 'G2', agora - 2 * H);
   anexarEvento(d, 'disparo', 'G7', agora - H);
   anexarEvento(d, 'disparo', 'G9', agora - H);
@@ -40,6 +41,8 @@ test('resumoGuarda conta por tipo e gatilho só nos últimos 7 dias, e lista os 
   anexarEvento(d, 'arquivo-negado', 'P5:settings', agora - 10 * 60_000);
   anexarEvento(d, 'arquivo-negado', 'P5:plugin', agora - 10 * 60_000);
   anexarEvento(d, 'erro', 'P1', agora - 10 * 60_000);
+  anexarEvento(d, 'config-bloqueada', 'hooks', agora - 5 * 60_000);
+  anexarEvento(d, 'config-bloqueada', 'sem-caminho', agora - 4 * 60_000);
   registrarLimite(d, 'fable', agora - 3 * H);
   const r = resumoGuarda(d, agora);
   assert.equal(r.desde, new Date(agora - 7 * 24 * H).toISOString());
@@ -56,7 +59,11 @@ test('resumoGuarda conta por tipo e gatilho só nos últimos 7 dias, e lista os 
   // A pasta de dados (detalhe = ferramenta) e os settings e o plugin (P5:*) contam à parte.
   assert.equal(r.arquivos, 1);
   assert.equal(r.protegidos, 2);
+  // Task 19b: mudanças de config bloqueadas pelo ConfigChange (a de 8 dias fica fora).
+  assert.equal(r.configs, 2);
   assert.equal(r.erros, 1);
+  // A ordem das chaves é a que relatorio.js revalida (CONTADORES_DEPOIS).
+  assert.deepEqual(Object.keys(r).slice(Object.keys(r).indexOf('desconhecidos'), Object.keys(r).indexOf('erros') + 1), ['desconhecidos', 'filhas', 'arquivos', 'protegidos', 'configs', 'erros']);
   assert.deepEqual(r.limites, { fable: new Date(agora - 3 * H).toISOString(), geral: null });
   assert.equal(r.parcial, false);
   assert.deepEqual(Object.keys(r.disparos), [...GATILHOS]);
