@@ -552,3 +552,28 @@ export function leiturasComPiso(estado, agoraMs) {
     return vazio;
   }
 }
+
+// Última leitura conhecida (spec v0.4.0 §10, item 1): o instante da leitura
+// mais nova entre as janelas guardadas, de qualquer idade, e as duas janelas
+// como estão (o reset pode já ter passado; quem usa decide). Serve à linha
+// "sem leitura nova desde {quando}" quando não há leitura fresca nem piso.
+// Mesmo schema e mesmo `at` por janela de leiturasComPiso. null sem janela
+// nenhuma (nunca houve leitura, ou o estado é ilegível). Nunca lança.
+export function ultimaLeitura(estado, agoraMs) {
+  try {
+    if (!ehObjeto(estado) || estado.versao !== VERSAO || !numeroFinito(agoraMs)) return null;
+    const tTopo = instante(estado.at, agoraMs);
+    const r = { desdeMs: null, five_hour: null, seven_day: null };
+    for (const k of JANELAS) {
+      const j = janelaGuardada(estado[k], tTopo, agoraMs);
+      if (j === null) continue;
+      const lidaEm = leituraDe(j, tTopo);
+      if (!numeroFinito(lidaEm)) continue;
+      r[k] = { used_percentage: j.used_percentage, resets_at: j.resets_at };
+      if (r.desdeMs === null || lidaEm > r.desdeMs) r.desdeMs = lidaEm;
+    }
+    return r.desdeMs === null ? null : r;
+  } catch {
+    return null;
+  }
+}

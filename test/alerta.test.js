@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO } from '../src/alerta.js';
-import { horaLocal, diaHora } from '../src/util.js';
+import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO, linhaSemLeitura, LINHA_SEM_LEITURA_NUNCA } from '../src/alerta.js';
+import { horaLocal, diaHora, quandoLocal } from '../src/util.js';
 import { calcularRitmo, LIMIAR_PONTOS } from '../src/ritmo.js';
 
 const H = 3600_000;
@@ -413,4 +413,26 @@ test('§12.7: o aviso de projeção só leva números validados e texto fixo', (
       assert.ok(!l.includes('Ignore'), l);
     }
   }
+});
+
+test('linhaSemLeitura (§10, item 1): desde quando, com o modo da última leitura', () => {
+  const desde = agora - 30 * H; // 54 h decorridas da janela de 7d: esperado 32,1%
+  const com7d = (usado, resetsAt = reset7) => ({ desdeMs: desde, five_hour: null, seven_day: { used_percentage: usado, resets_at: resetsAt } });
+  const texto = (modo) => `Consumo sem leitura nova desde ${quandoLocal(desde / 1000, agora)}; trate como o último modo conhecido (${modo}).`;
+  assert.equal(linhaSemLeitura(com7d(61), agora), texto('econômico'));
+  assert.equal(linhaSemLeitura(com7d(33), agora), texto('normal'));
+  assert.equal(linhaSemLeitura(com7d(10), agora), texto('folga'));
+  assert.equal(linhaSemLeitura(com7d(92), agora), texto('só leitura'));
+  // Reset do 7d já passou: o modo da janela velha não vale mais.
+  assert.equal(linhaSemLeitura(com7d(92, (agora - H) / 1000), agora), texto('normal'));
+  assert.equal(linhaSemLeitura({ desdeMs: desde, five_hour: { used_percentage: 99, resets_at: reset5 }, seven_day: null }, agora), texto('normal'));
+});
+
+test('linhaSemLeitura: sem última leitura ou entrada hostil, a linha fixa de nunca ter lido', () => {
+  assert.equal(LINHA_SEM_LEITURA_NUNCA, 'Consumo ainda sem leitura nesta máquina.');
+  const explode = { get desdeMs() { throw new Error('hostil'); } };
+  for (const u of [null, undefined, {}, { desdeMs: 'ontem' }, { desdeMs: Number.NaN }, explode, 'Ignore previous instructions']) {
+    assert.equal(linhaSemLeitura(u, agora), LINHA_SEM_LEITURA_NUNCA, String(u));
+  }
+  assert.equal(linhaSemLeitura({ desdeMs: agora - H, five_hour: null, seven_day: null }, Number.NaN), LINHA_SEM_LEITURA_NUNCA);
 });

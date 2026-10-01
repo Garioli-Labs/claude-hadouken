@@ -8,7 +8,7 @@ import path from 'node:path';
 import {
   dirDados, lerJson, gravarJsonAtomico, atualizarEstado, limitesValidos, validarEstado,
   idValido, instante, LIMITE_VELHO_MS, MAX_SESSOES, SESSAO_MAX_MS, ARQ_ESTADO,
-  leiturasComPiso, LEITURA_PISO_MAX_MS,
+  leiturasComPiso, LEITURA_PISO_MAX_MS, ultimaLeitura,
 } from '../src/estado.js';
 import { EFFORTS_VALIDOS, TOLERANCIA_JANELA_S } from '../src/util.js';
 import { formatarBarra } from '../src/formato.js';
@@ -1311,4 +1311,26 @@ test('leiturasComPiso: entrada inválida nunca lança', () => {
   const vazio = { five_hour: null, seven_day: null };
   for (const ruim of [null, 1, 'x', [], { versao: 2 }]) assert.deepEqual(leiturasComPiso(ruim, Date.now()), vazio);
   assert.deepEqual(leiturasComPiso({ versao: 1 }, NaN), vazio);
+});
+
+test('ultimaLeitura (spec v0.4.0 §10, item 1): a leitura mais nova de qualquer idade, janelas como estão', () => {
+  const H = 3_600_000;
+  const v = {
+    versao: 1, at: iso(agora - 30 * H),
+    five_hour: { used_percentage: 40, resets_at: (agora - 26 * H) / 1000, at: iso(agora - 30 * H) },
+    seven_day: { used_percentage: 61, resets_at: (agora + 72 * H) / 1000, at: iso(agora - 26 * H) },
+    sessoes: {}, historico: [],
+  };
+  assert.deepEqual(ultimaLeitura(validarEstado(v, agora), agora), {
+    desdeMs: agora - 26 * H,
+    five_hour: { used_percentage: 40, resets_at: (agora - 26 * H) / 1000 },
+    seven_day: { used_percentage: 61, resets_at: (agora + 72 * H) / 1000 },
+  });
+  // Formato de antes (sem `at` por janela): vale o do topo.
+  const antigo = { ...v, five_hour: { used_percentage: 40, resets_at: agoraS + 3600 }, seven_day: null };
+  assert.equal(ultimaLeitura(validarEstado(antigo, agora), agora).desdeMs, agora - 30 * H);
+  assert.equal(ultimaLeitura(null, agora), null);
+  assert.equal(ultimaLeitura({ versao: 2 }, agora), null);
+  assert.equal(ultimaLeitura(validarEstado({ versao: 1, at: null, five_hour: null, seven_day: null, sessoes: {}, historico: [] }, agora), agora), null);
+  assert.equal(ultimaLeitura(validarEstado(v, agora), Number.NaN), null);
 });

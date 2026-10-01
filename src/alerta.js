@@ -6,11 +6,17 @@
 // SessionStart, relatorio.js e hooks/alertas-gravados.js).
 import { MAX_SESSOES as MAX_SESSOES_ATIVAS } from './estado.js';
 import { calcularRitmo } from './ritmo.js';
-import { horaLocal, diaHora, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
+import { horaLocal, diaHora, quandoLocal, janelaValida, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
 
 // A linha fixa de "sem leitura", a mesma no alerta do UserPromptSubmit e
 // na linha do SessionStart (hooks/linha-estado.js a reexporta).
 export const LINHA_SEM_LEITURA = 'Consumo sem leitura: rode /usage.';
+// Spec v0.4.0 §10, item 1: sem leitura fresca nem piso, a linha diz desde
+// quando não há leitura e o último modo conhecido; sem leitura nenhuma, esta.
+export const LINHA_SEM_LEITURA_NUNCA = 'Consumo ainda sem leitura nesta máquina.';
+// Rótulos dos modos de 7d nas linhas ao Claude.
+const NOME_MODO = Object.freeze({ __proto__: null, normal: 'normal', economico: 'econômico', folga: 'folga', 'so-leitura': 'só leitura' });
+const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 const DIA_MS = 24 * 3600_000;
 const ORDEM_5H = ['ok', 'atencao', 'serializar', 'fechar'];
@@ -51,6 +57,27 @@ export function faixa7d({ usado, resetsAt, agoraMs }) {
   const { esperado, desvio, modo } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs });
   const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS ? 'so-leitura' : modo;
   return { faixa, esperado, desvio };
+}
+
+// Linha "sem leitura nova desde <quando>; trate como o último modo
+// conhecido (<modo>)." (spec v0.4.0 §10, item 1). O modo é a faixa de 7d
+// no instante da última leitura, se o reset daquela janela ainda não passou;
+// senão, normal (decisão 3 do plano da parte 2). Só o horário de quandoLocal
+// e um rótulo de NOME_MODO entram. Sem última leitura, ou entrada ilegível:
+// LINHA_SEM_LEITURA_NUNCA. Nunca lança.
+export function linhaSemLeitura(ultima, agoraMs) {
+  try {
+    if (!ehObjeto(ultima) || !numeroFinito(ultima.desdeMs) || !numeroFinito(agoraMs)) return LINHA_SEM_LEITURA_NUNCA;
+    const desdeMs = ultima.desdeMs;
+    const f7 = janelaValida(ultima.seven_day);
+    const faixa = f7 !== null && f7.resets_at * 1000 > agoraMs
+      ? faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs: desdeMs }).faixa
+      : 'normal';
+    const quando = quandoLocal(desdeMs / 1000, agoraMs);
+    return `Consumo sem leitura nova desde ${quando}; trate como o último modo conhecido (${NOME_MODO[faixa] ?? 'normal'}).`;
+  } catch {
+    return LINHA_SEM_LEITURA_NUNCA;
+  }
 }
 
 // Piso, nunca arredondamento: 89.6 não pode aparecer como "90%" numa linha

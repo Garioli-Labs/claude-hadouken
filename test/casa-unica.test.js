@@ -56,7 +56,10 @@ test('os ajudantes divididos só são definidos na casa deles', () => {
     ['classe dos glifos da barra', 'util.js', /\[│↻·▰▱┃→\]/gu],
     ['jsonSeguro', 'util.js', definicao('jsonSeguro')],
     ['escaparInvisiveis', null, definicao('escaparInvisiveis')],
-    ['texto da linha sem leitura', 'alerta.js', /Consumo sem leitura/g],
+    ['texto da linha sem leitura', 'alerta.js', /Consumo ainda sem leitura nesta máquina/g],
+    ['texto da linha sem leitura nova', 'alerta.js', /Consumo sem leitura nova desde/g],
+    // Temporária: a constante LINHA_SEM_LEITURA sai na Task 6, e esta regra com ela.
+    ['texto antigo da linha sem leitura', 'alerta.js', /Consumo sem leitura: rode/g],
     ['CASAS', 'barrinha.js', definicao('CASAS')],
     ['CHEIA', 'barrinha.js', definicao('CHEIA')],
     ['VAZIA', 'barrinha.js', definicao('VAZIA')],
