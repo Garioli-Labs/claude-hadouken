@@ -22,8 +22,43 @@ function listarJs(dir) {
   return achados;
 }
 
-const REDE = /node:(?:http|https|net|dns|tls|dgram)\b|from ['"](?:http|https|net|dns|tls|dgram)['"]|\bfetch\s*\(|\bWebSocket\b/;
+// Módulos de rede (e worker_threads/cluster, que abrem outra linha de
+// execução), com ou sem o prefixo node:, em import estático, import()
+// dinâmico ou require, com aspas simples ou duplas (revisão da Task 2).
+const MODULOS_REDE = '(?:http2?|https|net|dns|tls|dgram|worker_threads|cluster)';
+const REDE = new RegExp([
+  String.raw`node:${MODULOS_REDE}\b`,
+  String.raw`\bfrom\s*['"]${MODULOS_REDE}['"]`,
+  String.raw`\bimport\s*\(\s*['"](?:node:)?${MODULOS_REDE}['"]`,
+  String.raw`\brequire\s*\(\s*['"](?:node:)?${MODULOS_REDE}['"]`,
+  String.raw`\bfetch\s*\(`,
+  String.raw`\bWebSocket\b`,
+].join('|'));
 const FILHO = /node:child_process|from ['"]child_process['"]|process\.binding\s*\(/;
+
+test('o regex REDE pega http2, import() sem node:, worker_threads e cluster, e deixa passar o que não é rede', () => {
+  const pega = [
+    "import http2 from 'node:http2';",
+    "await import('net');",
+    'await import("http");',
+    "await import( 'node:https' );",
+    "import { Worker } from 'node:worker_threads';",
+    'import cluster from "cluster";',
+    "const w = require('worker_threads');",
+    "import dns from 'dns';",
+    'fetch (url)',
+    'new WebSocket(u)',
+  ];
+  for (const t of pega) assert.match(t, REDE, t);
+  const passa = [
+    "import fs from 'node:fs';",
+    "import { x } from './net-util.js';",
+    "await import('./http.js');",
+    'const cluster = 3; // agrupamento',
+    'const rede = false;',
+  ];
+  for (const t of passa) assert.doesNotMatch(t, REDE, t);
+});
 
 test('§3.1: só baixar.js tem rede e só coletor.js tem processo filho', () => {
   const arquivos = listarJs(path.join(repo, 'src', 'aprendizado'));

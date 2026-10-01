@@ -138,6 +138,21 @@ test('M2: tool_result sem model herda modelo, effort e origem do api_request com
   assert.doesNotMatch(JSON.stringify(r.registros), /p-1|p-2|Bash/);
 });
 
+test('M2: com dois api_request do mesmo prompt.id, o tool_result herda do último', () => {
+  const d = novoDir();
+  fs.writeFileSync(path.join(d, ARQ_TELEMETRIA), [
+    linhaLog(AGORA - 3000, 'api_request', { ...PEDIDO, model: S('claude-haiku-5'), effort: S('low'), 'prompt.id': S('p-1') }),
+    linhaLog(AGORA - 2000, 'api_request', { ...PEDIDO, 'prompt.id': S('p-1') }),
+    linhaLog(AGORA - 1000, 'tool_result', { 'prompt.id': S('p-1'), success: S('false') }),
+    '',
+  ].join('\n'));
+  const r = lerNovos({ pasta: d, cursor: null, agoraMs: AGORA });
+  assert.deepEqual(r.registros.map((x) => x.modelo), ['claude-haiku-5', 'claude-sonnet-5-5', 'claude-sonnet-5-5']);
+  assert.deepEqual(r.registros.at(-1), {
+    t: 'ferramenta', em: AGORA - 1000, modelo: 'claude-sonnet-5-5', effort: 'high', origem: 'principal', ok: false,
+  });
+});
+
 test('M2: tool_result sem model e sem api_request par na mesma leitura é descartado', () => {
   const d = novoDir();
   const arq = path.join(d, ARQ_TELEMETRIA);
@@ -258,4 +273,20 @@ test('cursor forjado (posição negativa, ino que não é número) é ignorado',
   fs.writeFileSync(path.join(d, ARQ_TELEMETRIA), `${linhaPedido(AGORA - 1000)}\n`);
   const r = lerNovos({ pasta: d, cursor: { ino: '__proto__', pos: -5 }, agoraMs: AGORA });
   assert.equal(r.registros.length, 1);
+});
+
+// Revisão da Task 2: com o ino real, só a posição decide. Negativa ou além do
+// fim, a leitura recomeça do início e traz todos os registros.
+test('cursor com o ino real e posição negativa ou além do fim: leitura recomeça do início', () => {
+  const d = novoDir();
+  const arq = path.join(d, ARQ_TELEMETRIA);
+  fs.writeFileSync(arq, `${linhaPedido(AGORA - 2000)}\n${linhaPedido(AGORA - 1000)}\n`);
+  const ino = String(fs.lstatSync(arq, { bigint: true }).ino);
+  const tamanho = fs.statSync(arq).size;
+  for (const pos of [-5, tamanho + 100]) {
+    const r = lerNovos({ pasta: d, cursor: { ino, pos }, agoraMs: AGORA });
+    assert.deepEqual(r.registros, [esperadoPedido(AGORA - 2000), esperadoPedido(AGORA - 1000)], `pos ${pos}`);
+    assert.deepEqual(r.cursor, { ino, pos: tamanho }, `pos ${pos}`);
+    assert.equal(r.corrompido, false);
+  }
 });
