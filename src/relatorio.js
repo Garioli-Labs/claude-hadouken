@@ -4,6 +4,7 @@ import { barrinha } from './barrinha.js';
 import { DATA_MAX_MS, numeroFinito, somaSegura } from './base.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
+import { ESCOPOS_MAX, GATILHOS, escopoDe } from './guarda/resumo.js';
 import { decimal, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, janelaValida, milhar, quandoLocal, sanear } from './util.js';
 
 // Relatório do /consumo (spec 6.8; 8.1 S1, S2, S5; addendum da Task 10, A;
@@ -410,8 +411,42 @@ function montarSessoesAbertas(c) {
   }
 }
 
+// Resumo da guarda (spec v0.4.0 §9.4) revalidado campo a campo: contadores
+// inteiros (senão 0), só os gatilhos G1–G7, escopos que escopoDe aceita
+// (remontados pelo mesmo detalhe), instantes em ISO ou null. Chaves que não
+// são do resumo não passam. A ordem das chaves é a de resumoGuarda. Entrada
+// ausente ou que não é objeto → null.
+const CONTADORES_ANTES = ['negados', 'negadosCaro', 'prompts', 'trocas', 'liberacoes', 'recusadas'];
+const CONTADORES_DEPOIS = ['desconhecidos', 'filhas', 'arquivos', 'protegidos', 'erros'];
+function montarGuarda(v) {
+  try {
+    if (!ehObjeto(v)) return null;
+    const disparos = ehObjeto(proprio(v, 'disparos')) ? v.disparos : {};
+    const r = {
+      desde: isoDe(proprio(v, 'desde')),
+      disparos: Object.fromEntries(GATILHOS.map((g) => [g, inteiro(proprio(disparos, g)) ?? 0])),
+    };
+    for (const k of CONTADORES_ANTES) r[k] = inteiro(proprio(v, k)) ?? 0;
+    const escopos = [];
+    for (const s of Array.isArray(proprio(v, 'escopos')) ? v.escopos.slice(-ESCOPOS_MAX) : []) {
+      if (!ehObjeto(s) || typeof s.prazo !== 'string' || !Number.isSafeInteger(s.minutos)) continue;
+      const e = escopoDe(`${s.prazo}:${s.minutos}${s.fable === true ? ':fable' : ''}${s.caro === true ? ':caro' : ''}`);
+      const at = isoDe(proprio(s, 'at'));
+      if (e !== null && at !== null) escopos.push({ at, ...e });
+    }
+    r.escopos = escopos;
+    for (const k of CONTADORES_DEPOIS) r[k] = inteiro(proprio(v, k)) ?? 0;
+    const lim = ehObjeto(proprio(v, 'limites')) ? v.limites : {};
+    r.limites = { fable: isoDe(proprio(lim, 'fable')), geral: isoDe(proprio(lim, 'geral')) };
+    r.parcial = proprio(v, 'parcial') === true;
+    return r;
+  } catch {
+    return null;
+  }
+}
+
 // Relatório versionado (versao 1): { versao, aviso, gerado_em, limites,
-// limites_motivo, claude, github, avisos, sessoesAbertas }. `estado` é o
+// limites_motivo, claude, github, avisos, sessoesAbertas, guarda }. `estado` é o
 // estado.json como lido (passa por validarEstado e limitesValidos aqui);
 // `github` é a saída de coletarGithub; `avisos` só entra da lista fixa. Nunca
 // lança.
@@ -443,10 +478,12 @@ function montarSessoesAbertas(c) {
 // (chaves e listas) são dados, não instruções. Pensamento (thinking) não
 // entra (spec 12).
 //
-// `sessoesAbertas` (spec v0.2.0 §12.6) é a última chave e a única fora das da
+// `sessoesAbertas` (spec v0.2.0 §12.6) vem logo depois das chaves da
 // v0.1.0, que seguem idênticas: null (Claude indisponível, ou entrada sem o
 // agregado `abertas`) ou a lista [{ id, projeto, modelos, tokens, parte }] de
 // montarSessoesAbertas. O agregado da hora nunca entra em `claude`.
+// `guarda` (spec v0.4.0 §9.4) vem depois dela: null ou o resumo de
+// montarGuarda (7 dias de guarda-eventos.json e limites-atingidos.json).
 export function montarRelatorio(entrada) {
   const r = {
     versao: VERSAO_RELATORIO,
@@ -458,6 +495,7 @@ export function montarRelatorio(entrada) {
     github: Object.create(null),
     avisos: [],
     sessoesAbertas: null,
+    guarda: null,
   };
   const e = ehObjeto(entrada) ? entrada : {};
   const agoraMs = ler(e, 'agoraMs');
@@ -471,6 +509,7 @@ export function montarRelatorio(entrada) {
   r.github = montarGithub(ler(e, 'github'));
   r.avisos = montarAvisos(ler(e, 'avisos'));
   r.sessoesAbertas = Object.hasOwn(r.claude, 'indisponivel') ? null : montarSessoesAbertas(ler(e, 'claude'));
+  r.guarda = montarGuarda(ler(e, 'guarda'));
   return r;
 }
 
@@ -913,13 +952,44 @@ function blocoGithub(o) {
   return linhas;
 }
 
+// Seção "Guarda (7 dias)" (spec v0.4.0 §9.4). Sem resumo, nada. Só números e
+// rótulos fixos; os horários em quandoLocal, relativos ao gerado_em.
+const prazoTexto = (p) => (p === 'janela' ? 'até o reset' : `${p.slice(0, -1)} h`);
+function blocoGuarda(o) {
+  const g = montarGuarda(ler(o, 'guarda'));
+  if (g === null) return [];
+  const agoraMs = (epochS(ler(o, 'gerado_em')) ?? 0) * 1000;
+  const quando = (iso) => {
+    const e = epochS(iso);
+    return e === null ? SEM : quandoLocal(e, agoraMs);
+  };
+  const linhas = ['## Guarda (7 dias)', ''];
+  linhas.push(`Disparos por gatilho: ${GATILHOS.map((k) => `${k} ${numero(g.disparos[k])}`).join(' · ')}.`, '');
+  linhas.push(`Despachos negados: ${numero(g.negados)} (${numero(g.negadosCaro)} por custo, G5).`, '');
+  linhas.push(`Prompts bloqueados: ${numero(g.prompts)}. Trocas de modelo bloqueadas: ${numero(g.trocas)}.`, '');
+  linhas.push(g.recusadas > 0 ? `Liberações: ${numero(g.liberacoes)} (pedidos recusados: ${numero(g.recusadas)}).` : `Liberações: ${numero(g.liberacoes)}.`);
+  for (const s of g.escopos) {
+    const escopo = s.fable && s.caro ? 'Fable e caro' : s.fable ? 'Fable' : s.caro ? 'caro' : 'padrão';
+    linhas.push(`- ${quando(s.at)}: ${prazoTexto(s.prazo)} (${numero(s.minutos)} min), ${escopo}.`);
+  }
+  linhas.push('');
+  linhas.push(`Despachos de modelo ou effort desconhecido: ${numero(g.desconhecidos)}.`, '');
+  linhas.push(`Sessões claude filhas negadas: ${numero(g.filhas)}. Escritas negadas na pasta de dados: ${numero(g.arquivos)}. Edições negadas nos settings e no plugin: ${numero(g.protegidos)}. Falhas da guarda: ${numero(g.erros)}.`, '');
+  const limite = (iso) => (iso === null ? 'nenhum em 7 dias' : quando(iso));
+  linhas.push(`Último limite do Fable: ${limite(g.limites.fable)}. Último limite geral: ${limite(g.limites.geral)}.`);
+  if (g.parcial) linhas.push('', 'Registro cheio (200 eventos): contagens mais antigas podem faltar.');
+  return linhas;
+}
+
 // Markdown do relatório: AVISO_DADOS na primeira linha e os blocos Limites e
-// ritmo, Claude e GitHub. Revalida tudo o que lê de `r`. Nunca lança; numa
-// falha interna devolve o aviso e uma linha fixa.
+// ritmo, Claude, Guarda (7 dias, só com o resumo) e GitHub. Revalida tudo o
+// que lê de `r`. Nunca lança; numa falha interna devolve o aviso e uma linha
+// fixa.
 export function formatarMarkdown(r) {
   try {
     const o = ehObjeto(r) ? r : {};
-    return [AVISO_DADOS, '', ...blocoLimites(o), '', ...blocoClaude(o), '', ...blocoGithub(o)].join('\n');
+    const extras = [blocoGuarda(o)].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+    return [AVISO_DADOS, '', ...blocoLimites(o), '', ...blocoClaude(o), '', ...extras, ...blocoGithub(o)].join('\n');
   } catch {
     return `${AVISO_DADOS}\n\nRelatório indisponível: erro interno.`;
   }

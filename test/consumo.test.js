@@ -7,6 +7,7 @@ import path from 'node:path';
 import { reposDaConfig, repoDoOrigin, lerOrigin, gerarRelatorio, codigoErro, periodos, ARQ_CONFIG } from '../src/consumo.js';
 import { AVISO_CONFIG, CLAUDE_RAIZ_RECUSADA, CLAUDE_SEM_TRANSCRIPTS, CLAUDE_SEM_RECENTES, formatarMarkdown } from '../src/relatorio.js';
 import { ARQ_ESTADO } from '../src/estado.js';
+import { anexarEvento } from '../src/guarda/registros.js';
 
 // Pipeline do /consumo (addendum da Task 10, B e D): config.json, origin do
 // git, leitura do estado, índice de transcripts e GitHub em paralelo. Tudo em
@@ -213,6 +214,15 @@ test('gerarRelatorio junta estado, transcripts e GitHub num relatório versionad
   assert.equal(rel.github['o/r'].publico, false);
   assert.ok(chamadas.length >= 3 && chamadas.every((ep) => ep.startsWith('repos/o/r')), chamadas.join(' '));
   assert.deepEqual(rel.avisos, []);
+});
+
+test('gerarRelatorio traz o resumo da guarda da pasta de dados (spec v0.4.0 §9.4)', async () => {
+  gravarEstado();
+  config(JSON.stringify({ repos: [] }));
+  anexarEvento(process.env.HADOUKEN_HOME, 'disparo', 'G2', agora - 3_600_000);
+  const r = await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home });
+  assert.equal(r.relatorio.guarda.disparos.G2, 1);
+  fs.rmSync(path.join(process.env.HADOUKEN_HOME, 'guarda-eventos.json'), { force: true });
 });
 
 test('a semana começa no início da janela de 7d: resposta anterior a ela fica de fora', async () => {

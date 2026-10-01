@@ -7,6 +7,7 @@ import { numeroFinito } from './base.js';
 import { ARQ_ESTADO, dirDados, lerJson, limitesValidos, validarEstado } from './estado.js';
 import { resolverExecutavel } from './executavel.js';
 import { coletarGithub, repoValido } from './github.js';
+import { resumoGuarda } from './guarda/resumo.js';
 import {
   AVISO_CONFIG, CLAUDE_ILEGIVEIS, CLAUDE_RAIZ_RECUSADA, CLAUDE_SEM_HOME, CLAUDE_SEM_RECENTES,
   CLAUDE_SEM_TRANSCRIPTS, montarRelatorio,
@@ -312,7 +313,9 @@ export async function gerarRelatorio(opcoes) {
       coletarClaude(raiz, periodos(estado, agoraMs), agoraMs),
       coletarRepos(dir, { gh: o.gh, cwd: o.cwd, prazoMs }, agoraMs),
     ]);
-    return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos }) };
+    // "Guarda (7 dias)" (spec v0.4.0 §9.4): só leitura, síncrona e pequena.
+    const guarda = dir === null ? null : resumoGuarda(dir, agoraMs);
+    return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos, guarda }) };
   } catch (e) {
     return { ok: false, motivo: codigoErro(e) };
   }
