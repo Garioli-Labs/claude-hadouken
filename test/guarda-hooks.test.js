@@ -987,3 +987,34 @@ test('thread principal com uma pasta subagents mais acima no caminho registra a 
   assert.ok(fs.lstatSync(path.join(home, 'ativas', Buffer.from('s7').toString('hex'))).isFile());
   assert.equal(modeloDaSessao(home, 's7', Date.now()), 'claude-fable-5-1');
 });
+
+// Textos do S4 (emenda 2026-09-30 da spec). A classificação nunca grava o texto.
+const FABLE_S4 = ["You've reached your Fable limit", "You've reached your Fable limit · resets 3pm (America/Sao_Paulo)"];
+const GERAL_S4 = ["You've reached your usage limit", "You've reached your Opus limit · resets 3pm (America/Sao_Paulo)", 'API Error: 429 rate_limit_error'];
+const limitesDe = (home) => JSON.parse(fs.readFileSync(path.join(home, ARQ_LIMITES), 'utf8'));
+const falhaS4 = (texto, extra = {}) => ({ session_id: 's1', hook_event_name: 'StopFailure', error_type: 'rate_limit', error_details: texto, last_assistant_message: '', ...extra });
+
+test('G6 com o texto do S4: thread principal e subagente (agent_id) contam como limite do Fable', () => {
+  for (const texto of FABLE_S4) {
+    for (const extra of [{}, { agent_id: 'a1b2c3', agent_type: 'general-purpose' }, { error_details: '', last_assistant_message: texto }]) {
+      const home = novoHome();
+      registrar(home, 's1');
+      semSaida(rodar('limite-atingido.js', falhaS4(texto, extra), home));
+      const v = limitesDe(home);
+      assert.equal(typeof v.fable, 'number', `${texto} ${JSON.stringify(extra)}`);
+      assert.equal(v.geral, null);
+      assert.ok(!fs.readFileSync(path.join(home, ARQ_LIMITES), 'utf8').includes('reached'));
+    }
+  }
+});
+
+test('G6 com o texto do S4: limite geral ou de outro modelo não trava o Fable', () => {
+  for (const texto of GERAL_S4) {
+    const home = novoHome();
+    registrar(home, 's1');
+    semSaida(rodar('limite-atingido.js', falhaS4(texto), home));
+    const v = limitesDe(home);
+    assert.equal(v.fable, null, texto);
+    assert.equal(typeof v.geral, 'number');
+  }
+});
