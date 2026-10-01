@@ -117,3 +117,40 @@ test('resumirCusto: por plugin, p50 e p95 por posição, timeouts, compactaçõe
   assert.deepEqual(resumirCusto([], mapa, 0), { plugins: [], omitidos: 0, compactacoes: { sessao: 0, subagente: 0 } });
   assert.deepEqual(resumirCusto(null, null, 0), { plugins: [], omitidos: 0, compactacoes: { sessao: 0, subagente: 0 } });
 });
+
+// Revisão da Task 16, menor 2: o comando que é só o interpretador (node,
+// bash, ...) é o mesmo em todo hook exec de todo plugin e atribuiria a um
+// plugin os hooks dos outros. Nunca entra no mapa, em forma nenhuma: shell,
+// exec sem argumento que conte, com .exe, caixa, aspas, espaços ou caminho.
+test('mapaDePlugins: comando que é só o interpretador nunca entra, em forma nenhuma', () => {
+  const so = [
+    'node', 'node.exe', 'NODE', ' node ', '"node"', "'bash'", 'bash', 'sh', 'python', 'pwsh', 'powershell', 'cmd', 'cmd.exe',
+    'PowerShell.EXE', '/usr/bin/node', String.raw`C:\nodejs\node.exe`, String.raw`"C:\Program Files\nodejs\node.exe"`,
+  ];
+  const proprios = ['nodemon', 'run-it /opt/sh', CMD_H, 'node ${CLAUDE_PLUGIN_ROOT}/g.js', 'node "${CLAUDE_PLUGIN_ROOT}/g.js"'];
+  const valor = { hooks: { PreToolUse: [{ hooks: [
+    ...so.map((command) => ({ type: 'command', command })),
+    ...so.map((command) => ({ type: 'command', command, args: ['', '  '] })),
+    { type: 'command', command: 'node', args: [] },
+    { type: 'command', command: 'nodemon' },
+    { type: 'command', command: 'run-it /opt/sh' },
+    { type: 'command', command: CMD_H },
+    { type: 'command', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/g.js'] },
+  ] }] } };
+  assert.deepEqual(comandosDeHooks(valor), proprios);
+  const m = mapaDePlugins({ plugins: { 'p@x': [{ installPath: '/p' }] } }, () => valor);
+  assert.deepEqual([...m.keys()].sort(), proprios.map(hashComando).sort());
+  for (const c of [...so, 'node   ', 'node "" "  "']) assert.equal(m.has(hashComando(c)), false, c);
+});
+
+// Revisão da Task 16, menor 1: resumirCusto confere de novo cada rótulo antes
+// de emitir. Um mapa que não veio de mapaDePlugins não põe texto na saída.
+test('resumirCusto: rótulo fora de ROTULO_PLUGIN cai em (outros); (ambíguo) fica', () => {
+  const rotulos = ['ok-plugin', AMBIGUO, `evil\n${INSTRUCAO}`, INSTRUCAO, 'a`b', 42, null, '', OUTROS, '_x', 'x'.repeat(65)];
+  const mapa = new Map(rotulos.map((r, i) => [hashComando(`cmd ${i}`), r]));
+  const itens = rotulos.map((_, i) => [agora, `r${i}`, hashComando(`cmd ${i}`), 1, 10, 1, TIPO.execucao]);
+  const r = resumirCusto(itens, mapa, 0);
+  assert.deepEqual(r.plugins.map((p) => [p.plugin, p.execucoes]), [[OUTROS, 9], [AMBIGUO, 1], ['ok-plugin', 1]]);
+  const texto = JSON.stringify(r);
+  assert.ok(!texto.includes('Ignore') && !texto.includes('evil'), texto);
+});

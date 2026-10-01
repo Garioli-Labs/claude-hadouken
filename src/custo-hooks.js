@@ -118,13 +118,31 @@ export function ITEM_VALIDO(it) {
   return inteiroEntre(chars, 0, CHARS_MAX) && inteiroEntre(tipo, 0, 3);
 }
 
+// Comando que é só um interpretador: o mesmo em todo hook exec de todo
+// plugin, então o hash dele atribuiria a um plugin os hooks dos outros (F5 do
+// pré-voo; menor 2 da revisão da Task 16). Compara sem espaços nas pontas,
+// sem um par de aspas em volta, só o último segmento do caminho, sem .exe e
+// sem caixa. Texto com espaço fora das aspas já traz argumento e não conta.
+const INTERPRETADORES = new Set(['node', 'bash', 'sh', 'python', 'pwsh', 'powershell', 'cmd']);
+const ESPACO = /\s/;
+function soInterpretador(comando) {
+  let c = comando.trim();
+  const aspa = c[0];
+  if (c.length >= 2 && (aspa === '"' || aspa === "'") && c.endsWith(aspa) && !c.slice(1, -1).includes(aspa)) c = c.slice(1, -1).trim();
+  else if (ESPACO.test(c)) return false;
+  c = c.slice(Math.max(c.lastIndexOf('/'), c.lastIndexOf('\\')) + 1).toLowerCase();
+  if (c.endsWith('.exe')) c = c.slice(0, -4);
+  return INTERPRETADORES.has(c);
+}
+
 // Textos de comando de um hooks/hooks.json (decisão 11): a forma shell
 // (`command` sem `args`) e, na forma exec (`args` só de texto), as duas formas
 // em que ela pode aparecer no transcript (juntada com espaço, e com cada arg
 // entre aspas JSON). O `command` puro de uma forma exec (`node`) não entra:
 // todo hook exec de todo plugin o compartilha, e ele atribuiria ao plugin os
-// hooks dos outros (F5 do pré-voo). Até HOOKS_MAX textos; formas estranhas são
-// ignoradas.
+// hooks dos outros (F5 do pré-voo). Pelo mesmo motivo, o interpretador
+// sozinho (forma shell, ou exec sem argumento que não seja branco) também não.
+// Até HOOKS_MAX textos; formas estranhas são ignoradas.
 export function comandosDeHooks(valor) {
   const r = [];
   try {
@@ -138,6 +156,8 @@ export function comandosDeHooks(valor) {
         for (const h of hs) {
           if (r.length >= HOOKS_MAX) return r;
           if (!ehObjeto(h) || h.type !== 'command' || typeof h.command !== 'string' || h.command === '' || h.command.length > COMANDO_MAX) continue;
+          const semArgumento = h.args === undefined || (Array.isArray(h.args) && h.args.every((x) => typeof x === 'string' && x.trim() === ''));
+          if (semArgumento && soInterpretador(h.command)) continue;
           if (h.args === undefined) {
             r.push(h.command);
           } else if (Array.isArray(h.args) && h.args.length > 0 && h.args.length <= 64 && h.args.every((x) => typeof x === 'string')) {
@@ -154,8 +174,9 @@ export function comandosDeHooks(valor) {
 
 // hash do comando → rótulo do plugin (o nome antes do @ na chave de
 // installed_plugins.json; spec §9.4: "o nome, sem o caminho"). `lerHooks`
-// recebe o installPath e devolve o hooks.json lido (ou null); é a única E/S, e
-// vem injetada. O mesmo comando em dois plugins → AMBIGUO. Nunca lança; numa
+// recebe o installPath e devolve os hooks lidos na forma do hooks.json (ou
+// null; lerHooksDoPlugin de indice-hooks.js junta o hooks/hooks.json e o
+// campo `hooks` do plugin.json); é a única E/S, e vem injetada. O mesmo comando em dois plugins → AMBIGUO. Nunca lança; numa
 // falha, mapa vazio (tudo cai em OUTROS).
 export function mapaDePlugins(instalados, lerHooks) {
   const mapa = new Map();
@@ -207,7 +228,10 @@ export function resumirCusto(itens, mapa, desdeMs) {
       }
       if (tipo === TIPO.compactacaoSessao) { r.compactacoes.sessao++; continue; }
       if (tipo === TIPO.compactacaoSubagente) { r.compactacoes.subagente++; continue; }
-      const plugin = (h !== null && m.get(h)) || OUTROS;
+      // O rótulo é conferido de novo aqui, na saída (menor 1 da revisão da
+      // Task 16): um mapa que não veio de mapaDePlugins não põe texto nela.
+      const rotulo = h === null ? undefined : m.get(h);
+      const plugin = typeof rotulo === 'string' && (rotulo === AMBIGUO || ROTULO_PLUGIN.test(rotulo)) ? rotulo : OUTROS;
       let p = por.get(plugin);
       if (p === undefined) por.set(plugin, (p = { plugin, execucoes: 0, injecoes: 0, caracteres: 0, duracoes: [], timeouts: 0 }));
       p.execucoes++;
