@@ -126,6 +126,7 @@ test('mapaDePlugins: comando que é só o interpretador nunca entra, em forma ne
   const so = [
     'node', 'node.exe', 'NODE', ' node ', '"node"', "'bash'", 'bash', 'sh', 'python', 'pwsh', 'powershell', 'cmd', 'cmd.exe',
     'PowerShell.EXE', '/usr/bin/node', String.raw`C:\nodejs\node.exe`, String.raw`"C:\Program Files\nodejs\node.exe"`,
+    'python3', 'python3.exe', 'zsh', 'zsh.exe', 'bun', 'bun.exe', 'deno', 'DENO.EXE', 'env', 'env.exe', '/usr/bin/env',
   ];
   const proprios = ['nodemon', 'run-it /opt/sh', CMD_H, 'node ${CLAUDE_PLUGIN_ROOT}/g.js', 'node "${CLAUDE_PLUGIN_ROOT}/g.js"'];
   const valor = { hooks: { PreToolUse: [{ hooks: [

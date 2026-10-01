@@ -16,11 +16,14 @@ import {
 // linha, âncora), viram itens [ts, u, h, ev, ms, chars, tipo] de
 // custo-hooks.js. indice-hooks.json guarda só esses itens: nem o stdout, nem
 // o comando (só o hash). Incremental por arquivo, como o de transcripts.
-// Ilegível, grande demais ou fora do schema: reconstrói.
+// Ilegível, grande demais (8 MiB) ou fora do schema: reconstrói. Gravado até
+// 6 MiB: passou, saem os itens mais velhos e `cortadoAte` guarda até onde
+// (7 dias de uso real já davam 4,3 MB; a Task 17 mediu).
 
 export const ARQ_INDICE_HOOKS = 'indice-hooks.json';
 const VERSAO = 1;
 const INDICE_MAX_BYTES = 8 * 1024 * 1024;
+export const INDICE_CORTE_BYTES = 6 * 1024 * 1024;
 const ITENS_POR_ARQUIVO = 2000;
 const PODA_MS = 8 * 86_400_000;
 const INSTALADOS_MAX_BYTES = 1024 * 1024;
@@ -33,7 +36,7 @@ const MANIFESTO = './.claude-plugin/plugin.json';
 const CAMINHO_MAX = 4096;
 const AGULHA_HOOK = Buffer.from('"hook_');
 const AGULHA_COMPACTA = Buffer.from('"compact_boundary"');
-const CHAVES_INDICE = ['arquivos', 'raiz', 'versao'];
+const CHAVES_INDICE = ['arquivos', 'cortadoAte', 'raiz', 'versao'];
 const CHAVES_ENTRADA = ['ancora', 'itens', 'mtimeMs', 'offset', 'size'];
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -76,6 +79,7 @@ function carregar(arq, chaveRaiz) {
   try {
     const v = lido.valor;
     if (!ehObjeto(v) || !chavesExatas(v, CHAVES_INDICE) || v.versao !== VERSAO || v.raiz !== chaveRaiz || !ehObjeto(v.arquivos)) return null;
+    if (v.cortadoAte !== null && !numeroFinito(v.cortadoAte)) return null;
     const mapa = new Map();
     for (const rel of Object.keys(v.arquivos)) {
       if (formaDaChave(rel) === 0) return null;
@@ -83,10 +87,49 @@ function carregar(arq, chaveRaiz) {
       if (e === null) return null;
       mapa.set(rel, e);
     }
-    return mapa;
+    return { mapa, cortadoAte: v.cortadoAte };
   } catch {
     return null;
   }
+}
+
+// Índice a gravar dentro de `limite` bytes, medido no JSON compacto que
+// gravarJsonAtomico grava. Passou: saem os itens mais velhos (por ts) de
+// todos os arquivos até caber, e cortadoAte passa a ser o ts do mais novo que
+// saiu (até ele pode faltar item; a janela que começa depois está completa).
+// O teto de gravação (6 MiB) fica abaixo do de leitura (8 MiB): o índice
+// gravado é sempre relido, em vez de recusado e refeito do zero a cada
+// chamada. null se nem sem item nenhum couber.
+function indiceNoTeto(arquivos, chaveRaiz, cortadoAte, limite) {
+  const fora = new Set();
+  const montar = (ate) => {
+    const a = Object.create(null);
+    for (const rel of Object.keys(arquivos)) {
+      a[rel] = fora.size === 0 ? arquivos[rel] : { ...arquivos[rel], itens: arquivos[rel].itens.filter((it) => !fora.has(it)) };
+    }
+    return { versao: VERSAO, raiz: chaveRaiz, cortadoAte: ate, arquivos: a };
+  };
+  const excesso = (v) => Buffer.byteLength(JSON.stringify(v)) - limite;
+  let valor = montar(cortadoAte);
+  let falta = excesso(valor);
+  if (falta <= 0) return valor;
+  const velhosPrimeiro = Object.values(arquivos).flatMap((e) => e.itens).sort((a, b) => a[0] - b[0]);
+  let ate = cortadoAte;
+  let i = 0;
+  while (falta > 0 && i < velhosPrimeiro.length) {
+    // Cada item que sai leva pelo menos o próprio JSON: sai o bastante para
+    // cobrir o excesso e o índice é medido de novo (a vírgula e o cortadoAte
+    // mudam a conta em poucos bytes).
+    for (let tirado = 0; tirado < falta && i < velhosPrimeiro.length; i++) {
+      const it = velhosPrimeiro[i];
+      fora.add(it);
+      tirado += Buffer.byteLength(JSON.stringify(it));
+      if (ate === null || it[0] > ate) ate = it[0];
+    }
+    valor = montar(ate);
+    falta = excesso(valor);
+  }
+  return falta <= 0 ? valor : null;
 }
 
 async function lerArquivoHooks(item, ant) {
@@ -118,23 +161,32 @@ async function lerArquivoHooks(item, ant) {
 // Itens de hook e compactação dos transcripts sob `raiz` modificados desde
 // `desdeMs` (no mínimo agoraMs − 8 dias, a poda do índice). `agoraMs`
 // (padrão Date.now()) decide a poda: itens mais velhos que 8 dias saem ao
-// gravar. Sem diretório de dados, lê tudo e não grava. Nunca rejeita.
+// gravar. O índice é gravado até INDICE_CORTE_BYTES (`maxBytesIndice`,
+// opcional, de 1 até ele, só baixa o teto): passou, saem os itens mais velhos
+// (indiceNoTeto), também do resultado desta chamada, para ela e a próxima
+// darem o mesmo. `truncado` vale quando a lista de arquivos parou no teto ou
+// quando um corte do índice alcança a janela pedida. Sem diretório de dados,
+// lê tudo e não grava. Nunca rejeita.
 export async function indexarHooks(opcoes) {
   try {
     if (!ehObjeto(opcoes)) return vazio();
-    const { raiz, maxArquivos } = opcoes;
+    const { raiz, maxArquivos, maxBytesIndice } = opcoes;
     if (typeof raiz !== 'string' || raiz === '') return vazio();
     const agoraMs = numeroFinito(opcoes.agoraMs) ? opcoes.agoraMs : Date.now();
     const poda = agoraMs - PODA_MS;
     const corte = Math.max(poda, numeroFinito(opcoes.desdeMs) ? opcoes.desdeMs : 0);
     const teto = inteiroEntre(maxArquivos, 1, ARQUIVOS_MAX) ? maxArquivos : ARQUIVOS_MAX;
+    const limiteBytes = inteiroEntre(maxBytesIndice, 1, INDICE_CORTE_BYTES) ? maxBytesIndice : INDICE_CORTE_BYTES;
     const base = path.resolve(raiz);
     const lista = await listarTranscripts(base, teto);
     if (!lista.raizOk) return vazio();
     const dir = dirDados();
     const arqIndice = dir === null ? null : path.join(dir, ARQ_INDICE_HOOKS);
     const chaveRaiz = hash48(base);
-    const antigo = arqIndice === null ? null : carregar(arqIndice, chaveRaiz);
+    const carregado = arqIndice === null ? null : carregar(arqIndice, chaveRaiz);
+    const antigo = carregado === null ? null : carregado.mapa;
+    // Um corte mais velho que a poda não tira mais nada da janela.
+    let cortadoAte = carregado === null || carregado.cortadoAte === null || carregado.cortadoAte < poda ? null : carregado.cortadoAte;
     const novo = new Map();
     let ilegiveis = lista.ilegiveis;
     let mudou = antigo === null;
@@ -159,11 +211,16 @@ export async function indexarHooks(opcoes) {
     if (arqIndice !== null && mudou) {
       const arquivos = Object.create(null);
       for (const [rel, e] of novo) arquivos[rel] = { ...e, itens: e.itens.filter((it) => it[0] >= poda) };
-      gravarJsonAtomico(arqIndice, { versao: VERSAO, raiz: chaveRaiz, arquivos }, { compacto: true });
+      const valor = indiceNoTeto(arquivos, chaveRaiz, cortadoAte, limiteBytes);
+      if (valor !== null) {
+        gravarJsonAtomico(arqIndice, valor, { compacto: true });
+        cortadoAte = valor.cortadoAte;
+        for (const rel of Object.keys(valor.arquivos)) novo.set(rel, valor.arquivos[rel]);
+      }
     }
     const itens = [];
     for (const e of novo.values()) for (const it of e.itens) if (it[0] >= corte) itens.push(it);
-    return { itens, arquivos: novo.size, ilegiveis, truncado: lista.truncado };
+    return { itens, arquivos: novo.size, ilegiveis, truncado: lista.truncado || (cortadoAte !== null && cortadoAte >= corte) };
   } catch {
     return vazio();
   }

@@ -123,7 +123,7 @@ export function ITEM_VALIDO(it) {
 // pré-voo; menor 2 da revisão da Task 16). Compara sem espaços nas pontas,
 // sem um par de aspas em volta, só o último segmento do caminho, sem .exe e
 // sem caixa. Texto com espaço fora das aspas já traz argumento e não conta.
-const INTERPRETADORES = new Set(['node', 'bash', 'sh', 'python', 'pwsh', 'powershell', 'cmd']);
+const INTERPRETADORES = new Set(['node', 'bash', 'sh', 'zsh', 'python', 'python3', 'pwsh', 'powershell', 'cmd', 'bun', 'deno', 'env']);
 const ESPACO = /\s/;
 function soInterpretador(comando) {
   let c = comando.trim();

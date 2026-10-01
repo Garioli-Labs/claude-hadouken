@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ARQ_INDICE_HOOKS, indexarHooks, lerHooksDoPlugin, lerInstalados } from '../src/indice-hooks.js';
+import { ARQ_INDICE_HOOKS, INDICE_CORTE_BYTES, indexarHooks, lerHooksDoPlugin, lerInstalados } from '../src/indice-hooks.js';
 import { TIPO, comandosDeHooks, hashComando, mapaDePlugins } from '../src/custo-hooks.js';
 
 // Índice do custo dos hooks (spec v0.4.0 §9.4; decisão 13): incremental,
@@ -103,6 +103,39 @@ test('foco 5: indice-hooks.json trocado por link não é lido nem seguido; o ín
   const r = await indexarHooks({ raiz, desdeMs: 0, agoraMs: agora });
   assert.deepEqual(r.itens.map((it) => it[1]), ['a1']);
   assert.equal(fs.readFileSync(alvo, 'utf8'), JSON.stringify({ versao: 1, raiz: 0, arquivos: {} }), 'o alvo do link não foi escrito');
+});
+
+// Índice que passaria do teto de gravação (6 MiB; aqui baixado pela opção
+// maxBytesIndice para o teste ser rápido): saem os itens mais velhos até
+// caber, o resultado sai truncado e o índice gravado é o que a próxima
+// chamada lê.
+test('indexarHooks: acima do teto de gravação saem os itens mais velhos; o índice cabe, é relido e sai truncado', async () => {
+  assert.equal(INDICE_CORTE_BYTES, 6 * 1024 * 1024);
+  const sucessoEm = (uuid, ts) => JSON.stringify({
+    type: 'attachment', uuid, timestamp: iso(ts),
+    attachment: { type: 'hook_success', hookEvent: 'PreToolUse', command: CMD, durationMs: 10, exitCode: 0, stdout: '' },
+  });
+  const uuids = Array.from({ length: 60 }, (_, i) => `v${String(i).padStart(2, '0')}`);
+  escrever('proj/s1.jsonl', uuids.map((u, i) => sucessoEm(u, agora - (60 - i) * 60_000)));
+  const teto = 2000;
+  const r = await indexarHooks({ raiz, desdeMs: 0, agoraMs: agora, maxBytesIndice: teto });
+  const arq = path.join(home, ARQ_INDICE_HOOKS);
+  assert.ok(fs.statSync(arq).size <= teto, String(fs.statSync(arq).size));
+  assert.equal(r.truncado, true);
+  const guardados = r.itens.map((it) => it[1]).sort();
+  assert.ok(guardados.length > 0 && guardados.length < uuids.length, String(guardados.length));
+  assert.deepEqual(guardados, uuids.slice(-guardados.length), 'ficam os mais novos');
+  const v = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  assert.deepEqual(v.arquivos['proj/s1.jsonl'].itens.map((it) => it[1]).sort(), guardados);
+  // Relido do disco, com o teto padrão: os mesmos itens (relido do zero
+  // seriam os 60, que cabem em 6 MiB), ainda truncado.
+  const z = await indexarHooks({ raiz, desdeMs: 0, agoraMs: agora });
+  assert.deepEqual(z.itens.map((it) => it[1]).sort(), guardados);
+  assert.equal(z.truncado, true);
+  // Janela que começa depois do corte está completa.
+  const w = await indexarHooks({ raiz, desdeMs: v.cortadoAte + 1, agoraMs: agora });
+  assert.equal(w.truncado, false);
+  assert.deepEqual(w.itens.map((it) => it[1]).sort(), guardados);
 });
 
 test('indexarHooks: raiz ausente ou inválida → vazio, sem tocar no índice', async () => {
