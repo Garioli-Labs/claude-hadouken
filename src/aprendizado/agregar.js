@@ -104,7 +104,8 @@ export function agregarRegistros(ap, registros) {
 // Pontos do histórico de estado.json ({ at, h5, d7 }, a cada 2 min). Cada
 // ponto depois de `desdeMs` conta 2 min de atividade; cada par seguido (de 1
 // a 10 min, sem queda, que é reset) soma a taxa em pp/min à hora do dia do
-// segundo ponto. Devolve o maior instante processado (o novo cursor).
+// segundo ponto. Devolve o maior instante processado (o novo cursor). Pontos
+// com o mesmo instante contam uma vez só (vale o primeiro da lista).
 export function agregarHistorico(ap, pontos, desdeMs) {
   const validos = [];
   for (const p of Array.isArray(pontos) ? pontos : []) {
@@ -116,7 +117,7 @@ export function agregarHistorico(ap, pontos, desdeMs) {
   let ate = desdeMs;
   for (let i = 0; i < validos.length; i++) {
     const q = validos[i];
-    if (q.t <= desdeMs) continue;
+    if (q.t <= desdeMs || (i > 0 && validos[i - 1].t === q.t)) continue;
     somarAtivo(ap, q.t, MINUTOS_POR_PONTO);
     const p = validos[i - 1];
     const minutos = p === undefined ? 0 : (q.t - p.t) / 60_000;
@@ -137,24 +138,30 @@ export function agregarHistorico(ap, pontos, desdeMs) {
   return ate;
 }
 
+// Um instante pertence à janela de reset R se R − duração < instante ≤ R, a
+// mesma regra de marcarNaJanela. A tolerância (TOLERANCIA_JANELA_S) só serve
+// para achar a janela pelo reset, que o servidor devolve com variação; ela
+// não estende a janela para depois do reset, quando o uso já zerou.
 export function atualizarJanela(ap, tipo, leitura) {
   const { pct, resetMs, emMs } = leitura ?? {};
   if (!numeroFinito(pct) || !numeroFinito(resetMs) || !numeroFinito(emMs)) return ap;
-  if (emMs > resetMs + TOLERANCIA_MS || emMs <= resetMs - DURACAO_JANELA_MS[tipo]) return ap;
   const lista = ap.janelas[tipo];
   let j = lista.find((x) => Math.abs(x.reset - resetMs) <= TOLERANCIA_MS);
+  const reset = j === undefined ? resetMs : j.reset;
+  if (emMs > reset || emMs <= reset - DURACAO_JANELA_MS[tipo]) return ap;
   if (j === undefined) {
     j = { reset: resetMs, max: 0, cruzou: {}, esgotou: null, disparou: false };
     lista.push(j);
     lista.sort((a, b) => a.reset - b.reset);
   }
-  if (emMs > j.reset) return ap;
   const v = Math.max(0, Math.min(100, pct));
   if (v > j.max) j.max = v;
+  // Leituras podem chegar fora de ordem: vale o menor instante.
   for (const T of LIMIARES) {
-    if (v >= T && !Object.hasOwn(j.cruzou, String(T))) j.cruzou[String(T)] = emMs;
+    const k = String(T);
+    if (v >= T && (!Object.hasOwn(j.cruzou, k) || emMs < j.cruzou[k])) j.cruzou[k] = emMs;
   }
-  if (v >= 100 && j.esgotou === null) j.esgotou = emMs;
+  if (v >= 100 && (j.esgotou === null || emMs < j.esgotou)) j.esgotou = emMs;
   return ap;
 }
 

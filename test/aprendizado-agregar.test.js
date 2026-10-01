@@ -63,6 +63,21 @@ test('agregarHistorico: ritmo por hora em pp/min, sem reset e sem buraco, e 2 mi
   assert.deepEqual(ap.ritmo.h5[14], [2, 2]);
 });
 
+test('agregarHistorico: pontos com o mesmo instante contam a atividade uma vez só', () => {
+  const ap = aprendizadoVazio(local(5, 0));
+  const t0 = local(6, 14);
+  const pontos = [
+    { at: new Date(t0).toISOString(), h5: 10, d7: 40 },
+    { at: new Date(t0).toISOString(), h5: 10, d7: 40 },
+    { at: new Date(t0 + 2 * 60_000).toISOString(), h5: 12, d7: 40 },
+    { at: new Date(t0 + 2 * 60_000).toISOString(), h5: 12, d7: 40 },
+  ];
+  assert.equal(agregarHistorico(ap, pontos, t0 - 1), t0 + 2 * 60_000);
+  assert.equal(ap.semanas[0].ativo[slotDaSemana(t0)], 4);
+  assert.deepEqual(ap.ritmo.h5[14], [1, 1]);
+  assert.deepEqual(ap.ritmo.d7[14], [0, 1]);
+});
+
 test('atualizarJanela: máximo, limiares cruzados, esgotou; outra janela pelo reset', () => {
   const ap = aprendizadoVazio(local(5, 0));
   const reset = local(6, 15);
@@ -79,17 +94,58 @@ test('atualizarJanela: máximo, limiares cruzados, esgotou; outra janela pelo re
   assert.equal(j.esgotou, reset - H);
   atualizarJanela(ap, 'h5', { pct: 5, resetMs: reset + 5 * H, emMs: reset + H });
   assert.equal(ap.janelas.h5.length, 2);
+  const antes = structuredClone(ap.janelas.h5);
   atualizarJanela(ap, 'h5', { pct: 50, resetMs: reset, emMs: reset + 1 });
-  assert.equal(ap.janelas.h5.length, 2);
+  // Leitura depois do reset da janela: ignorada, nenhuma das duas muda.
+  assert.deepEqual(ap.janelas.h5, antes);
+});
+
+test('atualizarJanela: leitura depois do reset não cria janela vazia', () => {
+  const ap = aprendizadoVazio(local(5, 0));
+  const reset = local(6, 15);
+  atualizarJanela(ap, 'h5', { pct: 50, resetMs: reset, emMs: reset + 60_000 });
+  assert.deepEqual(ap.janelas.h5, []);
+});
+
+test('atualizarJanela e marcarNaJanela usam a mesma borda: o reset entra, depois dele não', () => {
+  const ap = aprendizadoVazio(local(5, 0));
+  const reset = local(6, 15);
+  atualizarJanela(ap, 'h5', { pct: 10, resetMs: reset, emMs: reset - H });
+  atualizarJanela(ap, 'h5', { pct: 61, resetMs: reset, emMs: reset + 1 });
+  marcarNaJanela(ap, 'h5', reset + 1, 'disparou');
+  marcarNaJanela(ap, 'h5', reset + 1, 'esgotou');
+  assert.deepEqual(ap.janelas.h5, [{ reset, max: 10, cruzou: {}, esgotou: null, disparou: false }]);
+  atualizarJanela(ap, 'h5', { pct: 61, resetMs: reset, emMs: reset });
+  marcarNaJanela(ap, 'h5', reset, 'disparou');
+  assert.deepEqual(ap.janelas.h5, [{ reset, max: 61, cruzou: { 60: reset }, esgotou: null, disparou: true }]);
+});
+
+test('atualizarJanela: fora de ordem, cruzou e esgotou guardam o menor instante', () => {
+  const ap = aprendizadoVazio(local(5, 0));
+  const reset = local(6, 15);
+  atualizarJanela(ap, 'h5', { pct: 70, resetMs: reset, emMs: reset - H });
+  atualizarJanela(ap, 'h5', { pct: 65, resetMs: reset, emMs: reset - 3 * H });
+  atualizarJanela(ap, 'h5', { pct: 100, resetMs: reset, emMs: reset - H / 2 });
+  atualizarJanela(ap, 'h5', { pct: 100, resetMs: reset, emMs: reset - 2 * H });
+  const j = ap.janelas.h5[0];
+  assert.equal(j.cruzou['60'], reset - 3 * H);
+  assert.equal(j.cruzou['65'], reset - 3 * H);
+  assert.equal(j.cruzou['70'], reset - 2 * H);
+  assert.equal(j.cruzou['95'], reset - 2 * H);
+  assert.equal(j.esgotou, reset - 2 * H);
 });
 
 test('marcarNaJanela põe disparo e esgotamento na janela que contém o instante', () => {
   const ap = aprendizadoVazio(local(5, 0));
   const reset = local(12, 22);
   atualizarJanela(ap, 'fable', { pct: 40, resetMs: reset, emMs: reset - 3 * 24 * H });
+  // Fora da janela (depois do reset e antes do início): nada muda.
+  marcarNaJanela(ap, 'fable', reset + H, 'disparou');
+  marcarNaJanela(ap, 'fable', reset + H, 'esgotou');
+  marcarNaJanela(ap, 'fable', reset - 8 * 24 * H, 'disparou');
+  assert.deepEqual(ap.janelas.fable[0], { reset, max: 40, cruzou: {}, esgotou: null, disparou: false });
   marcarNaJanela(ap, 'fable', reset - 2 * 24 * H, 'disparou');
   marcarNaJanela(ap, 'fable', reset - 24 * H, 'esgotou');
-  marcarNaJanela(ap, 'fable', reset + H, 'disparou');
   // A janela recebeu 40%: nenhum limiar cruzado; o esgotamento põe o máximo em 100.
   assert.deepEqual(ap.janelas.fable[0], { reset, max: 100, cruzou: {}, esgotou: reset - 24 * H, disparou: true });
 });
@@ -126,4 +182,21 @@ test('podar: 26 semanas, tetos de janelas e janela com reset longe demais', () =
   assert.equal(ap.semanas.at(-1).inicio, '2026-10-05');
   assert.equal(ap.janelas.h5.length, JANELAS_MAX.h5);
   assert.equal(ap.janelas.d7.length, 0);
+});
+
+test('podar: semana com mais de 40 modelos fica com os 40 de mais pedidos', () => {
+  const ap = aprendizadoVazio(local(5, 0));
+  agregarRegistros(ap, [req(local(6, 10))]);
+  const s = ap.semanas[0];
+  s.modelos = {};
+  for (let i = 0; i < 45; i++) {
+    const v = new Array(CAMPOS_MODELO.length).fill(0);
+    v[0] = i;
+    s.modelos[`modelo-${i}|-|outro`] = v;
+  }
+  podar(ap, local(6, 10));
+  const modelos = ap.semanas[0].modelos;
+  assert.equal(Object.keys(modelos).length, MODELOS_SEMANA_MAX);
+  for (let i = 0; i < 5; i++) assert.equal(Object.hasOwn(modelos, `modelo-${i}|-|outro`), false);
+  for (let i = 5; i < 45; i++) assert.equal(modelos[`modelo-${i}|-|outro`][0], i);
 });
