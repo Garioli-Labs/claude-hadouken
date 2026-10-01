@@ -167,7 +167,11 @@ function modelos(ap, aj, sug, agoraMs, novos) {
     const [modelo, effort, ...resto] = k.split('|');
     const origem = resto.join('|');
     if (v[0] < AMOSTRAS_MIN || !(v[1] > 0)) continue;
-    const linha = { modelo, effort, pedidos: v[0], cpp: v[1] / v[0], erro: (100 * v[9]) / v[0], falha: v[10] > 0 ? (100 * v[11]) / v[10] : 0 };
+    // Taxas limitadas a 100: um api_error contado fora do api_request pode
+    // passar do total, e o carregador recusa erroDe/erroPara acima de 100.
+    const erro = Math.min(100, (100 * v[9]) / v[0]);
+    const falha = v[10] > 0 ? Math.min(100, (100 * v[11]) / v[10]) : 0;
+    const linha = { modelo, effort, pedidos: v[0], cpp: v[1] / v[0], erro, falha };
     if (!porOrigem.has(origem)) porOrigem.set(origem, []);
     porOrigem.get(origem).push(linha);
   }
@@ -193,10 +197,18 @@ function modelos(ap, aj, sug, agoraMs, novos) {
   }
 }
 
+// Um afrouxar pendente vale para o vigente de quando nasceu; se o vigente
+// mudou (aperto, desfazer, aprovação), ele sai, para não segurar a
+// sugestão atual do item nem cair em 'mudou' na aprovação.
+function podarObsoletas(aj, sug) {
+  sug.lista = sug.lista.filter((x) => x.tipo !== 'afrouxar' || x.estado !== 'pendente' || x.de === aj.vigentes[x.item]);
+}
+
 export function ajustar({ ap, aj, sug, config, agoraMs }) {
   const novos = { ajustes: [], sugestoes: [] };
   const fora = [];
   aj.perfil = perfilDe(ap);
+  podarObsoletas(aj, sug);
   if (!(agoraMs - ap.desde >= PISO_MS) || ap.sessoes < PISO_SESSOES) return { aj, sug, novos, fora };
 
   const mudar = (item, alvo, motivoSobe, motivoDesce) => {
@@ -216,18 +228,25 @@ export function ajustar({ ap, aj, sug, config, agoraMs }) {
   for (const item of ['painel.vermelho', 'painel.amarelo']) {
     const a = alvoDaFaixa(ap, item, agoraMs);
     if (a === null) continue;
-    if (a.fora) fora.push(item);
-    else mudar(item, a.alvo, 'faixa-historico', 'faixa-historico');
+    // ajuste-fora só quando o item poderia mudar: dentro das 24 h ou do
+    // bloqueio, nada se descarta, como na guarda.
+    if (a.fora) {
+      if (podeMudar(aj, item, agoraMs)) fora.push(item);
+    } else mudar(item, a.alvo, 'faixa-historico', 'faixa-historico');
   }
   mudar('previsao.pesoPerfil', cobertura(aj.perfil) >= COBERTURA_MIN ? PESO_ALVO : 0, 'perfil-por-hora', 'perfil-insuficiente');
   guarda(ap, aj, sug, config, agoraMs, novos, fora);
+  // Um aperto deste passo deixa obsoleto o afrouxar pendente do item.
+  podarObsoletas(aj, sug);
   modelos(ap, aj, sug, agoraMs, novos);
   return { aj, sug, novos, fora };
 }
 
 // §4.7: sem id, o último ajuste que ainda vale (o mais novo do seu item e
 // que não é um desfazer); com id, só se ele for o mais novo do item. Volta
-// ao valor anterior e bloqueia o item por 7 dias.
+// ao valor anterior e bloqueia o item por 7 dias. Se a volta deixaria
+// amarelo ≥ vermelho, recusa com 'conflito' e não muda nada (desfaça antes
+// a outra faixa); o texto ao usuário fica com quem renderiza o motivo.
 export function desfazer(aj, id, agoraMs) {
   let alvo = null;
   if (id === null) {
@@ -241,6 +260,8 @@ export function desfazer(aj, id, agoraMs) {
     if (alvo === null) return { ok: false, motivo: 'nao-achou' };
     if (alvo.origem === 'desfeito' || ultimoRegistro(aj, alvo.item) !== alvo) return { ok: false, motivo: 'nao-e-o-ultimo' };
   }
+  const hip = { ...aj.vigentes, [alvo.item]: alvo.antes };
+  if (hip['painel.amarelo'] >= hip['painel.vermelho']) return { ok: false, motivo: 'conflito' };
   const registro = registrar(aj, alvo.item, alvo.antes, 'desfazer', 'desfeito', agoraMs);
   aj.bloqueios[alvo.item] = agoraMs + BLOQUEIO_MS;
   return { ok: true, aj, registro };
