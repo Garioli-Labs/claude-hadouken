@@ -244,7 +244,7 @@ A configuração é gerada e fixa:
 |---|---|---|
 | Versão fixada e SHA-256 das 5 plataformas | bloco abaixo, gerado pelos arquivos `<asset>.sha256` oficiais do release (a v0.162.0 não publica um `checksums.txt` único) | `baixar.js`: `VERSAO_COLETOR`, `FIXADO` |
 | Hosts do download (com redirecionamentos) | `github.com` → 302 para `release-assets.githubusercontent.com`, que responde 200 | `baixar.js`: `HOSTS` (os 3 do plano bastam) |
-| Download win-amd64 | 98,5 MiB em 268 s; o maior das 5 é o linux-amd64, com 107,1 MiB | `baixar.js`: `TAMANHO_MAX = 215 MiB`, `PRAZO_MS = 804 000` |
+| Download win-amd64 | 98,5 MiB em 268 s; o maior das 5 é o linux-amd64, com 107,1 MiB | `baixar.js`: `TAMANHO_MAX = 215 MiB`, `PRAZO_MS = 450 000` (decisão do Sr. Garioli: cabe no hook de 600 s com a extração) |
 | Membro do binário no `.tar.gz` | `otelcol-contrib.exe` na raiz, ao lado de `README.md` | `coletor.js`: `MEMBRO_TAR` |
 | Binário extraído | 366,8 MiB | README (espaço em disco) |
 | RAM parado / pico em uso / subida | 108 MiB / 124 MiB (3 000 POSTs) e 131 MiB (400 POSTs de 50 registros) / 676 ms, com `GOMEMLIMIT=96MiB` | passa no portão de 120 MiB; README |

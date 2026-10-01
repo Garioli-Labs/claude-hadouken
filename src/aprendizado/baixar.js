@@ -8,10 +8,10 @@ import { apagar } from '../base.js';
 // Download do otelcol-contrib (spec aprendizado §3.2 passo 2 e §6). É o
 // ÚNICO módulo com rede do plugin (test/aprendizado-fronteiras.test.js), e só
 // o `ligar` confirmado o chama. Versão e SHA-256 do .tar.gz fixados no
-// código, por plataforma (R7). Só https, só os hosts do release, no máximo 5
-// redirecionamentos, teto de tamanho e prazo (valores da Emenda A2). Baixa
-// num .parte ao lado do destino e só renomeia depois de conferir o hash;
-// qualquer falha apaga o .parte. Nunca rejeita.
+// código, por plataforma (R7). Só https na porta padrão e só os hosts do
+// release, conferidos em cada salto; no máximo 5 redirecionamentos, teto de
+// tamanho e prazo. Baixa num .parte ao lado do destino e só renomeia depois
+// de conferir o hash; qualquer falha apaga o .parte. Nunca rejeita.
 
 // >>> bloco da Task 1, Step 1 ($S\fixado.js), colado sem edição
 export const VERSAO_COLETOR = '0.162.0';
@@ -29,9 +29,12 @@ const REPO = 'open-telemetry/opentelemetry-collector-releases';
 // github.com → 302 → release-assets.githubusercontent.com).
 export const HOSTS = Object.freeze(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
 // Emenda A2: o maior .tar.gz (linux-amd64, 107,1 MiB) × 2, arredondado para
-// cima, e 3 × os 268 s do download medido (win-amd64, 98,5 MiB).
+// cima.
 export const TAMANHO_MAX = 215 * 1024 * 1024;
-export const PRAZO_MS = 804_000;
+// Decisão do Sr. Garioli: 268 s medidos (win-amd64, 98,5 MiB) dão 1,7×;
+// 450 s + 120 s da extração ≤ 600 s do hook (R5). Numa conexão mais lenta,
+// sai o motivo 'prazo'.
+export const PRAZO_MS = 450_000;
 export const REDIRECIONAMENTOS_MAX = 5;
 export const SHA_VALIDO = /^[0-9a-f]{64}$/;
 const REDIRECIONA = new Set([301, 302, 303, 307, 308]);
@@ -72,7 +75,9 @@ function transferir({ url, sha, hosts, protocolos, prazoMs, tamanhoMax, parte })
         terminar({ ok: false, motivo: 'host' });
         return;
       }
-      if (!protocolos.includes(u.protocol) || !hosts.includes(u.hostname) || u.username !== '' || u.password !== '') {
+      // https só na porta padrão (`port` vazio, também para :443 escrito).
+      const portaRuim = u.protocol === 'https:' && u.port !== '';
+      if (!protocolos.includes(u.protocol) || !hosts.includes(u.hostname) || portaRuim || u.username !== '' || u.password !== '') {
         terminar({ ok: false, motivo: 'host' });
         return;
       }
