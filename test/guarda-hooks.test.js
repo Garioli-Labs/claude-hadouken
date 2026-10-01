@@ -625,6 +625,22 @@ test('agenda: stdin ilegível com o pedido nega; sem o pedido passa e registra e
   assert.equal(fs.existsSync(ausente), false);
 });
 
+// Rodada 1 da revisão da Task 0: no texto cru, os escapes \uXXXX do JSON são
+// desfeitos antes do pedeLiberacao; o JSON.parse os desfaria, mas o texto
+// truncado não chega a ele.
+test('agenda: stdin ilegível com o pedido escrito em escapes \\u nega', () => {
+  const home = novoHome();
+  const truncados = [
+    '{"tool_name":"CronCreate","tool_input":{"prompt":"\\u002fclaude-hadouken\\u003aliberar',
+    '{"tool_name":"ScheduleWakeup","tool_input":{"prompt":"\\u002F\\u006c\\u0069\\u0062\\u0065\\u0072\\u0061\\u0072 2h',
+  ];
+  for (const e of truncados) assert.deepEqual(saida(rodar('guarda-agenda.js', e, home)), AGENDA_NEGADO, e);
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), ['agenda', 'agenda']);
+  // Escape que não forma o pedido segue passando, com o 'erro' da leitura.
+  semSaida(rodar('guarda-agenda.js', '{"tool_name":"CronCreate","tool_input":{"prompt":"\\u0063heck', home));
+  assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), ['agenda']);
+});
+
 // Task 0 da parte 2: os schedulers MCP (mcp__...cron|schedule|trigger|task,
 // sem diferenciar maiúsculas) passam pela agenda; o detalhe do evento é o
 // rótulo fixo 'agenda:mcp', nunca o nome vindo do stdin.

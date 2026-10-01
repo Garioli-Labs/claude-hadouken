@@ -1,6 +1,6 @@
 import { rodarHook, emitirJson, avisarLeituraFalha } from './comum.js';
 import { dirDados } from '../base.js';
-import { pedeLiberacao } from '../guarda/caminho.js';
+import { pedeLiberacao, desfazEscapeU } from '../guarda/caminho.js';
 
 // Hook PreToolUse de CronCreate|ScheduleWakeup|RemoteTrigger (C1 da revisão
 // final da parte 1, defesa em profundidade do liberar) e, desde a Task 0 da
@@ -75,11 +75,13 @@ async function negar(detalhe) {
 // o pedido, passa e registra 'erro' agenda (spec v0.4.0 §4.5), só na pasta de
 // dados que já existe. A leitura cortada pelo prazo já é registrada pelo
 // rodarHook (M5), então não é registrada de novo aqui. Stdin vazio ou só com
-// espaços não é erro.
+// espaços não é erro. O texto cru vale como veio e com os escapes \uXXXX do
+// JSON desfeitos (rodada 1 da revisão da Task 0): o JSON.parse os desfaria,
+// mas o texto truncado não chega a ele.
 async function semEntrada(leitura) {
   const texto = leitura?.texto;
   if (typeof texto !== 'string' || !/\S/.test(texto)) return;
-  if (pedeLiberacao(texto)) {
+  if (pedeLiberacao(texto) || pedeLiberacao(desfazEscapeU(texto))) {
     await negar('agenda');
     return;
   }

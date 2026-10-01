@@ -1,7 +1,29 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 // Apoio da P4 e da P5 (spec v0.4.0 §4.2, S13 e spike S9).
+
+const WIN = process.platform === 'win32';
+const normal = (p) => (WIN ? p.toLowerCase() : p);
+
+// Rodada 1 da revisão da Task 0 da parte 2: no Windows, o compartilhamento
+// administrativo da própria máquina (\\localhost\C$\x, \\127.0.0.1\C$\x,
+// \\?\UNC\localhost\C$\x, com barra normal também, e o nome da máquina) é o
+// mesmo C:\x, e o realpath mantém a forma UNC; vira a letra do disco antes e
+// depois do realpath. Só texto, nenhum acesso à rede. Outro nome da mesma
+// máquina (apelido de DNS, IP da rede, IPv6) fica de fora (R1).
+const ADMIN = /^[\\/]{2}(?:[?.][\\/]unc[\\/])?([^\\/]+)[\\/]([a-z])\$(?=[\\/]|$)/i;
+const LOOPBACK = /^(?:localhost|127(?:\.\d{1,3}){3})$/i;
+function semCompartilhamentoAdmin(p) {
+  if (!WIN) return p;
+  const m = ADMIN.exec(p);
+  if (m === null) return p;
+  const host = m[1].toLowerCase();
+  if (!LOOPBACK.test(host) && host !== os.hostname().toLowerCase()) return p;
+  const resto = p.slice(m[0].length);
+  return `${m[2].toUpperCase()}:${resto === '' ? path.sep : resto}`;
+}
 
 // Caminho real: o ancestral existente mais longo passa por
 // realpathSync.native (desfaz links, '..' e o nome curto 8.3 do Windows) e o
@@ -14,14 +36,15 @@ import path from 'node:path';
 export function caminhoReal(p) {
   try {
     if (typeof p !== 'string' || p.length === 0 || p.length > 4096 || !path.isAbsolute(p)) return null;
-    let atual = path.resolve(p);
+    const escrito = path.resolve(semCompartilhamentoAdmin(p));
+    let atual = escrito;
     const resto = [];
     for (;;) {
       try {
-        return path.join(fs.realpathSync.native(atual), ...resto.reverse());
+        return semCompartilhamentoAdmin(path.join(fs.realpathSync.native(atual), ...resto.reverse()));
       } catch {
         const pai = path.dirname(atual);
-        if (pai === atual) return path.resolve(p);
+        if (pai === atual) return escrito;
         resto.push(path.basename(atual));
         atual = pai;
       }
@@ -30,9 +53,6 @@ export function caminhoReal(p) {
     return null;
   }
 }
-
-const WIN = process.platform === 'win32';
-const normal = (p) => (WIN ? p.toLowerCase() : p);
 
 // O alvo relativo à pasta, os dois já pelo caminho real e com a caixa do
 // Windows normalizada: '' para a própria pasta, null fora dela.
@@ -96,24 +116,46 @@ export function arquivoProtegido(alvo, { casa, configDir, raizPlugin } = {}) {
   return ehSettingsDeProjeto(path.resolve(alvo)) || ehSettingsDeProjeto(b) ? 'settings-projeto' : null;
 }
 
-// Settings de projeto (decisão do controlador na Task 0 da parte 2): o texto
-// novo do Write (content), do Edit (new_string) ou do MultiEdit (cada
-// edits[].new_string) mexe nos hooks ou nos plugins quando tem, sem
-// diferenciar maiúsculas, disableAllHooks, enabledPlugins, "hooks" (a chave,
-// entre aspas) ou claude-hadouken. Os escapes \uXXXX do JSON são desfeitos
-// antes ("disableAllHooks" é a mesma chave para o Claude Code). Campo
-// que não é texto não conta. Resíduo (R1, SECURITY.md): a chave montada em
-// várias edições e o sed -i pelo Bash ou pelo PowerShell.
-const CHAVES_DA_GUARDA = ['disableallhooks', 'enabledplugins', '"hooks"', 'claude-hadouken'];
+// Os escapes \uXXXX do JSON desfeitos: "disableAllHooks" é a mesma
+// chave para o Claude Code. Também usado no texto cru da agenda.
 const ESCAPE_U = /\\u([0-9a-fA-F]{4})/g;
-export function mexeNaGuarda(input) {
+export const desfazEscapeU = (t) => t.replace(ESCAPE_U, (_, h) => String.fromCharCode(parseInt(h, 16)));
+
+// Settings de projeto (decisão do controlador na Task 0 da parte 2): a edição
+// mexe nos hooks ou nos plugins quando o texto dela tem, sem diferenciar
+// maiúsculas e com os escapes \u desfeitos, disableAllHooks, enabledPlugins,
+// "hooks" (a chave, entre aspas) ou claude-hadouken. Conta o texto novo do
+// Write (content), do Edit (new_string) e do MultiEdit (cada
+// edits[].new_string) e, desde a rodada 1 da revisão, o texto antigo
+// (old_string e cada edits[].old_string): apagar ou trocar a chave é mexer
+// nela. Campo que não é texto não conta.
+// O arquivo atual (rodada 1): um old_string curto (abaixo de 40 caracteres,
+// como 'false' ou 'true') casa dentro de uma chave que já está no arquivo e
+// vira o valor dela sem citá-la; o Write troca o arquivo todo. Nesses dois
+// casos, lerAtual() (o hook passa o lerTextoSemLink de arquivo.js: lstat
+// antes, teto) com uma das chaves mexe, e a leitura que falha também mexe (na
+// dúvida, nega). Arquivo ausente não tem chave atual: o Edit com old_string
+// falha nele, e o texto novo de quem o cria já foi conferido.
+// Resíduo (R1, SECURITY.md): a chave montada em várias edições, o old_string
+// de 40 caracteres ou mais que cobre só o valor de uma chave sem citá-la e o
+// sed -i pelo Bash ou pelo PowerShell.
+const CHAVES_DA_GUARDA = ['disableallhooks', 'enabledplugins', '"hooks"', 'claude-hadouken'];
+const OLD_CURTO = 40;
+const temChave = (t) => {
+  if (typeof t !== 'string') return false;
+  const n = desfazEscapeU(t).toLowerCase();
+  return CHAVES_DA_GUARDA.some((c) => n.includes(c));
+};
+export function mexeNaGuarda(input, lerAtual) {
   if (input === null || typeof input !== 'object') return false;
-  const edicoes = Array.isArray(input.edits) ? input.edits.map((e) => e?.new_string) : [];
-  return [input.content, input.new_string, ...edicoes].some((t) => {
-    if (typeof t !== 'string') return false;
-    const n = t.replace(ESCAPE_U, (_, h) => String.fromCharCode(parseInt(h, 16))).toLowerCase();
-    return CHAVES_DA_GUARDA.some((c) => n.includes(c));
-  });
+  const edicoes = Array.isArray(input.edits) ? input.edits.filter((e) => e !== null && typeof e === 'object') : [];
+  const antigos = [input.old_string, ...edicoes.map((e) => e.old_string)].filter((t) => typeof t === 'string');
+  if ([input.content, input.new_string, ...edicoes.map((e) => e.new_string), ...antigos].some(temChave)) return true;
+  if (typeof input.content !== 'string' && !antigos.some((t) => t.length < OLD_CURTO)) return false;
+  if (typeof lerAtual !== 'function') return true;
+  const atual = lerAtual();
+  if (atual?.ok === true) return typeof atual.texto !== 'string' || temChave(atual.texto);
+  return atual?.motivo !== 'ausente';
 }
 
 // --- Onde o comando abre claude (P4) ---------------------------------------

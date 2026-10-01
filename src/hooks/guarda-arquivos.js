@@ -13,10 +13,13 @@ import { dirDados } from '../base.js';
 //   settings do usuário (~/.claude e CLAUDE_CONFIG_DIR) e o próprio plugin
 //   (P5_PROTEGIDO_TEXTO, eventos 'P5:settings' e 'P5:plugin'): um
 //   disableAllHooks ou um avaliar.js editado desligaria a guarda sem shell;
-// - nos settings de projeto, só o Write, o Edit e o MultiEdit cujo texto novo
-//   mexe nos hooks ou nos plugins (mexeNaGuarda, decisão do controlador;
-//   P5_SETTINGS_PROJETO_TEXTO, evento 'P5:settings-projeto').
-// O caminho real (caminhoReal) desfaz '..', links e o nome 8.3. O `if` não
+// - nos settings de projeto, só o Write, o Edit e o MultiEdit que mexem nos
+//   hooks ou nos plugins pelo texto novo ou antigo, ou, com old_string curto
+//   ou Write, pelo arquivo atual (mexeNaGuarda, decisão do controlador e
+//   rodada 1 da revisão; P5_SETTINGS_PROJETO_TEXTO, evento
+//   'P5:settings-projeto').
+// O caminho real (caminhoReal) desfaz '..', links, o nome 8.3 e o
+// compartilhamento administrativo da própria máquina (\\localhost\C$). O `if` não
 // casa o nome 8.3, um HADOUKEN_HOME fora de ~/.claude/hadouken, um
 // CLAUDE_CONFIG_DIR fora de ~/.claude nem a raiz de um plugin fora de
 // ~/.claude/plugins (R1). Exceção depois de ter a pasta de dados: passa e
@@ -25,6 +28,9 @@ import { dirDados } from '../base.js';
 const FERRAMENTAS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 // As que trazem o texto novo (content, new_string, edits[].new_string).
 const COM_TEXTO = new Set(['Write', 'Edit', 'MultiEdit']);
+// Teto da leitura do settings de projeto atual (rodada 1 da revisão da Task
+// 0): o mesmo 1 MiB do stdin. Acima dele, a leitura falha e a P5 nega.
+const TETO_SETTINGS = 1_048_576;
 
 // O alvo como caminho absoluto (rodada 1 da revisão da Task 16): '~', '~/'
 // e '~\' viram a casa do usuário, e um caminho relativo se resolve no cwd da
@@ -53,7 +59,9 @@ rodarHook(async (entrada) => {
       const classe = caminho.arquivoProtegido(alvo, { casa: os.homedir(), configDir: process.env.CLAUDE_CONFIG_DIR, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT });
       if (classe === null) return;
       if (classe === 'settings-projeto') {
-        if (!COM_TEXTO.has(entrada.tool_name) || !caminho.mexeNaGuarda(entrada.tool_input)) return;
+        if (!COM_TEXTO.has(entrada.tool_name)) return;
+        const { lerTextoSemLink } = await import('../guarda/arquivo.js');
+        if (!caminho.mexeNaGuarda(entrada.tool_input, () => lerTextoSemLink(alvo, TETO_SETTINGS))) return;
         texto = 'P5_SETTINGS_PROJETO_TEXTO';
       } else {
         texto = 'P5_PROTEGIDO_TEXTO';

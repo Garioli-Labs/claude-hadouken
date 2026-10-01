@@ -154,6 +154,75 @@ test('P5: settings de projeto negados só quando o texto novo mexe em hooks, plu
   assert.deepEqual(detalhes(c), Array(negados.length).fill('P5:settings-projeto'));
 });
 
+// Rodada 1 da revisão da Task 0: o texto antigo também conta. Um old_string
+// curto ('false') casa dentro de uma chave protegida que já está no arquivo e
+// vira o valor dela; então, com old_string abaixo de 40 caracteres (Edit ou
+// qualquer edits[] do MultiEdit), a P5 lê o arquivo atual (lstat antes, com
+// teto) e nega quando ele tem uma das chaves, e nega quando a leitura falha.
+// O Write troca o arquivo todo: nega quando o atual tem uma das chaves.
+test('P5: settings de projeto negados quando o texto antigo ou o arquivo atual tocam as chaves da guarda', () => {
+  const c = cenario();
+  const comHooks = path.join(c.projeto, '.claude', 'settings.json');
+  const comPlugins = path.join(c.projeto, '.claude', 'settings.local.json');
+  fs.writeFileSync(comHooks, '{\n  "disableAllHooks": false,\n  "permissions": {"allow": ["Bash(npm test)"]}\n}\n');
+  fs.writeFileSync(comPlugins, '{"enabledPlugins": {"claude-hadouken@m": true}}');
+  const outro = path.join(c.raiz, 'outro');
+  fs.mkdirSync(path.join(outro, '.claude'), { recursive: true });
+  const semChaves = path.join(outro, '.claude', 'settings.json');
+  fs.writeFileSync(semChaves, '{"permissions": {"allow": []}, "spinnerTipsEnabled": false, "x": true}');
+  // Leitura que falha: acima do teto (1 MiB) e uma pasta no lugar do arquivo.
+  const grande = path.join(outro, '.claude', 'settings.local.json');
+  fs.writeFileSync(grande, `{"x": "${'a'.repeat(1_048_576)}"}`);
+  const terceiro = path.join(c.raiz, 'terceiro');
+  const pasta = path.join(terceiro, '.claude', 'settings.json');
+  fs.mkdirSync(pasta, { recursive: true });
+  const negados = [
+    ferramenta('Edit', { file_path: comHooks, old_string: 'false', new_string: 'true' }),
+    ferramenta('Edit', { file_path: comPlugins, old_string: 'true', new_string: 'false' }),
+    ferramenta('MultiEdit', { file_path: comHooks, edits: [{ old_string: '"allow": ["Bash(npm test)"]', new_string: '"allow": []' }, { old_string: 'false', new_string: 'true' }] }),
+    // old_string longo com a chave: apagar ou trocar a chave conta.
+    ferramenta('Edit', { file_path: comHooks, old_string: '"disableAllHooks": false,\n  "permissions"', new_string: '"permissions"' }),
+    // A chave no old_string de um edits[], com escape \u, num arquivo sem ela.
+    ferramenta('MultiEdit', { file_path: semChaves, edits: [{ old_string: '"enabled\\u0050lugins": {"x@m": true}, "permissions": {}', new_string: '"permissions": {}' }] }),
+    ferramenta('Write', { file_path: comPlugins, content: '{}' }),
+    ferramenta('Edit', { file_path: grande, old_string: 'a', new_string: 'b' }),
+    ferramenta('Edit', { file_path: pasta, old_string: 'a', new_string: 'b' }),
+  ];
+  for (const e of negados) assert.deepEqual(saida(rodar(c, e)), negacao(msg.P5_SETTINGS_PROJETO_TEXTO), JSON.stringify(e.tool_input).slice(0, 200));
+  const passam = [
+    // A mesma edição curta num settings sem as chaves.
+    ferramenta('Edit', { file_path: semChaves, old_string: 'false', new_string: 'true' }),
+    ferramenta('MultiEdit', { file_path: semChaves, edits: [{ old_string: 'true', new_string: 'false' }, { old_string: '[]', new_string: '["Read"]' }] }),
+    ferramenta('Write', { file_path: semChaves, content: '{"permissions": {"allow": ["Read"]}}' }),
+    // old_string de 40 caracteres ou mais, sem as chaves, num arquivo com elas.
+    ferramenta('Edit', { file_path: comHooks, old_string: '"permissions": {"allow": ["Bash(npm test)"]}', new_string: '"permissions": {"allow": ["Bash(npm test)", "Read"]}' }),
+    // Arquivo ainda inexistente: não há chave atual; o texto novo é conferido.
+    ferramenta('Edit', { file_path: path.join(terceiro, '.claude', 'settings.local.json'), old_string: '', new_string: '{"permissions": {}}' }),
+  ];
+  for (const e of passam) semSaida(rodar(c, e));
+  assert.deepEqual(detalhes(c), Array(negados.length).fill('P5:settings-projeto'));
+});
+
+// Rodada 1 da revisão da Task 0: o compartilhamento administrativo da própria
+// máquina (\\localhost\C$, \\127.0.0.1\C$, \\?\UNC\localhost\C$, com barra
+// normal também, e o nome da máquina) vira a letra do disco antes da
+// classificação; sem isso, os settings do usuário passavam por esse caminho.
+test('P5: settings do usuário pelo compartilhamento administrativo (\\\\localhost\\C$) são negados', { skip: !WIN && 'só Windows' }, () => {
+  const c = cenario();
+  const settings = path.join(c.casa, '.claude', 'settings.json');
+  const disco = settings[0];
+  const resto = settings.slice(2);
+  const casos = [
+    `\\\\localhost\\${disco}$${resto}`,
+    `\\\\127.0.0.1\\${disco.toLowerCase()}$${resto}`,
+    `\\\\?\\UNC\\LOCALHOST\\${disco}$${resto}`,
+    `//localhost/${disco}$${resto.replace(/\\/g, '/')}`,
+    `\\\\${os.hostname()}\\${disco}$${resto}`,
+  ].map((p) => ferramenta('Edit', edit(p)));
+  for (const e of casos) assert.deepEqual(saida(rodar(c, e)), negacao(msg.P5_PROTEGIDO_TEXTO), e.tool_input.file_path);
+  assert.deepEqual(detalhes(c), Array(casos.length).fill('P5:settings'));
+});
+
 test('P5: outro plugin, arquivo comum, Read e raiz de plugin relativa passam', () => {
   const c = cenario();
   const passam = [

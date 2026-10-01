@@ -61,13 +61,15 @@ Riscos residuais da guarda (v0.4.0):
   - a pasta de dados;
   - os `settings.json` e `settings.local.json` do usuário, em `~/.claude` e no `CLAUDE_CONFIG_DIR`;
   - o próprio plugin: a raiz dele e o que tiver `claude-hadouken` dentro de `plugins/` (o cache e o marketplace);
-  - nos settings de projeto (`.claude/settings.json` e `.claude/settings.local.json`), o Write, o Edit e o MultiEdit cujo texto novo traga `disableAllHooks`, `enabledPlugins`, `"hooks"` ou `claude-hadouken`.
+  - nos settings de projeto (`.claude/settings.json` e `.claude/settings.local.json`), o Write, o Edit e o MultiEdit cujo texto novo ou antigo (`old_string`) traga `disableAllHooks`, `enabledPlugins`, `"hooks"` ou `claude-hadouken`; com um `old_string` abaixo de 40 caracteres, ou no Write, também quando o arquivo atual traz uma dessas chaves ou não pode ser lido (link, acima de 1 MiB).
 
   A documentação diz que os settings são relidos durante a sessão e que o `disableAllHooks` do usuário, do projeto ou local desliga os hooks de plugin. Por isso, o que escapa da P5 desliga a guarda a partir do próximo hook:
   - o Bash ou o PowerShell editando esses arquivos (por exemplo, `sed -i` no `settings.json`);
-  - nos settings de projeto, a chave montada em várias edições, sem a palavra inteira em nenhuma delas;
+  - nos settings de projeto, a chave montada em várias edições, sem a palavra inteira em nenhuma delas, e um `old_string` de 40 caracteres ou mais que cubra só o valor de uma chave da guarda, sem citá-la;
   - o NotebookEdit nos settings de projeto, porque a regra do conteúdo vale só para as ferramentas que trazem o texto novo;
-  - outros diretórios de configuração, como um `CLAUDE_CONFIG_DIR` fora de `~/.claude` ou a raiz de um plugin carregado de outra pasta (`--plugin-dir`). O hook os cobre, mas o filtro `if` só leva a ele os caminhos de `~/.claude` e os `.claude/settings.json` e `.claude/settings.local.json` abaixo da pasta de trabalho.
+  - fora do escopo da P5: um clone do marketplace com outro nome (a pasta em `plugins/marketplaces/` sem `claude-hadouken` no caminho) e o `plugins/installed_plugins.json`, que diz de onde o Claude Code carrega cada plugin;
+  - outros diretórios de configuração, como um `CLAUDE_CONFIG_DIR` fora de `~/.claude` ou a raiz de um plugin carregado de outra pasta (`--plugin-dir`). O hook os cobre, mas o filtro `if` só leva a ele os caminhos de `~/.claude` e os `.claude/settings.json` e `.claude/settings.local.json` abaixo da pasta de trabalho;
+  - no Windows, o compartilhamento administrativo da própria máquina: o hook traduz `\\localhost\C$\...`, `\\127.0.0.1\C$\...`, `\\?\UNC\localhost\C$\...` e o nome da máquina para `C:\...`, mas não é confirmado que o filtro `if` o leve ao hook, e outro nome da mesma máquina (apelido de DNS, IP da rede, IPv6) não é traduzido.
 
   Excesso aceito: nos settings de projeto, uma permissão que cite `claude-hadouken` também é negada; o usuário aplica a mudança à mão.
 
@@ -182,13 +184,15 @@ Residual risks of the guard (v0.4.0):
   - the data folder;
   - the user's `settings.json` and `settings.local.json`, in `~/.claude` and in `CLAUDE_CONFIG_DIR`;
   - the plugin itself: its root, and anything with `claude-hadouken` inside `plugins/` (the cache and the marketplace);
-  - in project settings (`.claude/settings.json` and `.claude/settings.local.json`), a Write, Edit or MultiEdit whose new text carries `disableAllHooks`, `enabledPlugins`, `"hooks"` or `claude-hadouken`.
+  - in project settings (`.claude/settings.json` and `.claude/settings.local.json`), a Write, Edit or MultiEdit whose new or old text (`old_string`) carries `disableAllHooks`, `enabledPlugins`, `"hooks"` or `claude-hadouken`; with an `old_string` under 40 characters, or on a Write, also when the current file carries one of those keys or cannot be read (a link, over 1 MiB).
 
   The documentation says settings are reloaded during the session, and that `disableAllHooks` in user, project or local settings turns plugin hooks off. So whatever escapes P5 turns the guard off from the next hook on:
   - Bash or PowerShell editing those files (for example, `sed -i` on `settings.json`);
-  - in project settings, a key assembled across several edits, with the whole word in none of them;
+  - in project settings, a key assembled across several edits, with the whole word in none of them, and an `old_string` of 40 characters or more that covers only the value of a guard key without naming it;
   - NotebookEdit on project settings, because the content rule only covers the tools that carry the new text;
-  - other configuration folders, such as a `CLAUDE_CONFIG_DIR` outside `~/.claude` or the root of a plugin loaded from another folder (`--plugin-dir`). The hook covers them, but the `if` filter only sends it the paths under `~/.claude` and the `.claude/settings.json` and `.claude/settings.local.json` files below the working folder.
+  - out of P5's scope: a marketplace clone under another name (the folder in `plugins/marketplaces/` without `claude-hadouken` in its path) and `plugins/installed_plugins.json`, which tells Claude Code where it loads each plugin from;
+  - other configuration folders, such as a `CLAUDE_CONFIG_DIR` outside `~/.claude` or the root of a plugin loaded from another folder (`--plugin-dir`). The hook covers them, but the `if` filter only sends it the paths under `~/.claude` and the `.claude/settings.json` and `.claude/settings.local.json` files below the working folder;
+  - on Windows, the machine's own administrative share: the hook maps `\\localhost\C$\...`, `\\127.0.0.1\C$\...`, `\\?\UNC\localhost\C$\...` and the machine name to `C:\...`, but it is not confirmed that the `if` filter sends such a path to the hook, and another name for the same machine (a DNS alias, the LAN IP, IPv6) is not mapped.
 
   Accepted over-deny: in project settings, a permission that names `claude-hadouken` is denied too; the user applies the change by hand.
 
