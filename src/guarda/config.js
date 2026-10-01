@@ -91,7 +91,8 @@ function existe(arquivo) {
 // Arquivo presente mas ilegível (JSON quebrado, acima de 64 KiB, pasta, preso
 // ou sem permissão): padrões com um aviso (fail-closed: um "ligada: false"
 // que não se lê nunca desliga a guarda). Nunca lança.
-// Não confundir com lerConfigBase (config-base.js, a foto dos settings do Claude Code no ConfigChange): aqui é o config.json do hadouken, sem o aperto.
+// Não confundir com lerConfigBase (config-base.js, a foto dos settings do
+// Claude Code no ConfigChange): aqui é o config.json do hadouken, sem o aperto.
 export function lerConfigGuardaBase(dir) {
   try {
     if (typeof dir !== 'string') return { config: { ...PADRAO_GUARDA }, avisos: [] };

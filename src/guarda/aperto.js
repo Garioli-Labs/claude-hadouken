@@ -30,11 +30,15 @@ export function lerAperto(dir) {
   }
 }
 
+// Só o mínimo, e o aperto passa de novo por valorDoItem (inteiro de 70 a
+// 100), então quem chama direto também não desce abaixo do piso 70 com um
+// valor não validado. config[campo] que não é número finito fica como está
+// (o `<` com uma string converteria '80' em 80).
 export function aplicarAperto(config, aperto) {
   const c = { ...config };
-  for (const campo of Object.keys(ITEM_DO_CAMPO)) {
-    const v = aperto?.[campo];
-    if (Number.isInteger(v) && v < c[campo]) c[campo] = v;
+  for (const [campo, item] of Object.entries(ITEM_DO_CAMPO)) {
+    const v = valorDoItem(item, aperto?.[campo]);
+    if (Number.isInteger(v) && Number.isFinite(c[campo]) && v < c[campo]) c[campo] = v;
   }
   return c;
 }

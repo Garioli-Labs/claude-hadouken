@@ -71,6 +71,52 @@ test('aplicarAperto: só o mínimo, nunca acima do config.json', () => {
   assert.notEqual(aplicarAperto(base, { teto7d: 75, fableTetoPct: null }), base);
 });
 
+// Rodada 1 da revisão: aplicarAperto confere sozinho o piso 70 (o de
+// valorDoItem), sem depender de quem o chama.
+test('aplicarAperto: abaixo do piso 70 ou não finito é ignorado, mesmo chamado direto', () => {
+  const base = { ...PADRAO_GUARDA, teto7d: 80, fableTetoPct: 90 };
+  assert.deepEqual(aplicarAperto(base, { teto7d: 50, fableTetoPct: 50 }), base);
+  assert.deepEqual(aplicarAperto(base, { teto7d: 69, fableTetoPct: 0 }), base);
+  assert.deepEqual(aplicarAperto(base, { teto7d: -Infinity, fableTetoPct: Number.NaN }), base);
+  assert.deepEqual(aplicarAperto(base, { teto7d: '75', fableTetoPct: [75] }), base);
+  assert.deepEqual(aplicarAperto(base, { teto7d: 70, fableTetoPct: 89 }), { ...base, teto7d: 70, fableTetoPct: 89 });
+});
+
+test('aplicarAperto: config[campo] não numérico fica como está', () => {
+  for (const ruim of ['80', '', null, undefined, Number.NaN, true, [80], { v: 80 }]) {
+    const base = { ...PADRAO_GUARDA, teto7d: ruim, fableTetoPct: ruim };
+    assert.deepEqual(aplicarAperto(base, { teto7d: 75, fableTetoPct: 75 }), base, String(ruim));
+  }
+});
+
+test('ligado.json forjado (lista, __proto__, quebrado, vazio, pasta, grande): nunca afrouxa nem lança', () => {
+  const conteudos = ['[1,2,3]', '{"__proto__":{"v":1,"ligado":false}}', '{"v":', '', 'null', '"x"'];
+  for (const texto of conteudos) {
+    const d = novo();
+    fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ guarda: { teto7d: 80, fable: { tetoPct: 90 } } }));
+    fs.mkdirSync(path.join(d, 'otel'));
+    fs.writeFileSync(path.join(d, 'otel', 'ligado.json'), texto);
+    const base = lerConfigGuardaBase(d).config;
+    assert.deepEqual(lerConfigGuarda(d).config, base, `${texto}, sem ajustes.json`);
+    gravarAjustes(d, { 'guarda.teto7d': 95, 'guarda.fableTetoPct': 100 });
+    assert.deepEqual(lerConfigGuarda(d).config, base, `${texto}, ajustes acima do config`);
+    gravarAjustes(d, { 'guarda.teto7d': 75 });
+    const c = lerConfigGuarda(d).config;
+    assert.equal(c.teto7d, 75, texto);
+    assert.deepEqual(c, { ...base, teto7d: 75 }, texto);
+  }
+  for (const forma of ['pasta', 'grande']) {
+    const d = novo();
+    fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ guarda: { teto7d: 80 } }));
+    fs.mkdirSync(path.join(d, 'otel'));
+    if (forma === 'pasta') fs.mkdirSync(path.join(d, 'otel', 'ligado.json'));
+    else fs.writeFileSync(path.join(d, 'otel', 'ligado.json'), `[${'1,'.repeat(3000)}1]`);
+    gravarAjustes(d, { 'guarda.teto7d': 75 });
+    assert.deepEqual(lerAperto(d), { fableTetoPct: null, teto7d: null }, `ligado.json ${forma}: desligado`);
+    assert.deepEqual(lerConfigGuarda(d), lerConfigGuardaBase(d), forma);
+  }
+});
+
 test('lerConfigGuarda devolve o mínimo; lerConfigGuardaBase, o config.json puro', () => {
   const d = novo();
   fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ guarda: { teto7d: 80 } }));
