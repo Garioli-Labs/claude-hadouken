@@ -72,6 +72,12 @@ export const p2Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: 
 export const p3Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Troca para o Fable bloqueada; libere com /claude-hadouken:liberar${sufixoLiberar(ativas)}.`;
 export const P4_TEXTO = 'hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.';
 export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuário edita.';
+// P5 estendida (Task 0 da parte 2): os settings do usuário e o próprio
+// plugin, negados sempre; nos settings de projeto, só a edição que mexe nos
+// hooks ou nos plugins. O texto nunca ecoa o pedido: o Claude mostra o trecho
+// na conversa por conta própria.
+export const P5_PROTEGIDO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude editar este arquivo (settings do Claude Code ou o próprio plugin). Mostre a mudança na conversa; o usuário a aplica à mão.';
+export const P5_SETTINGS_PROJETO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude mexer em hooks, disableAllHooks, enabledPlugins nem no claude-hadouken nos settings do projeto. Mostre a mudança na conversa; o usuário a aplica à mão. O resto do arquivo segue editável.';
 // Regra fixa da P4 (decisão do controlador na revisão da Task 13): claude
 // junto com o comando de liberação, negado sempre, disparada ou não. Desde a
 // rodada 2 da revisão da Task 16 o texto que só cita 'hadouken:liberar' (numa

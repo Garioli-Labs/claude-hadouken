@@ -1,9 +1,11 @@
-import { rodarHook, emitirJson } from './comum.js';
+import { rodarHook, emitirJson, avisarLeituraFalha } from './comum.js';
 import { dirDados } from '../base.js';
 import { pedeLiberacao } from '../guarda/caminho.js';
 
 // Hook PreToolUse de CronCreate|ScheduleWakeup|RemoteTrigger (C1 da revisão
-// final da parte 1, defesa em profundidade do liberar). Uma tarefa agendada
+// final da parte 1, defesa em profundidade do liberar) e, desde a Task 0 da
+// parte 2, dos schedulers MCP (mcp__ com cron, schedule, trigger ou task no
+// nome, sem diferenciar maiúsculas). Uma tarefa agendada
 // (CronCreate), a próxima volta de um /loop (ScheduleWakeup) ou uma rotina
 // no claude.ai (RemoteTrigger) disparam um prompt sem o usuário digitar; se
 // ele pedir a liberação, o modelo se liberaria com uma chamada de ferramenta.
@@ -22,6 +24,15 @@ import { pedeLiberacao } from '../guarda/caminho.js';
 // passa por aqui.
 
 const FERRAMENTAS = new Set(['CronCreate', 'ScheduleWakeup', 'RemoteTrigger']);
+// O nome do scheduler MCP, como o matcher de hooks/hooks.json (lá com classes
+// de caractere, porque o matcher diferencia maiúsculas). Ancorado no começo:
+// linear num tool_name enorme. O evento leva o rótulo fixo 'agenda:mcp',
+// nunca o nome que veio do stdin.
+const MCP_AGENDA = /^mcp__.*(?:cron|schedule|trigger|task)/i;
+const rotuloDe = (nome) => {
+  if (FERRAMENTAS.has(nome)) return nome;
+  return typeof nome === 'string' && MCP_AGENDA.test(nome) ? 'agenda:mcp' : null;
+};
 // Acima de 1 MiB de stdin (o teto comum, spec 8.1, S9) o JSON não é lido;
 // 'liberar' em qualquer ponto do texto cru nega (lerStdinVigiando em base.js),
 // como a vigia da P4.
@@ -59,17 +70,38 @@ async function negar(detalhe) {
   } catch { /* o deny já saiu */ }
 }
 
+// Falha fechada (Task 0 da parte 2): sem JSON legível (truncado, lista,
+// texto solto), o texto cru lido do stdin com o pedido de liberação nega. Sem
+// o pedido, passa e registra 'erro' agenda (spec v0.4.0 §4.5), só na pasta de
+// dados que já existe. A leitura cortada pelo prazo já é registrada pelo
+// rodarHook (M5), então não é registrada de novo aqui. Stdin vazio ou só com
+// espaços não é erro.
+async function semEntrada(leitura) {
+  const texto = leitura?.texto;
+  if (typeof texto !== 'string' || !/\S/.test(texto)) return;
+  if (pedeLiberacao(texto)) {
+    await negar('agenda');
+    return;
+  }
+  if (leitura.cortado !== true) await avisarLeituraFalha('agenda');
+}
+
 rodarHook(async (entrada, leitura) => {
   if (leitura?.casou === true) {
     await negar('agenda');
     return;
   }
-  if (entrada === null || !FERRAMENTAS.has(entrada.tool_name)) return;
+  if (entrada === null) {
+    await semEntrada(leitura);
+    return;
+  }
+  const rotulo = rotuloDe(entrada.tool_name);
+  if (rotulo === null) return;
   let pede;
   try {
     pede = algumTextoPede(entrada.tool_input);
   } catch {
     pede = true;
   }
-  if (pede) await negar(entrada.tool_name);
+  if (pede) await negar(rotulo);
 }, undefined, VIGIA, 'agenda');

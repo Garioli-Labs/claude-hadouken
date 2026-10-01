@@ -64,8 +64,9 @@ async function registrarErro(dir, detalhe, agoraMs) {
 // inteiro, deixa a chamada passar e registra 'erro' com o rótulo do hook. Sem
 // o JSON não há session_id, então não há gate de sessão; por isso só grava na
 // pasta de dados que já existe (anexarEvento criaria a pasta de quem nunca
-// ativou o plugin). Nunca lança.
-async function avisarLeituraFalha(rotulo) {
+// ativou o plugin). Nunca lança. Exportada para o hook da agenda, que também
+// a chama com o JSON ilegível (Task 0 da parte 2, guarda-agenda.js).
+export async function avisarLeituraFalha(rotulo) {
   try {
     const dir = dirDados();
     if (dir === null || fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory() !== true) return;
@@ -89,17 +90,19 @@ function entradaDe(texto) {
 // (nunca process.exit) para que a escrita no stdout termine antes da saída.
 // maxBytes troca o teto de 1 MiB do stdin (spec 8.1, S9) e vigia procura uma
 // RegExp no texto cru acima dele (lerStdinVigiando em base.js); leitura é
-// { excedeu, casou, cortado }. A P4 (guarda-filha.js) troca o teto e usa a
-// vigia, porque a regra fixa precisa ver o comando inteiro; o hook da agenda
-// usa a vigia. rotulo (o detalhe do evento, ex. 'P1') liga o aviso de leitura
-// que falhou (avisarLeituraFalha, M5), depois de fn: o deny da vigia sai
-// primeiro. Os hooks de antes da guarda não passam rótulo.
+// { excedeu, casou, cortado, texto }, com texto o stdin cru lido ('' acima do
+// teto). Só o hook da agenda lê o texto cru, para falhar fechada sem JSON
+// (Task 0 da parte 2); os outros hooks o ignoram. A P4 (guarda-filha.js) troca
+// o teto e usa a vigia, porque a regra fixa precisa ver o comando inteiro; o
+// hook da agenda usa a vigia. rotulo (o detalhe do evento, ex. 'P1') liga o
+// aviso de leitura que falhou (avisarLeituraFalha, M5), depois de fn: o deny
+// da vigia sai primeiro. Os hooks de antes da guarda não passam rótulo.
 export function rodarHook(fn, maxBytes, vigia, rotulo) {
   lerStdinVigiando(undefined, maxBytes, vigia)
     .then(async (r) => {
       const entrada = entradaDe(r.texto);
       try {
-        await fn(entrada, { excedeu: r.excedeu, casou: r.casou, cortado: r.cortado });
+        await fn(entrada, { excedeu: r.excedeu, casou: r.casou, cortado: r.cortado, texto: r.texto });
       } finally {
         const falhou = (r.excedeu && !r.casou) || (r.cortado && entrada === null);
         if (typeof rotulo === 'string' && falhou) await avisarLeituraFalha(rotulo);

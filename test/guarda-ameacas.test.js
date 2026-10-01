@@ -68,11 +68,14 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   const h = JSON.parse(ler('hooks', 'hooks.json')).hooks;
   const handlers = Object.entries(h).flatMap(([evento, grupos]) => grupos.flatMap((g) => g.hooks.map((x) => ({ evento, matcher: g.matcher, ...x }))));
   const novos = handlers.filter((x) => Array.isArray(x.args));
-  // 27 = 10 fora da P4 (P1, P5 x4, liberar, P3, PostModelSwitch, StopFailure
-  // e o hook da agenda, C1 da revisão final) + 17 da P4, um por `if` de IF_P4
-  // (8 Bash, 9 PowerShell). O brief contava 11 com a P4 em 2 handlers; a
-  // Task 18 trocou esses 2 pelos 15, e o M8 da revisão final somou 2.
-  assert.equal(novos.length, 27);
+  // 45 = 10 fora da P4 e da P5 estendida (P1, P5 x4 na pasta de dados,
+  // liberar, P3, PostModelSwitch, StopFailure e o hook da agenda, C1 da
+  // revisão final) + 17 da P4, um por `if` de IF_P4 (8 Bash, 9 PowerShell)
+  // + 18 da P5 estendida (Task 0 da parte 2, ifP5 abaixo: 3 `if` a mais em
+  // cada uma das 4 ferramentas e 2 de settings de projeto em Write, Edit e
+  // MultiEdit). O brief da parte 1 contava 11 com a P4 em 2 handlers; a Task
+  // 18 trocou esses 2 pelos 15, e o M8 da revisão final somou 2.
+  assert.equal(novos.length, 45);
   for (const x of novos) {
     assert.equal(x.command, 'node');
     assert.equal(x.args.length, 1);
@@ -80,19 +83,40 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
     assert.ok(fs.existsSync(path.join(repo, x.args[0].replace('${CLAUDE_PLUGIN_ROOT}/', ''))), x.args[0]);
     assert.equal(x.timeout, ['PostModelSwitch', 'StopFailure'].includes(x.evento) ? 5 : 10);
   }
+  // A P5: um handler por `if`, no grupo da sua ferramenta. Task 0 da parte 2:
+  // os settings do usuário e os plugins em todas as quatro; os settings de
+  // projeto (negados pelo conteúdo, decisão do controlador) em Write, Edit e
+  // MultiEdit, que trazem o texto novo.
+  const ifP5 = (tool) => [
+    `${tool}(~/.claude/hadouken/**)`, `${tool}(~/.claude/settings.json)`, `${tool}(~/.claude/settings.local.json)`, `${tool}(~/.claude/plugins/**)`,
+    ...(tool === 'NotebookEdit' ? [] : [`${tool}(**/.claude/settings.json)`, `${tool}(**/.claude/settings.local.json)`]),
+  ];
+  const p5 = novos.filter((x) => x.args[0].endsWith('/guarda-arquivos.js'));
   for (const tool of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
-    assert.ok(novos.some((x) => x.matcher === tool && x.if === `${tool}(~/.claude/hadouken/**)`), tool);
+    assert.deepEqual(p5.filter((x) => x.matcher === tool).map((x) => [x.evento, x.if]), ifP5(tool).map((i) => ['PreToolUse', i]), tool);
   }
-  // O hook da agenda: um handler PreToolUse, sem `if`, com a lista exata.
+  assert.equal(p5.length, 22);
+  // O hook da agenda: um handler PreToolUse, sem `if`, com a lista exata e os
+  // schedulers MCP (Task 0 da parte 2). O matcher com outro caractere além de
+  // letras, dígitos, _ e | é uma regex do JavaScript, sem âncora e que
+  // diferencia maiúsculas (doc de hooks): as classes de caractere fazem o
+  // "sem diferenciar maiúsculas".
   const agenda = novos.filter((x) => x.args[0].endsWith('/guarda-agenda.js'));
-  assert.deepEqual(agenda.map((x) => [x.evento, x.matcher, x.if, x.timeout]), [['PreToolUse', 'CronCreate|ScheduleWakeup|RemoteTrigger', undefined, 10]]);
+  const MATCHER_AGENDA = 'CronCreate|ScheduleWakeup|RemoteTrigger|mcp__.*([Cc][Rr][Oo][Nn]|[Ss][Cc][Hh][Ee][Dd][Uu][Ll][Ee]|[Tt][Rr][Ii][Gg][Gg][Ee][Rr]|[Tt][Aa][Ss][Kk]).*';
+  assert.deepEqual(agenda.map((x) => [x.evento, x.matcher, x.if, x.timeout]), [['PreToolUse', MATCHER_AGENDA, undefined, 10]]);
+  const re = new RegExp(MATCHER_AGENDA);
+  for (const t of ['CronCreate', 'ScheduleWakeup', 'RemoteTrigger', 'mcp__scheduled-tasks__create_scheduled_task', 'mcp__Agenda__CreateTrigger', 'mcp__x__CRON_add', 'mcp__y__runTask']) {
+    assert.ok(re.test(t), t);
+  }
+  for (const t of ['Bash', 'Agent', 'Task', 'TaskCreate', 'mcp__github__create_issue']) assert.ok(!re.test(t), t);
   // A P4: um handler por `if`, cada um no grupo da sua ferramenta.
   const p4 = novos.filter((x) => x.args[0].endsWith('/guarda-filha.js'));
   assert.deepEqual(p4.map((x) => x.if), IF_P4);
   for (const x of p4) assert.equal(x.matcher, x.if.slice(0, x.if.indexOf('(')));
-  // Nenhum `if` com curinga antes do nome (Bash(*claude*) levaria o git commit
-  // com o trailer do Claude à P4).
-  for (const x of handlers) if (x.if !== undefined) assert.match(x.if, /^[A-Za-z]+\([^*]/, x.if);
+  // Nenhum `if` de Bash ou PowerShell com curinga antes do nome
+  // (Bash(*claude*) levaria o git commit com o trailer do Claude à P4). Os de
+  // caminho da P5 (**/.claude/settings.json) são glob de arquivo, outra regra.
+  for (const x of handlers) if (x.if !== undefined && /^(?:Bash|PowerShell)\(/.test(x.if)) assert.match(x.if, /^[A-Za-z]+\([^*]/, x.if);
   // Os três hooks antigos seguem em forma de shell; o prompt-submit bloqueia
   // desde a v0.4.0 e tem 10 s.
   const antigos = handlers.filter((x) => !Array.isArray(x.args));

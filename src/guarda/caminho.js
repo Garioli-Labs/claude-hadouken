@@ -34,14 +34,86 @@ export function caminhoReal(p) {
 const WIN = process.platform === 'win32';
 const normal = (p) => (WIN ? p.toLowerCase() : p);
 
-export function dentroDe(pasta, alvo) {
-  const a = caminhoReal(pasta);
-  const b = caminhoReal(alvo);
-  if (a === null || b === null) return false;
+// O alvo relativo à pasta, os dois já pelo caminho real e com a caixa do
+// Windows normalizada: '' para a própria pasta, null fora dela.
+function relativoReal(a, b) {
+  if (a === null || b === null) return null;
   const rel = path.relative(normal(a), normal(b));
   // Fora é ".." ou "../algo"; um filho chamado "..x" continua dentro.
   const sobe = rel === '..' || rel.startsWith(`..${path.sep}`);
-  return rel === '' || (!sobe && !path.isAbsolute(rel));
+  return rel === '' || (!sobe && !path.isAbsolute(rel)) ? rel : null;
+}
+
+export function dentroDe(pasta, alvo) {
+  return relativoReal(caminhoReal(pasta), caminhoReal(alvo)) !== null;
+}
+
+// --- P5 estendida: settings e o próprio plugin (Task 0 da parte 2) ---------
+// A revisão final da parte 1 achou que o Write ou o Edit no cache do plugin
+// ou no settings.json desligam a guarda a partir do próximo hook, sem shell:
+// a doc diz que o disableAllHooks dos settings do usuário, do projeto ou
+// locais desliga os hooks de plugin, e que os settings são relidos durante a
+// sessão. Classes do alvo:
+// - 'settings': settings.json e settings.local.json do usuário, em
+//   <casa>/.claude e no CLAUDE_CONFIG_DIR. A P5 nega sempre (decisão do Sr.
+//   Garioli, 2026-09-30).
+// - 'plugin': dentro da raiz do plugin (CLAUDE_PLUGIN_ROOT, só absoluto) ou
+//   em <config>/plugins/ com 'claude-hadouken' no trecho depois de plugins/
+//   (o cache instalado e o marketplace). A P5 nega sempre.
+// - 'settings-projeto': qualquer outro .claude/settings.json ou
+//   .claude/settings.local.json. A P5 nega só pelo texto novo (mexeNaGuarda,
+//   decisão do controlador na Task 0 da parte 2).
+// - null: o resto.
+// O caminho real é o mesmo do dentroDe (links, '..', 8.3, caixa no Windows).
+// O 'claude-hadouken' e o nome do settings de projeto são procurados sem
+// diferenciar maiúsculas em todo sistema: o macOS não diferencia por padrão,
+// e negar a mais um nome com outra caixa não custa nada.
+const SETTINGS = ['settings.json', 'settings.local.json'];
+const absoluto = (p) => typeof p === 'string' && p.length > 0 && path.isAbsolute(p);
+
+function ehSettingsDeProjeto(p) {
+  const n = p.toLowerCase();
+  return SETTINGS.includes(path.basename(n)) && path.basename(path.dirname(n)) === '.claude';
+}
+
+export function arquivoProtegido(alvo, { casa, configDir, raizPlugin } = {}) {
+  const b = caminhoReal(alvo);
+  if (b === null) return null;
+  const dentro = (pasta) => relativoReal(caminhoReal(pasta), b);
+  const configs = [];
+  if (absoluto(casa)) configs.push(path.join(casa, '.claude'));
+  if (absoluto(configDir)) configs.push(configDir);
+  for (const c of configs) {
+    for (const nome of SETTINGS) if (dentro(path.join(c, nome)) === '') return 'settings';
+  }
+  if (absoluto(raizPlugin) && dentro(raizPlugin) !== null) return 'plugin';
+  for (const c of configs) {
+    const rel = dentro(path.join(c, 'plugins'));
+    if (rel !== null && rel.toLowerCase().includes('claude-hadouken')) return 'plugin';
+  }
+  // O nome escrito e o real: um .claude que é link para outra pasta conta
+  // pelo nome escrito.
+  return ehSettingsDeProjeto(path.resolve(alvo)) || ehSettingsDeProjeto(b) ? 'settings-projeto' : null;
+}
+
+// Settings de projeto (decisão do controlador na Task 0 da parte 2): o texto
+// novo do Write (content), do Edit (new_string) ou do MultiEdit (cada
+// edits[].new_string) mexe nos hooks ou nos plugins quando tem, sem
+// diferenciar maiúsculas, disableAllHooks, enabledPlugins, "hooks" (a chave,
+// entre aspas) ou claude-hadouken. Os escapes \uXXXX do JSON são desfeitos
+// antes ("disableAllHooks" é a mesma chave para o Claude Code). Campo
+// que não é texto não conta. Resíduo (R1, SECURITY.md): a chave montada em
+// várias edições e o sed -i pelo Bash ou pelo PowerShell.
+const CHAVES_DA_GUARDA = ['disableallhooks', 'enabledplugins', '"hooks"', 'claude-hadouken'];
+const ESCAPE_U = /\\u([0-9a-fA-F]{4})/g;
+export function mexeNaGuarda(input) {
+  if (input === null || typeof input !== 'object') return false;
+  const edicoes = Array.isArray(input.edits) ? input.edits.map((e) => e?.new_string) : [];
+  return [input.content, input.new_string, ...edicoes].some((t) => {
+    if (typeof t !== 'string') return false;
+    const n = t.replace(ESCAPE_U, (_, h) => String.fromCharCode(parseInt(h, 16))).toLowerCase();
+    return CHAVES_DA_GUARDA.some((c) => n.includes(c));
+  });
 }
 
 // --- Onde o comando abre claude (P4) ---------------------------------------

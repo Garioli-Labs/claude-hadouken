@@ -601,6 +601,50 @@ test('agenda: import que falha não solta a negação; estrutura funda também n
   assert.deepEqual(saida(rodar('guarda-agenda.js', fundo, home)), AGENDA_NEGADO);
 });
 
+// Task 0 da parte 2: a agenda falha fechada. Sem JSON legível, o texto cru
+// lido do stdin com o pedido de liberação nega; sem o pedido, passa e registra
+// 'erro' agenda (spec v0.4.0 §4.5), só na pasta de dados que já existe.
+test('agenda: stdin ilegível com o pedido nega; sem o pedido passa e registra erro', () => {
+  const home = novoHome();
+  const truncados = [
+    '{"session_id":"s1","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/claude-hadouken:liberar 24h',
+    '{"tool_name":"ScheduleWakeup","tool_input":{"prompt":"/liberar',
+  ];
+  for (const e of truncados) assert.deepEqual(saida(rodar('guarda-agenda.js', e, home)), AGENDA_NEGADO, e);
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), ['agenda', 'agenda']);
+  assert.deepEqual(eventos(home, 'erro'), []);
+  semSaida(rodar('guarda-agenda.js', '{"session_id":"s1","tool_name":"CronCreate","tool_input":{"prompt":"check the build', home));
+  assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), ['agenda']);
+  // Stdin vazio ou só com espaços não é erro.
+  for (const e of ['', ' \n\t']) semSaida(rodar('guarda-agenda.js', e, home));
+  assert.equal(eventos(home, 'erro').length, 1);
+  assert.equal(eventos(home, 'liberacao-recusada').length, 2);
+  // Pasta de dados ausente: nada é criado.
+  const ausente = path.join(novoHome(), 'sem-pasta');
+  semSaida(rodar('guarda-agenda.js', '{"tool_name":"CronCreate"', ausente));
+  assert.equal(fs.existsSync(ausente), false);
+});
+
+// Task 0 da parte 2: os schedulers MCP (mcp__...cron|schedule|trigger|task,
+// sem diferenciar maiúsculas) passam pela agenda; o detalhe do evento é o
+// rótulo fixo 'agenda:mcp', nunca o nome vindo do stdin.
+test('agenda: scheduler MCP com o pedido de liberação é negado', () => {
+  const home = novoHome();
+  const casos = [
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', cronExpression: '* * * * *', prompt: '/claude-hadouken:liberar 2h' }],
+    ['mcp__Agenda__CreateTrigger', { message: 'rode /liberar fable' }],
+    ['mcp__x__CRON_add', { body: { texto: '/claude-hadouken:liberar' } }],
+  ];
+  for (const [tool, input] of casos) assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
+  const passam = [
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: 'check the build' }],
+    ['mcp__github__create_issue', { body: '/claude-hadouken:liberar' }],
+    ['xmcp__a__task', { prompt: '/liberar' }],
+  ];
+  for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
+  assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), Array(casos.length).fill('agenda:mcp'));
+});
+
 // M5 da revisão final da parte 1 (spec v0.4.0 §4.5, fail-open visível): stdin
 // acima do teto ou cortado pelo prazo deixa a chamada passar e registra o
 // evento 'erro' com o rótulo do hook, sem gate de sessão (sem o JSON não há
