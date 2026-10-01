@@ -51,7 +51,7 @@ rodarHook(async (entrada) => {
     return;
   }
   const [
-    { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, gravarJsonAtomico, sessoesAtivas },
+    { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, leiturasComPiso, ultimaLeitura, gravarJsonAtomico, sessoesAtivas },
     { avaliarAlertas },
     {
       ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar,
@@ -69,6 +69,11 @@ rodarHook(async (entrada) => {
   const lidoEstado = lerJson(join(dir, ARQ_ESTADO));
   const estado = lidoEstado.ok ? validarEstado(lidoEstado.valor, agoraMs) : null;
   const limites = limitesValidos(estado, agoraMs);
+  // Spec v0.4.0 §10, item 1: as faixas usam a leitura fresca ou o piso de até
+  // 24 h; sem os dois, a linha diz desde quando não há leitura.
+  const leituras = leiturasComPiso(estado, agoraMs);
+  const ultima = ultimaLeitura(estado, agoraMs);
+  const temLeitura = leituras.five_hour !== null || leituras.seven_day !== null;
   const previsao = preverEstouro({ historico: estado?.historico, limites, agoraMs });
   const ativas = sessoesAtivas(estado, agoraMs, sessionId);
   const arqAlertas = join(dir, ARQ_ALERTAS);
@@ -79,12 +84,14 @@ rodarHook(async (entrada) => {
   const lidoProjecao = lerJson(arqProjecao, ALERTAS_MAX_BYTES);
   const projecaoLida = lidoProjecao.ok ? lidoProjecao.valor : null;
   const { linhas, novos } = avaliarAlertas({
-    limites, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
+    limites, leituras, ultima, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
     previsao, sessoesAtivas: ativas,
   });
-  // `at` só anda quando a memória foi conferida contra uma leitura válida
-  // (decisão D): sem leitura, fica o at lido.
-  const registro = alertasParaGravar(novos, limites ? agoraMs : atMs);
+  // `at` só anda quando a memória foi conferida contra uma leitura (decisão
+  // D), fresca ou piso (spec v0.4.0 §10, item 1): com só o piso, a memória
+  // precisa andar, senão alertasGuardados a esquece depois de 1 h e a faixa
+  // volta a cada prompt. Sem leitura nenhuma, fica o at lido.
+  const registro = alertasParaGravar(novos, temLeitura ? agoraMs : atMs);
   if (precisaGravar(registro, guardado, agoraMs)) gravarJsonAtomico(arqAlertas, registro);
   const registroProjecao = projecaoParaGravar(novos.projecao);
   if (precisaGravarProjecao(registroProjecao, projecaoLida)) gravarJsonAtomico(arqProjecao, registroProjecao);

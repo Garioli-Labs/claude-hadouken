@@ -83,7 +83,7 @@ rodarHook(async (entrada) => {
     const modelo = reg.normalizarModelo(entrada.model);
     if (modelo !== null) reg.gravarModeloSessao(dir, sessionId, modelo, agoraMs);
   });
-  const [{ sincronizarShims }, { ARQ_ESTADO, lerJson, validarEstado, limitesValidos }, linhas] = await Promise.all([
+  const [{ sincronizarShims }, { ARQ_ESTADO, lerJson, validarEstado, leiturasComPiso, ultimaLeitura }, linhas] = await Promise.all([
     import('../shim.js'),
     import('../estado.js'),
     import('./linha-estado.js'),
@@ -91,7 +91,7 @@ rodarHook(async (entrada) => {
   const shims = sincronizarShims(process.env.CLAUDE_PLUGIN_ROOT);
   const lido = lerJson(path.join(dir, ARQ_ESTADO));
   const estado = lido.ok ? validarEstado(lido.valor, agoraMs) : null;
-  const saida = [linhas.linhaEstado(limitesValidos(estado, agoraMs), agoraMs)];
+  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs))];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
   emitirContexto('SessionStart', saida.join('\n'));

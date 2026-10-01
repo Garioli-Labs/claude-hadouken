@@ -387,7 +387,7 @@ test('SessionStart: dispara o instalador em segundo plano; com HADOUKEN_SEM_PAIN
   const desligado = novoTmp('hdk casa ç ');
   const rLigado = sessionStart(ambienteIsolado(ligado));
   const rDesligado = sessionStart(ambienteIsolado(desligado, { HADOUKEN_SEM_PAINEL: '1' }));
-  for (const r of [rLigado, rDesligado]) assert.equal(contextoDe(r), 'Consumo sem leitura: rode /usage.');
+  for (const r of [rLigado, rDesligado]) assert.equal(contextoDe(r), 'Consumo ainda sem leitura nesta máquina.');
   assert.ok(fs.existsSync(arqPainel(ligado, ARQ_TENTATIVA)), 'a tentativa é marcada antes do disparo');
   assert.ok(await esperarArquivo(arqPainel(ligado, nomeVsix(versao)), 20_000), 'o filho destacado montou o .vsix');
   // Mais um pouco para o que o desligado disparasse aparecer.
@@ -396,7 +396,7 @@ test('SessionStart: dispara o instalador em segundo plano; com HADOUKEN_SEM_PAIN
   assert.equal(fs.existsSync(arqPainel(ligado, ARQ_INSTALADO)), false, 'sem code, nada instalado');
   // Segunda sessão no ligado: a tentativa recente segura o disparo.
   const tentativa = fs.readFileSync(arqPainel(ligado, ARQ_TENTATIVA), 'utf8');
-  assert.equal(contextoDe(sessionStart(ambienteIsolado(ligado))), 'Consumo sem leitura: rode /usage.');
+  assert.equal(contextoDe(sessionStart(ambienteIsolado(ligado))), 'Consumo ainda sem leitura nesta máquina.');
   await new Promise((r) => setTimeout(r, 500));
   assert.equal(fs.readFileSync(arqPainel(ligado, ARQ_TENTATIVA), 'utf8'), tentativa);
 });

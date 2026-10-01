@@ -357,7 +357,7 @@ test('sem ICU: os três hooks e a barra carregam, saem com código 0 e sem stder
   const ctx = JSON.parse(inicio.stdout).hookSpecificOutput;
   assert.equal(ctx.hookEventName, 'SessionStart');
   // Sem estado.json ainda: a linha fixa de "sem leitura".
-  assert.match(ctx.additionalContext, /^Consumo sem leitura: rode \/usage\.$/);
+  assert.match(ctx.additionalContext, /^Consumo ainda sem leitura nesta máquina\.$/);
   const s = Math.floor(Date.now() / 1000);
   const barra = rodar('statusline.js', {
     session_id: 's1',

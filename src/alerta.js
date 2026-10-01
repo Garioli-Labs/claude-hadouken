@@ -8,9 +8,6 @@ import { MAX_SESSOES as MAX_SESSOES_ATIVAS } from './estado.js';
 import { calcularRitmo } from './ritmo.js';
 import { horaLocal, quandoLocal, janelaValida, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
 
-// A linha fixa de "sem leitura", a mesma no alerta do UserPromptSubmit e
-// na linha do SessionStart (hooks/linha-estado.js a reexporta).
-export const LINHA_SEM_LEITURA = 'Consumo sem leitura: rode /usage.';
 // Spec v0.4.0 §10, item 1: sem leitura fresca nem piso, a linha diz desde
 // quando não há leitura e o último modo conhecido; sem leitura nenhuma, esta.
 export const LINHA_SEM_LEITURA_NUNCA = 'Consumo ainda sem leitura nesta máquina.';
@@ -37,6 +34,26 @@ function mesmaJanela(guardada, resetsAt) {
     && numeroFinito(guardada.resets_at)
     && numeroFinito(resetsAt)
     && Math.abs(guardada.resets_at - resetsAt) <= TOLERANCIA_JANELA_S;
+}
+
+// Janelas das faixas (spec v0.4.0 §10, item 1). Com `leituras`
+// (leiturasComPiso de estado.js): a fresca, ou o piso de até 24 h com reset
+// no futuro, marcado com a idade. Sem elas, `limites` (limitesValidos), todas
+// frescas: os chamadores de antes seguem iguais. Cada janela passa de novo
+// por janelaValida. Devolve { five_hour, seven_day }, cada uma
+// { used_percentage, resets_at, piso, idadeMs } ou null.
+function janelasDasFaixas(leituras, limites) {
+  const r = { five_hour: null, seven_day: null };
+  const comPiso = ehObjeto(leituras);
+  const fonte = comPiso ? leituras : ehObjeto(limites) ? limites : {};
+  for (const k of ['five_hour', 'seven_day']) {
+    const l = fonte[k];
+    const j = janelaValida(l);
+    if (j === null) continue;
+    const piso = comPiso && l.fresca === false && numeroFinito(l.idadeMs) && l.idadeMs >= 0;
+    r[k] = { ...j, piso, idadeMs: piso ? l.idadeMs : 0 };
+  }
+  return r;
 }
 
 export const ALERTAS_VAZIO = Object.freeze({ five_hour: null, seven_day: null, sem_leitura: {}, projecao: {} });
@@ -87,13 +104,19 @@ const pct = (x) => `${Math.floor(x)}%`;
 // Abaixo de RESET_PERTO_MIN, atenção e serializar não mudam o ritmo: o reset
 // chega antes de a mudança render.
 const RESET_PERTO_MIN = 15;
-const minutosAte = (resetsAt, agoraMs) => Math.max(1, Math.floor((resetsAt * 1000 - agoraMs) / 60_000));
+// null quando a conta não dá número finito (agora ou reset inválido): a linha
+// sai sem os minutos, nunca com "NaN".
+const minutosAte = (resetsAt, agoraMs) => {
+  const ms = resetsAt * 1000 - agoraMs;
+  return numeroFinito(ms) ? Math.max(1, Math.floor(ms / 60_000)) : null;
+};
 // "Se agendar a volta" (§10, item 4; decisão 7 do plano da parte 2): reset +
 // 2 min, para a volta cair na janela nova e não no último minuto da velha.
 const VOLTA_S = 120;
 const HORA_MS = 3_600_000;
 // Idade de uma leitura-piso em horas inteiras (o piso só existe com mais de 1 h).
-const idade = (ms) => `${Math.max(1, Math.floor(ms / HORA_MS))} h`;
+// null sem idade finita: a linha sai sem a idade, nunca com "NaN".
+const idade = (ms) => (numeroFinito(ms) ? `${Math.max(1, Math.floor(ms / HORA_MS))} h` : null);
 
 // O valor de uma janela numa linha: "74%" ou "74% (reset em 40 min)"; com
 // piso (spec v0.4.0 §10, item 1), "≥ 74% (leitura de 3 h)" ou "≥ 74% (leitura
@@ -102,7 +125,8 @@ const idade = (ms) => `${Math.max(1, Math.floor(ms / HORA_MS))} h`;
 // fixo.
 function em(j, extra = null) {
   const partes = [];
-  if (j.piso === true) partes.push(`leitura de ${idade(j.idadeMs)}`);
+  const lida = j.piso === true ? idade(j.idadeMs) : null;
+  if (lida !== null) partes.push(`leitura de ${lida}`);
   if (extra !== null) partes.push(extra);
   const valor = j.piso === true ? `≥ ${pct(j.used_percentage)}` : pct(j.used_percentage);
   return partes.length === 0 ? valor : `${valor} (${partes.join('; ')})`;
@@ -110,8 +134,8 @@ function em(j, extra = null) {
 
 function linha5h(faixa, anterior, f5, agoraMs) {
   const min = minutosAte(f5.resets_at, agoraMs);
-  const reset = `reset em ${min} min`;
-  const perto = min < RESET_PERTO_MIN && (faixa === 'atencao' || faixa === 'serializar');
+  const reset = min === null ? null : `reset em ${min} min`;
+  const perto = min !== null && min < RESET_PERTO_MIN && (faixa === 'atencao' || faixa === 'serializar');
   const subiu = anterior === null || ORDEM_5H.indexOf(faixa) > ORDEM_5H.indexOf(anterior);
   if (!subiu) {
     if (perto) return `5h voltou a ${em(f5, reset)}: sem mudança de ritmo.`;
@@ -196,7 +220,10 @@ function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs }
 // previsao.js) e `sessoesAtivas` (sessoesAtivas de estado.js) alimentam o
 // aviso de projeção, guardado por sessão em `projecao` (o hook de prompt o
 // guarda em projecao.json, fora de alertas.json; ver hooks/alertas-gravados.js);
-// sem eles, nenhum aviso de projeção. Nunca lança (restrição global do
+// sem eles, nenhum aviso de projeção. `leituras` (leiturasComPiso) e `ultima`
+// (ultimaLeitura), de estado.js, dão as faixas com piso e a linha sem leitura
+// nova (spec v0.4.0 §10, item 1); a projeção continua só com `limites`, os
+// frescos. Nunca lança (restrição global do
 // plano v0.2.0): entrada ilegível (sem objeto, getter que lança, Proxy) não
 // dá aviso nenhum e devolve memória vazia, o lado seguro de
 // alertas-gravados.js (a faixa atual é anunciada de novo, nunca uma descida
@@ -209,23 +236,26 @@ export function avaliarAlertas(entrada) {
   }
 }
 
-function avaliar({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAtivas }) {
+function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas }) {
   const ant = anteriores ?? ALERTAS_VAZIO;
   const novos = {
     five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura }, projecao: { ...ant.projecao },
   };
   const linhas = [];
+  const janelas = janelasDasFaixas(leituras, limites);
 
-  if (!limites || (!limites.five_hour && !limites.seven_day)) {
+  // Nem fresca nem piso: uma linha por sessão, e nenhuma faixa neste prompt
+  // (spec v0.4.0 §10, item 1: nunca "sem leitura" e uma faixa juntos).
+  if (!janelas.five_hour && !janelas.seven_day) {
     if (!novos.sem_leitura[sessionId]) {
-      linhas.push(LINHA_SEM_LEITURA);
+      linhas.push(linhaSemLeitura(ultima, agoraMs));
       novos.sem_leitura[sessionId] = true;
     }
     return { linhas, novos };
   }
   delete novos.sem_leitura[sessionId];
 
-  const f5 = limites.five_hour;
+  const f5 = janelas.five_hour;
   if (f5) {
     const faixa = faixa5h(f5.used_percentage);
     const guardada = ant.five_hour;
@@ -240,7 +270,7 @@ function avaliar({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAti
     novos.five_hour = { resets_at: f5.resets_at, faixa };
   }
 
-  const f7 = limites.seven_day;
+  const f7 = janelas.seven_day;
   if (f7) {
     const { faixa, esperado } = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs });
     const guardada = ant.seven_day;
@@ -259,7 +289,7 @@ function avaliar({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAti
   // memória da sessão como estava; os avisos de faixa acima saem igual.
   try {
     const guardada = Object.hasOwn(novos.projecao, sessionId) ? novos.projecao[sessionId] : null;
-    const projecao = avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs });
+    const projecao = avaliarProjecao({ limites: ehObjeto(limites) ? limites : {}, guardada, previsao, sessoesAtivas, agoraMs });
     // Só mexe na memória quando ela muda: a sessão alterada vai para o fim da
     // ordem, de onde projecaoParaGravar (hooks/alertas-gravados.js) corta o teto.
     if (JSON.stringify(projecao.memoria) !== JSON.stringify(guardada)) {

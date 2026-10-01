@@ -72,7 +72,7 @@ test('modo econômico e folga geram as linhas da spec', () => {
 
 test('sem leitura avisa uma vez por sessão', () => {
   const r1 = avaliarAlertas({ limites: null, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora });
-  assert.deepEqual(r1.linhas, ['Consumo sem leitura: rode /usage.']);
+  assert.deepEqual(r1.linhas, ['Consumo ainda sem leitura nesta máquina.']);
   const r2 = avaliarAlertas({ limites: null, anteriores: r1.novos, sessionId: 's1', agoraMs: agora });
   assert.deepEqual(r2.linhas, []);
   const r3 = avaliarAlertas({ limites: null, anteriores: r1.novos, sessionId: 's2', agoraMs: agora });
@@ -185,7 +185,7 @@ test('anteriores null é aceito como estado vazio', () => {
   const r = avaliar(limites(82, 50), null);
   assert.deepEqual(r.linhas, ['5h em 82% (reset em 120 min): serializar — sem Workflow nem subagentes em paralelo.']);
   const s = avaliar(null, null);
-  assert.deepEqual(s.linhas, ['Consumo sem leitura: rode /usage.']);
+  assert.deepEqual(s.linhas, ['Consumo ainda sem leitura nesta máquina.']);
   // Entrada ilegível (nenhuma, getter que lança, Proxy): nenhuma exceção,
   // nenhum aviso e memória vazia, o lado seguro.
   const explode = () => { throw new Error('hostil'); };
@@ -370,7 +370,7 @@ test('projeção fora do lugar não avisa: no reset ou depois, no passado, não 
   assert.deepEqual(so7.novos.projecao, r1.novos.projecao);
   // Sem leitura: só a linha fixa de sem leitura, projecao intacta.
   const sem = avaliarAlertas({ limites: null, anteriores: r1.novos, sessionId: 's1', agoraMs: agora, previsao: { five_hour: agora + 5 * MIN }, sessoesAtivas: 3 });
-  assert.deepEqual(sem.linhas, ['Consumo sem leitura: rode /usage.']);
+  assert.deepEqual(sem.linhas, ['Consumo ainda sem leitura nesta máquina.']);
   assert.deepEqual(sem.novos.projecao, r1.novos.projecao);
   // Previsão ou memória de projeção hostil (getter que lança, Proxy): nenhuma
   // exceção e nenhum aviso de projeção; o aviso de faixa sai igual e a memória
@@ -454,4 +454,56 @@ test('projeção leva a frase de §8.1, regra 2, e o 7d usa quandoLocal (§10, i
   const r = projetar({ five_hour: null, seven_day: q });
   assert.deepEqual(r.linhas, [`hadouken: no ritmo atual (3 sessões ativas), 7d chega a 100% ${quandoLocal(q / 1000, agora)}, antes do reset ${quandoLocal(reset7, agora)}. Reduza o paralelismo ou serialize. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.`]);
   assert.doesNotMatch(r.linhas[0], /(?:^|[^\d/])(?:dom|seg|ter|qua|qui|sex|sáb) \d\d:\d\d/u, 'nunca só o dia da semana');
+});
+
+const MIN_MS = 60_000;
+const piso = (p5, p7, idadeMs) => ({
+  five_hour: p5 === null ? null : { used_percentage: p5, resets_at: reset5, idadeMs, fresca: idadeMs <= H },
+  seven_day: p7 === null ? null : { used_percentage: p7, resets_at: reset7, idadeMs, fresca: idadeMs <= H },
+});
+const comPiso = (leituras, anteriores = ALERTAS_VAZIO, ultima = null) =>
+  avaliarAlertas({ limites: null, leituras, ultima, anteriores, sessionId: 's1', agoraMs: agora });
+
+test('piso (§10, item 1): 59 min é fresca; 61 min e 23 h são piso com a idade; faixa avaliada com o piso', () => {
+  assert.deepEqual(comPiso(piso(82, null, 59 * MIN_MS)).linhas, ['5h em 82% (reset em 120 min): serializar — sem Workflow nem subagentes em paralelo.']);
+  assert.deepEqual(comPiso(piso(82, null, 61 * MIN_MS)).linhas, ['5h em ≥ 82% (leitura de 1 h; reset em 120 min): serializar — sem Workflow nem subagentes em paralelo.']);
+  assert.deepEqual(comPiso(piso(null, 92, 23 * H)).linhas, [`7d em ≥ 92% (leitura de 23 h) com reset ${quandoLocal(reset7, agora)}: só leitura; recomendar parar.`]);
+});
+
+test('piso: a faixa sai uma vez; sem leitura e faixa nunca no mesmo prompt', () => {
+  const r1 = comPiso(piso(82, 61, 3 * H));
+  assert.equal(r1.linhas.length, 2);
+  assert.ok(r1.linhas.every((l) => !l.includes('sem leitura')));
+  assert.deepEqual(comPiso(piso(82, 61, 3 * H), r1.novos).linhas, []);
+  // 25 h: nem piso; a linha "sem leitura nova", uma vez por sessão.
+  const ultima = { desdeMs: agora - 25 * H, five_hour: null, seven_day: { used_percentage: 61, resets_at: reset7 } };
+  const r2 = comPiso({ five_hour: null, seven_day: null }, r1.novos, ultima);
+  assert.deepEqual(r2.linhas, [linhaSemLeitura(ultima, agora)]);
+  assert.deepEqual(comPiso({ five_hour: null, seven_day: null }, r2.novos, ultima).linhas, []);
+  // Sem histórico nenhum: a linha de nunca ter lido.
+  assert.deepEqual(comPiso({ five_hour: null, seven_day: null }).linhas, [LINHA_SEM_LEITURA_NUNCA]);
+});
+
+test('piso: a projeção só usa leitura fresca (limites), nunca o piso', () => {
+  const r = avaliarAlertas({
+    limites: null, leituras: piso(50, 50, 2 * H), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora,
+    previsao: { five_hour: agora + 20 * MIN_MS, seven_day: agora + 20 * H }, sessoesAtivas: 3,
+  });
+  assert.deepEqual(r.linhas, []);
+});
+
+test('minutos e idade não finitos nunca viram "NaN": a linha sai sem esse pedaço', () => {
+  const linhasDe = (limites, leituras, agoraMs) =>
+    avaliarAlertas({ limites, leituras, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs }).linhas;
+  // Sem agora válido, não há minutos até o reset.
+  assert.deepEqual(linhasDe({ five_hour: { used_percentage: 82, resets_at: reset5 } }, undefined, Number.NaN),
+    ['5h em 82%: serializar — sem Workflow nem subagentes em paralelo.']);
+  assert.deepEqual(linhasDe(null, piso(72, null, 3 * H), Number.NaN),
+    ['5h em ≥ 72% (leitura de 3 h): atenção ao ritmo.']);
+  // Idade não finita: nunca "leitura de NaN h".
+  for (const idadeMs of [Number.NaN, Infinity, -Infinity]) {
+    const linhas = linhasDe(null, { five_hour: { used_percentage: 82, resets_at: reset5, idadeMs, fresca: false }, seven_day: null }, agora);
+    assert.equal(linhas.length, 1, String(idadeMs));
+    assert.doesNotMatch(linhas[0], /NaN|Infinity/, String(idadeMs));
+  }
 });

@@ -1,16 +1,16 @@
-import { LINHA_SEM_LEITURA } from '../alerta.js';
-import { horaLocal, diaHora, janelaValida, numeroFinito } from '../util.js';
+import { LINHA_SEM_LEITURA_NUNCA, linhaSemLeitura } from '../alerta.js';
+import { horaLocal, quandoLocal, janelaValida, numeroFinito } from '../util.js';
 import { fraseEsgota } from '../uso/frase.js';
 
 // Linhas que o SessionStart injeta no contexto do Claude. Spec 8.1, S1: só
 // números finitos validados (com piso, como a barra e os alertas), a saída de
-// horaLocal/diaHora e rótulos fixos deste arquivo. Nenhum texto lido de
+// horaLocal/quandoLocal e rótulos fixos deste arquivo. Nenhum texto lido de
 // arquivo, stdin ou ambiente entra aqui; da frase de previsão (fraseEsgota,
 // emenda E5) só passa o "quando" que casa com a lista fechada de QUANDO.
 
-// A linha fixa de "sem leitura" mora em alerta.js (a mesma do alerta) e
+// A linha fixa de quem nunca leu mora em alerta.js (a mesma do alerta) e
 // continua exportada daqui.
-export { LINHA_SEM_LEITURA };
+export { LINHA_SEM_LEITURA_NUNCA };
 
 const JANELA_7D_MS = 7 * 24 * 3_600_000;
 // As formas de momentoFalado (frase.js): "por volta das HH:MM", "<dia>
@@ -51,27 +51,44 @@ const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const pct = (x) => `${Math.floor(x)}%`;
 const motivoFixo = (motivo, lista) => (typeof motivo === 'string' && lista.has(motivo) ? motivo : 'erro');
 
-// "Consumo: 5h 25% (reset 17:20) · 7d 41% (reset seg 22:00); nesse ritmo,
-// esgota amanhã à noite." (E5: saem o "esperado" e o modo). Janela ausente
-// aparece como "sem leitura", nunca como 0; sem nenhuma janela,
-// LINHA_SEM_LEITURA. A cauda vem de cauda7d. Nunca lança.
-export function linhaEstado(limites, agoraMs) {
+const HORA_MS = 3_600_000;
+
+// Uma janela na linha: "25% (reset 17:20)" ou, com piso (spec v0.4.0 §10,
+// item 1), "≥ 25% (leitura de 2 h; reset 17:20)".
+function parte(nome, l, reset) {
+  const piso = l.fresca === false && numeroFinito(l.idadeMs);
+  const valor = piso ? `≥ ${pct(l.used_percentage)}` : pct(l.used_percentage);
+  const idade = piso ? `leitura de ${Math.max(1, Math.floor(l.idadeMs / HORA_MS))} h; ` : '';
+  return `${nome} ${valor} (${idade}reset ${reset})`;
+}
+
+// "Consumo: 5h 25% (reset 17:20) · 7d 41% (reset qui 02/10 22:00); nesse
+// ritmo, esgota amanhã à noite." (E5: saem o "esperado" e o modo). O reset de
+// 7d sai de quandoLocal (spec v0.4.0 §10, item 7; decisão 4 do plano da parte
+// 2). `leituras` é a saída de leiturasComPiso (fresca ou piso de até 24 h) ou
+// a de limitesValidos (tudo fresco). Janela ausente aparece como "sem
+// leitura", nunca como 0; sem nenhuma, a linha "sem leitura nova" de
+// alerta.js, com `ultima` (ultimaLeitura). A cauda de 7d só com a leitura
+// fresca. Nunca lança.
+export function linhaEstado(leituras, agoraMs, ultima = null) {
   try {
-    const l = ehObjeto(limites) ? limites : {};
-    // Cada janela passa de novo por janelaValida (util.js), o schema de
-    // estado.js: quem chama já passa a saída de limitesValidos, e a checagem
-    // garante que nenhum outro chamador faça a linha mostrar NaN. Sem agora
-    // válido, a janela de 7 d não tem como ter o ritmo: sem leitura.
-    const f5 = janelaValida(l.five_hour);
-    const f7 = numeroFinito(agoraMs) ? janelaValida(l.seven_day) : null;
-    if (f5 === null && f7 === null) return LINHA_SEM_LEITURA;
+    const l = ehObjeto(leituras) ? leituras : {};
+    // Cada janela passa de novo por janelaValida (util.js). Sem agora
+    // válido, a janela de 7 d não tem como ter horário nem ritmo.
+    const j5 = janelaValida(l.five_hour);
+    const j7 = numeroFinito(agoraMs) ? janelaValida(l.seven_day) : null;
+    if (j5 === null && j7 === null) return linhaSemLeitura(ultima, agoraMs);
+    // Os dois números conferidos por cima; `fresca` e `idadeMs` ficam.
+    const f5 = j5 === null ? null : { ...l.five_hour, ...j5 };
+    const f7 = j7 === null ? null : { ...l.seven_day, ...j7 };
     const partes = [
-      f5 ? `5h ${pct(f5.used_percentage)} (reset ${horaLocal(f5.resets_at)})` : '5h sem leitura',
-      f7 ? `7d ${pct(f7.used_percentage)} (reset ${diaHora(f7.resets_at)})` : '7d sem leitura',
+      f5 ? parte('5h', f5, horaLocal(f5.resets_at)) : '5h sem leitura',
+      f7 ? parte('7d', f7, quandoLocal(f7.resets_at, agoraMs)) : '7d sem leitura',
     ];
-    return `Consumo: ${partes.join(' · ')}${f7 ? cauda7d(f7, agoraMs) : ''}.`;
+    const cauda = f7 && f7.fresca !== false ? cauda7d(f7, agoraMs) : '';
+    return `Consumo: ${partes.join(' · ')}${cauda}.`;
   } catch {
-    return LINHA_SEM_LEITURA;
+    return LINHA_SEM_LEITURA_NUNCA;
   }
 }
 
