@@ -237,3 +237,43 @@ A configuração é gerada e fixa:
 - O painel lê o intervalo e as faixas do `ajustes.json`. Sem ele, usa os valores de hoje.
 - Desligado, que é o padrão, o hadouken se comporta exatamente como na guarda sem aprendizado.
 - A ordem de implementação vem depois da parte 2 da guarda, porque §4.4 lê o `config.js` da guarda.
+
+## Emenda 2026-10-01: spikes A1–A3 (Claude Code 2.1.287, Windows)
+
+| Fato | Valor medido | Onde entra |
+|---|---|---|
+| Versão fixada e SHA-256 das 5 plataformas | bloco abaixo, gerado pelos arquivos `<asset>.sha256` oficiais do release (a v0.162.0 não publica um `checksums.txt` único) | `baixar.js`: `VERSAO_COLETOR`, `FIXADO` |
+| Hosts do download (com redirecionamentos) | `github.com` → 302 para `release-assets.githubusercontent.com`, que responde 200 | `baixar.js`: `HOSTS` (os 3 do plano bastam) |
+| Download win-amd64 | 98,5 MiB em 268 s; o maior das 5 é o linux-amd64, com 107,1 MiB | `baixar.js`: `TAMANHO_MAX = 215 MiB`, `PRAZO_MS = 804 000` |
+| Membro do binário no `.tar.gz` | `otelcol-contrib.exe` na raiz, ao lado de `README.md` | `coletor.js`: `MEMBRO_TAR` |
+| Binário extraído | 366,8 MiB | README (espaço em disco) |
+| RAM parado / pico em uso / subida | 108 MiB / 124 MiB (3 000 POSTs) e 131 MiB (400 POSTs de 50 registros) / 676 ms, com `GOMEMLIMIT=96MiB` | passa no portão de 120 MiB; README |
+| `validate` com §5.1 (rotação, `pattern`, `level: none`) | ok (código 0); caminho com espaço funciona | `config-coletor.js` |
+| Filtro de §5.1 | `user.email`, `user.account_uuid` e `vcs.*` saíram do recurso e dos atributos (0 ocorrências) | `config-coletor.js` |
+| Nome do arquivo rotacionado | `telemetria-2026-10-01T21-31-30.026-size.jsonl`, com `max_backups: 3` respeitado | `otlp.js`: `ROTACIONADO` (o padrão do plano casa) |
+| Tamanho no Windows | com o Collector vivo, a listagem mostra o `telemetria.jsonl` com 0 bytes; o tamanho só aparece quando o arquivo é fechado, mas a leitura do conteúdo funciona | `otlp.js`: ler pelo conteúdo, nunca pelo `size` da listagem |
+| Nome do processo (`tasklist`) | `"otelcol-contrib.exe"` | `coletor.js`: `NOME_BINARIO.win32` |
+| Mensagem de porta ocupada | localizada no Windows PT-BR: `listen tcp 127.0.0.1:47318: bind: Normalmente é permitida apenas uma utilização de cada endereço de soquete (…)`; o regex do plano em inglês **não casa** | `coletor.js`: `PORTA_OCUPADA = /listen tcp \S+: bind:/i` |
+| Eventos e métrica de tempo ativo | `body` = `claude_code.<nome>` e `event.name` = `<nome>`: `api_request`, `tool_result`, `tool_decision`, `user_prompt`, `assistant_response`, `subagent_completed` e outros; `api_error` não ocorreu (sem erro), então fica o nome padrão. Métricas: `claude_code.active_time.total`, `cost.usage`, `token.usage`, `session.count`, todas `sum` delta (temporality 1) | `otlp.js`: `NOMES` (padrões confirmados) |
+| Atributos de `api_request` | `model`, `cost_usd` (double), `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `ttft_ms` (int) e `duration_ms` (int em `api_request`, string em outros eventos); `speed` (`normal`). `tool_result` traz `success` como string, sem `model` | `otlp.js`: `NOMES`; números vêm como `intValue`/`doubleValue`, e o parser aceita também string |
+| `query_source` / `agent.name` | principal interativa = `repl_main_thread`; principal no `-p` = `sdk` (cai em `'outro'`); subagente = `agent:builtin:general-purpose`, com `agent.name` = `general-purpose` | `otlp.js`: `ORIGENS_PRINCIPAIS` (padrão do plano mantido) |
+| `effort` nos eventos | **ausente**, no `-p` e na sessão interativa com `/effort high` (medido só com o Haiku) | `otlp.js`: `effort` = `'-'` quando falta; as chaves `modelo\|effort\|origem` ficam com `-` até o CLI mandar o campo |
+| Conteúdo | `prompt`, `prompt_text` e `response` chegam como `<REDACTED>` sem `OTEL_LOG_USER_PROMPTS`; uma palavra-marcador do prompt não apareceu em nenhum registro | confirma §6; nada muda |
+| Conta nas métricas | `user.email`, `user.account_uuid`, `user.account_id`, `user.id` e `organization.id` vêm nos pontos de métrica e nos logs; o filtro do Collector os apaga | `settings-env.js`: `CHAVES_LIGAR` mantém `OTEL_METRICS_INCLUDE_ACCOUNT_UUID=false` (padrão do plano) |
+| Intervalos e temporalidade | com os intervalos padrão, a sessão `-p` curta não perdeu o `active_time` (o CLI exporta ao sair); delta já vem por padrão, sem `TEMPORALITY_PREFERENCE` | `CHAVES_LIGAR`: mantém os intervalos curtos do plano (10 000 / 5 000) para não perder dados quando o terminal é fechado à força (decisão do controlador) |
+| A3: endpoint fora do ar | não atrapalha: medianas de 12 289 ms com a telemetria desligada e 11 439 ms com ela apontada para a porta vazia; stderr vazio; na sessão interativa, o Sr. Garioli não viu erro nem atraso | `coletor.js`: `A3_ATRAPALHA = false` |
+
+Limite declarado (preflight I3): o histórico do `estado.json` cobre 3 h e o passo de aprendizado roda no começo e no fim da sessão. Em sessões mais longas, os pontos mais antigos saem antes de serem lidos, e as faixas aprendidas pendem para o fim dessas sessões. O README registra esse limite.
+
+Bloco fixado:
+
+```js
+export const VERSAO_COLETOR = '0.162.0';
+export const FIXADO = Object.freeze({
+  'win32-x64': Object.freeze({ arquivo: 'otelcol-contrib_0.162.0_windows_amd64.tar.gz', sha256: 'b371829181e89947a1a6570b8b6c38c20d85e2d215b76bf042f89b365b9e5c3d' }),
+  'linux-x64': Object.freeze({ arquivo: 'otelcol-contrib_0.162.0_linux_amd64.tar.gz', sha256: 'fcc063749f730f8c21fe29f2d340ff174f5f1c5885bd3156fb6c985a3036fcc3' }),
+  'linux-arm64': Object.freeze({ arquivo: 'otelcol-contrib_0.162.0_linux_arm64.tar.gz', sha256: 'ecf6a917e2b53beb1703b19a84bc4e112a2fcaba549639cf6b0ba58446bfd7d2' }),
+  'darwin-x64': Object.freeze({ arquivo: 'otelcol-contrib_0.162.0_darwin_amd64.tar.gz', sha256: '91a6e7a0f5e1981986c897db4535de5ba8d7fc45d4205809aecb9ebebf68c71c' }),
+  'darwin-arm64': Object.freeze({ arquivo: 'otelcol-contrib_0.162.0_darwin_arm64.tar.gz', sha256: 'd5e11974d2e4adac3cc001a25137aad52f6e77ec3034ba7735cac7c219a5f97a' }),
+});
+```
