@@ -2,6 +2,7 @@ import { MAX_ROTULOS_SESSAO, MAX_SESSOES, pesoConsumo } from './agregacao.js';
 import { faixa5h, faixa7d } from './alerta.js';
 import { barrinha } from './barrinha.js';
 import { DATA_MAX_MS, numeroFinito, somaSegura } from './base.js';
+import { AMBIGUO, OUTROS, ROTULO_PLUGIN } from './custo-hooks.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
 import { ESCOPOS_MAX, GATILHOS, escopoDe } from './guarda/resumo.js';
@@ -445,9 +446,42 @@ function montarGuarda(v) {
   }
 }
 
+// Custo dos hooks (spec v0.4.0 §9.4) revalidado: a linha só fica se o rótulo
+// casar ROTULO_PLUGIN ou for OUTROS/AMBIGUO; contadores inteiros (senão 0);
+// p50/p95 inteiros ou null; até CUSTO_LINHAS_MAX linhas. Entrada ausente ou
+// que não é objeto → null.
+const CUSTO_LINHAS_MAX = 21;
+const rotuloPluginOk = (p) => typeof p === 'string' && (ROTULO_PLUGIN.test(p) || p === OUTROS || p === AMBIGUO);
+function montarCustoHooks(v) {
+  try {
+    if (!ehObjeto(v)) return null;
+    const plugins = [];
+    for (const p of Array.isArray(proprio(v, 'plugins')) ? v.plugins.slice(0, CUSTO_LINHAS_MAX) : []) {
+      if (!ehObjeto(p) || !rotuloPluginOk(proprio(p, 'plugin'))) continue;
+      plugins.push({
+        plugin: p.plugin,
+        execucoes: inteiro(proprio(p, 'execucoes')) ?? 0,
+        injecoes: inteiro(proprio(p, 'injecoes')) ?? 0,
+        caracteres: inteiro(proprio(p, 'caracteres')) ?? 0,
+        p50: inteiro(proprio(p, 'p50')),
+        p95: inteiro(proprio(p, 'p95')),
+        timeouts: inteiro(proprio(p, 'timeouts')) ?? 0,
+      });
+    }
+    const c = ehObjeto(proprio(v, 'compactacoes')) ? v.compactacoes : {};
+    return {
+      plugins,
+      omitidos: inteiro(proprio(v, 'omitidos')) ?? 0,
+      compactacoes: { sessao: inteiro(proprio(c, 'sessao')) ?? 0, subagente: inteiro(proprio(c, 'subagente')) ?? 0 },
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Relatório versionado (versao 1): { versao, aviso, gerado_em, limites,
-// limites_motivo, claude, github, avisos, sessoesAbertas, guarda }. `estado` é o
-// estado.json como lido (passa por validarEstado e limitesValidos aqui);
+// limites_motivo, claude, github, avisos, sessoesAbertas, guarda,
+// custoHooks }. `estado` é o estado.json como lido (passa por validarEstado e limitesValidos aqui);
 // `github` é a saída de coletarGithub; `avisos` só entra da lista fixa. Nunca
 // lança.
 //
@@ -484,6 +518,8 @@ function montarGuarda(v) {
 // montarSessoesAbertas. O agregado da hora nunca entra em `claude`.
 // `guarda` (spec v0.4.0 §9.4) vem depois dela: null ou o resumo de
 // montarGuarda (7 dias de guarda-eventos.json e limites-atingidos.json).
+// `custoHooks` (spec v0.4.0 §9.4) é a última: null ou o resumo de
+// montarCustoHooks (números por plugin; nunca texto injetado nem comando).
 export function montarRelatorio(entrada) {
   const r = {
     versao: VERSAO_RELATORIO,
@@ -496,6 +532,7 @@ export function montarRelatorio(entrada) {
     avisos: [],
     sessoesAbertas: null,
     guarda: null,
+    custoHooks: null,
   };
   const e = ehObjeto(entrada) ? entrada : {};
   const agoraMs = ler(e, 'agoraMs');
@@ -510,6 +547,7 @@ export function montarRelatorio(entrada) {
   r.avisos = montarAvisos(ler(e, 'avisos'));
   r.sessoesAbertas = Object.hasOwn(r.claude, 'indisponivel') ? null : montarSessoesAbertas(ler(e, 'claude'));
   r.guarda = montarGuarda(ler(e, 'guarda'));
+  r.custoHooks = montarCustoHooks(ler(e, 'custoHooks'));
   return r;
 }
 
@@ -981,14 +1019,37 @@ function blocoGuarda(o) {
   return linhas;
 }
 
+// Seção "Custo dos hooks (7 dias)" (spec v0.4.0 §9.4): tabela por plugin e a
+// linha das compactações. Só números e rótulos que passaram por
+// montarCustoHooks. Não sugere desligar nada (spec §9.4).
+const COLUNAS_CUSTO = Object.freeze([['plugin', TEXTO], ['execuções', NUMERO], ['injeções', NUMERO], ['caracteres', NUMERO], ['p50', NUMERO], ['p95', NUMERO], ['timeouts', NUMERO]]);
+const duracaoMs = (n) => (inteiro(n) === null ? SEM : `${milhar(n)} ms`);
+function blocoCustoHooks(o) {
+  const c = montarCustoHooks(ler(o, 'custoHooks'));
+  if (c === null) return [];
+  const linhas = ['## Custo dos hooks (7 dias)', '', 'Só tamanhos e durações, lidos dos transcripts; o texto injetado não é guardado nem mostrado.', ''];
+  if (c.plugins.length === 0) {
+    linhas.push('Nenhuma execução de hook nos últimos 7 dias.', '');
+  } else {
+    linhas.push(...linhasCabecalho(COLUNAS_CUSTO));
+    for (const p of c.plugins) {
+      linhas.push(`| ${[p.plugin, numero(p.execucoes), numero(p.injecoes), numero(p.caracteres), duracaoMs(p.p50), duracaoMs(p.p95), numero(p.timeouts)].join(' | ')} |`);
+    }
+    linhas.push('');
+    if (c.omitidos > 0) linhas.push(`Mais ${plural(c.omitidos, 'plugin', 'plugins')} fora da tabela.`, '');
+  }
+  linhas.push(`Compactações: ${numero(c.compactacoes.sessao)} na sessão principal, ${numero(c.compactacoes.subagente)} em subagentes.`);
+  return linhas;
+}
+
 // Markdown do relatório: AVISO_DADOS na primeira linha e os blocos Limites e
-// ritmo, Claude, Guarda (7 dias, só com o resumo) e GitHub. Revalida tudo o
-// que lê de `r`. Nunca lança; numa falha interna devolve o aviso e uma linha
-// fixa.
+// ritmo, Claude, Guarda (7 dias, só com o resumo), Custo dos hooks (só com o
+// resumo) e GitHub. Revalida tudo o que lê de `r`. Nunca lança; numa falha
+// interna devolve o aviso e uma linha fixa.
 export function formatarMarkdown(r) {
   try {
     const o = ehObjeto(r) ? r : {};
-    const extras = [blocoGuarda(o)].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+    const extras = [blocoGuarda(o), blocoCustoHooks(o)].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
     return [AVISO_DADOS, '', ...blocoLimites(o), '', ...blocoClaude(o), '', ...extras, ...blocoGithub(o)].join('\n');
   } catch {
     return `${AVISO_DADOS}\n\nRelatório indisponível: erro interno.`;

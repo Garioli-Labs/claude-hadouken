@@ -24,12 +24,13 @@ test('S10: a skill liberar não pode ser carregada pelo modelo e o corpo não ma
   assert.doesNotMatch(corpo, /\bnode\b|liberacao\.json|guarda\.json|\$ARGUMENTS|`/);
 });
 
-test('S24: módulos da guarda e hooks novos não importam rede nem child_process', () => {
+test('S24: módulos da guarda, hooks novos e o custo dos hooks não importam rede nem child_process', () => {
   const arquivos = [
     ...fs.readdirSync(path.join(repo, 'src', 'guarda')).map((f) => path.join('src', 'guarda', f)),
     ...['guarda-despacho.js', 'guarda-filha.js', 'guarda-arquivos.js', 'guarda-modelo.js', 'modelo-trocado.js', 'limite-atingido.js', 'liberar.js',
       'guarda-agenda.js']
       .map((f) => path.join('src', 'hooks', f)),
+    path.join('src', 'custo-hooks.js'), path.join('src', 'indice-hooks.js'),
     // M6 da revisão final da parte 1: avaliar.js importa a leitura do uso
     // oficial, que mora ao lado do painel (que roda o claude); ela só lê.
     path.join('src', 'uso', 'ler-uso.js'),
