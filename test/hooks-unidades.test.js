@@ -292,7 +292,9 @@ test('recomeço de ponta a ponta: 85% velho e 60% agora na mesma janela não ger
   // A mesma memória, recente: a descida é anunciada (comportamento da Task 3).
   assert.deepEqual(avaliar({ ...memoria, at: iso(AGORA - 10 * 60_000) }, 60), ['5h voltou a 60%: faixa normal.']);
   // Velha e ainda em faixa restritiva: anuncia de novo.
-  assert.deepEqual(avaliar(memoria, 85), ['5h em 85%: serializar — sem Workflow nem subagentes em paralelo.']);
+  const l = avaliar(memoria, 85);
+  assert.equal(l.length, 1);
+  assert.match(l[0], /^5h em 85% \(reset em \d+ min\): serializar — sem Workflow nem subagentes em paralelo\.$/);
   // Velha e janela nova neutra: nada de "restrições anteriores suspensas".
   assert.deepEqual(avaliar(memoria, 10, R5 + 5 * 3600), []);
 });

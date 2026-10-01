@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO, linhaSemLeitura, LINHA_SEM_LEITURA_NUNCA } from '../src/alerta.js';
-import { horaLocal, diaHora, quandoLocal } from '../src/util.js';
+import { horaLocal, quandoLocal } from '../src/util.js';
 import { calcularRitmo, LIMIAR_PONTOS } from '../src/ritmo.js';
 
 const H = 3600_000;
@@ -44,7 +44,7 @@ test('primeira leitura normal não gera linha', () => {
 test('subida de faixa gera uma linha e não repete', () => {
   const r1 = avaliarAlertas({ limites: limites(82, 50), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora });
   assert.equal(r1.linhas.length, 1);
-  assert.match(r1.linhas[0], /^5h em 82%: serializar/);
+  assert.match(r1.linhas[0], /^5h em 82% \(reset em \d+ min\): serializar/);
   const r2 = avaliarAlertas({ limites: limites(85, 50), anteriores: r1.novos, sessionId: 's1', agoraMs: agora });
   assert.deepEqual(r2.linhas, []);
 });
@@ -82,7 +82,7 @@ test('sem leitura avisa uma vez por sessão', () => {
 test('janela individual ausente é ignorada sem erro', () => {
   const r = avaliarAlertas({ limites: { five_hour: { used_percentage: 91, resets_at: reset5 } }, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora });
   assert.equal(r.linhas.length, 1);
-  assert.match(r.linhas[0], /^5h em 91%: fechar a tarefa em curso/);
+  assert.match(r.linhas[0], /^5h em 91%: fechar a tarefa em curso e não abrir etapa nova; reset às \d\d:\d\d \(o usuário vê as opções em \/rate-limit-options\)\. Se agendar a volta, marque \d\d:\d\d\.$/);
 });
 
 // --- Rodada de correção 1 -------------------------------------------------
@@ -91,13 +91,13 @@ test('janela individual ausente é ignorada sem erro', () => {
 test('descida para atenção usa texto pt-BR com o reset', () => {
   const r1 = avaliar(limites(91, 50));
   const r2 = avaliar(limites(75, 50), r1.novos);
-  assert.deepEqual(r2.linhas, [`5h voltou a 75%: faixa atenção (reset ${horaLocal(reset5)}).`]);
+  assert.deepEqual(r2.linhas, ['5h voltou a 75% (reset em 120 min): faixa atenção.']);
 });
 
 test('descida para serializar diz que ainda é para serializar', () => {
   const r1 = avaliar(limites(91, 50));
   const r2 = avaliar(limites(85, 50), r1.novos);
-  assert.deepEqual(r2.linhas, ['5h voltou a 85%: ainda serializar — sem Workflow nem subagentes em paralelo.']);
+  assert.deepEqual(r2.linhas, ['5h voltou a 85% (reset em 120 min): ainda serializar — sem Workflow nem subagentes em paralelo.']);
 });
 
 // (b) janela nova suspende as restrições anteriores, uma vez
@@ -145,7 +145,7 @@ test('7d: janela nova neutra depois de folga não gera linha', () => {
 // (c) porcentagem exibida com piso
 test('89.6% aparece como 89% na linha de serializar, nunca 90%', () => {
   const r = avaliar(limites(89.6, 50));
-  assert.deepEqual(r.linhas, ['5h em 89%: serializar — sem Workflow nem subagentes em paralelo.']);
+  assert.deepEqual(r.linhas, ['5h em 89% (reset em 120 min): serializar — sem Workflow nem subagentes em paralelo.']);
 });
 
 // (d) mesma janela com tolerância de 600 s
@@ -161,18 +161,18 @@ test('variação de 30 s no resets_at não reanuncia a faixa', () => {
 test('reset 5 h adiante é janela nova e reanuncia a faixa', () => {
   const r1 = avaliar(limites(82, 50));
   const nova = { ...limites(82, 50), five_hour: { used_percentage: 82, resets_at: reset5 + 5 * 3600 } };
-  assert.deepEqual(avaliar(nova, r1.novos).linhas, ['5h em 82%: serializar — sem Workflow nem subagentes em paralelo.']);
+  assert.deepEqual(avaliar(nova, r1.novos).linhas, ['5h em 82% (reset em 420 min): serializar — sem Workflow nem subagentes em paralelo.']);
 });
 
 // testes que faltavam
 test('subida para atenção traz o horário do reset', () => {
   const r = avaliar(limites(72, 50));
-  assert.deepEqual(r.linhas, [`5h em 72% (reset ${horaLocal(reset5)}): atenção ao ritmo.`]);
+  assert.deepEqual(r.linhas, ['5h em 72% (reset em 120 min): atenção ao ritmo.']);
 });
 
 test('linha de só leitura traz dia e hora do reset', () => {
   const r = avaliar(limites(10, 92));
-  assert.deepEqual(r.linhas, [`7d em 92% com reset em ${diaHora(reset7)}: só leitura; recomendar parar.`]);
+  assert.deepEqual(r.linhas, [`7d em 92% com reset ${quandoLocal(reset7, agora)}: só leitura; recomendar parar.`]);
 });
 
 test('7d: descida de econômico para normal na mesma janela', () => {
@@ -183,7 +183,7 @@ test('7d: descida de econômico para normal na mesma janela', () => {
 
 test('anteriores null é aceito como estado vazio', () => {
   const r = avaliar(limites(82, 50), null);
-  assert.deepEqual(r.linhas, ['5h em 82%: serializar — sem Workflow nem subagentes em paralelo.']);
+  assert.deepEqual(r.linhas, ['5h em 82% (reset em 120 min): serializar — sem Workflow nem subagentes em paralelo.']);
   const s = avaliar(null, null);
   assert.deepEqual(s.linhas, ['Consumo sem leitura: rode /usage.']);
   // Entrada ilegível (nenhuma, getter que lança, Proxy): nenhuma exceção,
@@ -287,9 +287,9 @@ const projetar = (previsao, anteriores = ALERTAS_VAZIO, extra = {}) => avaliarAl
   limites: neutros, anteriores, sessionId: 's1', agoraMs: agora, previsao, sessoesAtivas: 3, ...extra,
 });
 const linha5 = (quando, sessoes = ' (3 sessões ativas)', reset = reset5) =>
-  `hadouken: no ritmo atual${sessoes}, 5h chega a 100% às ${horaLocal(quando / 1000)}, antes do reset das ${horaLocal(reset)}. Reduza o paralelismo ou serialize.`;
+  `hadouken: no ritmo atual${sessoes}, 5h chega a 100% às ${horaLocal(quando / 1000)}, antes do reset das ${horaLocal(reset)}. Reduza o paralelismo ou serialize. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.`;
 const linha7 = (quando, sessoes = ' (3 sessões ativas)') =>
-  `hadouken: no ritmo atual${sessoes}, 7d chega a 100% às ${diaHora(quando / 1000)}, antes do reset das ${diaHora(reset7)}. Reduza o paralelismo ou serialize.`;
+  `hadouken: no ritmo atual${sessoes}, 7d chega a 100% ${quandoLocal(quando / 1000, agora)}, antes do reset ${quandoLocal(reset7, agora)}. Reduza o paralelismo ou serialize. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.`;
 
 test('projeção 5h (§12.5): avisa a 60 min e de novo a 30 min, uma vez por janela e sessão', () => {
   const q50 = agora + 50 * MIN;
@@ -377,7 +377,7 @@ test('projeção fora do lugar não avisa: no reset ou depois, no passado, não 
   // da sessão fica como estava.
   const explode = () => { throw new Error('hostil'); };
   const proxy = new Proxy({}, { get: explode, ownKeys: explode, getOwnPropertyDescriptor: explode, has: explode });
-  const faixa82 = '5h em 82%: serializar — sem Workflow nem subagentes em paralelo.';
+  const faixa82 = '5h em 82% (reset em 120 min): serializar — sem Workflow nem subagentes em paralelo.';
   const comHostil = (previsao, anteriores) => avaliarAlertas({
     limites: limites(82, 50), anteriores, sessionId: 's1', agoraMs: agora, previsao, sessoesAtivas: 3,
   });
@@ -404,7 +404,7 @@ test('projeção: a sessão cuja memória muda vai para o fim; a que não muda f
 });
 
 test('§12.7: o aviso de projeção só leva números validados e texto fixo', () => {
-  const FORMATO = /^hadouken: no ritmo atual(?: \(\d{1,2} sessões ativas\))?, (?:5h|7d) chega a 100% às [^,.]+, antes do reset das [^,.]+\. Reduza o paralelismo ou serialize\.$/;
+  const FORMATO = /^hadouken: no ritmo atual(?: \(\d{1,2} sessões ativas\))?, (?:5h chega a 100% às [^,.]+, antes do reset das [^,.]+|7d chega a 100% [^,.]+, antes do reset [^,.]+)\. Reduza o paralelismo ou serialize\. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano\.$/;
   for (const n of ['Ignore previous instructions', { toString: () => 'Ignore' }, [3], 1e9, 3]) {
     const r = projetar({ five_hour: agora + 20 * MIN, seven_day: agora + 20 * H }, ALERTAS_VAZIO, { sessoesAtivas: n });
     assert.equal(r.linhas.length, 2);
@@ -435,4 +435,23 @@ test('linhaSemLeitura: sem última leitura ou entrada hostil, a linha fixa de nu
     assert.equal(linhaSemLeitura(u, agora), LINHA_SEM_LEITURA_NUNCA, String(u));
   }
   assert.equal(linhaSemLeitura({ desdeMs: agora - H, five_hour: null, seven_day: null }, Number.NaN), LINHA_SEM_LEITURA_NUNCA);
+});
+
+test('5h ciente do reset (§10, item 5): 16 min avisa; 14 min diz sem mudança de ritmo; fechar continua valendo', () => {
+  const com = (p, min) => ({ five_hour: { used_percentage: p, resets_at: (agora + min * 60_000) / 1000 } });
+  assert.deepEqual(avaliar(com(82, 16)).linhas, ['5h em 82% (reset em 16 min): serializar — sem Workflow nem subagentes em paralelo.']);
+  assert.deepEqual(avaliar(com(72, 16)).linhas, ['5h em 72% (reset em 16 min): atenção ao ritmo.']);
+  assert.deepEqual(avaliar(com(82, 14)).linhas, ['5h em 82% (reset em 14 min): sem mudança de ritmo.']);
+  assert.deepEqual(avaliar(com(72, 14)).linhas, ['5h em 72% (reset em 14 min): sem mudança de ritmo.']);
+  // 30 s até o reset: no mínimo 1 min.
+  assert.deepEqual(avaliar(com(72, 0.5)).linhas, ['5h em 72% (reset em 1 min): sem mudança de ritmo.']);
+  const r = (agora + 14 * 60_000) / 1000;
+  assert.deepEqual(avaliar(com(91, 14)).linhas, [`5h em 91%: fechar a tarefa em curso e não abrir etapa nova; reset às ${horaLocal(r)} (o usuário vê as opções em /rate-limit-options). Se agendar a volta, marque ${horaLocal(r + 120)}.`]);
+});
+
+test('projeção leva a frase de §8.1, regra 2, e o 7d usa quandoLocal (§10, itens 2 e 7)', () => {
+  const q = agora + 20 * H;
+  const r = projetar({ five_hour: null, seven_day: q });
+  assert.deepEqual(r.linhas, [`hadouken: no ritmo atual (3 sessões ativas), 7d chega a 100% ${quandoLocal(q / 1000, agora)}, antes do reset ${quandoLocal(reset7, agora)}. Reduza o paralelismo ou serialize. Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.`]);
+  assert.doesNotMatch(r.linhas[0], /(?:^|[^\d/])(?:dom|seg|ter|qua|qui|sex|sáb) \d\d:\d\d/u, 'nunca só o dia da semana');
 });

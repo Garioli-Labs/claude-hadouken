@@ -6,7 +6,7 @@
 // SessionStart, relatorio.js e hooks/alertas-gravados.js).
 import { MAX_SESSOES as MAX_SESSOES_ATIVAS } from './estado.js';
 import { calcularRitmo } from './ritmo.js';
-import { horaLocal, diaHora, quandoLocal, janelaValida, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
+import { horaLocal, quandoLocal, janelaValida, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
 
 // A linha fixa de "sem leitura", a mesma no alerta do UserPromptSubmit e
 // na linha do SessionStart (hooks/linha-estado.js a reexporta).
@@ -83,30 +83,59 @@ export function linhaSemLeitura(ultima, agoraMs) {
 // Piso, nunca arredondamento: 89.6 não pode aparecer como "90%" numa linha
 // que ainda está na faixa abaixo de 90.
 const pct = (x) => `${Math.floor(x)}%`;
+// Spec v0.4.0 §10, item 5: minutos inteiros até o reset (piso), no mínimo 1.
+// Abaixo de RESET_PERTO_MIN, atenção e serializar não mudam o ritmo: o reset
+// chega antes de a mudança render.
+const RESET_PERTO_MIN = 15;
+const minutosAte = (resetsAt, agoraMs) => Math.max(1, Math.floor((resetsAt * 1000 - agoraMs) / 60_000));
+// "Se agendar a volta" (§10, item 4; decisão 7 do plano da parte 2): reset +
+// 2 min, para a volta cair na janela nova e não no último minuto da velha.
+const VOLTA_S = 120;
+const HORA_MS = 3_600_000;
+// Idade de uma leitura-piso em horas inteiras (o piso só existe com mais de 1 h).
+const idade = (ms) => `${Math.max(1, Math.floor(ms / HORA_MS))} h`;
 
-function linha5h(faixa, anterior, usado, resetsAt) {
+// O valor de uma janela numa linha: "74%" ou "74% (reset em 40 min)"; com
+// piso (spec v0.4.0 §10, item 1), "≥ 74% (leitura de 3 h)" ou "≥ 74% (leitura
+// de 3 h; reset em 40 min)". `j` vem de janelasDasFaixas (Task 6 do plano) ou
+// tem só used_percentage e resets_at (sem piso). Só números validados e texto
+// fixo.
+function em(j, extra = null) {
+  const partes = [];
+  if (j.piso === true) partes.push(`leitura de ${idade(j.idadeMs)}`);
+  if (extra !== null) partes.push(extra);
+  const valor = j.piso === true ? `≥ ${pct(j.used_percentage)}` : pct(j.used_percentage);
+  return partes.length === 0 ? valor : `${valor} (${partes.join('; ')})`;
+}
+
+function linha5h(faixa, anterior, f5, agoraMs) {
+  const min = minutosAte(f5.resets_at, agoraMs);
+  const reset = `reset em ${min} min`;
+  const perto = min < RESET_PERTO_MIN && (faixa === 'atencao' || faixa === 'serializar');
   const subiu = anterior === null || ORDEM_5H.indexOf(faixa) > ORDEM_5H.indexOf(anterior);
   if (!subiu) {
+    if (perto) return `5h voltou a ${em(f5, reset)}: sem mudança de ritmo.`;
     switch (faixa) {
-      case 'atencao': return `5h voltou a ${pct(usado)}: faixa atenção (reset ${horaLocal(resetsAt)}).`;
-      case 'serializar': return `5h voltou a ${pct(usado)}: ainda serializar — sem Workflow nem subagentes em paralelo.`;
-      default: return `5h voltou a ${pct(usado)}: faixa normal.`;
+      case 'atencao': return `5h voltou a ${em(f5, reset)}: faixa atenção.`;
+      case 'serializar': return `5h voltou a ${em(f5, reset)}: ainda serializar — sem Workflow nem subagentes em paralelo.`;
+      default: return `5h voltou a ${em(f5)}: faixa normal.`;
     }
   }
+  if (perto) return `5h em ${em(f5, reset)}: sem mudança de ritmo.`;
   switch (faixa) {
-    case 'atencao': return `5h em ${pct(usado)} (reset ${horaLocal(resetsAt)}): atenção ao ritmo.`;
-    case 'serializar': return `5h em ${pct(usado)}: serializar — sem Workflow nem subagentes em paralelo.`;
-    case 'fechar': return `5h em ${pct(usado)}: fechar a tarefa em curso, não abrir etapa nova, agendar a volta para depois de ${horaLocal(resetsAt)}.`;
+    case 'atencao': return `5h em ${em(f5, reset)}: atenção ao ritmo.`;
+    case 'serializar': return `5h em ${em(f5, reset)}: serializar — sem Workflow nem subagentes em paralelo.`;
+    case 'fechar': return `5h em ${em(f5)}: fechar a tarefa em curso e não abrir etapa nova; reset às ${horaLocal(f5.resets_at)} (o usuário vê as opções em /rate-limit-options). Se agendar a volta, marque ${horaLocal(f5.resets_at + VOLTA_S)}.`;
     default: return null;
   }
 }
 
-function linha7d(faixa, usado, esperado, resetsAt) {
-  const base = `7d ${pct(usado)} vs ${pct(esperado)} esperado`;
+function linha7d(faixa, f7, esperado, agoraMs) {
+  const base = `7d ${em(f7)} vs ${pct(esperado)} esperado`;
   switch (faixa) {
     case 'economico': return `${base} → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação.`;
     case 'folga': return `${base} → modo folga: investir em qualidade (review extra, effort maior em spec/auditoria), não em volume.`;
-    case 'so-leitura': return `7d em ${pct(usado)} com reset em ${diaHora(resetsAt)}: só leitura; recomendar parar.`;
+    case 'so-leitura': return `7d em ${em(f7)} com reset ${quandoLocal(f7.resets_at, agoraMs)}: só leitura; recomendar parar.`;
     default: return `${base} → modo normal.`;
   }
 }
@@ -123,11 +152,15 @@ const profundidade = (janela, faixa) => FAIXAS_PROJECAO[janela].findIndex(([nome
 
 // A linha fixa do aviso de projeção: só rótulos do código, horários
 // formatados e o número de sessões ativas (spec v0.2.0 §12.7). 5h com a hora
-// local; 7d com dia da semana e hora, porque a previsão pode cair noutro dia.
-function linhaProjecao(janela, quandoMs, resetsAt, sessoes) {
-  const hora = janela === 'five_hour' ? horaLocal : diaHora;
+// local; 7d com quandoLocal (spec v0.4.0 §10, item 7: nunca só o dia da
+// semana). A última frase é a de §8.1, regra 2 (§10, item 2).
+const FRASE_DECISAO = 'Se isso conflitar com uma decisão explícita do usuário, pergunte antes de mudar o plano.';
+function linhaProjecao(janela, quandoMs, resetsAt, sessoes, agoraMs) {
   const n = Number.isInteger(sessoes) && sessoes >= 2 && sessoes <= MAX_SESSOES_ATIVAS ? ` (${sessoes} sessões ativas)` : '';
-  return `hadouken: no ritmo atual${n}, ${ROTULO_PROJECAO[janela]} chega a 100% às ${hora(quandoMs / 1000)}, antes do reset das ${hora(resetsAt)}. Reduza o paralelismo ou serialize.`;
+  const tempos = janela === 'five_hour'
+    ? `às ${horaLocal(quandoMs / 1000)}, antes do reset das ${horaLocal(resetsAt)}`
+    : `${quandoLocal(quandoMs / 1000, agoraMs)}, antes do reset ${quandoLocal(resetsAt, agoraMs)}`;
+  return `hadouken: no ritmo atual${n}, ${ROTULO_PROJECAO[janela]} chega a 100% ${tempos}. Reduza o paralelismo ou serialize. ${FRASE_DECISAO}`;
 }
 
 // Aviso de projeção da sessão (spec v0.2.0 §12, avisos ao Claude).
@@ -150,7 +183,7 @@ function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs }
     const antesDoReset = numeroFinito(quando) && numeroFinito(agoraMs) && quando > agoraMs && quando < f.resets_at * 1000;
     const faixa = antesDoReset ? faixaProjecao(janela, quando - agoraMs) : null;
     if (faixa !== null && (!mesma || profundidade(janela, faixa) > profundidade(janela, anterior.faixa))) {
-      linhas.push(linhaProjecao(janela, quando, f.resets_at, sessoesAtivas));
+      linhas.push(linhaProjecao(janela, quando, f.resets_at, sessoesAtivas, agoraMs));
       memoria[janela] = { resets_at: f.resets_at, faixa };
     } else if (!mesma) {
       memoria[janela] = null;
@@ -199,9 +232,9 @@ function avaliar({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAti
     const mesma = mesmaJanela(guardada, f5.resets_at);
     const anterior = mesma ? guardada.faixa : null;
     if (!mesma && guardada && RESTRITIVAS_5H.has(guardada.faixa) && faixa === 'ok') {
-      linhas.push(`5h: janela nova em ${pct(f5.used_percentage)}, faixa normal — ${SUSPENSAS}.`);
+      linhas.push(`5h: janela nova em ${em(f5)}, faixa normal — ${SUSPENSAS}.`);
     } else if (anterior !== faixa && !(anterior === null && faixa === 'ok')) {
-      const l = linha5h(faixa, anterior, f5.used_percentage, f5.resets_at);
+      const l = linha5h(faixa, anterior, f5, agoraMs);
       if (l) linhas.push(l);
     }
     novos.five_hour = { resets_at: f5.resets_at, faixa };
@@ -214,9 +247,9 @@ function avaliar({ limites, anteriores, sessionId, agoraMs, previsao, sessoesAti
     const mesma = mesmaJanela(guardada, f7.resets_at);
     const anterior = mesma ? guardada.faixa : null;
     if (!mesma && guardada && RESTRITIVAS_7D.has(guardada.faixa) && faixa === 'normal') {
-      linhas.push(`7d: janela nova, ${pct(f7.used_percentage)} vs ${pct(esperado)} esperado → modo normal — ${SUSPENSAS}.`);
+      linhas.push(`7d: janela nova, ${em(f7)} vs ${pct(esperado)} esperado → modo normal — ${SUSPENSAS}.`);
     } else if (anterior !== faixa && !(anterior === null && faixa === 'normal')) {
-      linhas.push(linha7d(faixa, f7.used_percentage, esperado, f7.resets_at));
+      linhas.push(linha7d(faixa, f7, esperado, agoraMs));
     }
     novos.seven_day = { resets_at: f7.resets_at, faixa };
   }
