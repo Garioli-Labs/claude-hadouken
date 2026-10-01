@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO, linhaSemLeitura, LINHA_SEM_LEITURA_NUNCA } from '../src/alerta.js';
-import { horaLocal, quandoLocal } from '../src/util.js';
+import { decimal, horaLocal, quandoLocal } from '../src/util.js';
 import { calcularRitmo, LIMIAR_PONTOS } from '../src/ritmo.js';
 
 const H = 3600_000;
@@ -506,4 +506,25 @@ test('minutos e idade não finitos nunca viram "NaN": a linha sai sem esse peda�
     assert.equal(linhas.length, 1, String(idadeMs));
     assert.doesNotMatch(linhas[0], /NaN|Infinity/, String(idadeMs));
   }
+});
+
+test('linha econômica com o ritmo concreto (§10, item 6)', () => {
+  // 61% com 84 h até o reset: sustentável 39 / 84 = 0,46 pt/h.
+  const eco = (ritmo7dH) => avaliarAlertas({ limites: limites(10, 61), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora, ritmo7dH });
+  const base = '7d 61% vs 50% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação';
+  const acaba = Math.round(agora + (39 / 3.3) * H);
+  assert.deepEqual(eco(3.3).linhas, [`${base}; ritmo 3,3 pt/h, sustentável 0,5 pt/h; nesse ritmo acaba ${quandoLocal(acaba / 1000, agora)}.`]);
+  assert.deepEqual(eco(0.2).linhas, [`${base}; ritmo 0,2 pt/h, sustentável 0,5 pt/h; nesse ritmo não acaba antes do reset.`]);
+  assert.deepEqual(eco(0).linhas, [`${base}; ritmo 0,0 pt/h, sustentável 0,5 pt/h; nesse ritmo não acaba antes do reset.`]);
+  // Sem as 2 h de cobertura (null) ou valor hostil: sem a parte do ritmo.
+  for (const r of [null, undefined, Number.NaN, -1, '3.3', { valueOf: () => 3 }]) assert.deepEqual(eco(r).linhas, [`${base}.`], String(r));
+  assert.equal(decimal(39 / 84, 1), '0,5');
+});
+
+test('linha econômica com piso: sem a parte do ritmo', () => {
+  const r = avaliarAlertas({
+    limites: null, leituras: { five_hour: null, seven_day: { used_percentage: 61, resets_at: reset7, idadeMs: 2 * H, fresca: false } },
+    anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora, ritmo7dH: 3.3,
+  });
+  assert.deepEqual(r.linhas, ['7d ≥ 61% (leitura de 2 h) vs 50% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação.']);
 });

@@ -57,7 +57,7 @@ rodarHook(async (entrada) => {
       ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar,
       ARQ_PROJECAO, projecaoGuardada, projecaoParaGravar, precisaGravarProjecao,
     },
-    { preverEstouro },
+    { preverEstouro, ritmo7dPorHora },
   ] = await Promise.all([
     import('../estado.js'),
     import('../alerta.js'),
@@ -85,7 +85,9 @@ rodarHook(async (entrada) => {
   const projecaoLida = lidoProjecao.ok ? lidoProjecao.valor : null;
   const { linhas, novos } = avaliarAlertas({
     limites, leituras, ultima, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
-    previsao, sessoesAtivas: ativas,
+    previsao,
+    ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs }),
+    sessoesAtivas: ativas,
   });
   // `at` só anda quando a memória foi conferida contra uma leitura (decisão
   // D), fresca ou piso (spec v0.4.0 §10, item 1): com só o piso, a memória

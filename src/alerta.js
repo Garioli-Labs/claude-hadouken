@@ -6,7 +6,7 @@
 // SessionStart, relatorio.js e hooks/alertas-gravados.js).
 import { MAX_SESSOES as MAX_SESSOES_ATIVAS } from './estado.js';
 import { calcularRitmo } from './ritmo.js';
-import { horaLocal, quandoLocal, janelaValida, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
+import { decimal, horaLocal, quandoLocal, janelaValida, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
 
 // Spec v0.4.0 §10, item 1: sem leitura fresca nem piso, a linha diz desde
 // quando não há leitura e o último modo conhecido; sem leitura nenhuma, esta.
@@ -132,6 +132,24 @@ function em(j, extra = null) {
   return partes.length === 0 ? valor : `${valor} (${partes.join('; ')})`;
 }
 
+// Parte concreta da linha econômica (spec v0.4.0 §10, item 6): "; ritmo 3,3
+// pt/h, sustentável 0,6 pt/h; nesse ritmo acaba amanhã 13:30". Só com leitura
+// fresca e ritmo numérico ≥ 0 (ritmo7dPorHora dá null sem as 2 h de
+// cobertura). Sustentável = (100 − usado) ÷ horas até o reset (decisão 2 do
+// plano da parte 2). Só números validados e o horário de quandoLocal.
+function parteRitmo(f7, ritmoH, agoraMs) {
+  if (f7.piso === true || typeof ritmoH !== 'number' || !numeroFinito(ritmoH) || ritmoH < 0) return '';
+  const faltaMs = f7.resets_at * 1000 - agoraMs;
+  if (!(faltaMs > 0)) return '';
+  const resta = 100 - f7.used_percentage;
+  const sustentavel = resta / (faltaMs / HORA_MS);
+  const acabaMs = ritmoH > 0 ? Math.round(agoraMs + (resta / ritmoH) * HORA_MS) : Infinity;
+  const fim = acabaMs < f7.resets_at * 1000
+    ? `nesse ritmo acaba ${quandoLocal(acabaMs / 1000, agoraMs)}`
+    : 'nesse ritmo não acaba antes do reset';
+  return `; ritmo ${decimal(ritmoH, 1)} pt/h, sustentável ${decimal(sustentavel, 1)} pt/h; ${fim}`;
+}
+
 function linha5h(faixa, anterior, f5, agoraMs) {
   const min = minutosAte(f5.resets_at, agoraMs);
   const reset = min === null ? null : `reset em ${min} min`;
@@ -154,10 +172,10 @@ function linha5h(faixa, anterior, f5, agoraMs) {
   }
 }
 
-function linha7d(faixa, f7, esperado, agoraMs) {
+function linha7d(faixa, f7, esperado, agoraMs, ritmoH) {
   const base = `7d ${em(f7)} vs ${pct(esperado)} esperado`;
   switch (faixa) {
-    case 'economico': return `${base} → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação.`;
+    case 'economico': return `${base} → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação${parteRitmo(f7, ritmoH, agoraMs)}.`;
     case 'folga': return `${base} → modo folga: investir em qualidade (review extra, effort maior em spec/auditoria), não em volume.`;
     case 'so-leitura': return `7d em ${em(f7)} com reset ${quandoLocal(f7.resets_at, agoraMs)}: só leitura; recomendar parar.`;
     default: return `${base} → modo normal.`;
@@ -236,7 +254,7 @@ export function avaliarAlertas(entrada) {
   }
 }
 
-function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas }) {
+function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH }) {
   const ant = anteriores ?? ALERTAS_VAZIO;
   const novos = {
     five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura }, projecao: { ...ant.projecao },
@@ -279,7 +297,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
     if (!mesma && guardada && RESTRITIVAS_7D.has(guardada.faixa) && faixa === 'normal') {
       linhas.push(`7d: janela nova, ${em(f7)} vs ${pct(esperado)} esperado → modo normal — ${SUSPENSAS}.`);
     } else if (anterior !== faixa && !(anterior === null && faixa === 'normal')) {
-      linhas.push(linha7d(faixa, f7, esperado, agoraMs));
+      linhas.push(linha7d(faixa, f7, esperado, agoraMs, ritmo7dH));
     }
     novos.seven_day = { resets_at: f7.resets_at, faixa };
   }

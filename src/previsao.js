@@ -86,6 +86,21 @@ export function inclinacao(pontos, regras = REGRAS_JANELA.five_hour) {
   }
 }
 
+// Pontos [instante ms, porcentagem] de uma coluna do histórico dentro do
+// alcance: de agora − alcance até agora + FUTURO_MS, porcentagem em [0, 100].
+function pontosDaColuna(historico, coluna, alcance, agoraMs) {
+  const pontos = [];
+  for (const p of historico) {
+    if (p === null || typeof p !== 'object') continue;
+    const t = typeof p.at === 'string' ? Date.parse(p.at) : Number.NaN;
+    const v = p[coluna];
+    if (!numeroFinito(t) || t < agoraMs - alcance || t > agoraMs + FUTURO_MS) continue;
+    if (!numeroFinito(v) || v < 0 || v > 100) continue;
+    pontos.push([t, v]);
+  }
+  return pontos;
+}
+
 // Previsão de uma janela: os pontos da coluna dentro do alcance (de agora −
 // alcance até agora + FUTURO_MS, porcentagem em [0, 100]), a inclinação deles
 // e agora + (100 − usado) ÷ inclinação (com as regras da janela), arredondado
@@ -99,15 +114,7 @@ function preverJanela(historico, coluna, alcance, regras, janela, agoraMs) {
   if (!numeroFinito(usado) || usado < 0 || usado >= 100 || !numeroFinito(resetS)) return null;
   const resetMs = resetS * 1000;
   if (!numeroFinito(resetMs) || resetMs <= agoraMs) return null;
-  const pontos = [];
-  for (const p of historico) {
-    if (p === null || typeof p !== 'object') continue;
-    const t = typeof p.at === 'string' ? Date.parse(p.at) : Number.NaN;
-    const v = p[coluna];
-    if (!numeroFinito(t) || t < agoraMs - alcance || t > agoraMs + FUTURO_MS) continue;
-    if (!numeroFinito(v) || v < 0 || v > 100) continue;
-    pontos.push([t, v]);
-  }
+  const pontos = pontosDaColuna(historico, coluna, alcance, agoraMs);
   const b = inclinacao(pontos, regras);
   if (b === null || b <= 0) return null;
   const quando = Math.round(agoraMs + ((100 - usado) / b) * MINUTO_MS);
@@ -129,5 +136,21 @@ export function preverEstouro(opcoes) {
     return previsao;
   } catch {
     return { five_hour: null, seven_day: null };
+  }
+}
+
+// Ritmo do 7d em pontos por hora (spec v0.4.0 §10, item 6): a mesma
+// inclinação da projeção de 7d (JANELA_7D_MS, 2 h e 10 pontos), vezes 60.
+// null sem cobertura ou entrada inválida; nunca negativo (o uso não desce na
+// mesma janela; uma queda é troca de janela ou de conta). Nunca lança.
+export function ritmo7dPorHora(opcoes) {
+  try {
+    const { historico, agoraMs } = opcoes ?? {};
+    if (!Array.isArray(historico) || !numeroFinito(agoraMs)) return null;
+    const [coluna, alcance, regras] = ALCANCE.seven_day;
+    const b = inclinacao(pontosDaColuna(historico, coluna, alcance, agoraMs), regras);
+    return b === null ? null : Math.max(0, b * 60);
+  } catch {
+    return null;
   }
 }

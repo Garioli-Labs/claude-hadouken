@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COBERTURA_MIN_MS, inclinacao, JANELA_5H_MS, JANELA_7D_MS, PONTOS_MIN, preverEstouro, REGRAS_JANELA,
+  COBERTURA_MIN_MS, inclinacao, JANELA_5H_MS, JANELA_7D_MS, PONTOS_MIN, preverEstouro, REGRAS_JANELA, ritmo7dPorHora,
 } from '../src/previsao.js';
 
 // Previsão de estouro (spec v0.2.0 §12.3 e §12.7): inclinação por mínimos
@@ -155,4 +155,17 @@ test('inclinacao com regras hostis usa as de 5h', () => {
   const pts = [[0, 1], [3 * MIN, 2], [6 * MIN, 3]];
   perto(inclinacao(pts, { pontosMin: 'x', coberturaMinMs: -1 }), 1 / 3);
   perto(inclinacao(pts, null), 1 / 3);
+});
+
+test('ritmo7dPorHora (§10, item 6): pontos por hora com 2 h e 10 pontos; sem cobertura, null', () => {
+  const pontos = (n, passoMin, inicio, porHora) => Array.from({ length: n }, (_, i) => ({
+    at: iso(agora - (n - 1 - i) * passoMin * MIN), h5: null, d7: inicio + (i * passoMin / 60) * porHora,
+  }));
+  perto(ritmo7dPorHora({ historico: pontos(14, 10, 40, 3.3), agoraMs: agora }), 3.3);
+  // 13 pontos em 24 min (uma rajada): sem as 2 h de cobertura.
+  assert.equal(ritmo7dPorHora({ historico: pontos(13, 2, 40, 3.3), agoraMs: agora }), null);
+  // Queda: nunca negativo.
+  assert.equal(ritmo7dPorHora({ historico: pontos(14, 10, 60, -1), agoraMs: agora }), 0);
+  for (const h of [null, 'x', [{ at: 'x', d7: 1 }]]) assert.equal(ritmo7dPorHora({ historico: h, agoraMs: agora }), null);
+  assert.equal(ritmo7dPorHora(null), null);
 });
