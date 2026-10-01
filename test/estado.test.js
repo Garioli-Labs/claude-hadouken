@@ -1334,3 +1334,61 @@ test('ultimaLeitura (spec v0.4.0 §10, item 1): a leitura mais nova de qualquer 
   assert.equal(ultimaLeitura(validarEstado({ versao: 1, at: null, five_hour: null, seven_day: null, sessoes: {}, historico: [] }, agora), agora), null);
   assert.equal(ultimaLeitura(validarEstado(v, agora), Number.NaN), null);
 });
+
+// Regra de frescor (spec v0.4.0 §10, item 8; decisão 5 do plano da parte 2).
+const RL_FRESCOR = { five_hour: { used_percentage: 42, resets_at: agoraS + 4 * 3600 }, seven_day: { used_percentage: 48, resets_at: agoraS + 86400 } };
+const datarArq = (arq, ms) => fs.utimesSync(arq, ms / 1000, ms / 1000);
+
+test('foco 3: o mesmo stdin 60 vezes em 60 min não renova at nem cria ponto; transcript escrito depois renova', () => {
+  const tr = path.join(dir, 'sessao.jsonl');
+  fs.writeFileSync(tr, '{}\n');
+  datarArq(tr, agora - 10 * 60_000);
+  const e = entrada({ transcript_path: tr, rate_limits: RL_FRESCOR });
+  atualizarEstado(e, agora);
+  for (let i = 1; i <= 60; i++) atualizarEstado(e, agora + i * 60_000);
+  const v = lerEstado();
+  assert.equal(v.five_hour.at, iso(agora));
+  assert.equal(v.seven_day.at, iso(agora));
+  assert.equal(v.historico.length, 1);
+  // Caso dirigido por evento: o transcript foi escrito depois do `at`, e a
+  // mesma leitura renova (sem regressão).
+  const depois = agora + 61 * 60_000;
+  datarArq(tr, depois - 30_000);
+  atualizarEstado(e, depois);
+  const w = lerEstado();
+  assert.equal(w.five_hour.at, iso(depois));
+  assert.equal(w.seven_day.at, iso(depois));
+  assert.equal(w.historico.length, 2);
+});
+
+test('frescor: valor novo renova mesmo sem transcript novo; transcript sumido conta como não escrito', () => {
+  const tr = path.join(dir, 'sessao.jsonl');
+  fs.writeFileSync(tr, '{}\n');
+  datarArq(tr, agora - 10 * 60_000);
+  atualizarEstado(entrada({ transcript_path: tr, rate_limits: RL_FRESCOR }), agora);
+  const novo = { ...RL_FRESCOR, five_hour: { ...RL_FRESCOR.five_hour, used_percentage: 43 } };
+  atualizarEstado(entrada({ transcript_path: tr, rate_limits: novo }), agora + 5 * 60_000);
+  assert.equal(lerEstado().five_hour.at, iso(agora + 5 * 60_000));
+  const sumiu = path.join(dir, 'sumiu.jsonl');
+  atualizarEstado(entrada({ transcript_path: sumiu, rate_limits: novo }), agora + 10 * 60_000);
+  assert.equal(lerEstado().five_hour.at, iso(agora + 5 * 60_000));
+});
+
+test('frescor: sem transcript_path válido, a regra de antes (renova)', () => {
+  const invalidos = [undefined, 'relativo.jsonl', path.join(dir, 'x.txt'), `${dir}\0x.jsonl`, 42, `/${'a'.repeat(5000)}.jsonl`];
+  for (const [i, t] of invalidos.entries()) {
+    const base = agora + i * 10 * 60_000;
+    atualizarEstado(entrada({ transcript_path: t, rate_limits: RL_FRESCOR }), base);
+    atualizarEstado(entrada({ transcript_path: t, rate_limits: RL_FRESCOR }), base + 60_000);
+    assert.equal(lerEstado().five_hour.at, iso(base + 60_000), String(t));
+  }
+});
+
+test('frescor: janela do formato de antes (sem at próprio) nunca conta como repetida', () => {
+  const tr = path.join(dir, 'sessao.jsonl');
+  fs.writeFileSync(tr, '{}\n');
+  datarArq(tr, agora - 10 * 60_000);
+  gravarBruto({ versao: 1, at: iso(agora - 60_000), five_hour: { ...RL_FRESCOR.five_hour }, seven_day: { ...RL_FRESCOR.seven_day }, sessoes: {}, historico: [] });
+  atualizarEstado(entrada({ transcript_path: tr, rate_limits: RL_FRESCOR }), agora);
+  assert.equal(lerEstado().five_hour.at, iso(agora));
+});

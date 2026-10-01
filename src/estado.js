@@ -423,6 +423,53 @@ function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
   return delta <= -(duracaoS - TOLERANCIA_JANELA_S);
 }
 
+// Regra de frescor (spec v0.4.0 §10, item 8; decisão 5 do plano da parte 2).
+// Com refreshInterval, a statusline roda com a sessão parada e o stdin repete
+// a última leitura do Claude Code; carimbar `at` nela faria um valor parado
+// parecer fresco (mantemGuardada, limitesValidos), e os pontos planos puxariam
+// a inclinação para baixo. "Repetido": toda janela presente é igual à
+// guardada (mesmo valor, reset ±TOLERANCIA_JANELA_S, `at` próprio válido) e o
+// transcript da sessão não foi escrito depois do `at` mais velho delas.
+// Transcript escrito depois (o caso dirigido por evento) renova como antes.
+
+const TRANSCRIPT_MAX = 4096;
+
+// mtime (ms) do transcript da sessão: undefined quando o stdin não traz um
+// caminho utilizável (não texto, vazio, longo, com NUL, relativo, não .jsonl):
+// aí vale a regra de antes. null quando o caminho não é arquivo regular
+// (ausente, pasta, link: lstat não segue) ou o lstat falha: conta como não
+// escrito. Só lstat; nada é aberto nem lido.
+function mtimeTranscript(bruto) {
+  if (typeof bruto !== 'string' || bruto.length === 0 || bruto.length > TRANSCRIPT_MAX || bruto.includes('\0')) return undefined;
+  if (!path.isAbsolute(bruto) || !bruto.toLowerCase().endsWith('.jsonl')) return undefined;
+  try {
+    const st = fs.lstatSync(bruto, { throwIfNoEntry: false });
+    return st?.isFile() === true && numeroFinito(st.mtimeMs) ? st.mtimeMs : null;
+  } catch {
+    return null;
+  }
+}
+
+// `lerMtime` só é chamado quando as janelas já batem (um lstat a menos no
+// caso comum, em que o valor mudou).
+function stdinRepetido(anterior, rl, lerMtime, agoraMs) {
+  let maisVelho = null;
+  for (const k of JANELAS) {
+    const nova = janelaValida(rl[k]);
+    if (nova === null) continue;
+    const g = anterior[k];
+    if (!ehObjeto(g) || typeof g.at !== 'string') return false;
+    const lidaEm = instante(g.at, agoraMs);
+    if (lidaEm === null) return false;
+    if (nova.used_percentage !== g.used_percentage || Math.abs(nova.resets_at - g.resets_at) > TOLERANCIA_JANELA_S) return false;
+    if (maisVelho === null || lidaEm < maisVelho) maisVelho = lidaEm;
+  }
+  if (maisVelho === null) return false;
+  const m = lerMtime();
+  if (m === undefined) return false;
+  return m === null || m <= maisVelho;
+}
+
 // Junta a entrada da statusline ao estado gravado e regrava `estado.json`.
 // Cada janela da leitura nova passa por mantemGuardada. A que entra ganha
 // `at` = agora; a segurada fica com o próprio `at`, que só uma leitura real
@@ -430,6 +477,8 @@ function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
 // fica null: nenhum valor guardado sobrevive a uma leitura de agora sem ter
 // sido comparado. Se nenhuma entrou (sem leitura válida, ou só leituras
 // seguradas), o instantâneo anterior fica como está, cada janela com seu `at`.
+// Stdin repetido (stdinRepetido, spec v0.4.0 §10, item 8): nenhuma janela
+// entra, e `at` e histórico ficam parados.
 // O `at` do topo é sempre atDoTopo das janelas gravadas, e o histórico ganha
 // o ponto desta leitura (historicoDepois). Devolve o
 // estado mesmo quando a gravação falha, para a barra seguir mostrando a
@@ -454,9 +503,10 @@ export function atualizarEstado(entrada, agoraMs) {
     // (mantemGuardada, a mesma régua de limitesValidos, que já não exibe a
     // janela velha): a leitura velha de uma sessão ociosa só ganha quando
     // ninguém leu aquela janela na última hora, e aí é o melhor dado que há.
+    const repetido = stdinRepetido(anterior, rl, () => mtimeTranscript(e.transcript_path), agoraMs);
     for (const k of JANELAS) {
       const nova = janelaValida(rl[k]);
-      const fica = nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
+      const fica = nova !== null && (repetido || mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs));
       if (fica) novas[k] = anterior[k];
       else novas[k] = nova === null ? null : { ...nova, at: agoraIso };
       if (nova !== null && !fica) {
