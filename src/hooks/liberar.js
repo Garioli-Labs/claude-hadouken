@@ -15,10 +15,10 @@ import { dirDados, idValido } from '../base.js';
 // Qualquer exceção depois do gate, inclusive a do import de mensagens.js, vira
 // evento 'erro' (§4.5, falharAberto em comum.js) e a resposta "nada
 // liberado": uma liberação que falha nunca fica gravada.
-// Resíduo: C23 só reescreve `cli` para `sdk-cli` no modo print, então um
-// `claude -p` aberto de uma sessão com outro entrypoint (ex.: claude-vscode)
-// herda esse valor e passa por aqui; quem fecha esse caminho é a P4 (Task 16),
-// e o spike da parte 2 procura um sinal melhor.
+// Spike S12 da parte 2 (2.1.287): o `claude -p` aberto de uma sessão do VS Code
+// recebeu entrypoint `sdk-cli`, então o filho -p já é recusado aqui. O
+// `claude-vscode` segue aceito: é o `/liberar` digitado numa sessão normal do
+// VS Code.
 //
 // Origem (C1 da revisão final da parte 1): só o comando digitado libera. A
 // lista de origens aceitas é fechada, e qualquer outro valor, inclusive
