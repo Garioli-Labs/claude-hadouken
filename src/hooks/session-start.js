@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { rodarHook, emitirContexto, falharAberto } from './comum.js';
+import { rodarHook, emitirContexto, falharAberto, dentroDeSubagente } from './comum.js';
 import { caminhoDoAmbiente, dirDados, idValido } from '../base.js';
 import { registrarSessao } from '../ativas.js';
 
@@ -19,7 +19,8 @@ import { registrarSessao } from '../ativas.js';
 //    hook não espera o filho;
 // 5. grava a marca da guarda e o modelo da sessão (spec v0.4.0 §4.3).
 // session_id ausente ou inválido, ou sem diretório de dados: nenhum registro,
-// nenhuma linha, nenhuma escrita.
+// nenhuma linha, nenhuma escrita. O mesmo dentro de um subagente
+// (dentroDeSubagente, spec v0.4.0 §10, item 3).
 //
 // Texto injetado (spec 8.1, S1): só números validados, horários formatados e
 // rótulos fixos de linha-estado.js. Nada de estado.json, do stdin, do
@@ -68,6 +69,11 @@ rodarHook(async (entrada) => {
   if (entrada === null || !Object.hasOwn(entrada, 'session_id')) return;
   const sessionId = entrada.session_id;
   if (!idValido(sessionId)) return;
+  // Spec v0.4.0 §10, item 3: dentro de um subagente (o SessionStart:compact
+  // dele chega com o session_id da mãe), nada. Nem registro, nem shims, nem
+  // linha, nem modelo: o `model` ali é o do subagente, e gravá-lo como o da
+  // sessão soltaria a P2 e a P3 numa sessão Fable.
+  if (dentroDeSubagente(entrada)) return;
   const dir = dirDados();
   if (dir === null) return;
   const agoraMs = Date.now();

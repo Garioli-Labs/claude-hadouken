@@ -111,3 +111,22 @@ export function rodarHook(fn, maxBytes, vigia, rotulo) {
     .catch(() => {})
     .finally(() => { process.exitCode = 0; });
 }
+
+// Spec v0.4.0 §10, item 3 (proposta 3): a entrada de hook que vem de dentro
+// de um subagente. O sinal é o agent_id (texto não vazio). Na falta dele, o
+// transcript_path com a pasta subagents, com / ou \. É só reserva: pelo S1 da
+// parte 1, o PreToolUse de dentro do subagente traz o caminho da mãe. Só
+// confere forma; nada daqui vira texto. Nunca lança.
+const PASTA_SUBAGENTES = /[\\/]subagents[\\/]/;
+const CAMINHO_MAX = 4096;
+export function dentroDeSubagente(entrada) {
+  try {
+    if (entrada === null || typeof entrada !== 'object') return false;
+    const id = entrada.agent_id;
+    if (typeof id === 'string' && id.length > 0) return true;
+    const t = entrada.transcript_path;
+    return typeof t === 'string' && t.length <= CAMINHO_MAX && PASTA_SUBAGENTES.test(t);
+  } catch {
+    return false;
+  }
+}

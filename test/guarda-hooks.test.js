@@ -14,6 +14,7 @@ import { travasVazias, lerTravas } from '../src/guarda/travas.js';
 import { ARQ_DESPACHOS, ARQ_LIMITES, lerEventos, registrarDespachoFable, gravarModeloSessao, modeloDaSessao, registrarLimite, anexarEvento } from '../src/guarda/registros.js';
 import { P4_LIBERAR_TEXTO, AGENDA_LIBERAR_TEXTO } from '../src/guarda/mensagens.js';
 import * as mensagens from '../src/guarda/mensagens.js';
+import { dentroDeSubagente } from '../src/hooks/comum.js';
 
 // Hooks da guarda (spec v0.4.0 §4.2), cada um num processo filho como o
 // Claude Code os roda. Todo filho recebe HADOUKEN_HOME e CLAUDE_CONFIG_DIR
@@ -939,4 +940,33 @@ test('barra: a liberação aparece ao lado da trava que ela não cobre; erro de 
   // Liberação vencida (2h pedidas há 3 h) não aparece.
   gravarLiberacao(home, montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: agora - 3 * H, usado7d: 40, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef03' }));
   assert.match(rodarBarra(barraDe('s1', 40), home).stdout, / │ guarda: Fable · guarda com erro$/);
+});
+
+test('dentroDeSubagente (spec v0.4.0 §10, item 3): agent_id, ou a pasta subagents no caminho', () => {
+  assert.equal(dentroDeSubagente({ agent_id: 'a1b2c3' }), true);
+  assert.equal(dentroDeSubagente({ transcript_path: '/home/u/.claude/projects/p/s1/subagents/agent-a1.jsonl' }), true);
+  assert.equal(dentroDeSubagente({ transcript_path: 'C:\\Users\\u\\.claude\\projects\\p\\s1\\subagents\\agent-a1.jsonl' }), true);
+  const explode = { get agent_id() { throw new Error('hostil'); } };
+  for (const e of [null, 'x', {}, { agent_id: '' }, { agent_id: 42 }, { transcript_path: '/home/u/.claude/projects/p/s1.jsonl' },
+    { transcript_path: '/x/subagentsy/a.jsonl' }, { transcript_path: 42 }, explode]) {
+    assert.equal(dentroDeSubagente(e), false);
+  }
+});
+
+test('foco 1: SessionStart:compact dentro de subagente de Haiku não grava o modelo da mãe nem injeta linha', () => {
+  const home = novoHome();
+  const r = rodar('session-start.js', { session_id: 's9', hook_event_name: 'SessionStart', source: 'startup', model: 'claude-fable-5-1' }, home);
+  assert.equal(r.status, 0, r.stderr);
+  const modelosAntes = fs.readFileSync(path.join(home, 'modelos.json'), 'utf8');
+  const noSubagente = [{ agent_id: 'a1b2c3', agent_type: 'general-purpose' }, { transcript_path: path.join(home, 'projetos', 's9', 'subagents', 'agent-a1.jsonl') }];
+  for (const extra of noSubagente) {
+    semSaida(rodar('session-start.js', { session_id: 's9', hook_event_name: 'SessionStart', source: 'compact', model: 'claude-haiku-4-5', ...extra }, home));
+  }
+  assert.equal(modeloDaSessao(home, 's9', Date.now()), 'claude-fable-5-1');
+  assert.equal(fs.readFileSync(path.join(home, 'modelos.json'), 'utf8'), modelosAntes);
+  // Home nova, só o SessionStart do subagente: nenhuma escrita (nem registro, nem shims, nem marca).
+  const limpa = novoHome();
+  const antes = fs.readdirSync(limpa).sort();
+  semSaida(rodar('session-start.js', { session_id: 's8', hook_event_name: 'SessionStart', source: 'compact', model: 'claude-haiku-4-5', agent_id: 'a1' }, limpa));
+  assert.deepEqual(fs.readdirSync(limpa).sort(), antes);
 });
