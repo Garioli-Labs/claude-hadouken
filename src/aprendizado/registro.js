@@ -1,12 +1,14 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { gravarJsonAtomico } from '../estado.js';
-import { lerSemLink } from '../guarda/arquivo.js';
+import { lerSemLink, lerTextoSemLink } from '../guarda/arquivo.js';
 import { MODELO_VALIDO } from '../guarda/registros.js';
 import { TOLERANCIA_JANELA_S } from '../util.js';
-import { apagar, esperar, fechar, instante, numeroFinito } from '../base.js';
+import { apagar, esperar, fechar, instante, numeroFinito, varrerTmpVelhos } from '../base.js';
 import { ITENS, TETO, caminhos, ligadoExiste, valorDoItem } from './arquivos.js';
 import {
-  aprendizadoVazio, CAMPOS_MODELO, CHAVE_MODELO, DURACAO_JANELA_MS, JANELAS_MAX, LIMIARES, MODELOS_SEMANA_MAX, SEMANAS_MAX,
+  aprendizadoVazio, CAMPOS_MODELO, CHAVE_MODELO, DURACAO_JANELA_MS, inicioSemana, JANELAS_MAX, LIMIARES, MODELOS_SEMANA_MAX, SEMANAS_MAX,
 } from './agregar.js';
 
 // Leitura e gravação dos arquivos do aprendizado (spec aprendizado §3.1,
@@ -92,13 +94,25 @@ function janelasDe(bruto, tipo, agoraMs) {
   return r.slice(-JANELAS_MAX[tipo]);
 }
 
+// O início de uma semana: AAAA-MM-DD de uma data que existe, numa
+// segunda-feira (inicioSemana da própria data devolve o mesmo texto; um
+// 2026-02-30 vira 2026-03-02 e não casa) e não depois da semana de agora.
+function inicioDeSemanaValido(inicio, semanaAtual) {
+  if (typeof inicio !== 'string' || !DIA_ISO.test(inicio) || inicio > semanaAtual) return false;
+  const [a, m, d] = inicio.split('-').map(Number);
+  return inicioSemana(new Date(a, m - 1, d).getTime()) === inicio;
+}
+
 export function validarAprendizado(v, agoraMs) {
   try {
     if (!ehObjeto(v) || v.v !== 1 || !msValido(v.desde, agoraMs)) return null;
     const ap = aprendizadoVazio(v.desde);
     ap.sessoes = inteiroEntre(v.sessoes, 0, 1_000_000) ? v.sessoes : 0;
-    for (const s of lista(v.semanas).slice(-SEMANAS_MAX)) {
-      if (!ehObjeto(s) || typeof s.inicio !== 'string' || !DIA_ISO.test(s.inicio) || !ehObjeto(s.modelos)) continue;
+    // Filtro antes do corte em SEMANAS_MAX (revisão I1): uma semana forjada
+    // não toma a vaga de uma real nem a ponta que o perfilDe lê.
+    const semanaAtual = inicioSemana(agoraMs);
+    for (const s of lista(v.semanas)) {
+      if (!ehObjeto(s) || !inicioDeSemanaValido(s.inicio, semanaAtual) || !ehObjeto(s.modelos)) continue;
       if (!Array.isArray(s.ativo) || s.ativo.length !== 168 || ap.semanas.some((x) => x.inicio === s.inicio)) continue;
       const modelos = {};
       for (const [k, arr] of Object.entries(s.modelos).slice(0, MODELOS_SEMANA_MAX)) {
@@ -108,6 +122,7 @@ export function validarAprendizado(v, agoraMs) {
       ap.semanas.push({ inicio: s.inicio, modelos, ativo: s.ativo.map((m) => (numeroFinito(m) && m >= 0 && m <= 60 ? m : 0)) });
     }
     ap.semanas.sort((a, b) => (a.inicio < b.inicio ? -1 : a.inicio > b.inicio ? 1 : 0));
+    ap.semanas = ap.semanas.slice(-SEMANAS_MAX);
     for (const col of ['h5', 'd7']) {
       const r = ehObjeto(v.ritmo) ? v.ritmo[col] : undefined;
       if (Array.isArray(r) && r.length === 24 && r.every((p) => Array.isArray(p) && p.length === 2 && p.every((n) => numeroFinito(n) && n >= 0))) {
@@ -317,7 +332,11 @@ export function lerCursor(dir, agoraMs) {
 }
 
 export function gravarCursor(dir, c) {
-  return { ok: gravarJsonAtomico(caminhos(dir).cursor, { ...c, v: 1 }).ok };
+  try {
+    return { ok: gravarJsonAtomico(caminhos(dir).cursor, { ...c, v: 1 }).ok };
+  } catch {
+    return { ok: false };
+  }
 }
 
 // ------------------------------------------------------------ eventos
@@ -378,47 +397,103 @@ export function apagarLigado(dir) {
 
 // ------------------------------------------------------------ trava
 
-// A identidade (dispositivo e inode, em bigint) do arquivo da trava, ou null.
-function idDaTrava(info) {
-  return info && info.isFile() && info.ino !== 0n ? `${info.dev}:${info.ino}` : null;
+const novoToken = () => crypto.randomBytes(16).toString('hex');
+const travaVencida = (info) => info.isFile() && Date.now() - info.mtimeMs >= TRAVA_VENCIDA_MS;
+// Sobra de uma retomada interrompida entre o rename e o unlink.
+const ehTravaVelha = (nome) => /^aprendizado\.lock\.[0-9a-f]{32}\.velha$/.test(nome);
+
+// Retoma a trava vencida (revisão I3): renomeia para um nome único e só
+// então confere, já no nome novo, que ainda é uma trava vencida. Dois passos
+// que viram a mesma trava vencida: o primeiro leva no rename; o segundo
+// perde o rename (ENOENT) e não apaga nada, ou chega depois de o primeiro já
+// ter criado a trava nova e a leva no rename. Nesse caso a trava levada não
+// está vencida: volta para o lugar por link, que nunca sobrescreve, e o
+// nome único sai. Devolve true só quando apagou uma trava vencida. Exportada
+// com _ só para o teste dos dois passos intercalados. Nunca lança.
+export function _retomarTravaVencida(arq) {
+  const velha = `${arq}.${novoToken()}.velha`;
+  try {
+    fs.renameSync(arq, velha);
+  } catch {
+    return false;
+  }
+  try {
+    const info = fs.lstatSync(velha);
+    if (travaVencida(info)) {
+      apagar(velha);
+      varrerTmpVelhos(path.dirname(arq), ehTravaVelha);
+      return true;
+    }
+    if (!info.isFile()) {
+      fs.renameSync(velha, arq);
+      return false;
+    }
+    try {
+      fs.linkSync(velha, arq);
+    } catch (e) {
+      // Sem link no sistema de arquivos: volta pelo rename, se o nome ainda
+      // estiver livre. Com EEXIST, um terceiro passo já criou a dele.
+      if (e?.code !== 'EEXIST' && !fs.existsSync(arq)) fs.renameSync(velha, arq);
+    }
+    apagar(velha);
+  } catch {
+    /* melhor esforço */
+  }
+  return false;
 }
 
-// Um passo por vez (Foco de revisão 3): arquivo criado com 'wx'. Trava com
-// mais de 2 min pelo mtime é de um processo morto e é retomada. Até 5
-// tentativas com 50 ms entre elas; depois, 'ocupada'. O soltar só apaga a
-// trava que este pegarTrava criou (mesmo dispositivo e inode): um passo lento
-// cuja trava venceu e foi retomada por outro não solta a do outro. Sem
-// identidade legível (inode 0), apaga como antes.
+// Solta só a trava que tem o token deste dono, lida sem seguir link
+// (revisão I2): um passo lento cuja trava venceu e foi retomada por outro não
+// solta a do outro, em qualquer sistema de arquivos.
+function soltarTrava(arq, token) {
+  try {
+    const l = lerTextoSemLink(arq, 1024);
+    if (l.ok && l.texto === token) apagar(arq);
+  } catch {
+    /* fica para a retomada */
+  }
+}
+
+// Um passo por vez (Foco de revisão 3): arquivo criado com 'wx', com um token
+// aleatório do dono no conteúdo. Trava com mais de 2 min pelo mtime é de um
+// processo morto e é retomada (_retomarTravaVencida). Até 5 tentativas com
+// 50 ms entre elas; depois, 'ocupada'.
 export function pegarTrava(dir) {
-  const arq = caminhos(dir).trava;
+  let arq;
+  try {
+    arq = caminhos(dir).trava;
+  } catch {
+    return { ok: false, motivo: 'erro' };
+  }
+  const token = novoToken();
   for (let i = 0; i < TRAVA_TENTATIVAS; i++) {
+    let fd;
     try {
-      const fd = fs.openSync(arq, 'wx');
-      let id = null;
-      try { id = idDaTrava(fs.fstatSync(fd, { bigint: true })); } catch { /* sem identidade */ }
-      fechar(fd);
-      const soltar = () => {
-        try {
-          if (id !== null && idDaTrava(fs.lstatSync(arq, { bigint: true, throwIfNoEntry: false })) !== id) return;
-        } catch {
-          return;
-        }
-        apagar(arq);
-      };
-      return { ok: true, soltar };
+      fd = fs.openSync(arq, 'wx');
     } catch (e) {
       if (e?.code !== 'EEXIST') return { ok: false, motivo: 'erro' };
+      let info;
       try {
-        const info = fs.lstatSync(arq);
-        if (info.isFile() && Date.now() - info.mtimeMs >= TRAVA_VENCIDA_MS) {
-          apagar(arq);
-          continue;
-        }
+        info = fs.lstatSync(arq);
       } catch {
         continue;
       }
+      if (travaVencida(info)) {
+        _retomarTravaVencida(arq);
+        continue;
+      }
       if (i < TRAVA_TENTATIVAS - 1) esperar(TRAVA_ESPERA_MS);
+      continue;
     }
+    try {
+      fs.writeSync(fd, token);
+    } catch {
+      fechar(fd);
+      apagar(arq);
+      return { ok: false, motivo: 'erro' };
+    }
+    fechar(fd);
+    return { ok: true, soltar: () => soltarTrava(arq, token) };
   }
   return { ok: false, motivo: 'ocupada' };
 }

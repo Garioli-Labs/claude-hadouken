@@ -7,9 +7,9 @@ import { caminhos, ligadoExiste, valorDoItem, chaveSugestao, TETO } from '../src
 import {
   lerAprendizado, gravarAprendizado, ajustesVazios, lerAjustes, gravarAjustes, sugestoesVazias, lerSugestoes, gravarSugestoes,
   cursorVazio, lerCursor, gravarCursor, lerEventosApr, anexarEventoApr, lerLigado, gravarLigado, apagarLigado, pegarTrava,
-  ajustesParaConsumo, intervaloDoPainelMs, faixasDoPainel, perfilDaPrevisao,
+  ajustesParaConsumo, intervaloDoPainelMs, faixasDoPainel, perfilDaPrevisao, _retomarTravaVencida,
 } from '../src/aprendizado/registro.js';
-import { aprendizadoVazio, agregarRegistros, atualizarJanela, marcarSessao } from '../src/aprendizado/agregar.js';
+import { aprendizadoVazio, agregarRegistros, atualizarJanela, marcarSessao, inicioSemana, SEMANAS_MAX } from '../src/aprendizado/agregar.js';
 
 const dirs = [];
 after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
@@ -100,6 +100,39 @@ test('aprendizado.json forjado: instantes fora de (reset − duração, reset] e
   ]);
   assert.deepEqual(ap.janelas.h5.map((j) => j.max), [2]);
   assert.deepEqual(ap.janelas.fable.map((j) => j.max), [4]);
+});
+
+test('aprendizado.json forjado: de janelas com reset dentro da tolerância, vale a primeira', () => {
+  const d = novoDir();
+  const r = AGORA - D;
+  const d7 = [
+    { reset: r + 600_001, max: 30 },
+    { reset: r + 300_000, max: 20 },
+    { reset: r, max: 10 },
+  ];
+  fs.writeFileSync(caminhos(d).aprendizado, JSON.stringify({ v: 1, desde: AGORA - 30 * D, sessoes: 0, semanas: [], janelas: { d7 } }));
+  const ap = lerAprendizado(d, AGORA);
+  assert.deepEqual(ap.janelas.d7.map((j) => [j.reset, j.max]), [[r, 10], [r + 600_001, 30]]);
+});
+
+// Revisão I1: a semana só vale com início numa segunda-feira que existe e
+// que não está depois da semana de agora; o filtro vem antes do corte em
+// SEMANAS_MAX, então uma semana forjada não toma a vaga de uma real nem a
+// ponta que o perfilDe lê.
+test('aprendizado.json forjado: semana futura, data que não existe ou fora de segunda sai', () => {
+  const d = novoDir();
+  const vazio = new Array(168).fill(0);
+  const semana = (inicio) => ({ inicio, modelos: {}, ativo: vazio });
+  const reais = [];
+  for (let k = SEMANAS_MAX - 1; k >= 0; k--) reais.push(inicioSemana(AGORA - k * 7 * D));
+  assert.equal(reais.at(-1), '2026-10-19');
+  // 2099-01-05 é segunda, mas futura; 2026-10-13 é terça e 2026-09-31 não
+  // existe, os dois no passado e dentro das 26 semanas.
+  const forjadas = ['2099-01-05', '2026-99-99', '2026-10-20', '2026-10-13', '2026-09-31'];
+  const semanas = [...reais.map(semana), ...forjadas.map(semana)];
+  fs.writeFileSync(caminhos(d).aprendizado, JSON.stringify({ v: 1, desde: AGORA - 400 * D, sessoes: 0, semanas }));
+  const ap = lerAprendizado(d, AGORA);
+  assert.deepEqual(ap.semanas.map((s) => s.inicio), reais);
 });
 
 test('ajustes.json: vigentes fora da faixa voltam ao padrão, amarelo >= vermelho volta aos dois', () => {
@@ -217,6 +250,38 @@ test('a trava retomada não é solta pelo dono antigo', () => {
   assert.deepEqual(pegarTrava(d), { ok: false, motivo: 'ocupada' });
   novoDono.soltar();
   assert.equal(fs.existsSync(caminhos(d).trava), false);
+});
+
+// Revisão I3: dois passos veem a mesma trava vencida. A retomada renomeia a
+// trava para um nome único antes de apagar; quem chega tarde (o arquivo já é
+// a trava nova de outro) não leva nada e a devolve intacta, e quem perde o
+// rename (ENOENT) não apaga nada.
+test('a retomada que chega tarde não leva a trava nova de outro passo', () => {
+  const d = novoDir();
+  const arq = caminhos(d).trava;
+  fs.writeFileSync(arq, 'morto');
+  const velho = (Date.now() - 10 * 60_000) / 1000;
+  fs.utimesSync(arq, velho, velho);
+  // A e B leram o mtime vencido. A retoma primeiro; B perde o rename.
+  assert.equal(_retomarTravaVencida(arq), true);
+  assert.equal(fs.existsSync(arq), false);
+  assert.equal(_retomarTravaVencida(arq), false);
+  assert.equal(fs.existsSync(arq), false);
+  // A cria a trava nova; B, atrasado, tenta retomar o que viu vencido.
+  const a = pegarTrava(d);
+  assert.equal(a.ok, true);
+  const conteudo = fs.readFileSync(arq, 'utf8');
+  assert.equal(_retomarTravaVencida(arq), false);
+  assert.equal(fs.readFileSync(arq, 'utf8'), conteudo);
+  assert.deepEqual(pegarTrava(d), { ok: false, motivo: 'ocupada' });
+  a.soltar();
+  assert.equal(fs.existsSync(arq), false);
+  assert.deepEqual(fs.readdirSync(d).filter((n) => n.startsWith('aprendizado.lock')), []);
+});
+
+test('gravarCursor nunca lança', () => {
+  assert.deepEqual(gravarCursor(undefined, cursorVazio()), { ok: false });
+  assert.deepEqual(gravarCursor(novoDir(), null), { ok: true });
 });
 
 test('consumidores: sem ligado.json nada vale; com ele, intervalo fora das horas ativas, faixas e peso', () => {
