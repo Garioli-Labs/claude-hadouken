@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  ARQ_CONFIG_BASE, CAMPOS_GUARDA, CONFIG_BASE_MAX, CONFIG_BASE_MAX_BYTES, ILEGIVEL, SETTINGS_MAX_BYTES,
+  ARQ_CONFIG_BASE, CAMPOS_GUARDA, CONFIG_BASE_MAX, CONFIG_BASE_MAX_BYTES, ILEGIVEL, ORIGENS, ORIGENS_DO_PROJETO, SETTINGS_MAX_BYTES,
   jsonCanonico, impressaoDe, impressaoDoArquivo, chaveDoArquivo, settingsDaSessao, lerConfigBase, fotografar,
   mudancaNaGuarda, decisaoConfig,
 } from '../src/guarda/config-base.js';
@@ -333,11 +333,15 @@ test('mudancaNaGuarda: o primeiro campo que mudou, na ordem disableAllHooks, ena
   assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), 'disableAllHooks', 'apagar a chave também é mudar');
   escrever(arq, '{ quebrado');
   assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), 'ilegivel');
-  // Fotografia ilegível (a s2 começou com o arquivo quebrado): qualquer
-  // arquivo legível difere, com detalhe ilegivel; ilegível dos dois lados não
-  // muda.
+  // Fotografia ilegível (a s2 começou com o arquivo quebrado): o arquivo
+  // ainda ilegível também segura (fix round 2, M1: se o Claude Code ler o que
+  // o JSON.parse recusa, como comentário ou vírgula sobrando, um
+  // disableAllHooks acrescentado passaria com "ilegível dos dois lados"); o
+  // legível difere, com o mesmo detalhe.
   fotografar(dados, 's2', [arq], agora);
-  assert.equal(mudancaNaGuarda(dados, 's2', arq, agora), null);
+  assert.equal(mudancaNaGuarda(dados, 's2', arq, agora), 'ilegivel');
+  escrever(arq, '{ "disableAllHooks": true, }');
+  assert.equal(mudancaNaGuarda(dados, 's2', arq, agora), 'ilegivel');
   escrever(arq, inicial);
   assert.equal(mudancaNaGuarda(dados, 's2', arq, agora), 'ilegivel');
   assert.equal(mudancaNaGuarda(dados, 's1', arq, agora), null);
@@ -374,6 +378,14 @@ test('decisaoConfig: só as três origens; sem file_path, projeto e local bloque
   fotografar(dados, 's2', [arq], agora);
   assert.equal(decisaoConfig(dados, 's2', 'project_settings', arq, agora), null);
   assert.equal(decisaoConfig(dados, 's1', 'project_settings', arq, agora), 'disableAllHooks');
+});
+
+test('ORIGENS declaradas uma vez só, em config-base.js; o hook não tem lista própria (fix round 2, M4)', () => {
+  assert.deepEqual(ORIGENS, ['user_settings', 'project_settings', 'local_settings']);
+  assert.deepEqual(ORIGENS_DO_PROJETO, ['project_settings', 'local_settings']);
+  assert.ok(Object.isFrozen(ORIGENS) && Object.isFrozen(ORIGENS_DO_PROJETO));
+  const hook = fs.readFileSync(path.join(repo, 'src', 'hooks', 'guarda-config.js'), 'utf8');
+  for (const o of ORIGENS) assert.ok(!hook.includes(`'${o}'`) && !hook.includes(`"${o}"`), o);
 });
 
 // --- hooks em processo filho ---------------------------------------------------
@@ -589,6 +601,26 @@ test('hook: JSON inválido bloqueia (ilegivel)', () => {
   assert.deepEqual(eventos(c, 'config-bloqueada'), ['ilegivel']);
 });
 
+test('hook: settings ilegível no começo da sessão segura toda mudança (ilegivel), também a que segue ilegível', () => {
+  const c = cenario();
+  // JSONC (comentário e vírgula sobrando): o JSON.parse recusa; se o Claude
+  // Code aceita, não foi medido. Fix round 2, M1.
+  escrever(c.proj, '{\n  // comentário\n  "model": "opus",\n}');
+  inicio(c);
+  assert.equal(lerConfigBase(c.dados, Date.now()).get('s1').get(chaveDoArquivo(c.proj)).impressao, ILEGIVEL);
+  // O mesmo arquivo, sem mudança, e com disableAllHooks acrescentado ainda
+  // em JSONC: segurados.
+  bloqueado(config(c, mudanca(c, c.proj)));
+  escrever(c.proj, '{\n  // comentário\n  "model": "opus",\n  "disableAllHooks": true,\n}');
+  bloqueado(config(c, mudanca(c, c.proj)));
+  // Consertado para JSON: segurado também, até a próxima sessão.
+  escrever(c.proj, { model: 'opus' });
+  bloqueado(config(c, mudanca(c, c.proj)));
+  inicio(c, { id: 's2' });
+  semSaida(config(c, mudanca(c, c.proj, { id: 's2' })));
+  assert.deepEqual(eventos(c, 'config-bloqueada'), ['ilegivel', 'ilegivel', 'ilegivel']);
+});
+
 test('hook: config-base.json corrompido não derruba: sem fotografia, compara com o ausente', () => {
   const c = cenario();
   escrever(c.proj, { hooks: { Stop: [] } });
@@ -625,14 +657,50 @@ test('hook: nome 8.3 e caixa diferente casam a mesma fotografia', { skip: !WIN &
   assert.deepEqual(eventos(c2, 'config-bloqueada'), []);
 });
 
-test('hook: sessão não registrada ou session_id inválido passa sem saída', () => {
+test('hook: sem session_id válido, projeto e local bloqueiam (sem-sessao); o usuário passa com erro P5:config-sessao', () => {
   const c = cenario();
+  escrever(c.proj, { model: 'opus' });
+  inicio(c);
+  // Fix round 2, M2: sem id não há gate de sessão nem fotografia; o furo que
+  // se quer fechar é o settings do projeto, então ele falha fechado.
+  const semId = (source, arquivo, extra = {}) => {
+    const e = mudanca(c, arquivo, { source });
+    delete e.session_id;
+    return { ...e, ...extra };
+  };
+  bloqueado(config(c, semId('project_settings', c.proj)));
+  for (const session_id of [42, null, '', '../x', '__proto__', 'x'.repeat(65)]) {
+    bloqueado(config(c, semId('project_settings', c.proj, { session_id })));
+  }
+  bloqueado(config(c, semId('local_settings', c.local)));
+  semSaida(config(c, semId('user_settings', c.usuario)));
+  semSaida(config(c, semId('user_settings', c.usuario, { session_id: '../x' })));
+  semSaida(config(c, semId('policy_settings', c.proj)));
+  semSaida(config(c, semId('skills', c.proj, { session_id: 42 })));
+  assert.deepEqual(eventos(c, 'config-bloqueada'), Array(8).fill('sem-sessao'));
+  assert.deepEqual(eventos(c, 'erro'), ['P5:config-sessao', 'P5:config-sessao']);
+});
+
+test('hook: sessão não registrada passa calada (gate); sem pasta de dados nada é bloqueado nem criado', () => {
+  const c = cenario();
+  escrever(c.proj, { model: 'opus' });
+  inicio(c);
   escrever(c.proj, { disableAllHooks: true });
-  for (const id of ['nao-registrada', '../x', '__proto__']) semSaida(config(c, mudanca(c, c.proj, { id })));
-  semSaida(config(c, { ...mudanca(c, c.proj), session_id: 42 }));
+  semSaida(config(c, mudanca(c, c.proj, { id: 'nao-registrada' })));
   // stdin que não é JSON: passa.
   semSaida(config(c, 'lixo'));
   assert.deepEqual(eventos(c, 'config-bloqueada'), []);
+  assert.deepEqual(eventos(c, 'erro'), []);
+  // Sem a pasta de dados nenhuma sessão foi registrada (o registro mora em
+  // ativas/, dentro dela): o hook não bloqueia, nem sem session_id, e não a cria.
+  const d = cenario();
+  escrever(d.proj, { disableAllHooks: true });
+  const semId = mudanca(d, d.proj);
+  delete semId.session_id;
+  semSaida(config(d, semId));
+  semSaida(config(d, { ...mudanca(d, d.usuario, { source: 'user_settings' }), session_id: 42 }));
+  semSaida(config(d, mudanca(d, d.proj, { id: 'nao-registrada' })));
+  assert.equal(fs.existsSync(d.dados), false);
 });
 
 // Pré-carregamento que quebra o sha256: a exceção é inesperada (não é leitura

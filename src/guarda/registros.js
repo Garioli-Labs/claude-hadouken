@@ -33,7 +33,8 @@ export const TIPOS_EVENTO = Object.freeze([
   'liberacao-escopo',
   // 'config-bloqueada' (Task 19b, spike S13 (a)): o hook ConfigChange segurou
   // uma mudança de disableAllHooks, enabledPlugins ou hooks nos settings. O
-  // detalhe é o primeiro campo que mudou, 'ilegivel' ou 'sem-caminho'.
+  // detalhe é o primeiro campo que mudou, 'ilegivel', 'sem-caminho' ou
+  // 'sem-sessao' (settings do projeto sem session_id válido, fix round 2).
   'config-bloqueada',
 ]);
 const DETALHE_MAX = 40;

@@ -48,11 +48,14 @@ export const CONFIG_BASE_MAX_BYTES = 512 * 1024;
 export const SETTINGS_MAX_BYTES = 1_048_576;
 // As origens do ConfigChange com arquivo de settings que a sessão lê. A doc
 // lista também policy_settings (gerenciado, fora do alcance do Claude) e
-// skills; essas passam.
-const ORIGENS = Object.freeze(['user_settings', 'project_settings', 'local_settings']);
-// Sem file_path, só os settings de projeto e locais bloqueiam (falha
-// fechada: o furo que se quer fechar é justamente esse arquivo).
-const ORIGENS_SEM_CAMINHO = Object.freeze(['project_settings', 'local_settings']);
+// skills; essas passam. Declaradas só aqui (fix round 2, M4): o hook filtra
+// por elas antes do gate de sessão.
+export const ORIGENS = Object.freeze(['user_settings', 'project_settings', 'local_settings']);
+// Os settings do projeto (o settings.json e o settings.local.json do
+// .claude): sem file_path ('sem-caminho') ou sem session_id válido
+// ('sem-sessao', no hook), só eles bloqueiam (falha fechada: o furo que se
+// quer fechar é justamente esse arquivo); o do usuário passa.
+export const ORIGENS_DO_PROJETO = Object.freeze(['project_settings', 'local_settings']);
 const CAMINHO_MAX = 4096;
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -280,13 +283,20 @@ export function fotografar(dir, sessionId, arquivos, agoraMs) {
 // mudou, na ordem de CAMPOS_GUARDA, ou 'ilegivel' quando o arquivo atual (ou
 // o fotografado) não se lê. Só vale a fotografia da própria sessão; sem ela
 // para a chave (ou com id inválido), a base é o arquivo ausente.
+// O atual ilegível segura sempre, mesmo com a fotografia também ilegível (fix
+// round 2, M1): o JSON.parse daqui recusa o que o Claude Code talvez aceite
+// (comentário, vírgula sobrando; não medido), e "ilegível dos dois lados
+// passa" deixaria passar um disableAllHooks escrito num settings com
+// comentário. O custo: um settings ilegível no começo da sessão tem toda
+// mudança segurada até a próxima.
 export function mudancaNaGuarda(dir, sessionId, arquivo, agoraMs) {
-  const chave = chaveDoArquivo(arquivo);
   const atual = impressaoDoArquivo(arquivo);
+  if (atual.campos === null) return ILEGIVEL;
+  const chave = chaveDoArquivo(arquivo);
   const fotos = chave !== null && idValido(sessionId) ? lerConfigBase(dir, agoraMs).get(sessionId) : undefined;
   const base = fotos?.get(chave) ?? impressaoAusente();
   if (atual.impressao === base.impressao) return null;
-  if (atual.campos === null || base.campos === null) return ILEGIVEL;
+  if (base.campos === null) return ILEGIVEL;
   // Impressões diferentes com os três campos iguais só com um
   // config-base.json mexido à mão: bloqueia do mesmo jeito.
   return CAMPOS_GUARDA.find((k) => atual.campos[k] !== base.campos[k]) ?? ILEGIVEL;
@@ -299,6 +309,6 @@ export function mudancaNaGuarda(dir, sessionId, arquivo, agoraMs) {
 // comparação é com a fotografia da sessão sessionId (o session_id do stdin).
 export function decisaoConfig(dir, sessionId, source, filePath, agoraMs) {
   if (!ORIGENS.includes(source)) return null;
-  if (!absoluto(filePath)) return ORIGENS_SEM_CAMINHO.includes(source) ? 'sem-caminho' : null;
+  if (!absoluto(filePath)) return ORIGENS_DO_PROJETO.includes(source) ? 'sem-caminho' : null;
   return mudancaNaGuarda(dir, sessionId, filePath, agoraMs);
 }

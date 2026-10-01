@@ -255,12 +255,12 @@ test('liberacao-escopo é um tipo de evento; EVENTOS_MAX exportado', () => {
 test('config-bloqueada é um tipo de evento, com os detalhes do hook ConfigChange', () => {
   assert.ok(TIPOS_EVENTO.includes('config-bloqueada'));
   const d = novo();
-  const detalhes = ['disableAllHooks', 'enabledPlugins', 'hooks', 'ilegivel', 'sem-caminho'];
+  const detalhes = ['disableAllHooks', 'enabledPlugins', 'hooks', 'ilegivel', 'sem-caminho', 'sem-sessao'];
   for (const det of detalhes) assert.deepEqual(anexarEvento(d, 'config-bloqueada', det, agora), { ok: true });
-  assert.deepEqual(anexarEvento(d, 'erro', 'config-foto', agora), { ok: true });
-  assert.deepEqual(anexarEvento(d, 'erro', 'P5:config', agora), { ok: true });
+  const erros = ['config-foto', 'P5:config', 'P5:config-sessao'];
+  for (const det of erros) assert.deepEqual(anexarEvento(d, 'erro', det, agora), { ok: true });
   assert.deepEqual(lerEventos(d, agora).map((e) => [e.tipo, e.detalhe]), [
-    ...detalhes.map((det) => ['config-bloqueada', det]), ['erro', 'config-foto'], ['erro', 'P5:config'],
+    ...detalhes.map((det) => ['config-bloqueada', det]), ...erros.map((det) => ['erro', det]),
   ]);
 });
 
