@@ -743,16 +743,71 @@ test('P5: stdin acima de 1 MiB que cita settings ou hadouken é negado sem ler o
   assert.deepEqual(eventos(home, 'erro'), []);
 });
 
-// Rodada 3 da revisão da Task 0: arquivo.js é import estático da P5. Se ele
-// não carrega, o processo cai antes de qualquer decisão: código diferente de
-// 0, sem deny nem evento. O Claude Code trata essa saída como erro que não
-// bloqueia, e a edição passa; fora do §4.5 (sair sempre com 0), declarado em
-// R2 (SECURITY.md).
-test('P5: arquivo.js que não carrega derruba o hook antes de qualquer decisão (R2)', () => {
+// Gancho de resolução (como ganchoQueFalha) que faz falhar só o import do
+// módulo com o sufixo dado quando quem importa é o módulo com o sufixo pai;
+// os outros importadores o carregam normalmente.
+function ganchoQueFalhaEm(home, pai, sufixo) {
+  const pasta = fs.mkdtempSync(path.join(home, 'ganchos '));
+  const falhar = `if (context.parentURL?.endsWith(${JSON.stringify(pai)}) && r.url.endsWith(${JSON.stringify(sufixo)})) throw new Error('falha simulada');`;
+  const ganchos = path.join(pasta, 'ganchos.mjs');
+  fs.writeFileSync(ganchos, `export async function resolve(specifier, context, next) { const r = await next(specifier, context); ${falhar} return r; }\n`);
+  const registrador = path.join(pasta, 'registrar.mjs');
+  fs.writeFileSync(registrador, `import * as m from 'node:module';
+if (typeof m.registerHooks === 'function') m.registerHooks({ resolve(specifier, context, next) { const r = next(specifier, context); ${falhar} return r; } });
+else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
+`);
+  return ['--import', pathToFileURL(registrador).href];
+}
+
+// Rodada 4 da revisão da Task 0: arquivo.js volta ao import dinâmico, só no
+// ramo dos settings de projeto, e falha fechado. Sem ele, a P5 sai com 0 e
+// nega o território dela: a pasta de dados, os settings do usuário e o plugin
+// (que não dependem dele) e os settings de projeto, estes sem conferir a
+// mudança (P5_PROTEGIDO_TEXTO, evento 'erro' 'P5:arquivo.js'); o resto passa.
+// O deny não depende de registros.js nem de mensagens.js. registros.js importa
+// arquivo.js: com arquivo.js quebrado, a negação sai sem evento (R2). Com
+// util.js quebrado, mensagens.js cai junto e sai o texto de reserva do hook,
+// igual a P5_PROTEGIDO_TEXTO. Quando só o import do hook falha, registros.js
+// carrega e o 'erro' fica gravado.
+test('P5: arquivo.js que não carrega nega o território protegido, registra erro e passa o resto (R2)', () => {
   const home = novoHome();
-  const r = rodar('guarda-arquivos.js', ferramenta('s1', 'Write', { file_path: path.join(home, 'liberacao.json'), content: '{}' }), home, {}, ganchoQueFalha(home, ['/src/guarda/arquivo.js']));
-  assert.notEqual(r.status, 0);
-  assert.equal(r.stdout, '');
+  const fora = novoHome();
+  const casa = path.join(fora, 'casa');
+  const projeto = path.join(fora, 'projeto');
+  for (const d of [path.join(casa, '.claude'), path.join(projeto, '.claude'), path.join(projeto, 'src')]) fs.mkdirSync(d, { recursive: true });
+  const settingsProjeto = path.join(projeto, '.claude', 'settings.json');
+  fs.writeFileSync(settingsProjeto, '{"model": "a"}\n');
+  const env = { HOME: casa, USERPROFILE: casa };
+  const doProjeto = [
+    ferramenta('s1', 'Edit', { file_path: settingsProjeto, old_string: '"model": "a"', new_string: '"model": "b"' }),
+    ferramenta('s1', 'Write', { file_path: path.join(projeto, '.claude', 'settings.local.json'), content: '{}' }),
+    ferramenta('s1', 'MultiEdit', { file_path: settingsProjeto, edits: [{ old_string: 'a', new_string: 'b' }] }),
+  ];
+  const protegidos = [
+    [ferramenta('s1', 'Write', { file_path: path.join(home, 'liberacao.json'), content: '{}' }), mensagens.P5_TEXTO],
+    [ferramenta('s1', 'Edit', { file_path: path.join(casa, '.claude', 'settings.json'), old_string: 'a', new_string: 'b' }), mensagens.P5_PROTEGIDO_TEXTO],
+    [ferramenta('s1', 'Edit', { file_path: path.join(repo, 'hooks', 'hooks.json'), old_string: 'a', new_string: 'b' }), mensagens.P5_PROTEGIDO_TEXTO],
+    ...doProjeto.map((e) => [e, mensagens.P5_PROTEGIDO_TEXTO]),
+  ];
+  const comum = ferramenta('s1', 'Edit', { file_path: path.join(projeto, 'src', 'a.js'), old_string: 'a', new_string: 'b' });
+  assert.equal(typeof mensagens.P5_PROTEGIDO_TEXTO, 'string');
+  // Controle: com arquivo.js, a edição de projeto que não mexe na guarda passa.
+  for (const e of [...doProjeto, comum]) semSaida(rodar('guarda-arquivos.js', e, home, env));
+  // arquivo.js quebrado para todos, e registros.js com ele.
+  const semArquivo = ganchoQueFalha(home, ['/src/guarda/arquivo.js']);
+  for (const [e, texto] of protegidos) assert.deepEqual(saida(rodar('guarda-arquivos.js', e, home, env, semArquivo)), negacao(texto), `${e.tool_name} ${e.tool_input.file_path}`);
+  semSaida(rodar('guarda-arquivos.js', comum, home, env, semArquivo));
+  assert.deepEqual(lerEventos(home, Date.now()), []);
+  // util.js quebrado: arquivo.js, registros.js e mensagens.js caem juntos.
+  const semUtil = ganchoQueFalha(home, ['/src/util.js']);
+  for (const [e] of protegidos) assert.deepEqual(saida(rodar('guarda-arquivos.js', e, home, env, semUtil)), negacao(mensagens.P5_PROTEGIDO_TEXTO), `${e.tool_name} ${e.tool_input.file_path}`);
+  semSaida(rodar('guarda-arquivos.js', comum, home, env, semUtil));
+  assert.deepEqual(lerEventos(home, Date.now()), []);
+  // Só o import do hook falha: registros.js carrega e grava o 'erro'.
+  const soNoHook = ganchoQueFalhaEm(home, '/src/hooks/guarda-arquivos.js', '/src/guarda/arquivo.js');
+  for (const e of doProjeto) assert.deepEqual(saida(rodar('guarda-arquivos.js', e, home, env, soNoHook)), negacao(mensagens.P5_PROTEGIDO_TEXTO), e.tool_name);
+  semSaida(rodar('guarda-arquivos.js', comum, home, env, soNoHook));
+  assert.deepEqual(eventos(home, 'erro').map((e) => e.detalhe), Array(doProjeto.length).fill('P5:arquivo.js'));
   assert.deepEqual(eventos(home, 'arquivo-negado'), []);
 });
 

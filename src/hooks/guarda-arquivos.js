@@ -2,12 +2,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { rodarHook, emitirJson, falharAberto } from './comum.js';
 import { dirDados } from '../base.js';
-// Estático (rodada 3 da revisão da Task 0): um arquivo.js que não carrega
-// derruba o processo antes de qualquer decisão, e o Claude Code trata a saída
-// diferente de 0 e de 2 como erro que não bloqueia: a edição passa, sem o
-// evento 'erro'. Fora do §4.5, declarado em R2 (SECURITY.md); o mesmo vale
-// para comum.js e base.js.
-import { lerTextoSemLink } from '../guarda/arquivo.js';
+// Só comum.js e base.js entram estáticos: um deles que não carrega derruba o
+// processo com código 1, e o Claude Code trata essa saída como erro que não
+// bloqueia (R2, SECURITY.md). arquivo.js entra por import dinâmico, só no
+// ramo dos settings de projeto, e falha fechado (rodada 4 da revisão da Task
+// 0): ver negar e o ramo 'settings-projeto' abaixo.
 
 // Hook PreToolUse de Write, Edit, MultiEdit e NotebookEdit, cada um com os
 // seus `if` (spec v0.4.0 §4.2 P5, S13; spike S9: o `if` segue o nome da
@@ -31,6 +30,11 @@ import { lerTextoSemLink } from '../guarda/arquivo.js';
 // CLAUDE_CONFIG_DIR fora de ~/.claude nem a raiz de um plugin fora de
 // ~/.claude/plugins (R1). Exceção depois de ter a pasta de dados: passa e
 // registra 'erro' P5 (fail-open visível, §4.5, falharAberto em comum.js).
+// A decisão do caminho (caminho.js, só módulos do node) não depende de
+// arquivo.js. Se arquivo.js (ou o que ele importa) não carrega, os settings de
+// projeto são negados sem conferir a mudança, com o 'erro' 'P5:arquivo.js', e
+// a pasta de dados, os settings do usuário e o plugin seguem negados: o deny
+// sai antes do import de registros.js, que importa arquivo.js.
 
 const FERRAMENTAS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 // As que trazem o texto novo (content, new_string, edits[].new_string).
@@ -48,18 +52,25 @@ const VIGIA_ACIMA = /settings|hadouken/i;
 // O mesmo texto de P5_GRANDE_TEXTO (mensagens.js), só para quando o import
 // dele falha. test/guarda-hooks.test.js confere que os dois são iguais.
 const P5_GRANDE_RESERVA = 'hadouken: bloqueado: esta edição passa de 1 MiB e cita settings ou o hadouken; grande assim, o hadouken não a confere. Divida a edição em partes menores.';
+// O mesmo texto de P5_PROTEGIDO_TEXTO (mensagens.js), para toda outra negação
+// da P5 quando o import de mensagens.js falha (rodada 4 da revisão da Task 0:
+// um util.js quebrado derruba mensagens.js e arquivo.js juntos).
+// test/guarda-hooks.test.js confere que os dois são iguais.
+const P5_PROTEGIDO_RESERVA = 'hadouken: bloqueado: o hadouken não deixa o Claude editar este arquivo (settings do Claude Code ou o próprio plugin). Mostre a mudança na conversa; o usuário a aplica à mão.';
 
-// O deny sai primeiro; o evento vem depois e nunca o impede.
-async function negarGrande() {
-  let razao = P5_GRANDE_RESERVA;
+// Toda negação da P5. O deny sai primeiro, com o texto fixo de mensagens.js
+// (chave) ou, se ele não carrega, o de reserva; o evento vem depois e nunca o
+// impede. registros.js importa arquivo.js: com arquivo.js quebrado, o deny sai
+// sem evento (R2). Nunca lança.
+async function negar(chave, reserva, dir, tipo, detalhe, agoraMs) {
+  let razao = reserva;
   try {
     const msg = await import('../guarda/mensagens.js');
-    if (typeof msg.P5_GRANDE_TEXTO === 'string') razao = msg.P5_GRANDE_TEXTO;
+    if (typeof msg[chave] === 'string') razao = msg[chave];
   } catch { /* texto de reserva */ }
   emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
   try {
-    const dir = dirDados();
-    if (dir !== null) (await import('../guarda/registros.js')).anexarEvento(dir, 'arquivo-negado', 'P5:grande', Date.now());
+    if (dir !== null) (await import('../guarda/registros.js')).anexarEvento(dir, tipo, detalhe, agoraMs);
   } catch { /* o deny já saiu */ }
 }
 
@@ -78,7 +89,7 @@ function alvoAbsoluto(bruto, cwd) {
 
 rodarHook(async (entrada, leitura) => {
   if (leitura?.casou === true) {
-    await negarGrande();
+    await negar('P5_GRANDE_TEXTO', P5_GRANDE_RESERVA, dirDados(), 'arquivo-negado', 'P5:grande', Date.now());
     return;
   }
   if (entrada === null || !FERRAMENTAS.has(entrada.tool_name)) return;
@@ -95,15 +106,22 @@ rodarHook(async (entrada, leitura) => {
       if (classe === null) return;
       if (classe === 'settings-projeto') {
         if (!COM_TEXTO.has(entrada.tool_name)) return;
-        if (!caminho.mexeNaGuarda(entrada.tool_input, () => lerTextoSemLink(alvo, TETO_SETTINGS), entrada.tool_name)) return;
+        // Falha fechado: sem arquivo.js não há como ler o arquivo atual, então
+        // a edição nem é conferida (rodada 4 da revisão da Task 0).
+        let arquivo;
+        try {
+          arquivo = await import('../guarda/arquivo.js');
+        } catch {
+          await negar('P5_PROTEGIDO_TEXTO', P5_PROTEGIDO_RESERVA, dir, 'erro', 'P5:arquivo.js', agoraMs);
+          return;
+        }
+        if (!caminho.mexeNaGuarda(entrada.tool_input, () => arquivo.lerTextoSemLink(alvo, TETO_SETTINGS), entrada.tool_name)) return;
         texto = 'P5_SETTINGS_PROJETO_TEXTO';
       } else {
         texto = 'P5_PROTEGIDO_TEXTO';
       }
       detalhe = `P5:${classe}`;
     }
-    const [reg, msg] = await Promise.all([import('../guarda/registros.js'), import('../guarda/mensagens.js')]);
-    emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: msg[texto] } });
-    reg.anexarEvento(dir, 'arquivo-negado', detalhe, agoraMs);
+    await negar(texto, P5_PROTEGIDO_RESERVA, dir, 'arquivo-negado', detalhe, agoraMs);
   });
 }, undefined, VIGIA_ACIMA, 'P5');
