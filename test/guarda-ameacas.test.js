@@ -87,10 +87,12 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   // A P5: um handler por `if`, no grupo da sua ferramenta. Task 0 da parte 2:
   // os settings do usuário e os plugins em todas as quatro; os settings de
   // projeto (negados pelo conteúdo, decisão do controlador) em Write, Edit e
-  // MultiEdit, que trazem o texto novo.
+  // MultiEdit, que trazem o texto novo. O de projeto é ancorado na raiz do
+  // disco (`//**/`): o spike S13 (b) mostrou, no 2.1.251 do Windows, que o
+  // `**/` sem âncora não casa caminho absoluto nenhum, nem dentro do cwd.
   const ifP5 = (tool) => [
     `${tool}(~/.claude/hadouken/**)`, `${tool}(~/.claude/settings.json)`, `${tool}(~/.claude/settings.local.json)`, `${tool}(~/.claude/plugins/**)`,
-    ...(tool === 'NotebookEdit' ? [] : [`${tool}(**/.claude/settings.json)`, `${tool}(**/.claude/settings.local.json)`]),
+    ...(tool === 'NotebookEdit' ? [] : [`${tool}(//**/.claude/settings.json)`, `${tool}(//**/.claude/settings.local.json)`]),
   ];
   const p5 = novos.filter((x) => x.args[0].endsWith('/guarda-arquivos.js'));
   for (const tool of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
@@ -116,7 +118,7 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   for (const x of p4) assert.equal(x.matcher, x.if.slice(0, x.if.indexOf('(')));
   // Nenhum `if` de Bash ou PowerShell com curinga antes do nome
   // (Bash(*claude*) levaria o git commit com o trailer do Claude à P4). Os de
-  // caminho da P5 (**/.claude/settings.json) são glob de arquivo, outra regra.
+  // caminho da P5 (//**/.claude/settings.json) são glob de arquivo, outra regra.
   for (const x of handlers) if (x.if !== undefined && /^(?:Bash|PowerShell)\(/.test(x.if)) assert.match(x.if, /^[A-Za-z]+\([^*]/, x.if);
   // Os três hooks antigos seguem em forma de shell; o prompt-submit bloqueia
   // desde a v0.4.0 e tem 10 s.

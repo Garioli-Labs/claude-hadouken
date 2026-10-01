@@ -41,8 +41,8 @@
           { "type": "command", "if": "Write(~/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
           { "type": "command", "if": "Write(~/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
           { "type": "command", "if": "Write(~/.claude/plugins/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
-          { "type": "command", "if": "Write(**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
-          { "type": "command", "if": "Write(**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
+          { "type": "command", "if": "Write(//**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Write(//**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
         ] },
       { "matcher": "Edit",
         "hooks": [
@@ -50,8 +50,8 @@
           { "type": "command", "if": "Edit(~/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
           { "type": "command", "if": "Edit(~/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
           { "type": "command", "if": "Edit(~/.claude/plugins/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
-          { "type": "command", "if": "Edit(**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
-          { "type": "command", "if": "Edit(**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
+          { "type": "command", "if": "Edit(//**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Edit(//**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
         ] },
       { "matcher": "MultiEdit",
         "hooks": [
@@ -59,8 +59,8 @@
           { "type": "command", "if": "MultiEdit(~/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
           { "type": "command", "if": "MultiEdit(~/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
           { "type": "command", "if": "MultiEdit(~/.claude/plugins/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
-          { "type": "command", "if": "MultiEdit(**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
-          { "type": "command", "if": "MultiEdit(**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
+          { "type": "command", "if": "MultiEdit(//**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "MultiEdit(//**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
         ] },
       { "matcher": "NotebookEdit",
         "hooks": [
