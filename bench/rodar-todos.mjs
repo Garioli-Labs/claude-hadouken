@@ -117,6 +117,13 @@ const LINHAS_P95 = [
   ['hooks', 'session-start', 'hook SessionStart', 'p95'],
   ['hooks', 'session-end-registrada', 'hook SessionEnd, sessão registrada (anexa ao historico.jsonl)', 'p95'],
   ['hooks', 'session-end-nao-registrada', 'hook SessionEnd, sessão não registrada (só o gate)', 'p95'],
+  // The guard hooks (v0.4.0), by the ids of bench/hooks-p95.mjs: P1 and P3
+  // start without a release and write the lock, P5 denies a write to the data
+  // folder, and /liberar 2h writes the release.
+  ['hooks', 'despacho-disparada', 'guarda antes de despachar um subagente (P1), guarda disparada', 'p95'],
+  ['hooks', 'troca-fable', 'guarda antes de trocar para o Fable (P3)', 'p95'],
+  ['hooks', 'arquivo-negado', 'guarda de arquivos do plugin (P5), escrita negada na pasta de dados', 'p95'],
+  ['hooks', 'liberar-2h', '`/claude-hadouken:liberar 2h`', 'p95'],
   ['statusline', 'node-vazio', 'piso: `node -e ""` sem script', 'referencia'],
 ];
 const LINHAS_TRANSCRIPTS = [
