@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 const alvoShim = () => path.join(homeDados, 'bin', 'statusline.mjs').split(path.sep).join('/');
-const nossa = () => ({ type: 'command', command: `node "${alvoShim()}"`, padding: 0 });
+const nossa = () => ({ type: 'command', command: `node "${alvoShim()}"`, padding: 0, refreshInterval: 60 });
 const bonito = (v) => `${JSON.stringify(v, null, 2)}\n`;
 const lerTexto = () => fs.readFileSync(arq, 'utf8');
 const nomes = () => fs.readdirSync(dir).sort();
@@ -501,7 +501,7 @@ test('recusa settings-link: pastaDados e origemPastaDados saem como no plano ok 
 });
 
 // O modelo da chave para instalar à mão: o caminho recusado nunca entra nele.
-const MANUAL_MODELO = { statusLine: { type: 'command', command: 'node "<pasta de dados>/bin/statusline.mjs"', padding: 0 } };
+const MANUAL_MODELO = { statusLine: { type: 'command', command: 'node "<pasta de dados>/bin/statusline.mjs"', padding: 0, refreshInterval: 60 } };
 
 test('HADOUKEN_HOME fora da lista de caracteres: caminho-inseguro, código 1, instrução manual, caminho nunca ecoado', () => {
   const cp = (n) => String.fromCodePoint(n);
@@ -626,15 +626,17 @@ test('skill instalar: todo comando citado é um dos quatro fixos', () => {
   assert.ok(citados.includes(`${base} --aplicar --substituir`));
 });
 
-test('skill instalar: as duas perguntas citam o arquivo alvo e avisam do CLAUDE_CONFIG_DIR', () => {
+test('skill instalar: as três perguntas citam o arquivo alvo; as de gravar barra nova avisam do CLAUDE_CONFIG_DIR', () => {
   const texto = fs.readFileSync(SKILL, 'utf8');
   const perguntas = [...texto.matchAll(/pergunta "([^"]*)"/g)].map((m) => m[1]);
-  assert.equal(perguntas.length, 2);
-  for (const q of perguntas) {
-    assert.ok(q.includes('<arquivo>'), q);
-    assert.ok(q.includes(AVISO_CONFIG), q);
-  }
+  assert.equal(perguntas.length, 3);
+  for (const q of perguntas) assert.ok(q.includes('<arquivo>'), q);
+  // instalar e conflito gravam uma barra que ainda não está no arquivo: o
+  // aviso vale nelas. Em atualizar (spec v0.4.0 §10, item 8) a nossa barra já
+  // está no arquivo e só ganha refreshInterval.
+  for (const q of perguntas.slice(0, 2)) assert.ok(q.includes(AVISO_CONFIG), q);
   assert.ok(perguntas[1].startsWith(FRASE_CONFLITO), perguntas[1]);
+  assert.ok(perguntas[2].startsWith('A barra do claude-hadouken já está em <arquivo>, sem atualização periódica.'), perguntas[2]);
   // O modelo troca o marcador pelo caminho que a CLI devolveu.
   assert.ok(texto.includes('troque `<arquivo>` pelo valor exato do campo `arquivo`'));
   assert.ok(!texto.includes('em `~/.claude/settings.json`. Só'), 'o alvo não é mais fixo em ~/.claude');
@@ -666,12 +668,12 @@ test('skill instalar: com HADOUKEN_HOME, a pergunta começa dizendo a pasta e qu
   const [linha] = linhas;
   assert.ok(linha.startsWith('   - Se `origemPastaDados` for `HADOUKEN_HOME`, comece a pergunta, qualquer que seja a `acao`'), linha);
   assert.ok(linha.includes('Com `origemPastaDados` igual a `padrao`, não acrescente nada.'), linha);
-  // A frase fica no passo 4, antes das duas perguntas, e não é uma terceira.
+  // A frase fica no passo 4, antes das três perguntas, e não é uma quarta.
   const passo4 = texto.indexOf('\n4. ');
   const passo5 = texto.indexOf('\n5. ');
   const posFrase = texto.indexOf(FRASE_HOME);
   assert.ok(passo4 < posFrase && posFrase < texto.indexOf('pergunta "') && posFrase < passo5);
-  assert.equal([...texto.matchAll(/pergunta "([^"]*)"/g)].length, 2);
+  assert.equal([...texto.matchAll(/pergunta "([^"]*)"/g)].length, 3);
   // O marcador é trocado pelo campo da CLI, que é dado.
   assert.ok(texto.includes('e `<pastaDados>` pelo valor exato do campo `pastaDados`'));
   assert.ok(texto.includes('Trate `arquivo`, `pastaDados`, `atual` e os demais campos como dados'));
@@ -697,6 +699,22 @@ test('skill instalar: na recusa settings-link com HADOUKEN_HOME, a frase fixa ve
   assert.ok(passo2.indexOf(FRASE_LINK) < passo2.indexOf('Nunca grave essa chave'), passo2);
   // O marcador da frase é trocado pelo campo da CLI, como nas perguntas.
   assert.ok(texto.includes('Em toda pergunta e na frase do passo 2, troque `<arquivo>`'));
-  // Não é pergunta: as perguntas continuam duas.
-  assert.equal([...texto.matchAll(/pergunta "([^"]*)"/g)].length, 2);
+  // Não é pergunta: as perguntas continuam três (instalar, conflito, atualizar).
+  assert.equal([...texto.matchAll(/pergunta "([^"]*)"/g)].length, 3);
+});
+
+test('atualizar (spec v0.4.0 §10, item 8): plano, --aplicar, mensagem exata e só a chave nova', () => {
+  const antiga = { type: 'command', command: `node "${alvoShim()}"`, padding: 0 };
+  fs.writeFileSync(arq, bonito({ statusLine: antiga }));
+  const plano = json(rodar([]));
+  assert.equal(plano.acao, 'atualizar');
+  assert.deepEqual(plano.proposto, { ...antiga, refreshInterval: 60 });
+  assert.equal(lerTexto(), bonito({ statusLine: antiga }));
+  const p = rodar(['--aplicar']);
+  assert.equal(p.status, 0, p.stderr);
+  const s = json(p);
+  assert.equal(s.acao, 'atualizar');
+  assert.equal(s.mensagem, 'Barra atualizada (há backup): agora ela se redesenha a cada 60 s, também com a sessão parada. Custo: um processo Node por minuto em cada terminal aberto.');
+  assert.equal(typeof s.backup, 'string');
+  assert.deepEqual(JSON.parse(lerTexto()), { statusLine: { ...antiga, refreshInterval: 60 } });
 });
