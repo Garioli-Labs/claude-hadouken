@@ -34,6 +34,9 @@ test('S24: módulos da guarda, hooks novos e o custo dos hooks não importam red
     // M6 da revisão final da parte 1: avaliar.js importa a leitura do uso
     // oficial, que mora ao lado do painel (que roda o claude); ela só lê.
     path.join('src', 'uso', 'ler-uso.js'),
+    // Task 6 do aprendizado: guarda/aperto.js importa o módulo leve de nomes
+    // do aprendizado, que também entra no grafo da guarda.
+    path.join('src', 'aprendizado', 'arquivos.js'),
   ];
   for (const a of arquivos) {
     const t = ler(a);

@@ -491,7 +491,8 @@ else m.register(${JSON.stringify(pathToFileURL(ganchos).href)});
 // Adendo E: o caminho até o gate só traz comum.js, base.js (stdin, dirDados e
 // idValido) e ativas.js; estado.js, alerta.js e o resto (util.js incluído) só
 // depois do gate. Desde a v0.4.0, a P2 (src/guarda/prompt.js e a guarda que
-// ele avalia) também entra só depois do gate.
+// ele avalia) também entra só depois do gate, com o aperto aprendido
+// (guarda/aperto.js e o módulo leve aprendizado/arquivos.js, Task 6).
 test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.js', () => {
   const home = novoHome();
   registrar(home, 'outra');
@@ -503,9 +504,9 @@ test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.j
   const dentro = modulosCarregados('prompt-submit.js', home, prompt());
   assert.match(contexto(dentro.r, 'UserPromptSubmit'), LINHA_SERIALIZAR);
   assert.deepEqual(dentro.nomes, [
-    'alerta.js', 'alertas-gravados.js', 'arquivo.js', 'ativas.js', 'avaliar.js', 'base.js', 'comum.js', 'config.js',
-    'estado.js', 'gatilhos.js', 'ler-uso.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'prompt-submit.js',
-    'prompt.js', 'registros.js', 'ritmo.js', 'travas.js', 'util.js',
+    'alerta.js', 'alertas-gravados.js', 'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'base.js',
+    'comum.js', 'config.js', 'estado.js', 'gatilhos.js', 'ler-uso.js', 'liberacao.js', 'mensagens.js', 'previsao.js',
+    'prompt-submit.js', 'prompt.js', 'registros.js', 'ritmo.js', 'travas.js', 'util.js',
   ]);
 });
 

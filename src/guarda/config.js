@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { lerJson } from '../estado.js';
+import { lerAperto, aplicarAperto } from './aperto.js';
 
 // Tetos da guarda (spec v0.4.0 §5.4, D1 emendado em 2026-09-29): a chave
 // `guarda` do mesmo config.json dos repos. reposValidos (v0.1 e v0.2) ignora
@@ -90,7 +91,8 @@ function existe(arquivo) {
 // Arquivo presente mas ilegível (JSON quebrado, acima de 64 KiB, pasta, preso
 // ou sem permissão): padrões com um aviso (fail-closed: um "ligada: false"
 // que não se lê nunca desliga a guarda). Nunca lança.
-export function lerConfigGuarda(dir) {
+// Não confundir com lerConfigBase (config-base.js, a foto dos settings do Claude Code no ConfigChange): aqui é o config.json do hadouken, sem o aperto.
+export function lerConfigGuardaBase(dir) {
   try {
     if (typeof dir !== 'string') return { config: { ...PADRAO_GUARDA }, avisos: [] };
     const arquivo = path.join(dir, ARQ_CONFIG);
@@ -103,5 +105,17 @@ export function lerConfigGuarda(dir) {
     return guardaDaConfig(lido.valor);
   } catch {
     return { config: { ...PADRAO_GUARDA }, avisos: ['config.json ilegível: guarda com os padrões'] };
+  }
+}
+
+// O que a guarda usa (spec aprendizado §4.4): o config.json com o aperto
+// aprendido por cima, só pelo mínimo. lerConfigGuardaBase é o config.json
+// puro, para o aprendizado calcular apertos e aprovações sem se somar.
+export function lerConfigGuarda(dir) {
+  const base = lerConfigGuardaBase(dir);
+  try {
+    return { config: aplicarAperto(base.config, lerAperto(dir)), avisos: base.avisos };
+  } catch {
+    return base;
   }
 }

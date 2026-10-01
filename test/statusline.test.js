@@ -433,10 +433,12 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   assert.equal(dentro.r.stdout, BARRA_SESSAO);
   // E6: sem alerta.js e ritmo.js, que vinham pelo 5h/7d. Desde a v0.4.0 a
   // barra avalia a guarda (spec §8.3 e §11): os módulos dela e previsao.js
-  // (G1 e G2) entram, também só depois do gate.
+  // (G1 e G2) entram, também só depois do gate, com o aperto aprendido
+  // (guarda/aperto.js e o módulo leve aprendizado/arquivos.js, Task 6).
   assert.deepEqual(dentro.nomes, [
-    'arquivo.js', 'ativas.js', 'avaliar.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js', 'formato.js', 'gatilhos.js',
-    'ler-uso.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'registros.js', 'statusline.js', 'travas.js', 'util.js',
+    'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js',
+    'formato.js', 'gatilhos.js', 'ler-uso.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'registros.js',
+    'statusline.js', 'travas.js', 'util.js',
   ]);
 });
 
