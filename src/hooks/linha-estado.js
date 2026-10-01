@@ -1,5 +1,5 @@
 import { LINHA_SEM_LEITURA_NUNCA, linhaSemLeitura } from '../alerta.js';
-import { horaLocal, quandoLocal, janelaValida, numeroFinito } from '../util.js';
+import { horaLocal, quandoLocal, janelaValida, numeroFinito, milhar } from '../util.js';
 import { fraseEsgota } from '../uso/frase.js';
 
 // Linhas que o SessionStart injeta no contexto do Claude. Spec 8.1, S1: só
@@ -101,4 +101,23 @@ export function linhaShimIndisponivel(motivo) {
 // barra e sem alertas (spec 8.2), e isso aparece em vez de ficar calado.
 export function linhaSemRegistro(motivo) {
   return `claude-hadouken: sessão não registrada (${motivoFixo(motivo, MOTIVOS_REGISTRO)}); barra e alertas desligados nesta sessão.`;
+}
+
+// Custo de retomar uma sessão parada (spec v0.4.0 §10, item 11; C24; decisão
+// 8 do plano da parte 2): "hadouken: retomar reescreve ~182 k tokens de
+// cache.", ao usuário. Só com source 'resume', prompt_cache_likely_expired
+// === true e context_tokens inteiro de RETOMADA_MIN a RETOMADA_MAX. Só
+// tokens: o valor em dólar do Claude Code não entra (a assinatura não cobra
+// por token). Qualquer outra entrada: null. Nunca lança.
+const RETOMADA_MIN = 20_000;
+const RETOMADA_MAX = 10_000_000;
+export function linhaRetomada(entrada) {
+  try {
+    if (!ehObjeto(entrada) || entrada.source !== 'resume' || entrada.prompt_cache_likely_expired !== true) return null;
+    const t = entrada.context_tokens;
+    if (!Number.isInteger(t) || t < RETOMADA_MIN || t > RETOMADA_MAX) return null;
+    return `hadouken: retomar reescreve ~${milhar(Math.round(t / 1000))} k tokens de cache.`;
+  } catch {
+    return null;
+  }
 }

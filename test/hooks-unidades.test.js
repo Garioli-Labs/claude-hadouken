@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { linhaEstado, linhaShimIndisponivel, linhaSemRegistro, LINHA_SEM_LEITURA_NUNCA } from '../src/hooks/linha-estado.js';
+import { linhaEstado, linhaShimIndisponivel, linhaSemRegistro, linhaRetomada, LINHA_SEM_LEITURA_NUNCA } from '../src/hooks/linha-estado.js';
 import {
   alertasGuardados, alertasParaGravar, precisaGravar, SEM_LEITURA_MAX, AT_RENOVAR_MS, PROJECAO_MAX,
   ARQ_PROJECAO, projecaoGuardada, projecaoParaGravar, precisaGravarProjecao,
@@ -860,4 +860,17 @@ test('linhaEstado com piso (§10, item 1) e quandoLocal no 7d (§10, item 7)', (
   assert.equal(linhaEstado({ five_hour: null, seven_day: null }, AGORA, null), LINHA_SEM_LEITURA_NUNCA);
   const ultima = { desdeMs: AGORA - 30 * H, five_hour: null, seven_day: null };
   assert.equal(linhaEstado({ five_hour: null, seven_day: null }, AGORA, ultima), `Consumo sem leitura nova desde ${quandoLocal((AGORA - 30 * H) / 1000, AGORA)}; trate como o último modo conhecido (normal).`);
+});
+
+test('linhaRetomada (spec v0.4.0 §10, item 11): só resume com cache expirado e contexto grande; só tokens', () => {
+  const base = { source: 'resume', prompt_cache_likely_expired: true, context_tokens: 182_345, seconds_since_last_response: 7200, estimated_cache_write_usd: 0.68 };
+  assert.equal(linhaRetomada(base), 'hadouken: retomar reescreve ~182 k tokens de cache.');
+  assert.equal(linhaRetomada({ ...base, context_tokens: 1_234_567 }), 'hadouken: retomar reescreve ~1 235 k tokens de cache.');
+  assert.equal(linhaRetomada({ ...base, context_tokens: 20_000 }), 'hadouken: retomar reescreve ~20 k tokens de cache.');
+  for (const e of [
+    null, {}, { ...base, source: 'startup' }, { ...base, source: 'fork' }, { ...base, prompt_cache_likely_expired: false },
+    { ...base, prompt_cache_likely_expired: 'true' }, { ...base, context_tokens: 19_999 }, { ...base, context_tokens: 1e7 + 1 },
+    { ...base, context_tokens: 182_345.5 }, { ...base, context_tokens: '182345' }, { ...base, context_tokens: INSTRUCAO },
+  ]) assert.equal(linhaRetomada(e), null, JSON.stringify(e));
+  assert.ok(!linhaRetomada(base).includes('0.68'), 'sem dólar');
 });

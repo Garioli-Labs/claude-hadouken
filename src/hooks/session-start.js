@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { rodarHook, emitirContexto, falharAberto, dentroDeSubagente } from './comum.js';
+import { rodarHook, emitirContexto, emitirJson, falharAberto, dentroDeSubagente } from './comum.js';
 import { caminhoDoAmbiente, dirDados, idValido } from '../base.js';
 import { registrarSessao } from '../ativas.js';
 
@@ -100,6 +100,10 @@ rodarHook(async (entrada) => {
   const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs))];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
-  emitirContexto('SessionStart', saida.join('\n'));
+  // Spec v0.4.0 §10, item 11: ao retomar com o cache expirado, uma linha ao
+  // usuário (systemMessage), fora do contexto do Claude.
+  const retomada = linhas.linhaRetomada(entrada);
+  if (retomada === null) emitirContexto('SessionStart', saida.join('\n'));
+  else emitirJson({ systemMessage: retomada, hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: saida.join('\n') } });
   if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await dispararPainel(dir, agoraMs);
 });

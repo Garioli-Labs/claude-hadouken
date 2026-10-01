@@ -813,3 +813,18 @@ test('prompt-submit com leitura de 25 h: "sem leitura nova desde", uma vez', () 
   assert.match(contexto(rodar('prompt-submit.js', prompt(), home), 'UserPromptSubmit'), /^Consumo sem leitura nova desde (?:ontem|\S+ \d\d\/\d\d) \d\d:\d\d; trate como o último modo conhecido \((?:normal|econômico|folga|só leitura)\)\.$/);
   mudo(rodar('prompt-submit.js', prompt(), home));
 });
+
+test('session-start resume com cache expirado: a linha de retomada vai ao usuário por systemMessage', () => {
+  const home = novoHome();
+  gravarEstado(home);
+  const r = rodar('session-start.js', { ...inicio('s1', 'resume'), prompt_cache_likely_expired: true, context_tokens: 182_345, seconds_since_last_response: 7200, estimated_cache_write_usd: 0.68 }, home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, '');
+  const out = JSON.parse(r.stdout);
+  assert.deepEqual(Object.keys(out).sort(), ['hookSpecificOutput', 'systemMessage']);
+  assert.equal(out.systemMessage, 'hadouken: retomar reescreve ~182 k tokens de cache.');
+  assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(out.hookSpecificOutput.additionalContext, LINHA_ESTADO);
+  // Sem os campos: a saída de antes, só o contexto.
+  assert.match(contexto(rodar('session-start.js', inicio('s1', 'resume'), home), 'SessionStart'), LINHA_ESTADO);
+});
