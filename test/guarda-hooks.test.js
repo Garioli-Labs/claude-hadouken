@@ -970,3 +970,20 @@ test('foco 1: SessionStart:compact dentro de subagente de Haiku não grava o mod
   semSaida(rodar('session-start.js', { session_id: 's8', hook_event_name: 'SessionStart', source: 'compact', model: 'claude-haiku-4-5', agent_id: 'a1' }, limpa));
   assert.deepEqual(fs.readdirSync(limpa).sort(), antes);
 });
+
+// Concern 1 da revisão da Task 9: uma pasta subagents mais acima no caminho
+// (a home ou o CLAUDE_CONFIG_DIR dentro dela) não faz da thread principal um
+// subagente. Senão a sessão nunca se registraria, sessaoAtiva ficaria falso e
+// a guarda inteira sairia cedo, calada. Só a pasta mãe do transcript conta.
+test('thread principal com uma pasta subagents mais acima no caminho registra a sessão e injeta a linha', () => {
+  const principais = ['C:/x/subagents/home/.claude/projects/p/sess.jsonl', 'C:\\x\\subagents\\home\\.claude\\projects\\p\\sess.jsonl',
+    '/home/u/subagents/.claude/projects/-home-u-proj/sess.jsonl'];
+  for (const t of principais) assert.equal(dentroDeSubagente({ transcript_path: t }), false, t);
+  const home = novoHome();
+  gravarEstado(home);
+  const o = saida(rodar('session-start.js', { session_id: 's7', hook_event_name: 'SessionStart', source: 'startup', model: 'claude-fable-5-1', transcript_path: principais[0] }, home));
+  assert.equal(o.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(o.hookSpecificOutput.additionalContext, /^Consumo: 5h 20%/);
+  assert.ok(fs.lstatSync(path.join(home, 'ativas', Buffer.from('s7').toString('hex'))).isFile());
+  assert.equal(modeloDaSessao(home, 's7', Date.now()), 'claude-fable-5-1');
+});

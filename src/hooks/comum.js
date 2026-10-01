@@ -117,7 +117,13 @@ export function rodarHook(fn, maxBytes, vigia, rotulo) {
 // transcript_path com a pasta subagents, com / ou \. É só reserva: pelo S1 da
 // parte 1, o PreToolUse de dentro do subagente traz o caminho da mãe. Só
 // confere forma; nada daqui vira texto. Nunca lança.
-const PASTA_SUBAGENTES = /[\\/]subagents[\\/]/;
+// A pasta subagents conta só como pasta mãe do arquivo
+// (<sessão>/subagents/agent-<id>.jsonl). Uma pasta subagents mais acima (a
+// home ou o CLAUDE_CONFIG_DIR dentro dela) faria da thread principal um
+// subagente: a sessão nunca se registraria e a guarda inteira sairia cedo,
+// calada (concern 1 da revisão da Task 9). A pasta mãe do transcript da
+// thread principal é o cwd saneado, que nunca é "subagents".
+const PASTA_SUBAGENTES = /[\\/]subagents[\\/][^\\/]+$/;
 const CAMINHO_MAX = 4096;
 export function dentroDeSubagente(entrada) {
   try {
