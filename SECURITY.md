@@ -61,17 +61,25 @@ Riscos residuais da guarda (v0.4.0):
   - a pasta de dados;
   - os `settings.json` e `settings.local.json` do usuário, em `~/.claude` e no `CLAUDE_CONFIG_DIR`;
   - o próprio plugin: a raiz dele e o que tiver `claude-hadouken` dentro de `plugins/` (o cache e o marketplace);
-  - nos settings de projeto (`.claude/settings.json` e `.claude/settings.local.json`), o Write, o Edit e o MultiEdit cujo texto novo ou antigo (`old_string`) traga `disableAllHooks`, `enabledPlugins`, `"hooks"` ou `claude-hadouken`; com um `old_string` abaixo de 40 caracteres, ou no Write, também quando o arquivo atual traz uma dessas chaves ou não pode ser lido (link, acima de 1 MiB).
+  - nos settings de projeto (`.claude/settings.json` e `.claude/settings.local.json`), o Write, o Edit e o MultiEdit que mudam o valor de `disableAllHooks`, `enabledPlugins` ou `hooks`. A P5 aplica a edição ao arquivo atual (Edit, a primeira ocorrência ou todas com `replace_all`; MultiEdit, em ordem; Write, o `content`) e compara as três chaves antes e depois. Nega também quando:
+    - o texto novo ou antigo (`old_string`) traz `disableAllHooks`, `enabledPlugins`, `"hooks"` ou `claude-hadouken`;
+    - um `old_string` abaixo de 40 caracteres, ou o Write, vai num arquivo que já traz uma dessas palavras;
+    - o arquivo não pode ser lido (link, acima de 1 MiB);
+    - a edição não se aplica (o `old_string` não está no arquivo);
+    - o resultado deixa de ser JSON num arquivo com uma dessas chaves.
 
   A documentação diz que os settings são relidos durante a sessão e que o `disableAllHooks` do usuário, do projeto ou local desliga os hooks de plugin. Por isso, o que escapa da P5 desliga a guarda a partir do próximo hook:
   - o Bash ou o PowerShell editando esses arquivos (por exemplo, `sed -i` no `settings.json`);
-  - nos settings de projeto, a chave montada em várias edições, sem a palavra inteira em nenhuma delas, e um `old_string` de 40 caracteres ou mais que cubra só o valor de uma chave da guarda, sem citá-la;
   - o NotebookEdit nos settings de projeto, porque a regra do conteúdo vale só para as ferramentas que trazem o texto novo;
   - fora do escopo da P5: um clone do marketplace com outro nome (a pasta em `plugins/marketplaces/` sem `claude-hadouken` no caminho) e o `plugins/installed_plugins.json`, que diz de onde o Claude Code carrega cada plugin;
   - outros diretórios de configuração, como um `CLAUDE_CONFIG_DIR` fora de `~/.claude` ou a raiz de um plugin carregado de outra pasta (`--plugin-dir`). O hook os cobre, mas o filtro `if` só leva a ele os caminhos de `~/.claude` e os `.claude/settings.json` e `.claude/settings.local.json` abaixo da pasta de trabalho;
   - no Windows, o compartilhamento administrativo da própria máquina: o hook traduz `\\localhost\C$\...`, `\\127.0.0.1\C$\...`, `\\?\UNC\localhost\C$\...` e o nome da máquina para `C:\...`, mas não é confirmado que o filtro `if` o leve ao hook, e outro nome da mesma máquina (apelido de DNS, IP da rede, IPv6) não é traduzido.
 
-  Excesso aceito: nos settings de projeto, uma permissão que cite `claude-hadouken` também é negada; o usuário aplica a mudança à mão.
+  Excesso aceito nos settings de projeto (o usuário aplica a mudança à mão):
+  - uma permissão que cite `claude-hadouken`;
+  - num arquivo com uma das palavras, o Write e a troca de um trecho curto, mesmo sem mudar as três chaves;
+  - a edição que o Claude Code aplicaria com as normalizações dele (aspas curvas, por exemplo) e a simulação não acha;
+  - num arquivo fora do JSON estrito (comentários, vírgula sobrando), a P5 não compara as chaves: nega quando o arquivo atual ou o resultado tem uma das palavras.
 
   Também escapam do hook da agenda um scheduler MCP cujo nome não tenha `cron`, `schedule`, `trigger` nem `task`, e a tarefa durável gravada direto no `.claude/scheduled_tasks.json` (pelo shell ou pelas ferramentas de edição); quando ela dispara, sobra o `disable-model-invocation` da skill, que a documentação diz impedir o disparo agendado, porque na versão 2.1.286 o `command_source` é a fonte da definição do comando (`plugin` também no disparo agendado) e o hook do liberar não separa os dois por ele. O roteiro manual confere esse caso com o binário real. A P4 é best-effort: o `if` do `hooks.json` leva a ela o `claude` e cada lançador explícito (`npx`, `node`, `bash`, `sh`, `cmd`, `pwsh`, `powershell`, no Bash e no PowerShell, e, no PowerShell, `Start-Process`), e o hook lê o comando de novo. Escapam dela (da regra fixa, que sempre nega o `claude` junto com o comando de liberação, e da negação comum, com a guarda disparada):
   - a ofuscação que monta `hadouken` em tempo de execução;
@@ -184,17 +192,25 @@ Residual risks of the guard (v0.4.0):
   - the data folder;
   - the user's `settings.json` and `settings.local.json`, in `~/.claude` and in `CLAUDE_CONFIG_DIR`;
   - the plugin itself: its root, and anything with `claude-hadouken` inside `plugins/` (the cache and the marketplace);
-  - in project settings (`.claude/settings.json` and `.claude/settings.local.json`), a Write, Edit or MultiEdit whose new or old text (`old_string`) carries `disableAllHooks`, `enabledPlugins`, `"hooks"` or `claude-hadouken`; with an `old_string` under 40 characters, or on a Write, also when the current file carries one of those keys or cannot be read (a link, over 1 MiB).
+  - in project settings (`.claude/settings.json` and `.claude/settings.local.json`), a Write, Edit or MultiEdit that changes the value of `disableAllHooks`, `enabledPlugins` or `hooks`. P5 applies the edit to the current file (Edit: the first occurrence, or all of them with `replace_all`; MultiEdit: in order; Write: the `content`) and compares the three keys before and after. It also denies when:
+    - the new or old text (`old_string`) carries `disableAllHooks`, `enabledPlugins`, `"hooks"` or `claude-hadouken`;
+    - an `old_string` under 40 characters, or a Write, targets a file that already carries one of those words;
+    - the file cannot be read (a link, over 1 MiB);
+    - the edit does not apply (the `old_string` is not in the file);
+    - the result stops being JSON in a file that has one of those keys.
 
   The documentation says settings are reloaded during the session, and that `disableAllHooks` in user, project or local settings turns plugin hooks off. So whatever escapes P5 turns the guard off from the next hook on:
   - Bash or PowerShell editing those files (for example, `sed -i` on `settings.json`);
-  - in project settings, a key assembled across several edits, with the whole word in none of them, and an `old_string` of 40 characters or more that covers only the value of a guard key without naming it;
   - NotebookEdit on project settings, because the content rule only covers the tools that carry the new text;
   - out of P5's scope: a marketplace clone under another name (the folder in `plugins/marketplaces/` without `claude-hadouken` in its path) and `plugins/installed_plugins.json`, which tells Claude Code where it loads each plugin from;
   - other configuration folders, such as a `CLAUDE_CONFIG_DIR` outside `~/.claude` or the root of a plugin loaded from another folder (`--plugin-dir`). The hook covers them, but the `if` filter only sends it the paths under `~/.claude` and the `.claude/settings.json` and `.claude/settings.local.json` files below the working folder;
   - on Windows, the machine's own administrative share: the hook maps `\\localhost\C$\...`, `\\127.0.0.1\C$\...`, `\\?\UNC\localhost\C$\...` and the machine name to `C:\...`, but it is not confirmed that the `if` filter sends such a path to the hook, and another name for the same machine (a DNS alias, the LAN IP, IPv6) is not mapped.
 
-  Accepted over-deny: in project settings, a permission that names `claude-hadouken` is denied too; the user applies the change by hand.
+  Accepted over-deny in project settings (the user applies the change by hand):
+  - a permission that names `claude-hadouken`;
+  - in a file with one of those words, a Write or the replacement of a short stretch, even when the three keys do not change;
+  - an edit Claude Code would apply with its own normalisation (curly quotes, for example) that the simulation does not find;
+  - in a file outside strict JSON (comments, a trailing comma), P5 does not compare the keys: it denies when the current file or the result carries one of those words.
 
   These also escape the agenda hook: an MCP scheduler whose name has none of `cron`, `schedule`, `trigger` or `task`, and a durable task written straight into `.claude/scheduled_tasks.json` (through the shell or the edit tools); when it fires, what is left is the skill's `disable-model-invocation`, which the documentation says stops a scheduled fire, because on version 2.1.286 `command_source` is the source of the command's definition (`plugin` for a scheduled fire too) and the release hook cannot tell the two apart by it. The manual script checks this case against the real binary. P4 is best-effort: the `if` in `hooks.json` sends it `claude` and each explicit launcher (`npx`, `node`, `bash`, `sh`, `cmd`, `pwsh`, `powershell`, in Bash and in PowerShell, and, in PowerShell, `Start-Process`), and the hook reads the command again. These escape it (the fixed rule, which always denies `claude` together with the release command, and the ordinary denial while the guard is tripped):
   - obfuscation that builds `hadouken` at run time;

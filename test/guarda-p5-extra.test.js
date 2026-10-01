@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lerEventos } from '../src/guarda/registros.js';
 import * as msg from '../src/guarda/mensagens.js';
+import { mexeNaGuarda } from '../src/guarda/caminho.js';
 
 // P5 estendida (Task 0 da parte 2, vinda da revisão final da parte 1, com as
 // decisões do controlador): além da pasta de dados, a P5 nega sempre as
@@ -201,6 +202,92 @@ test('P5: settings de projeto negados quando o texto antigo ou o arquivo atual t
   ];
   for (const e of passam) semSaida(rodar(c, e));
   assert.deepEqual(detalhes(c), Array(negados.length).fill('P5:settings-projeto'));
+});
+
+// Rodada 2 da revisão da Task 0: depois dos filtros pelo texto, a P5 aplica a
+// edição ao arquivo atual (Edit: a primeira ocorrência, ou todas com
+// replace_all; MultiEdit: em ordem; Write: o content) e compara
+// disableAllHooks, enabledPlugins e hooks antes e depois. Nega quando um
+// valor muda, quando o resultado deixa de ser JSON num arquivo que tinha uma
+// dessas chaves e quando a edição não se aplica. Fecha o old_string de 40
+// caracteres ou mais que cobre só o valor e a chave montada em várias edições.
+test('P5: settings de projeto: a edição simulada que muda disableAllHooks, enabledPlugins ou hooks é negada', () => {
+  const c = cenario();
+  const proj = (nome, texto) => {
+    const d = path.join(c.raiz, nome, '.claude');
+    fs.mkdirSync(d, { recursive: true });
+    const f = path.join(d, 'settings.json');
+    fs.writeFileSync(f, texto);
+    return f;
+  };
+  const PERM = '"permissions": {"allow": ["Bash(npm test)"]}';
+  const VALOR = `false, ${PERM}`;
+  const REPETIDO = 'false, "env": {"A": "1234567890123456789012345678"}';
+  const MONTADA = `AllHookz": true, ${PERM.slice(0, -2)}`;
+  for (const t of [PERM, VALOR, REPETIDO, MONTADA]) assert.ok(t.length >= 40, t);
+  const valor = proj('valor', `{"disableAllHooks": ${VALOR}}`);
+  const todos = proj('todos', `{"permissions": {"x": ${REPETIDO}}, "disableAllHooks": ${REPETIDO}}`);
+  const montada = proj('montada', `{"disableAllHookz": true, ${PERM}}`);
+  const multi = proj('multi', `{${PERM}}`);
+  const quebra = proj('quebra', `{"hooks": {}, ${PERM}}`);
+  const plugins = proj('plugins', `{"enabledPlugins": {"claude-hadouken@m": true}, ${PERM}}`);
+  const livre = proj('livre', `{${PERM}, "x": 1}`);
+  const conserto = proj('conserto', `{${PERM},}`);
+  const negados = [
+    // old_string longo que cobre só o valor ao lado de "disableAllHooks": .
+    ferramenta('Edit', { file_path: valor, old_string: VALOR, new_string: VALOR.replace('false', 'true') }),
+    // replace_all que vira false em true também no disableAllHooks.
+    ferramenta('Edit', { file_path: todos, old_string: REPETIDO, new_string: REPETIDO.replace('false', 'true'), replace_all: true }),
+    // A chave montada: o arquivo tem disableAllHookz e a edição troca o z.
+    ferramenta('Edit', { file_path: montada, old_string: MONTADA, new_string: MONTADA.replace('Hookz', 'Hooks') }),
+    // Montada dentro de um MultiEdit, sem a palavra inteira em nenhum texto.
+    ferramenta('MultiEdit', { file_path: multi, edits: [{ old_string: '{"permissions"', new_string: '{"disableAllHookz": true, "permissions"' }, { old_string: 'Hookz', new_string: 'Hooks' }] }),
+    // O resultado deixa de ser JSON num arquivo que tem "hooks".
+    ferramenta('Edit', { file_path: quebra, old_string: `${PERM}}`, new_string: PERM }),
+    // A edição não se aplica: o old_string não está no arquivo.
+    ferramenta('Edit', { file_path: valor, old_string: VALOR.replace('npm test', 'npm run build'), new_string: VALOR }),
+  ];
+  for (const e of negados) assert.deepEqual(saida(rodar(c, e)), negacao(msg.P5_SETTINGS_PROJETO_TEXTO), JSON.stringify(e.tool_input));
+  const passam = [
+    // Permissão num arquivo com enabledPlugins: o valor dos plugins não muda.
+    ferramenta('Edit', { file_path: plugins, old_string: PERM, new_string: PERM.replace(']', ', "Read"]') }),
+    // Sem replace_all, só a primeira ocorrência (a das permissões) muda.
+    ferramenta('Edit', { file_path: todos, old_string: REPETIDO, new_string: REPETIDO.replace('false', 'true') }),
+    // Resultado fora do JSON num arquivo sem as chaves e sem as palavras.
+    ferramenta('Edit', { file_path: livre, old_string: `${PERM}, "x": 1}`, new_string: `${PERM}, "x": 1,}` }),
+    // Consertar um settings quebrado sem as chaves.
+    ferramenta('Edit', { file_path: conserto, old_string: `${PERM},}`, new_string: `${PERM}}` }),
+  ];
+  for (const e of passam) semSaida(rodar(c, e));
+  assert.deepEqual(detalhes(c), Array(negados.length).fill('P5:settings-projeto'));
+});
+
+// A simulação, direto na função, nos limites: hooks aninhado 100 mil níveis
+// (a comparação não usa recursão, então não estoura a pilha), a chave com
+// escape \u no arquivo, o replace_all que explodiria o tamanho e o
+// replace_all que não é booleano. Na dúvida, nega.
+test('mexeNaGuarda: a simulação aguenta aninhamento fundo, escape no arquivo e replace_all enorme', () => {
+  const PERM = '"permissions": {"allow": ["Bash(npm test)"]}';
+  const fundo = 100_000;
+  const aninhado = `{"hooks": ${'['.repeat(fundo)}${']'.repeat(fundo)}, ${PERM}}`;
+  const ler = (texto) => () => ({ ok: true, texto });
+  const perm = { file_path: 'x', old_string: PERM, new_string: PERM.replace(']', ', "Read"]') };
+  assert.equal(mexeNaGuarda(perm, ler(aninhado), 'Edit'), false);
+  const dentro = `${'['.repeat(40)}]]]`;
+  assert.equal(mexeNaGuarda({ file_path: 'x', old_string: dentro, new_string: `${'['.repeat(40)}1]]]` }, ler(aninhado), 'Edit'), true);
+  const escapada = `{"disable\\u0041llHooks": false, ${PERM}}`;
+  assert.equal(mexeNaGuarda({ file_path: 'x', old_string: `false, ${PERM}`, new_string: `true, ${PERM}` }, ler(escapada), 'Edit'), true);
+  const grande = `{"a": "${'b'.repeat(500_000)}"}`;
+  assert.equal(mexeNaGuarda({ file_path: 'x', old_string: 'b', new_string: 'c'.repeat(100_000), replace_all: true }, ler(grande), 'Edit'), true);
+  const livre = `{${PERM}}`;
+  assert.equal(mexeNaGuarda({ ...perm, replace_all: 'true' }, ler(livre), 'Edit'), true);
+  assert.equal(mexeNaGuarda({ ...perm, replace_all: false }, ler(livre), 'Edit'), false);
+  // Ferramenta desconhecida ou edits que não é lista: a simulação falha.
+  assert.equal(mexeNaGuarda(perm, ler(livre), 'NotebookEdit'), true);
+  assert.equal(mexeNaGuarda({ file_path: 'x', edits: 'a' }, ler(livre), 'MultiEdit'), true);
+  // Fim de linha CRLF no arquivo não impede a simulação de um old_string com LF.
+  const crlf = `{\r\n  "disableAllHooks": false,\r\n  ${PERM}\r\n}\r\n`;
+  assert.equal(mexeNaGuarda({ file_path: 'x', old_string: `${PERM}\n}`, new_string: `${PERM.replace(']', ', "Read"]')}\n}` }, ler(crlf), 'Edit'), false);
 });
 
 // Rodada 1 da revisão da Task 0: o compartilhamento administrativo da própria

@@ -15,8 +15,9 @@ import { dirDados } from '../base.js';
 //   disableAllHooks ou um avaliar.js editado desligaria a guarda sem shell;
 // - nos settings de projeto, só o Write, o Edit e o MultiEdit que mexem nos
 //   hooks ou nos plugins pelo texto novo ou antigo, ou, com old_string curto
-//   ou Write, pelo arquivo atual (mexeNaGuarda, decisão do controlador e
-//   rodada 1 da revisão; P5_SETTINGS_PROJETO_TEXTO, evento
+//   ou Write, pelo arquivo atual, ou cuja simulação no arquivo atual muda
+//   disableAllHooks, enabledPlugins ou hooks (mexeNaGuarda, decisão do
+//   controlador e rodadas 1 e 2 da revisão; P5_SETTINGS_PROJETO_TEXTO, evento
 //   'P5:settings-projeto').
 // O caminho real (caminhoReal) desfaz '..', links, o nome 8.3 e o
 // compartilhamento administrativo da própria máquina (\\localhost\C$). O `if` não
@@ -61,7 +62,7 @@ rodarHook(async (entrada) => {
       if (classe === 'settings-projeto') {
         if (!COM_TEXTO.has(entrada.tool_name)) return;
         const { lerTextoSemLink } = await import('../guarda/arquivo.js');
-        if (!caminho.mexeNaGuarda(entrada.tool_input, () => lerTextoSemLink(alvo, TETO_SETTINGS))) return;
+        if (!caminho.mexeNaGuarda(entrada.tool_input, () => lerTextoSemLink(alvo, TETO_SETTINGS), entrada.tool_name)) return;
         texto = 'P5_SETTINGS_PROJETO_TEXTO';
       } else {
         texto = 'P5_PROTEGIDO_TEXTO';

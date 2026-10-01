@@ -129,16 +129,18 @@ export const desfazEscapeU = (t) => t.replace(ESCAPE_U, (_, h) => String.fromCha
 // edits[].new_string) e, desde a rodada 1 da revisão, o texto antigo
 // (old_string e cada edits[].old_string): apagar ou trocar a chave é mexer
 // nela. Campo que não é texto não conta.
-// O arquivo atual (rodada 1): um old_string curto (abaixo de 40 caracteres,
-// como 'false' ou 'true') casa dentro de uma chave que já está no arquivo e
-// vira o valor dela sem citá-la; o Write troca o arquivo todo. Nesses dois
-// casos, lerAtual() (o hook passa o lerTextoSemLink de arquivo.js: lstat
-// antes, teto) com uma das chaves mexe, e a leitura que falha também mexe (na
-// dúvida, nega). Arquivo ausente não tem chave atual: o Edit com old_string
-// falha nele, e o texto novo de quem o cria já foi conferido.
-// Resíduo (R1, SECURITY.md): a chave montada em várias edições, o old_string
-// de 40 caracteres ou mais que cobre só o valor de uma chave sem citá-la e o
-// sed -i pelo Bash ou pelo PowerShell.
+// O arquivo atual, lido por lerAtual() (o hook passa o lerTextoSemLink de
+// arquivo.js: lstat antes, teto); a leitura que falha mexe (na dúvida,
+// nega). Arquivo ausente não tem chave atual: o Edit com old_string falha
+// nele, e o texto novo de quem o cria já foi conferido.
+// - Filtro barato (rodada 1): um old_string curto (abaixo de 40 caracteres,
+//   como 'false' ou 'true') casa dentro de uma chave que já está no arquivo e
+//   vira o valor dela sem citá-la, e o Write troca o arquivo todo; nesses dois
+//   casos, o arquivo atual com uma das palavras mexe.
+// - Simulação (rodada 2): a edição aplicada ao arquivo atual (mudaChaves).
+//   Fecha o old_string longo que cobre só o valor e a chave montada em várias
+//   edições.
+// Resíduo (R1, SECURITY.md): o sed -i pelo Bash ou pelo PowerShell.
 const CHAVES_DA_GUARDA = ['disableallhooks', 'enabledplugins', '"hooks"', 'claude-hadouken'];
 const OLD_CURTO = 40;
 const temChave = (t) => {
@@ -146,16 +148,116 @@ const temChave = (t) => {
   const n = desfazEscapeU(t).toLowerCase();
   return CHAVES_DA_GUARDA.some((c) => n.includes(c));
 };
-export function mexeNaGuarda(input, lerAtual) {
-  if (input === null || typeof input !== 'object') return false;
-  const edicoes = Array.isArray(input.edits) ? input.edits.filter((e) => e !== null && typeof e === 'object') : [];
-  const antigos = [input.old_string, ...edicoes.map((e) => e.old_string)].filter((t) => typeof t === 'string');
-  if ([input.content, input.new_string, ...edicoes.map((e) => e.new_string), ...antigos].some(temChave)) return true;
-  if (typeof input.content !== 'string' && !antigos.some((t) => t.length < OLD_CURTO)) return false;
-  if (typeof lerAtual !== 'function') return true;
-  const atual = lerAtual();
-  if (atual?.ok === true) return typeof atual.texto !== 'string' || temChave(atual.texto);
-  return atual?.motivo !== 'ausente';
+
+// A simulação (rodada 2 da revisão da Task 0): Edit troca a primeira
+// ocorrência do old_string, ou todas com replace_all; MultiEdit aplica as
+// edições em ordem; Write vale o content. O old_string que não está no texto,
+// um replace_all que não é booleano, a ferramenta desconhecida e o resultado
+// acima dos tetos fazem a simulação falhar (null). old_string vazio só cria:
+// vale num arquivo em branco. O fim de linha CRLF vira LF dos dois lados (fora
+// das strings do JSON, é só espaço). Tetos: o resultado de 2 MiB (o dobro da
+// leitura) e o trabalho somado de 32 MiB de texto, então um replace_all de um
+// caractere num arquivo grande não trava o hook.
+const TETO_RESULTADO = 2_097_152;
+const TETO_TRABALHO = 33_554_432;
+const semCR = (t) => t.replace(/\r\n/g, '\n');
+function simular(texto, input, ferramenta) {
+  if (ferramenta === 'Write') return typeof input.content === 'string' ? semCR(input.content) : null;
+  let edicoes;
+  if (ferramenta === 'Edit') edicoes = [input];
+  else if (ferramenta === 'MultiEdit' && Array.isArray(input.edits)) edicoes = input.edits;
+  else return null;
+  let atual = semCR(texto);
+  let trabalho = 0;
+  for (const e of edicoes) {
+    if (e === null || typeof e !== 'object' || typeof e.old_string !== 'string' || typeof e.new_string !== 'string') return null;
+    if (e.replace_all !== undefined && typeof e.replace_all !== 'boolean') return null;
+    const velho = semCR(e.old_string);
+    const novo = semCR(e.new_string);
+    if (velho === '') {
+      if (atual.trim() !== '') return null;
+      atual = novo;
+    } else {
+      const i = atual.indexOf(velho);
+      if (i < 0) return null;
+      let n = 1;
+      if (e.replace_all === true) {
+        for (let j = atual.indexOf(velho, i + velho.length); j >= 0; j = atual.indexOf(velho, j + velho.length)) n += 1;
+      }
+      if (atual.length + n * (novo.length - velho.length) > TETO_RESULTADO) return null;
+      atual = e.replace_all === true ? atual.split(velho).join(novo) : atual.slice(0, i) + novo + atual.slice(i + velho.length);
+    }
+    trabalho += atual.length;
+    if (trabalho > TETO_TRABALHO) return null;
+  }
+  return atual;
+}
+
+function lerJsonTexto(texto) {
+  try {
+    return { ok: true, valor: JSON.parse(texto.charCodeAt(0) === 0xfeff ? texto.slice(1) : texto) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// As chaves de topo que desligam a guarda; ausente vale undefined.
+const CHAVES_JSON = ['disableAllHooks', 'enabledPlugins', 'hooks'];
+const chaveDe = (v, k) => (v !== null && typeof v === 'object' && !Array.isArray(v) && Object.hasOwn(v, k) ? v[k] : undefined);
+
+// Igualdade profunda de dois valores do JSON, sem recursão: o JSON.parse
+// aceita centenas de milhares de níveis, e a recursão estouraria a pilha. A
+// ordem das chaves de um objeto não conta.
+function igualJson(a, b) {
+  const pilha = [[a, b]];
+  while (pilha.length > 0) {
+    const [x, y] = pilha.pop();
+    if (x === y) continue;
+    if (x === null || y === null || typeof x !== 'object' || typeof y !== 'object' || Array.isArray(x) !== Array.isArray(y)) return false;
+    const kx = Object.keys(x);
+    if (kx.length !== Object.keys(y).length) return false;
+    for (const k of kx) {
+      if (!Object.hasOwn(y, k)) return false;
+      pilha.push([x[k], y[k]]);
+    }
+  }
+  return true;
+}
+
+// Mexe quando a simulação falha, quando o valor de disableAllHooks,
+// enabledPlugins ou hooks muda, ou quando o resultado deixa de ser JSON num
+// arquivo que tinha uma delas. Sem o JSON (o resultado num arquivo sem as
+// chaves, ou o próprio arquivo atual fora do JSON estrito), vale o texto: mexe
+// quando o resultado, ou o atual que não é JSON, tem uma das palavras.
+function mudaChaves(texto, input, ferramenta) {
+  const depois = simular(texto, input, ferramenta);
+  if (depois === null) return true;
+  const a = lerJsonTexto(texto);
+  const d = lerJsonTexto(depois);
+  if (a.ok && d.ok) return CHAVES_JSON.some((k) => !igualJson(chaveDe(a.valor, k), chaveDe(d.valor, k)));
+  if (a.ok && CHAVES_JSON.some((k) => chaveDe(a.valor, k) !== undefined)) return true;
+  return temChave(depois) || (!a.ok && temChave(texto));
+}
+
+// ferramenta: o tool_name (Write, Edit ou MultiEdit), para a simulação. Nunca
+// lança: uma exceção aqui dentro mexe (nega), em vez de cair no fail-open do
+// falharAberto.
+export function mexeNaGuarda(input, lerAtual, ferramenta) {
+  try {
+    if (input === null || typeof input !== 'object') return false;
+    const edicoes = Array.isArray(input.edits) ? input.edits.filter((e) => e !== null && typeof e === 'object') : [];
+    const antigos = [input.old_string, ...edicoes.map((e) => e.old_string)].filter((t) => typeof t === 'string');
+    if ([input.content, input.new_string, ...edicoes.map((e) => e.new_string), ...antigos].some(temChave)) return true;
+    if (typeof lerAtual !== 'function') return true;
+    const atual = lerAtual();
+    if (atual?.ok !== true) return atual?.motivo !== 'ausente';
+    if (typeof atual.texto !== 'string') return true;
+    const curto = typeof input.content === 'string' || antigos.some((t) => t.length < OLD_CURTO);
+    if (curto && temChave(atual.texto)) return true;
+    return mudaChaves(atual.texto, input, ferramenta);
+  } catch {
+    return true;
+  }
 }
 
 // --- Onde o comando abre claude (P4) ---------------------------------------
