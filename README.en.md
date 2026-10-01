@@ -923,10 +923,10 @@ No plugin failure or slowness may stall Claude. Targets are measured, not assume
 | Plugin file guard (P5), Windows | p95 ≤ 250 ms | 146 ms |
 | `/claude-hadouken:liberar`, Windows | p95 ≤ 250 ms | 171 ms |
 | Guard hooks, Linux/macOS | p95 ≤ 150 ms | to be measured in CI |
-| `/claude-hadouken:consumo`, index already built | ≤ 2 s | Windows 456 ms · Linux 207 ms · macOS 169 ms |
-| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | Windows 2.59 s · Linux 834 ms · macOS 623 ms |
+| `/claude-hadouken:consumo`, index already built | ≤ 2 s | Windows 548 ms · Linux 207 ms · macOS 169 ms |
+| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | Windows 2.60 s · Linux 834 ms · macOS 623 ms |
 
-- Measured on 2026-10-01, p95 of the worst scenario in each row: Windows on an Intel Core i7-7700HQ (8 logical cores, Node 24) with the machine idle; Linux and macOS on GitHub Actions runners (`ubuntu-latest` and `macos-latest`, Node 24), the CI `bench` job.
+- Measured on 2026-10-01, p95 of the worst scenario in each row: Windows on an Intel Core i7-7700HQ (8 logical cores, Node 24) with VS Code open and about 22% background CPU (numbers may run slightly high); Linux and macOS on GitHub Actions runners (`ubuntu-latest` and `macos-latest`, Node 24), the CI `bench` job.
 - The bar and the hooks are measured over 100 runs, from process start to exit, with a worst-case disk: 1,000 registered sessions, the state at its 50-session cap and a full reading history (90 points); for the hooks, both notice memories are full as well (`alertas.json` and `projecao.json`, the latter with the projections of 256 sessions). The worst case is rebuilt before every round, so it holds for the whole measurement.
 - The report is measured over 500 MB of synthetic transcripts (216 files), with the same full state, and one repo answered by the fake `gh`, with no network.
 - In the guard hooks, the worst case's 7-day forecast trips the guard: P1 denies dispatching a Fable subagent, P3 denies switching to Fable, P5 denies a write in the data folder, and `/liberar 2h` saves the release and its two events. P1 and P3 start every round with no release and no `guarda.json` (the fixture does not leave the lock saved), so they measure the evaluation that saves the lock, not the one that only reads it.

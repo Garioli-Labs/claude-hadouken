@@ -915,10 +915,10 @@ Nenhuma falha ou lentidão do plugin pode travar o Claude. As metas são medidas
 | Guarda de arquivos do plugin (P5), Windows | p95 ≤ 250 ms | 146 ms |
 | `/claude-hadouken:liberar`, Windows | p95 ≤ 250 ms | 171 ms |
 | Hooks da guarda, Linux/macOS | p95 ≤ 150 ms | a medir no CI |
-| `/claude-hadouken:consumo`, índice já montado | ≤ 2 s | Windows 456 ms · Linux 207 ms · macOS 169 ms |
-| `/claude-hadouken:consumo`, índice do zero | ≤ 15 s | Windows 2,59 s · Linux 834 ms · macOS 623 ms |
+| `/claude-hadouken:consumo`, índice já montado | ≤ 2 s | Windows 548 ms · Linux 207 ms · macOS 169 ms |
+| `/claude-hadouken:consumo`, índice do zero | ≤ 15 s | Windows 2,60 s · Linux 834 ms · macOS 623 ms |
 
-- Medido em 01/10/2026, p95 do pior cenário de cada linha: Windows num Intel Core i7-7700HQ (8 núcleos lógicos, Node 24) com a máquina parada; Linux e macOS nos runners do GitHub Actions (`ubuntu-latest` e `macos-latest`, Node 24), job `bench` do CI.
+- Medido em 01/10/2026, p95 do pior cenário de cada linha: Windows num Intel Core i7-7700HQ (8 núcleos lógicos, Node 24) com o VS Code aberto e uns 22% de CPU em segundo plano (os números podem estar um pouco altos); Linux e macOS nos runners do GitHub Actions (`ubuntu-latest` e `macos-latest`, Node 24), job `bench` do CI.
 - A barra e os hooks são medidos em 100 execuções, do início ao fim do processo, com o disco no pior caso: 1 000 sessões registradas, o estado no teto de 50 sessões e o histórico de leituras cheio (90 pontos); nos hooks, também as duas memórias de avisos cheias (`alertas.json` e `projecao.json`, esta com as projeções de 256 sessões). O pior caso é refeito antes de cada rodada, para valer a medição inteira.
 - O relatório é medido sobre 500 MB de transcripts sintéticos (216 arquivos), com o mesmo estado cheio, e um repo respondido pelo `gh` falso, sem rede.
 - Nos hooks da guarda, a previsão de 7 dias do pior caso dispara a guarda: a P1 nega o despacho de um subagente Fable, a P3 nega a troca para o Fable, a P5 nega uma gravação na pasta de dados e o `/liberar 2h` grava a liberação e os dois eventos. A P1 e a P3 começam cada rodada sem liberação e sem `guarda.json` (o preparo não deixa a trava gravada), então medem a avaliação que grava a trava, não a que só a lê.
