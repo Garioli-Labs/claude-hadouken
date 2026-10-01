@@ -4,7 +4,7 @@ import { barrinha } from './barrinha.js';
 import { DATA_MAX_MS, numeroFinito, somaSegura } from './base.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
-import { decimal, diaHora, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, janelaValida, milhar, sanear } from './util.js';
+import { decimal, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, janelaValida, milhar, quandoLocal, sanear } from './util.js';
 
 // Relatório do /consumo (spec 6.8; 8.1 S1, S2, S5; addendum da Task 10, A;
 // sessões abertas da spec v0.2.0 §12.6).
@@ -498,6 +498,8 @@ const epochS = (iso) => {
 // schema de estado.js, e o esperado em 0–100), barrinhas e rótulos das listas
 // fixas. Nada do dado externo entra no bloco, então três crases nunca o
 // fecham antes da hora. Janela que não passa vira null e sai como "5h  —".
+// Horário de 7d por quandoLocal (spec v0.4.0 §10, item 7), relativo ao
+// gerado_em do próprio relatório.
 function colunas5h(f) {
   const j = janelaValida({ used_percentage: ler(f, 'used_percentage'), resets_at: ler(f, 'resets_at') });
   const nome = nomeDe(NOMES_5H, ler(f, 'faixa'));
@@ -506,13 +508,13 @@ function colunas5h(f) {
   return ['5h', barrinha(u), `${Math.floor(u)}%`, `reset ${horaLocal(j.resets_at)}`, nome];
 }
 
-function colunas7d(f) {
+function colunas7d(f, agoraMs) {
   const j = janelaValida({ used_percentage: ler(f, 'used_percentage'), resets_at: ler(f, 'resets_at') });
   const esperado = ler(f, 'esperado');
   const nome = nomeDe(NOMES_7D, ler(f, 'modo'));
   if (j === null || !numeroFinito(esperado) || esperado < 0 || esperado > 100 || nome === null) return null;
   const u = j.used_percentage;
-  return ['7d', barrinha(u, { marca: esperado }), `${Math.floor(u)}% / ${Math.floor(esperado)}%`, `reset ${diaHora(j.resets_at)}`, nome];
+  return ['7d', barrinha(u, { marca: esperado }), `${Math.floor(u)}% / ${Math.floor(esperado)}%`, `reset ${quandoLocal(j.resets_at, agoraMs)}`, nome];
 }
 
 const ESPACO_PAINEL = '  ';
@@ -549,11 +551,12 @@ function linhaIdade(janelas, lim) {
 function blocoLimites(o) {
   const linhas = ['## Limites e ritmo', ''];
   const lim = ler(o, 'limites');
+  const agoraMs = (epochS(ler(o, 'gerado_em')) ?? 0) * 1000;
   if (ehObjeto(lim)) {
     const f5 = ler(lim, 'five_hour');
     const f7 = ler(lim, 'seven_day');
     const c5 = colunas5h(f5);
-    const c7 = colunas7d(f7);
+    const c7 = colunas7d(f7, agoraMs);
     linhas.push('```', ...painel([['5h', c5], ['7d', c7]]), '```');
     const idade = linhaIdade([['5h', f5, c5 !== null], ['7d', f7, c7 !== null]], lim);
     if (idade !== null) linhas.push('', idade);
@@ -759,9 +762,9 @@ function blocoPeriodo(titulo, a) {
   return linhas;
 }
 
-const comDesde = (titulo, iso) => {
+const comDesde = (titulo, iso, agoraMs) => {
   const s = epochS(iso);
-  return s === null ? titulo : `${titulo} (desde ${diaHora(s)})`;
+  return s === null ? titulo : `${titulo} (desde ${quandoLocal(s, agoraMs)})`;
 };
 
 // Sessões abertas no markdown (spec v0.2.0 §12.6): a lista `sessoesAbertas`
@@ -844,6 +847,7 @@ function blocoSessoesAbertas(v) {
 
 function blocoClaude(o) {
   const linhas = ['## Claude', ''];
+  const agoraMs = (epochS(ler(o, 'gerado_em')) ?? 0) * 1000;
   const c = montarClaude(ler(o, 'claude'));
   if (Object.hasOwn(c, 'indisponivel')) {
     linhas.push(`Claude: indisponível: ${c.indisponivel}`);
@@ -851,10 +855,10 @@ function blocoClaude(o) {
   }
   linhas.push(...blocoSessoesAbertas(ler(o, 'sessoesAbertas')));
   linhas.push(...blocoPeriodo('Hoje', c.hoje));
-  linhas.push(...blocoPeriodo(comDesde('Últimos 7 dias', c.sete_dias_desde), c.sete_dias));
+  linhas.push(...blocoPeriodo(comDesde('Últimos 7 dias', c.sete_dias_desde, agoraMs), c.sete_dias));
   // Sem leitura de 7d, `semana` são os mesmos últimos 7 dias: não se repete.
   if (c.semana_origem === 'janela_7d' && epochS(c.semana_desde) !== null) {
-    linhas.push(...blocoPeriodo(comDesde('Janela semanal', c.semana_desde), c.semana));
+    linhas.push(...blocoPeriodo(comDesde('Janela semanal', c.semana_desde, agoraMs), c.semana));
   } else {
     linhas.push('### Janela semanal', '', 'Sem leitura da janela de 7 dias: o bloco dos últimos 7 dias vale para a semana.', '');
   }

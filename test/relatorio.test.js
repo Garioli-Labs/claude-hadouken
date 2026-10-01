@@ -10,7 +10,7 @@ import { limitesValidos, validarEstado } from '../src/estado.js';
 import { MAX_SESSOES } from '../src/agregacao.js';
 import { jsonSeguro } from '../src/comandos.js';
 import { motivoValido, repoValido } from '../src/github.js';
-import { sanear } from '../src/util.js';
+import { quandoLocal, sanear } from '../src/util.js';
 
 // Relatório do /consumo (spec 6.8; 8.1 S1/S2/S5; addendum da Task 10). A saída
 // vai direto para o contexto do modelo: os testes conferem padrões, nunca o
@@ -90,7 +90,7 @@ test('markdown abre com o aviso e traz os três blocos, resumo semanal e indispo
   const texto = md();
   assert.equal(texto.split('\n')[0], AVISO_DADOS, 'o aviso vem antes de qualquer dado');
   assert.match(texto, /## Limites e ritmo/);
-  assert.match(texto, /^```\n5h {2}▰▰▰▱▱▱▱▱ {3}42% +reset \d\d:\d\d +normal\n7d {2}[▰▱┃]{9} {2}48% \/ \d+% {2}reset \S+ \d\d:\d\d {2}\S+\n```$/m);
+  assert.match(texto, /^```\n5h {2}▰▰▰▱▱▱▱▱ {3}42% +reset \d\d:\d\d +normal\n7d {2}[▰▱┃]{9} {2}48% \/ \d+% {2}reset (?:hoje|amanhã|ontem|\S+ \d\d\/\d\d) \d\d:\d\d {2}\S+\n```$/m);
   assert.match(texto, /Leitura de 1 min atrás\./);
   assert.match(texto, /## Claude/);
   assert.match(texto, /\| `Demo` \| ▰▰▰▰▰▰▰▰ 100% \| 3 \|/);
@@ -150,10 +150,10 @@ test('percentuais por piso e a faixa de 7d sai dos inteiros exibidos (faixa7d)',
   assert.equal(normal.limites.seven_day.modo, 'normal');
   const t1 = formatarMarkdown(normal);
   assert.match(t1, /^5h {2}▰▰▰▰▰▰▰▱ {3}89% +reset \d\d:\d\d +serializar$/m);
-  assert.match(t1, /^7d {2}▰▰▰▰┃▰▱▱▱ {2}60% \/ 50% {2}reset \S+ \d\d:\d\d {2}normal$/m);
+  assert.match(t1, /^7d {2}▰▰▰▰┃▰▱▱▱ {2}60% \/ 50% {2}reset (?:hoje|amanhã|ontem|\S+ \d\d\/\d\d) \d\d:\d\d {2}normal$/m);
   const econ = montarRelatorio({ estado: com(90, 61.2), agoraMs: agora, claude, github });
   assert.equal(econ.limites.seven_day.modo, faixa7d({ usado: 61.2, resetsAt: s + 3.5 * 86400, agoraMs: agora }).faixa);
-  assert.match(formatarMarkdown(econ), /^7d {2}▰▰▰▰┃▰▱▱▱ {2}61% \/ 50% {2}reset \S+ \d\d:\d\d {2}econômico$/m);
+  assert.match(formatarMarkdown(econ), /^7d {2}▰▰▰▰┃▰▱▱▱ {2}61% \/ 50% {2}reset (?:hoje|amanhã|ontem|\S+ \d\d\/\d\d) \d\d:\d\d {2}econômico$/m);
   assert.match(formatarMarkdown(econ), /^5h {2}▰▰▰▰▰▰▰▱ {3}90% +reset \d\d:\d\d +fechar$/m);
 });
 
@@ -491,7 +491,7 @@ test('hoje sem respostas diz isso, sem tabela vazia; semana é janela ou último
   const vazio = { total: { ...soma, respostas: 0, acertoCache: null }, porProjeto: {}, porModeloEffort: {}, principalVsSubagente: { principal: soma, subagente: soma } };
   const janela = md({ claude: { ...claude, hoje: vazio, semana_origem: 'janela_7d', semana_desde: agora - 2 * 86_400_000 } });
   assert.match(janela, /### Hoje — 0 respostas, acerto de cache —\n\nNenhuma resposta no período\./);
-  assert.match(janela, /### Janela semanal \(desde \S+ \d\d:\d\d\)/);
+  assert.match(janela, /### Janela semanal \(desde (?:hoje|ontem|\S+ \d\d\/\d\d) \d\d:\d\d\)/);
   assert.match(md(), /### Últimos 7 dias/);
 });
 
@@ -745,8 +745,8 @@ test('períodos: hoje, últimos 7 dias desde o instante e janela semanal só com
   const titulos = texto.split('\n').filter((l) => l.startsWith('### '));
   assert.equal(titulos.length, 3);
   assert.match(titulos[0], /^### Hoje — 3 respostas/);
-  assert.match(titulos[1], /^### Últimos 7 dias \(desde \S+ \d\d:\d\d\) — 3 respostas/);
-  assert.match(titulos[2], /^### Janela semanal \(desde \S+ \d\d:\d\d\) — 3 respostas/);
+  assert.match(titulos[1], /^### Últimos 7 dias \(desde (?:hoje|ontem|\S+ \d\d\/\d\d) \d\d:\d\d\) — 3 respostas/);
+  assert.match(titulos[2], /^### Janela semanal \(desde (?:hoje|ontem|\S+ \d\d\/\d\d) \d\d:\d\d\) — 3 respostas/);
   const semLeitura = formatarMarkdown(montarRelatorio({ estado, agoraMs: agora, github, claude: { ...base, semana_origem: 'ultimos_7_dias', semana_desde: seteDesde } }));
   assert.match(semLeitura, /### Janela semanal\n\nSem leitura da janela de 7 dias: o bloco dos últimos 7 dias vale para a semana\./);
   assert.equal(semLeitura.split('\n').filter((l) => l.startsWith('### ') && l.includes('respostas')).length, 2, 'o mesmo período não se repete');
@@ -802,7 +802,7 @@ test('painel: bloco de código alinhado, barrinhas, marca do ritmo na 7d e a ida
   const [l5, l7, fim] = bloco.slice(i + 1, i + 4);
   assert.equal(fim, '```');
   assert.match(l5, /^5h {2}▰▱▱▱▱▱▱▱ {3}11% +reset \d\d:\d\d +normal$/);
-  assert.match(l7, /^7d {2}▰▰▰▰┃▰▱▱▱ {2}62% \/ 50% {2}reset \S+ \d\d:\d\d {2}econômico$/);
+  assert.match(l7, /^7d {2}▰▰▰▰┃▰▱▱▱ {2}62% \/ 50% {2}reset (?:hoje|amanhã|ontem|\S+ \d\d\/\d\d) \d\d:\d\d {2}econômico$/);
   assert.equal(l5.indexOf('11%'), l7.indexOf('62%'), 'percentuais alinhados');
   assert.equal(l5.indexOf('reset'), l7.indexOf('reset'), 'reset alinhado');
   assert.equal(l5.length - 'normal'.length, l7.length - 'econômico'.length, 'modo alinhado');
@@ -1024,7 +1024,7 @@ test('entrada da referência v0.1.0: o markdown novo sai sem NaN, undefined nem 
   assert.doesNotMatch(texto, /NaN|undefined|Infinity/);
   assert.deepEqual(cercas(texto), ['```', '```']);
   assert.match(texto, /^5h {2}▰▰▰▱▱▱▱▱ {3}42% +reset \d\d:\d\d +normal$/m);
-  assert.match(texto, /^7d {2}[▰▱┃]{9} {2}58% \/ \d+% {2}reset \S+ \d\d:\d\d {2}\S+$/m);
+  assert.match(texto, /^7d {2}[▰▱┃]{9} {2}58% \/ \d+% {2}reset (?:hoje|amanhã|ontem|\S+ \d\d\/\d\d) \d\d:\d\d {2}\S+$/m);
   assert.match(texto, /^\| `Opus 5\.5 · high` \| ▰▰▰▰▰▰▰▱ 85% \|/m);
   for (const t of tabelas(texto)) for (const l of t) assert.equal(pipes(l), pipes(t[0]), l);
 });
@@ -1165,4 +1165,17 @@ test('sessões abertas no markdown: JSON hostil é revalidado item a item, e só
   const esparsa = [];
   esparsa.length = 2 ** 32 - 1;
   assert.match(formatarMarkdown({ ...base, sessoesAbertas: esparsa }), /Nenhuma sessão com resposta na última hora\./);
+});
+
+test('markdown: horários de 7d com quandoLocal, nunca só o dia da semana (spec v0.4.0 §10, item 7)', () => {
+  const lida = new Date(agora - 60_000).toISOString();
+  const e = {
+    versao: 1, at: lida,
+    five_hour: { used_percentage: 20, resets_at: s + 3600, at: lida },
+    seven_day: { used_percentage: 40, resets_at: s + 3 * 86_400, at: lida },
+    sessoes: {}, historico: [],
+  };
+  const texto = md({ estado: e });
+  assert.ok(texto.includes(`reset ${quandoLocal(s + 3 * 86_400, agora)}`), texto);
+  assert.doesNotMatch(texto, /reset (?:dom|seg|ter|qua|qui|sex|sáb) \d\d:\d\d/u);
 });
