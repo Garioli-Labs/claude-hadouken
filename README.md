@@ -902,24 +902,32 @@ Nenhuma falha ou lentidão do plugin pode travar o Claude. As metas são medidas
 
 | Operação | Meta | Medido |
 |---|---|---|
-| Barra de status (processo inteiro), Windows | p95 ≤ 250 ms | 135 ms |
+| Barra de status (processo inteiro), Windows | p95 ≤ 250 ms | 170 ms |
 | Barra de status (processo inteiro), Linux/macOS | p95 ≤ 150 ms | Linux 49 ms · macOS 48 ms |
-| Hook antes de cada prompt, Windows | p95 ≤ 250 ms | 168 ms |
+| Hook antes de cada prompt, Windows | p95 ≤ 250 ms | 188 ms |
 | Hook antes de cada prompt, Linux/macOS | p95 ≤ 150 ms | Linux 56 ms · macOS 50 ms |
-| Hook de início de sessão, Windows | p95 ≤ 250 ms | 166 ms |
+| Hook de início de sessão, Windows | p95 ≤ 250 ms | 176 ms |
 | Hook de início de sessão, Linux/macOS | p95 ≤ 150 ms | Linux 57 ms · macOS 51 ms |
-| Hook de fim de sessão, Windows | p95 ≤ 250 ms | 143 ms |
+| Hook de fim de sessão, Windows | p95 ≤ 250 ms | 151 ms |
 | Hook de fim de sessão, Linux/macOS | p95 ≤ 150 ms | Linux 46 ms · macOS 44 ms |
-| `/claude-hadouken:consumo`, índice já montado | ≤ 2 s | Windows 411 ms · Linux 207 ms · macOS 169 ms |
-| `/claude-hadouken:consumo`, índice do zero | ≤ 15 s | Windows 1,95 s · Linux 834 ms · macOS 623 ms |
+| Guarda antes de despachar um subagente (P1), Windows | p95 ≤ 250 ms | 161 ms |
+| Guarda antes de trocar de modelo (P3), Windows | p95 ≤ 250 ms | 162 ms |
+| Guarda de arquivos do plugin (P5), Windows | p95 ≤ 250 ms | 146 ms |
+| `/claude-hadouken:liberar`, Windows | p95 ≤ 250 ms | 171 ms |
+| Hooks da guarda, Linux/macOS | p95 ≤ 150 ms | a medir no CI |
+| `/claude-hadouken:consumo`, índice já montado | ≤ 2 s | Windows 456 ms · Linux 207 ms · macOS 169 ms |
+| `/claude-hadouken:consumo`, índice do zero | ≤ 15 s | Windows 2,59 s · Linux 834 ms · macOS 623 ms |
 
-- Medido em 27/09/2026, p95 do pior cenário de cada linha: Windows num Intel Core i7-7700HQ (8 núcleos lógicos, Node 24) com a máquina parada; Linux e macOS nos runners do GitHub Actions (`ubuntu-latest` e `macos-latest`, Node 24), job `bench` do CI.
+- Medido em 01/10/2026, p95 do pior cenário de cada linha: Windows num Intel Core i7-7700HQ (8 núcleos lógicos, Node 24) com a máquina parada; Linux e macOS nos runners do GitHub Actions (`ubuntu-latest` e `macos-latest`, Node 24), job `bench` do CI.
 - A barra e os hooks são medidos em 100 execuções, do início ao fim do processo, com o disco no pior caso: 1 000 sessões registradas, o estado no teto de 50 sessões e o histórico de leituras cheio (90 pontos); nos hooks, também as duas memórias de avisos cheias (`alertas.json` e `projecao.json`, esta com as projeções de 256 sessões). O pior caso é refeito antes de cada rodada, para valer a medição inteira.
 - O relatório é medido sobre 500 MB de transcripts sintéticos (216 arquivos), com o mesmo estado cheio, e um repo respondido pelo `gh` falso, sem rede.
-- A meta do Windows é maior porque só a partida do Node, sem script nenhum, já leva 72 ms (p50) e 89 ms (p95) na mesma máquina Windows. A barra roda em segundo plano e não trava a digitação.
+- Nos hooks da guarda, a previsão de 7 dias do pior caso dispara a guarda: a P1 nega o despacho de um subagente Fable, a P3 nega a troca para o Fable, a P5 nega uma gravação na pasta de dados e o `/liberar 2h` grava a liberação e os dois eventos. A P1 e a P3 começam cada rodada sem liberação e sem `guarda.json` (o preparo não deixa a trava gravada), então medem a avaliação que grava a trava, não a que só a lê.
+- A meta do Windows é maior porque só a partida do Node, sem script nenhum, já leva 76 ms (p50) e 86 ms (p95) na mesma máquina Windows. A barra roda em segundo plano e não trava a digitação.
 - A v0.2.0 custa um pouco mais que a v0.1.0 nos caminhos de sessão registrada: +5,0 a +6,8 ms no p50 da barra e do hook de prompt, em A/B pareado de 200 pares com as duas versões na mesma pasta (`bench/ab-raizes.mjs`). É o trabalho das várias sessões ao mesmo tempo (histórico, previsão, contagem de sessões ativas e aviso de projeção). Nos caminhos de sessão não registrada ficou igual ou até 3 ms mais rápida. Os p95 continuam bem dentro da meta.
-- Os hooks de início e fim de sessão rodam uma vez por sessão e têm a mesma meta da barra e do hook de prompt. Além da meta, todo hook tem um teto de 5 s no `hooks.json`.
-- Os números da tabela foram medidos na v0.2.0. A v0.3.0 tira da barra o texto de 5 h e 7 dias, mas ela continua gravando as mesmas leituras e o mesmo histórico.
+- A v0.4.0 contra a v0.3.0, no mesmo A/B pareado: +25,2 ms na barra e +18,2 ms no hook de prompt de sessão registrada (mediana das diferenças pareadas); nas sessões não registradas, +0,9 ms na barra e +0,1 ms no prompt, dentro do ruído. O custo vem da guarda (trava, liberação e eventos lidos a cada despacho e prompt) e da leitura-piso nos avisos.
+- Os hooks de início e fim de sessão rodam uma vez por sessão e têm a mesma meta da barra e do hook de prompt. Além da meta, cada hook tem um teto no `hooks.json`: 10 s no hook de prompt e nos hooks da guarda (PreToolUse, `/liberar` e a P3) e 5 s nos de início e fim de sessão e nos dois que só registram (troca de modelo feita e limite atingido).
+- Os números da tabela foram medidos na v0.4.0, com a guarda ligada nos hooks. As colunas de Linux e macOS das linhas que já existiam ainda são as da v0.2.0, medidas em 27/09/2026, até o job `bench` rodar a v0.4.0.
+- O `/consumo` agora também monta o índice do custo dos hooks (`indice-hooks.json`), incremental como o dos transcripts.
 - O painel do VS Code não entra nessas metas: ele roda fora do Claude Code, e a instalação dele sai do início de sessão em segundo plano, sem o hook esperar. O custo dele é o da leitura enxuta do `/usage`, medido à parte: 5 s e 270 MB de pico por leitura, a cada 30 s e só com sessão ativa (veja [Sem gastar tokens, com pouca RAM](#sem-gastar-tokens-com-pouca-ram)).
 
 Por que o relatório é rápido na segunda vez: o índice dos transcripts é incremental e só relê o que mudou; execuções do GitHub já concluídas ficam em cache.

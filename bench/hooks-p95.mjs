@@ -50,6 +50,7 @@
 // - SessionEnd registered (gate, read state, append one history line) and
 //   unregistered.
 // - guard (v0.4.0): P1 denying a fable-max dispatch (the fixture's 7d forecast trips G2), P3 denying a switch to Fable, P5 denying a write in the data folder.
+// - /liberar 2h (v0.4.0 part 2): the release hook, writing liberacao.json and the two events.
 // - a bare `node -e ""` as the floor of any Node script.
 //
 // The scenarios are interleaved: every round runs each scenario once, in a
@@ -186,7 +187,7 @@ try {
   // fable-max.md; CLAUDE_EFFORT pins the session effort, and a
   // CLAUDE_CODE_SUBAGENT_MODEL from the caller's shell would override the
   // agent's model, so it is dropped.
-  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1', CLAUDE_CONFIG_DIR: path.join(home, 'cfg'), CLAUDE_EFFORT: 'high' };
+  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1', CLAUDE_CONFIG_DIR: path.join(home, 'cfg'), CLAUDE_EFFORT: 'high', CLAUDE_CODE_ENTRYPOINT: 'cli' };
   delete env.CLAUDE_CODE_SUBAGENT_MODEL;
   // One untimed prompt settles the alert memory to what this fixture
   // evaluates to (the 7d band of the seeded memory differs from the reading,
@@ -243,13 +244,34 @@ try {
     conferirGravacao(nome, arqProjecao, plantadas.projecao, esperaGravar);
   };
 
+  // A liberação que o cenário do /liberar grava soltaria a P1 e a P3 na
+  // rodada seguinte, e o limparTravas dele apaga as travas: sem restaurar
+  // guarda.json, a P1 e a P3 mediriam "trava gravada" em vez de "trava lida".
+  // Cada cenário da guarda começa sem liberação e com as travas do preparo (o
+  // pior caminho: trava lida, nada coberto).
+  // Com o preparo de hoje, guardaPreparada é null (nada grava guarda.json
+  // antes dos cenários): a P1 e a P3 gravam a trava em toda rodada, e a nota
+  // do README sobre os hooks da guarda diz isso.
+  const arqGuarda = path.join(home, 'guarda.json');
+  const guardaPreparada = fs.existsSync(arqGuarda) ? fs.readFileSync(arqGuarda) : null;
+  const semLiberacao = () => {
+    fs.rmSync(path.join(home, 'liberacao.json'), { force: true });
+    if (guardaPreparada === null) fs.rmSync(arqGuarda, { force: true });
+    else fs.writeFileSync(arqGuarda, guardaPreparada);
+  };
+  // The prompt hook reads liberacao.json too: in a session outside Fable it
+  // announces a fresh release once (the post-release line), which would break
+  // the "unchanged" row's no-output check. The two registered prompt rows
+  // start without a release, as they did before this scenario existed.
+  const semLiberacaoE = (plantar) => () => { semLiberacao(); plantar(); };
+
   const cenarios = [
     {
       id: 'prompt-registrada-sem-gravar',
       nome: 'prompt reg. unchanged',
       argv: [hook('prompt-submit.js')],
       stdin: stdinPrompt,
-      preparar: plantarMemoria(60_000, projecaoEstavel),
+      preparar: semLiberacaoE(plantarMemoria(60_000, projecaoEstavel)),
       conferir: memoriaGravada('prompt reg. unchanged', false),
       alvo: true,
     },
@@ -258,7 +280,7 @@ try {
       nome: 'prompt reg. writes',
       argv: [hook('prompt-submit.js')],
       stdin: stdinPrompt,
-      preparar: plantarMemoria(10 * 60_000, projecaoSemAlvo),
+      preparar: semLiberacaoE(plantarMemoria(10 * 60_000, projecaoSemAlvo)),
       conferir: memoriaGravada('prompt reg. writes', true),
       alvo: true,
     },
@@ -277,6 +299,7 @@ try {
       id: 'despacho-disparada',
       nome: 'P1 dispatch, guard on',
       argv: [hook('guarda-despacho.js')],
+      preparar: semLiberacao,
       stdin: JSON.stringify({ ...comum(uuid(0), 'PreToolUse'), tool_name: 'Agent', tool_input: { subagent_type: 'fable-max', description: 'review', prompt: 'x' } }),
       conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'deny') throw new Error(`P1: expected deny, got ${out}`); },
       alvo: true,
@@ -285,6 +308,7 @@ try {
       id: 'troca-fable',
       nome: 'P3 model switch',
       argv: [hook('guarda-modelo.js')],
+      preparar: semLiberacao,
       stdin: JSON.stringify({ ...comum(uuid(0), 'PreModelSwitch'), from_model: 'claude-opus-5-5', to_model: 'claude-fable-5-1' }),
       conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'deny') throw new Error(`P3: expected deny, got ${out}`); },
       alvo: true,
@@ -295,6 +319,24 @@ try {
       argv: [hook('guarda-arquivos.js')],
       stdin: JSON.stringify({ ...comum(uuid(0), 'PreToolUse'), tool_name: 'Write', tool_input: { file_path: path.join(home, 'liberacao.json'), content: '{}' } }),
       conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'deny') throw new Error(`P5: expected deny, got ${out}`); },
+      alvo: true,
+    },
+    {
+      id: 'liberar-2h',
+      nome: '/liberar 2h',
+      argv: [hook('liberar.js')],
+      stdin: JSON.stringify({
+        ...comum(uuid(0), 'UserPromptExpansion'), expansion_type: 'slash_command', command_name: 'claude-hadouken:liberar',
+        command_args: '2h', command_source: 'plugin', prompt: '/claude-hadouken:liberar 2h',
+      }),
+      // liberar.js responde decision 'block' em todo desfecho, inclusive "nada
+      // liberado" e as recusas: só o texto de liberado e o arquivo gravado
+      // provam que a liberação aconteceu.
+      conferir: (out) => {
+        const o = JSON.parse(out);
+        if (o.decision !== 'block' || !/^hadouken: liberado até /.test(o.reason ?? '')) throw new Error(`liberar: expected a release, got ${out}`);
+        if (!fs.existsSync(path.join(home, 'liberacao.json'))) throw new Error('liberar: liberacao.json not written');
+      },
       alvo: true,
     },
     { id: 'node-vazio', nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },

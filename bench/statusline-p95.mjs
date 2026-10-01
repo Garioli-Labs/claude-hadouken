@@ -18,7 +18,9 @@
 // - estado.json holds 50 sessions (its cap, all active), both rate-limit
 //   windows and a full history (90 points over 3 h, spec v0.2.0 §12.8), which
 //   the status line reads, merges and rewrites on every run;
-// - stdin is a realistic, complete statusline payload.
+// - stdin is a realistic, complete statusline payload, whose transcript_path
+//   points at a real one-line transcript in the temporary home (the mtime
+//   check of the freshness rule, v0.4.0 part 2, runs on every run).
 // The worst case stays live for the whole run, however long it takes: before
 // every round (warm-up included) estado.json goes back to the fixture with
 // each `at` moved forward by the time elapsed since it was built, checked with
@@ -79,9 +81,16 @@ try {
   const agora = Date.now();
   const s = Math.floor(agora / 1000);
   const uuid = (i) => `${i.toString(16).padStart(8, '0')}-1111-2222-3333-444455556666`;
+  // A real one-line transcript inside the temporary home, so the freshness
+  // rule (spec v0.4.0 §10 item 8) takes its lstat path on every run. Its
+  // mtime sits 10 min before the fixture's readings, older than any window
+  // `at`, so a stdin equal to the stored readings counts as repeated.
+  const transcript = path.join(home, 'transcript.jsonl');
+  fs.writeFileSync(transcript, `${JSON.stringify({ type: 'user', sessionId: uuid(0), message: { role: 'user', content: 'oi' } })}\n`);
+  fs.utimesSync(transcript, new Date(agora - 10 * 60_000), new Date(agora - 10 * 60_000));
   const entrada = (id) => ({
     session_id: id,
-    transcript_path: 'C:/Users/sintetico/.claude/projects/proj-x/abc.jsonl',
+    transcript_path: transcript,
     cwd: 'C:/projetos/proj x',
     model: { id: 'claude-opus-5-5', display_name: 'Opus 5.5' },
     workspace: { current_dir: 'C:/projetos/proj x', project_dir: 'C:/projetos/proj x' },

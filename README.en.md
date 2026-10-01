@@ -910,24 +910,32 @@ No plugin failure or slowness may stall Claude. Targets are measured, not assume
 
 | Operation | Target | Measured |
 |---|---|---|
-| Status bar (whole process), Windows | p95 ≤ 250 ms | 135 ms |
+| Status bar (whole process), Windows | p95 ≤ 250 ms | 170 ms |
 | Status bar (whole process), Linux/macOS | p95 ≤ 150 ms | Linux 49 ms · macOS 48 ms |
-| Hook before each prompt, Windows | p95 ≤ 250 ms | 168 ms |
+| Hook before each prompt, Windows | p95 ≤ 250 ms | 188 ms |
 | Hook before each prompt, Linux/macOS | p95 ≤ 150 ms | Linux 56 ms · macOS 50 ms |
-| Session start hook, Windows | p95 ≤ 250 ms | 166 ms |
+| Session start hook, Windows | p95 ≤ 250 ms | 176 ms |
 | Session start hook, Linux/macOS | p95 ≤ 150 ms | Linux 57 ms · macOS 51 ms |
-| Session end hook, Windows | p95 ≤ 250 ms | 143 ms |
+| Session end hook, Windows | p95 ≤ 250 ms | 151 ms |
 | Session end hook, Linux/macOS | p95 ≤ 150 ms | Linux 46 ms · macOS 44 ms |
-| `/claude-hadouken:consumo`, index already built | ≤ 2 s | Windows 411 ms · Linux 207 ms · macOS 169 ms |
-| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | Windows 1.95 s · Linux 834 ms · macOS 623 ms |
+| Guard before dispatching a subagent (P1), Windows | p95 ≤ 250 ms | 161 ms |
+| Guard before switching models (P3), Windows | p95 ≤ 250 ms | 162 ms |
+| Plugin file guard (P5), Windows | p95 ≤ 250 ms | 146 ms |
+| `/claude-hadouken:liberar`, Windows | p95 ≤ 250 ms | 171 ms |
+| Guard hooks, Linux/macOS | p95 ≤ 150 ms | to be measured in CI |
+| `/claude-hadouken:consumo`, index already built | ≤ 2 s | Windows 456 ms · Linux 207 ms · macOS 169 ms |
+| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | Windows 2.59 s · Linux 834 ms · macOS 623 ms |
 
-- Measured on 2026-09-27, p95 of the worst scenario in each row: Windows on an Intel Core i7-7700HQ (8 logical cores, Node 24) with the machine idle; Linux and macOS on GitHub Actions runners (`ubuntu-latest` and `macos-latest`, Node 24), the CI `bench` job.
+- Measured on 2026-10-01, p95 of the worst scenario in each row: Windows on an Intel Core i7-7700HQ (8 logical cores, Node 24) with the machine idle; Linux and macOS on GitHub Actions runners (`ubuntu-latest` and `macos-latest`, Node 24), the CI `bench` job.
 - The bar and the hooks are measured over 100 runs, from process start to exit, with a worst-case disk: 1,000 registered sessions, the state at its 50-session cap and a full reading history (90 points); for the hooks, both notice memories are full as well (`alertas.json` and `projecao.json`, the latter with the projections of 256 sessions). The worst case is rebuilt before every round, so it holds for the whole measurement.
 - The report is measured over 500 MB of synthetic transcripts (216 files), with the same full state, and one repo answered by the fake `gh`, with no network.
-- The Windows target is higher because Node's startup alone, with no script at all, already takes 72 ms (p50) and 89 ms (p95) on the same Windows machine. The bar runs in the background and never blocks typing.
+- In the guard hooks, the worst case's 7-day forecast trips the guard: P1 denies dispatching a Fable subagent, P3 denies switching to Fable, P5 denies a write in the data folder, and `/liberar 2h` saves the release and its two events. P1 and P3 start every round with no release and no `guarda.json` (the fixture does not leave the lock saved), so they measure the evaluation that saves the lock, not the one that only reads it.
+- The Windows target is higher because Node's startup alone, with no script at all, already takes 76 ms (p50) and 86 ms (p95) on the same Windows machine. The bar runs in the background and never blocks typing.
 - v0.2.0 costs a little more than v0.1.0 on registered-session paths: +5.0 to +6.8 ms at p50 for the bar and the prompt hook, in a paired A/B of 200 pairs with both versions in the same folder (`bench/ab-raizes.mjs`). That is the work for several sessions at once (history, forecast, active-session count and projection notice). On unregistered-session paths it is the same or up to 3 ms faster. The p95 values stay well within target.
-- The session start and end hooks run once per session and have the same target as the bar and the prompt hook. On top of the target, every hook has a 5 s ceiling in `hooks.json`.
-- The table's numbers were measured on v0.2.0. v0.3.0 removes the 5-hour and 7-day text from the bar, but the bar still saves the same readings and the same history.
+- v0.4.0 against v0.3.0, in the same paired A/B: +25.2 ms for the bar and +18.2 ms for the prompt hook on a registered session (median of the paired differences); on unregistered sessions, +0.9 ms for the bar and +0.1 ms for the prompt, within noise. The cost comes from the guard (lock, release and events read on every dispatch and prompt) and from the floor reading in the notices.
+- The session start and end hooks run once per session and have the same target as the bar and the prompt hook. On top of the target, each hook has a ceiling in `hooks.json`: 10 s for the prompt hook and the guard hooks (PreToolUse, `/liberar` and P3), and 5 s for the session start and end hooks and the two that only record (model switch done and limit reached).
+- The table's numbers were measured on v0.4.0, with the guard on in the hooks. The Linux and macOS columns of the rows that already existed are still the v0.2.0 ones, measured on 2026-09-27, until the `bench` job runs v0.4.0.
+- `/consumo` now also builds the hook cost index (`indice-hooks.json`), incremental like the transcript one.
 - The VS Code panel is outside these targets: it runs outside Claude Code, and its install leaves the session start in the background, without the hook waiting. Its cost is the lean `/usage` read, measured separately: 5 s and a 270 MB peak per read, every 30 s and only with an active session (see [No tokens, little RAM](#no-tokens-little-ram)).
 
 Why the report is fast the second time: the transcript index is incremental and only re-reads what changed; completed GitHub runs are cached.

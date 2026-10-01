@@ -233,7 +233,12 @@ try {
   const barraCerta = (nome) => (out, lado) => {
     const limpa = out.replace(CORES_FIXAS, '');
     if (lado.e6) {
-      if (limpa !== LINHA_E6) throw new Error(`${nome} (${lado.nome}): unexpected output ${JSON.stringify(out)}`);
+      // A root with the guard (v0.4.0, src/guarda/) ends the line with the
+      // guard segment: "sem guarda nesta sessão" until the prompt hook marks
+      // the session (warm-up only), then "guarda: 7d" (the fixture's 7d
+      // forecast trips G2).
+      const certas = lado.guarda ? [`${LINHA_E6} │ sem guarda nesta sessão`, `${LINHA_E6} │ guarda: 7d`] : [LINHA_E6];
+      if (!certas.includes(limpa)) throw new Error(`${nome} (${lado.nome}): unexpected output ${JSON.stringify(out)}`);
       return;
     }
     if (!INICIO_BARRA.test(limpa) || !limpa.includes(' 42% ')) throw new Error(`${nome}: unexpected output ${JSON.stringify(out)}`);
@@ -260,8 +265,8 @@ try {
     return env;
   };
   const lados = [
-    { nome: 'A', raiz: raizA, env: ambiente(homeA), secao12: secao12A, e6: sondaE6(raizA) },
-    { nome: 'B', raiz: raizB, env: ambiente(homeB), secao12: secao12B, e6: sondaE6(raizB) },
+    { nome: 'A', raiz: raizA, env: ambiente(homeA), secao12: secao12A, e6: sondaE6(raizA), guarda: fs.existsSync(path.join(raizA, 'src', 'guarda')) },
+    { nome: 'B', raiz: raizB, env: ambiente(homeB), secao12: secao12B, e6: sondaE6(raizB), guarda: fs.existsSync(path.join(raizB, 'src', 'guarda')) },
   ];
   function rodar(c, lado) {
     const t0 = process.hrtime.bigint();
