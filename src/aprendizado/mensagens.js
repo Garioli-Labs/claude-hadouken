@@ -36,16 +36,27 @@ export const NAO_GRAVADO = `hadouken: a mudança não pôde ser gravada. Confira
 export const SEM_SUGESTAO = `hadouken: não há sugestão pendente com esse id. Veja ${CMD} status.`;
 export const MUDOU = 'hadouken: essa sugestão não vale mais (o ajuste ou o config.json mudou desde ela) e foi retirada. Nada foi aplicado.';
 
-// Rótulo longo (status), rótulo curto (linha de §4.6), unidade e o que vem
-// depois do valor na linha curta.
+// Rótulo longo (status), artigo dele, rótulo curto (linha de §4.6), unidade
+// e o que vem depois do valor na linha curta.
 const ROTULO = Object.freeze({
-  'painel.intervaloS': Object.freeze({ nome: 'intervalo do painel fora do horário', curto: 'painel', unidade: ' s', fim: ' fora do horário' }),
-  'painel.amarelo': Object.freeze({ nome: 'faixa amarela do painel', curto: 'faixa amarela', unidade: '%', fim: '' }),
-  'painel.vermelho': Object.freeze({ nome: 'faixa vermelha do painel', curto: 'faixa vermelha', unidade: '%', fim: '' }),
-  'previsao.pesoPerfil': Object.freeze({ nome: 'peso do perfil por hora na previsão', curto: 'peso do perfil na previsão', unidade: '', fim: '' }),
-  'guarda.fableTetoPct': Object.freeze({ nome: 'teto do Fable na guarda', curto: 'teto do Fable', unidade: '%', fim: '' }),
-  'guarda.teto7d': Object.freeze({ nome: 'teto de 7d na guarda', curto: 'teto de 7d', unidade: '%', fim: '' }),
+  'painel.intervaloS': Object.freeze({ nome: 'intervalo do painel fora do horário', artigo: 'o', curto: 'painel', unidade: ' s', fim: ' fora do horário' }),
+  'painel.amarelo': Object.freeze({ nome: 'faixa amarela do painel', artigo: 'a', curto: 'faixa amarela', unidade: '%', fim: '' }),
+  'painel.vermelho': Object.freeze({ nome: 'faixa vermelha do painel', artigo: 'a', curto: 'faixa vermelha', unidade: '%', fim: '' }),
+  'previsao.pesoPerfil': Object.freeze({ nome: 'peso do perfil por hora na previsão', artigo: 'o', curto: 'peso do perfil na previsão', unidade: '', fim: '' }),
+  'guarda.fableTetoPct': Object.freeze({ nome: 'teto do Fable na guarda', artigo: 'o', curto: 'teto do Fable', unidade: '%', fim: '' }),
+  'guarda.teto7d': Object.freeze({ nome: 'teto de 7d na guarda', artigo: 'o', curto: 'teto de 7d', unidade: '%', fim: '' }),
 });
+// "o teto…", "a faixa…"; no começo da frase, com maiúscula.
+const comArtigo = (item) => `${ROTULO[item].artigo} ${ROTULO[item].nome}`;
+const ComArtigo = (item) => `${ROTULO[item].artigo.toUpperCase()} ${ROTULO[item].nome}`;
+// Motivo e origem de um registro, só os das tabelas (Minor 5 da rodada 1):
+// lerAjustes já valida, mas este módulo não depende disso.
+function porQue(r) {
+  const partes = [];
+  if (typeof r.motivo === 'string' && Object.hasOwn(MOTIVO_TXT, r.motivo)) partes.push(MOTIVO_TXT[r.motivo]);
+  if (typeof r.origem === 'string' && Object.hasOwn(ORIGEM_REG, r.origem)) partes.push(ORIGEM_REG[r.origem]);
+  return partes;
+}
 const MOTIVO_TXT = Object.freeze({
   'fora-do-horario': 'fora das horas ativas',
   'horario-mudou': 'as horas ativas mudaram',
@@ -202,7 +213,7 @@ export function textoModelo(s) {
 
 function textoSugestao(s) {
   if (s.tipo === 'afrouxar' && temRotulo(s.item)) {
-    return `afrouxar o ${ROTULO[s.item].nome} de ${valorTxt(s.item, s.de)} para ${valorTxt(s.item, s.para)} (nunca acima do config.json).`;
+    return `afrouxar ${comArtigo(s.item)} de ${valorTxt(s.item, s.de)} para ${valorTxt(s.item, s.para)} (nunca acima do config.json).`;
   }
   if (s.tipo === 'modelo') {
     const t = textoModelo(s);
@@ -224,7 +235,8 @@ export function status({ ligado, ap, aj, sug, eventos, vivo, agoraMs } = {}) {
   if (mudados.length === 0) l.push('- nenhum; tudo nos valores de fábrica e do config.json.');
   for (const item of mudados) {
     const r = [...aj.registros].reverse().find((x) => x.item === item);
-    l.push(`- ${ROTULO[item].nome}: ${valorTxt(item, aj.vigentes[item])}${r ? ` (${r.id}, ${ORIGEM_REG[r.origem]})` : ''}`);
+    const origem = r && typeof r.origem === 'string' && Object.hasOwn(ORIGEM_REG, r.origem) ? `, ${ORIGEM_REG[r.origem]}` : '';
+    l.push(`- ${ROTULO[item].nome}: ${valorTxt(item, aj.vigentes[item])}${r ? ` (${r.id}${origem})` : ''}`);
   }
   l.push('Sugestões pendentes:');
   const pendentes = sug.lista.filter((s) => s.estado === 'pendente').map((s) => [s.id, textoSugestao(s)]).filter(([, t]) => t !== null);
@@ -234,7 +246,8 @@ export function status({ ligado, ap, aj, sug, eventos, vivo, agoraMs } = {}) {
   if (ultimos.length > 0) {
     l.push('Últimos registros:');
     for (const r of ultimos) {
-      l.push(`- ${r.id} ${dia(r.em)}: ${ROTULO[r.item].nome} ${valorTxt(r.item, r.antes)} → ${valorTxt(r.item, r.depois)} (${MOTIVO_TXT[r.motivo]}; ${ORIGEM_REG[r.origem]}).`);
+      const partes = porQue(r);
+      l.push(`- ${r.id} ${dia(r.em)}: ${ROTULO[r.item].nome} ${valorTxt(r.item, r.antes)} → ${valorTxt(r.item, r.depois)}${partes.length > 0 ? ` (${partes.join('; ')})` : ''}.`);
     }
   }
   const recentes = (Array.isArray(eventos) ? eventos : []).slice(-5).reverse().filter((e) => Object.hasOwn(EVENTO_TXT, e.tipo));
@@ -364,7 +377,7 @@ export function falhaDesligar(r) {
 }
 
 export function desfeito(registro) {
-  return `hadouken: desfeito. O ${ROTULO[registro.item].nome} volta a ${valorTxt(registro.item, registro.depois)} (${registro.id}) e não muda sozinho por ${DIAS_BLOQUEIO} dias.`;
+  return `hadouken: desfeito. ${ComArtigo(registro.item)} volta a ${valorTxt(registro.item, registro.depois)} (${registro.id}) e não muda ${ROTULO[registro.item].artigo === 'a' ? 'sozinha' : 'sozinho'} por ${DIAS_BLOQUEIO} dias.`;
 }
 
 export function falhaDesfazer(motivo) {
@@ -377,7 +390,7 @@ export function falhaDesfazer(motivo) {
 }
 
 export function aprovadoAfrouxar(registro) {
-  return `hadouken: aprovado. O ${ROTULO[registro.item].nome} passa de ${valorTxt(registro.item, registro.antes)} para ${valorTxt(registro.item, registro.depois)} (${registro.id}). Desfazer: ${CMD} desfazer ${registro.id}.`;
+  return `hadouken: aprovado. ${ComArtigo(registro.item)} passa de ${valorTxt(registro.item, registro.antes)} para ${valorTxt(registro.item, registro.depois)} (${registro.id}). Desfazer: ${CMD} desfazer ${registro.id}.`;
 }
 
 export function aprovadoModelo(s) {

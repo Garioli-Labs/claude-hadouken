@@ -89,6 +89,32 @@ test('status: piso, Collector, ajustes em vigor, sugestões pendentes, registros
   // A recusa de um comando (origem ou entrypoint) aparece nos eventos.
   const comRecusa = msg.status({ ligado: true, ap, aj, sug, eventos: [{ at: new Date(AGORA - DIA).toISOString(), tipo: 'comando-recusado' }], vivo: false, agoraMs: AGORA });
   assert.match(comRecusa, /Eventos recentes: comando recusado \(não digitado pelo usuário\) \(\d{4}-\d{2}-\d{2}\)\./);
+  // Rodada 1 (Minor 3): uma sugestão de modelo pendente com origem hostil
+  // não entra no status; a sugestão válida ao lado continua.
+  const sugHostil = sugestoesVazias();
+  sugHostil.lista.push(
+    { ...MODELO, id: 's7', origem: 'sub:<script>' },
+    { ...MODELO, id: 's8', origem: 'sub:revisor\u202e' },
+    { ...MODELO, id: 's9' },
+  );
+  const comHostil = msg.status({ ligado: true, ap, aj, sug: sugHostil, eventos: [], vivo: false, agoraMs: AGORA });
+  assert.doesNotMatch(comHostil, /<script>|\u202e|s7|s8/);
+  assert.match(comHostil, /- s9: No seu uso, os pedidos do subagente revisor/);
+  // Rodada 1 (Minor 5): motivo ou origem de registro fora das tabelas não
+  // vira 'undefined' nem lança.
+  const ajEstranho = ajustesVazios();
+  ajEstranho.vigentes['painel.intervaloS'] = 60;
+  ajEstranho.registros.push(reg('a1', 'painel.intervaloS', 30, 60, { motivo: 'toString', origem: '__proto__' }));
+  const estranho = msg.status({ ligado: true, ap, aj: ajEstranho, sug: sugestoesVazias(), eventos: [], vivo: false, agoraMs: AGORA });
+  assert.doesNotMatch(estranho, /undefined|function|\[object/);
+  assert.match(estranho, /- intervalo do painel fora do horário: 60 s \(a1\)$/m);
+  assert.match(estranho, /- a1 \d{4}-\d{2}-\d{2}: intervalo do painel fora do horário 30 s → 60 s\.$/m);
+});
+
+test('artigo certo por item: "A faixa", "O teto"', () => {
+  assert.match(msg.desfeito({ id: 'a3', item: 'painel.vermelho', depois: 90 }), /^hadouken: desfeito\. A faixa vermelha do painel volta a 90% \(a3\) e não muda sozinha /);
+  assert.match(msg.desfeito({ id: 'a5', item: 'guarda.teto7d', depois: 85 }), /^hadouken: desfeito\. O teto de 7d na guarda volta a 85% \(a5\) e não muda sozinho /);
+  assert.match(msg.aprovadoAfrouxar({ id: 'a4', item: 'guarda.teto7d', antes: 80, depois: 85 }), /^hadouken: aprovado\. O teto de 7d na guarda passa de 80% para 85%/);
 });
 
 test('prévia: plano, chaves, código; caminho com controle não é repetido', () => {

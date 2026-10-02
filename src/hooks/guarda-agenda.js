@@ -13,7 +13,8 @@ import { pedeLiberacao, desfazEscapesJson } from '../guarda/caminho.js';
 // desligada, como a regra fixa da P4 (guarda-filha.js): o texto de algum
 // campo da entrada (prompt, reason, o body livre do RemoteTrigger) com o
 // pedido (pedeLiberacao em guarda/caminho.js: 'hadouken:liberar' no texto
-// normalizado ou '/liberar' como palavra). A decisão é só texto (import
+// normalizado ou '/liberar' como palavra; desde a Task 11 do aprendizado,
+// também 'hadouken:aprender' ou '/aprender'). A decisão é só texto (import
 // estático) e, na dúvida, nega: sem mensagens.js, sai o texto de reserva;
 // sem registros.js, o deny sai sem o evento 'liberacao-recusada'.
 // As outras camadas: o liberar recusa a origem que não é o comando digitado
@@ -34,12 +35,14 @@ const rotuloDe = (nome) => {
   return typeof nome === 'string' && MCP_AGENDA.test(nome) ? 'agenda:mcp' : null;
 };
 // Acima de 1 MiB de stdin (o teto comum, spec 8.1, S9) o JSON não é lido;
-// 'liberar' em qualquer ponto do texto cru nega (lerStdinVigiando em base.js),
-// como a vigia da P4.
-const VIGIA = /liberar/i;
+// 'liberar' ou 'aprender' em qualquer ponto do texto cru nega
+// (lerStdinVigiando em base.js), como a vigia da P4. 'aprender' desde a
+// Task 11 do aprendizado: o /claude-hadouken:aprender também só vale
+// digitado (aprovar afrouxa a guarda; desligar tira o aprendizado).
+const VIGIA = /liberar|aprender/i;
 // O mesmo texto de AGENDA_LIBERAR_TEXTO (mensagens.js), só para quando o
 // import dele falha. test/guarda-hooks.test.js confere que os dois são iguais.
-const AGENDA_LIBERAR_RESERVA = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando, tire-o do prompt agendado.';
+const AGENDA_LIBERAR_RESERVA = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /claude-hadouken:liberar ou /claude-hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
 
 // Todo texto da entrada, a qualquer profundidade, sem recursão: o JSON.parse
 // aceita 200 mil níveis de lista, e uma varredura recursiva estouraria a pilha.

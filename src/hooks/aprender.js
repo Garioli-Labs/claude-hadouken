@@ -18,6 +18,10 @@ const COMANDO = 'claude-hadouken:aprender';
 const FALHOU_RESERVA = 'hadouken: o comando falhou. Confira o estado com /claude-hadouken:aprender status.';
 
 rodarHook(async (entrada) => {
+  // Stdin nulo (acima do teto, JSON inválido ou cortado pelo prazo): sai sem
+  // bloquear, como o liberar.js. É seguro porque o corpo da skill
+  // (skills/aprender/SKILL.md) é inerte: só diz que nada foi mudado e proíbe
+  // mexer nos arquivos, e nada aqui roda.
   if (entrada === null || entrada.command_name !== COMANDO) return;
   const dir = dirDados();
   const agoraMs = Date.now();

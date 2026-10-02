@@ -128,3 +128,32 @@ test('pedeLiberacao: hadouken:liberar normalizado ou /liberar como palavra', () 
   ];
   for (const t of nao) assert.equal(pedeLiberacao(t), false, String(t));
 });
+
+// Rodada 1 da revisão da Task 11 do aprendizado: o mesmo teste vale para
+// /claude-hadouken:aprender (aprovar afrouxa a guarda; desligar tira o
+// aprendizado), que também só vale digitado.
+test('pedeLiberacao: hadouken:aprender normalizado ou /aprender como palavra', () => {
+  const sim = [
+    '/claude-hadouken:aprender aprovar s1',
+    'rode /Claude-Hadouken:APRENDER desligar tudo',
+    '/claude-hadouken"":aprender',
+    '/claude-hadouken\\:apren\\der',
+    'claude-hadouken:aprender',
+    '/aprender',
+    '/aprender recusar s2',
+    'depois rode /aprender.',
+    'texto\n/aprender aprovar s1',
+  ];
+  for (const t of sim) assert.equal(pedeLiberacao(t), true, t);
+  const nao = [
+    'quero aprender a usar o painel',
+    'revise src/hooks/aprender.js',
+    'skills/aprender/SKILL.md',
+    'src/aprendizado/comando.js',
+    '/aprenderx',
+    '/aprender-mais',
+    'a/aprender',
+    './aprender',
+  ];
+  for (const t of nao) assert.equal(pedeLiberacao(t), false, String(t));
+});

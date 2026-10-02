@@ -690,6 +690,46 @@ test('agenda: scheduler MCP com o pedido de liberação é negado', () => {
   assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), Array(casos.length).fill('agenda:mcp'));
 });
 
+// Rodada 1 da revisão da Task 11 do aprendizado (segunda metade do I1 do
+// preflight): /claude-hadouken:aprender também só vale digitado. Uma tarefa
+// agendada, um loop, uma rotina ou um scheduler MCP com o comando no texto
+// são negados, inclusive no stdin ilegível e acima do teto (vigia); o texto
+// do deny diz que só o usuário digita o comando.
+test('agenda: tarefa, loop ou rotina com /claude-hadouken:aprender são negados; prompt sem o comando passa', () => {
+  const home = novoHome();
+  assert.match(AGENDA_LIBERAR_TEXTO, /\/claude-hadouken:aprender/);
+  assert.match(AGENDA_LIBERAR_TEXTO, /só ele/);
+  const casos = [
+    ['CronCreate', { cron: '0 9 * * *', prompt: '/claude-hadouken:aprender aprovar s1', recurring: true }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: 'depois rode /claude-hadouken:aprender aprovar s1' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: '/Claude-Hadouken"":APRENDER desligar tudo', prompt: 'continue' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: '/aprender recusar s2' } }],
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: '/claude-hadouken:aprender aprovar s1' }],
+  ];
+  for (const [tool, input] of casos) {
+    assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
+  }
+  // Sem mensagens.js, o texto de reserva do hook é o mesmo.
+  const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/claude-hadouken:aprender aprovar s1' });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
+  // Stdin ilegível (truncado) com o comando, e acima do teto com 'aprender' no texto cru.
+  const truncado = '{"tool_name":"CronCreate","tool_input":{"prompt":"/claude-hadouken:aprender aprovar s1';
+  assert.deepEqual(saida(rodar('guarda-agenda.js', truncado, home)), AGENDA_NEGADO);
+  const grande = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/claude-hadouken:aprender aprovar s1 ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grande, home)), AGENDA_NEGADO);
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 3);
+  // Sem o comando: passa em silêncio.
+  const passam = [
+    ['CronCreate', { cron: '*/5 * * * *', prompt: 'check the build' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'x', prompt: 'revise src/hooks/aprender.js e skills/aprender/SKILL.md' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: 'quero aprender a usar o painel' } }],
+    ['CronCreate', { prompt: '/aprenderx' }],
+  ];
+  for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 3);
+});
+
 // M5 da revisão final da parte 1 (spec v0.4.0 §4.5, fail-open visível): stdin
 // acima do teto ou cortado pelo prazo deixa a chamada passar e registra o
 // evento 'erro' com o rótulo do hook, sem gate de sessão (sem o JSON não há

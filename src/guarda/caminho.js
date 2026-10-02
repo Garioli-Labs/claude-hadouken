@@ -598,12 +598,17 @@ export function claudeComLiberar(comando) {
 // frase conta). Nega a mais: um lembrete que só cita o comando também nega, e
 // o texto do deny pede para tirá-lo do prompt. Só texto, linear, e nunca
 // lança: na dúvida, true.
-const BARRA_LIBERAR = /(?<![a-z0-9_./-])\/liberar(?![a-z0-9_/-]|\.[a-z0-9_])/;
+// Desde a rodada 1 da revisão da Task 11 do aprendizado (segunda metade do
+// I1 do preflight), o mesmo teste vale para o /claude-hadouken:aprender
+// ('hadouken:aprender' ou '/aprender' como palavra): o `aprovar` afrouxa a
+// guarda e o `desligar` tira o aprendizado, então ele também só vale
+// digitado pelo usuário.
+const BARRA_LIBERAR = /(?<![a-z0-9_./-])\/(?:liberar|aprender)(?![a-z0-9_/-]|\.[a-z0-9_])/;
 export function pedeLiberacao(texto) {
   try {
     if (typeof texto !== 'string') return false;
     const normal = semEscapeDe(semAspasDe(texto.toLowerCase().replace(/[\\`^]\r?\n/g, '')));
-    return normal.includes('hadouken:liberar') || BARRA_LIBERAR.test(normal);
+    return normal.includes('hadouken:liberar') || normal.includes('hadouken:aprender') || BARRA_LIBERAR.test(normal);
   } catch {
     return true;
   }

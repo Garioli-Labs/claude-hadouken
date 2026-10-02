@@ -47,13 +47,14 @@ const ARGUMENTO = Object.freeze({
 const digitado = (fonte, expansao) => ORIGENS.includes(fonte) && EXPANSOES.includes(expansao);
 
 // `desligar [dados|tudo] [código]`: o alcance (qualquer caixa) e depois o
-// código, que é exatamente 8 hex minúsculos, como a prévia o mostra.
+// código, que é exatamente 8 hex; maiúsculas valem e viram minúsculas, como
+// no ligar (rodada 1 da revisão, Important 2).
 function interpretarDesligar(resto) {
   let i = 0;
   let alcance = null;
   let codigo = null;
   if (i < resto.length && ALCANCES.includes(resto[i].toLowerCase())) alcance = resto[i++].toLowerCase();
-  if (i < resto.length && CODIGO.test(resto[i])) codigo = resto[i++];
+  if (i < resto.length && CODIGO.test(resto[i].toLowerCase())) codigo = resto[i++].toLowerCase();
   return i === resto.length ? { sub: 'desligar', arg: alcance, codigo } : null;
 }
 
@@ -69,6 +70,9 @@ export function interpretarComando(texto) {
   return { sub, arg };
 }
 
+// Sem a trava do aprendizado, de propósito (Minor 4 da rodada 1):
+// anexarEventoApr nunca lança, e uma corrida com o passo perde no máximo um
+// evento, nunca o deixa inválido (gravação atômica).
 function registrarRecusa(dir, agoraMs, texto) {
   try {
     if (ligadoExiste(dir)) anexarEventoApr(dir, 'comando-recusado', agoraMs);

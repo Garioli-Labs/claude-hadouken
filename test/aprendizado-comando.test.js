@@ -108,6 +108,9 @@ test('gramática: subcomando, argumento validado, desligar com alcance e código
     ['desligar ab12cd34', { sub: 'desligar', arg: null, codigo: 'ab12cd34' }],
     ['desligar dados 0123abcd', { sub: 'desligar', arg: 'dados', codigo: '0123abcd' }],
     ['desligar   tudo   ffffffff ', { sub: 'desligar', arg: 'tudo', codigo: 'ffffffff' }],
+    // O código em maiúsculas vale, como no ligar (rodada 1, Important 2).
+    ['desligar AB12CD34', { sub: 'desligar', arg: null, codigo: 'ab12cd34' }],
+    ['desligar dados AB12cd34', { sub: 'desligar', arg: 'dados', codigo: 'ab12cd34' }],
     ['desfazer', { sub: 'desfazer', arg: null }],
     ['desfazer a12', { sub: 'desfazer', arg: 'a12' }],
     ['aprovar s1', { sub: 'aprovar', arg: 's1' }],
@@ -116,8 +119,8 @@ test('gramática: subcomando, argumento validado, desligar com alcance e código
   for (const [texto, esperado] of casos) assert.deepEqual(interpretarComando(texto), esperado, texto);
   for (const ruim of ['status x', 'ligar 123', 'ligar ab12cd345', 'desligar metade', 'desfazer s1', 'aprovar', 'aprovar a1', 'recusar s1 s2',
     'apagar', '__proto__', 'x'.repeat(300), null, 42,
-    // desligar: código com tamanho errado, maiúsculo, fora de ordem, argumento a mais, alcance que não é da gramática.
-    'desligar ab12cd3', 'desligar ab12cd345', 'desligar AB12CD34', 'desligar dados AB12cd34', 'desligar ab12cd34 dados',
+    // desligar: código com tamanho errado ou não hex, fora de ordem, argumento a mais, alcance que não é da gramática.
+    'desligar ab12cd3', 'desligar ab12cd345', 'desligar AB12CD3', 'desligar ab12cd34 dados',
     'desligar dados tudo', 'desligar dados ab12cd34 x', 'desligar tudo ab12cd34 ab12cd34', 'desligar nada', 'desligar nada ab12cd34',
     'desligar g1234567', 'desligar dados dados']) {
     assert.equal(interpretarComando(ruim), null, String(ruim));
@@ -298,6 +301,31 @@ test('desligar ocupado e ligar ocupado viram mensagens próprias', async () => {
   assert.match(r, /ocupado com outra sessão/);
   fs.rmSync(caminhos(c.dir).trava);
   assert.ok(ligadoExiste(c.dir));
+});
+
+// Rodada 1 (Minor 2): desfazer que deixaria amarelo ≥ vermelho é recusado
+// pelo comando, com o texto de 'conflito' e sem gravar nada.
+test('desfazer com conflito de faixas é recusado sem gravar', async () => {
+  const c = cenario({ ligado: true });
+  const em = new Date(Date.now() - 3_600_000).toISOString();
+  const aj = ajustesVazios();
+  aj.seq = 2;
+  aj.vigentes['painel.amarelo'] = 80;
+  aj.vigentes['painel.vermelho'] = 85;
+  aj.registros.push(
+    { id: 'a1', item: 'painel.amarelo', antes: 85, depois: 80, motivo: 'faixa-historico', em, origem: 'auto' },
+    { id: 'a2', item: 'painel.vermelho', antes: 90, depois: 85, motivo: 'faixa-historico', em, origem: 'auto' },
+  );
+  assert.equal(gravarAjustes(c.dir, aj).ok, true);
+  assert.equal(lerAjustes(c.dir, Date.now()).registros.length, 2);
+  const antes = fotografar(c.raiz);
+  const base = { dir: c.dir, agoraMs: Date.now(), entrypoint: 'cli', ambiente: {}, arquivo: c.arquivo, ...ORIGEM_OK };
+  const r = await executarComando({ ...base, texto: 'desfazer a1' });
+  assert.equal(r, msg.falhaDesfazer('conflito'));
+  assert.match(r, /faixa amarela/);
+  assert.deepEqual(fotografar(c.raiz), antes);
+  // Sem id, o último (a2, a vermelha) se desfaz normalmente.
+  assert.match(await executarComando({ ...base, texto: 'desfazer' }), /^hadouken: desfeito\. A faixa vermelha do painel volta a 90%/);
 });
 
 test('hooks.json liga o aprender com timeout de 600 s (R5) e a skill é inerte', () => {
