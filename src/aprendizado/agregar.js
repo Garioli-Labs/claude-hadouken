@@ -66,17 +66,53 @@ function somarAtivo(ap, ms, minutos) {
   s.ativo[slot] = Math.min(SLOT_MAX_MIN, s.ativo[slot] + minutos);
 }
 
+// Os limites [início, fim) do dia local de `ms` (pelo Date local, horário
+// de verão incluído); null se `ms` não cai neles.
+function diaLocal(ms) {
+  const d = new Date(ms);
+  const ini = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const fim = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+  return ms >= ini && ms < fim ? { ini, fim } : null;
+}
+
+// Desempenho (revisão da Task 12, 20 MB num passo), sem mudar o resultado:
+// - registro do mesmo dia local cai na mesma semana, então o dia do último
+//   registro poupa o Date e a busca da semana de cada um;
+// - a chave do último registro serve ao seguinte com o mesmo modelo, effort
+//   e origem;
+// - o número de chaves de cada semana fica num Map durante a chamada, em vez
+//   de um Object.keys a cada chave nova (só esta função as acrescenta).
 export function agregarRegistros(ap, registros) {
+  let dia = null;
+  let semana = null;
+  let modelo;
+  let effort;
+  let origem;
+  let chave = '';
+  const nChaves = new Map();
   for (const r of registros) {
     if (r.t === 'ativo') {
       somarAtivo(ap, r.em, r.segundos / 60);
       continue;
     }
-    const s = semanaDe(ap, r.em);
-    const chave = `${r.modelo}|${r.effort}|${r.origem}`;
+    let s = semana;
+    if (dia === null || !(r.em >= dia.ini && r.em < dia.fim)) {
+      s = semanaDe(ap, r.em);
+      dia = diaLocal(r.em);
+      semana = s;
+    }
+    if (r.modelo !== modelo || r.effort !== effort || r.origem !== origem || chave === '') {
+      modelo = r.modelo;
+      effort = r.effort;
+      origem = r.origem;
+      chave = `${modelo}|${effort}|${origem}`;
+    }
     if (!Object.hasOwn(s.modelos, chave)) {
-      if (Object.keys(s.modelos).length >= MODELOS_SEMANA_MAX) continue;
+      const n = nChaves.get(s) ?? Object.keys(s.modelos).length;
+      nChaves.set(s, n);
+      if (n >= MODELOS_SEMANA_MAX) continue;
       s.modelos[chave] = new Array(CAMPOS_MODELO.length).fill(0);
+      nChaves.set(s, n + 1);
     }
     const v = s.modelos[chave];
     if (r.t === 'req') {
