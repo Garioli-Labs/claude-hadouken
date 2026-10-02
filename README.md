@@ -858,7 +858,7 @@ Só depois de 7 dias corridos com dados **e** 20 sessões, e no máximo um ajust
 | Intervalo do painel fora das horas ativas | 30 a 120 s | Nas suas horas ativas o painel lê a cada 30 s; fora delas, a cada 60 e depois 120 s. |
 | Faixa amarela do painel | 60 a 85% | Pela antecedência, no seu histórico, entre cruzar a faixa e esgotar a janela. |
 | Faixa vermelha do painel | 85 a 95% | Idem. |
-| Peso do ritmo por hora na previsão | 0 a 0,5 | Sobe de 0,1 em 0,1 quando o ritmo por hora cobre 80% das suas horas ativas. Vale para os avisos ao Claude; a guarda continua com o ritmo atual. |
+| Peso do ritmo por hora na previsão | 0 a 0,5 | Sobe de 0,1 em 0,1 quando o ritmo por hora cobre 80% das suas horas ativas; desce de 0,1 em 0,1 de volta a 0 quando a cobertura cai. Vale para os avisos ao Claude; a guarda continua com o ritmo atual. |
 | Teto do Fable e teto de 7 dias da guarda | Só para baixo, 5 pontos por vez, nunca abaixo de 70% | Quando a janela esgotou em 2 das 3 últimas semanas. |
 
 As faixas aprendidas mudam só a cor do painel do VS Code; os avisos ao Claude seguem as faixas de sempre.
@@ -867,8 +867,8 @@ As faixas aprendidas mudam só a cor do painel do VS Code; os avisos ao Claude s
 
 ### Sugestões, nunca aplicadas sozinhas
 
-- **Afrouxar a guarda**, até no máximo o valor do seu `config.json`, quando sobrou mais de 30% nas últimas 4 semanas.
-- **Trocar de modelo ou effort** numa origem (a sessão principal ou um subagente), quando o outro custou no máximo metade por pedido nas últimas 4 semanas, com erros até 2 pontos piores e pelo menos 20 pedidos de cada lado. A medida é indireta (custo e erros, não qualidade), e a troca nunca é feita pelo hadouken. Hoje o Claude Code não manda o effort na telemetria (medido na versão 2.1.287), então a comparação é só entre modelos, com o effort como `-`, até o campo chegar.
+- **Afrouxar a guarda**, depois de um aperto aprendido, até no máximo o valor do seu `config.json`, quando sobrou mais de 30% em 4 semanas seguidas sem a janela esgotar.
+- **Trocar de modelo ou effort** numa origem (a sessão principal ou um subagente), quando o outro custou no máximo metade por pedido nas últimas 4 semanas, com erros até 2 pontos piores e pelo menos 20 pedidos de cada lado. A medida é indireta (custo e erros, não qualidade), e a troca nunca é feita pelo hadouken. Na medição com o Claude Code 2.1.287 (feita só com o Haiku), o effort não veio na telemetria; enquanto faltar, a comparação é só entre modelos, com o effort como `-`.
 
 ### Comandos
 
@@ -885,6 +885,8 @@ No início da sessão, no máximo uma vez por dia e só quando há novidade, apa
 ```
 Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /claude-hadouken:aprender status).
 ```
+
+Também avisa, uma vez por dia por tipo, quando o Collector não sobe, não para ou ainda não recebeu telemetria.
 
 ### Privacidade do aprendizado
 

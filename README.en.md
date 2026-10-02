@@ -868,7 +868,7 @@ Only after 7 calendar days of data **and** 20 sessions, and at most one change p
 | Panel interval outside active hours | 30 to 120 s | During your active hours the panel reads every 30 s; outside them, every 60 and then 120 s. |
 | Panel yellow band | 60 to 85% | From the lead time, in your history, between crossing the band and running out of the window. |
 | Panel red band | 85 to 95% | Same. |
-| Weight of the hourly pace in the forecast | 0 to 0.5 | Goes up 0.1 at a time when the hourly pace covers 80% of your active hours. It applies to the notices Claude receives; the guard keeps the current pace. |
+| Weight of the hourly pace in the forecast | 0 to 0.5 | Goes up 0.1 at a time when the hourly pace covers 80% of your active hours; goes back down 0.1 at a time to 0 when coverage drops. It applies to the notices Claude receives; the guard keeps the current pace. |
 | Guard's Fable ceiling and 7-day ceiling | Down only, 5 points at a time, never below 70% | When the window ran out in 2 of the last 3 weeks. |
 
 Learned bands only change the colour of the VS Code panel; the notices Claude receives keep the usual bands.
@@ -877,8 +877,8 @@ Learned bands only change the colour of the VS Code panel; the notices Claude re
 
 ### Suggestions, never applied by themselves
 
-- **Loosen the guard**, at most up to the value in your `config.json`, when more than 30% was left over in the last 4 weeks.
-- **Switch model or effort** for one origin (the main session or a subagent), when the other one cost at most half per request over the last 4 weeks, with errors at most 2 points worse and at least 20 requests on each side. The measure is indirect (cost and errors, not quality), and hadouken never makes the switch. Today Claude Code does not send effort in its telemetry (measured on version 2.1.287), so the comparison is between models only, with effort shown as `-`, until the field arrives.
+- **Loosen the guard**, after a learned tightening, at most up to the value in your `config.json`, when more than 30% was left over in 4 weeks in a row without the window running out.
+- **Switch model or effort** for one origin (the main session or a subagent), when the other one cost at most half per request over the last 4 weeks, with errors at most 2 points worse and at least 20 requests on each side. The measure is indirect (cost and errors, not quality), and hadouken never makes the switch. In the measurement on Claude Code 2.1.287 (done with Haiku only), effort did not come in the telemetry; while it is missing, the comparison is between models only, with effort shown as `-`.
 
 ### Commands
 
@@ -895,6 +895,8 @@ At the start of a session, at most once a day and only when there is something n
 ```
 Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /claude-hadouken:aprender status).
 ```
+
+It also warns, once a day per kind, when the Collector does not start, does not stop or has not received telemetry yet.
 
 ### Learning privacy
 
