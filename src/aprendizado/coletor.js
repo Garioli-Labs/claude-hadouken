@@ -45,7 +45,11 @@ const SUBINDO_VENCIDA_MS = 60_000;
 const LOG_LIDO_MAX = 64 * 1024;
 // Cabe com o download (PRAZO_MS de baixar.js, 450 s) nos 600 s do hook.
 const EXTRAIR_PRAZO_MS = 120_000;
-const CONSULTA_PRAZO_MS = 5_000;
+// O SessionStart e o SessionEnd têm 5 s (hooks/hooks.json), e a consulta, o
+// taskkill e o passo de aprendizado precisam caber neles (Task 12). Um
+// tasklist que passa disso vira consulta sem resposta: nada é feito nesta
+// sessão, e a próxima tenta de novo.
+const CONSULTA_PRAZO_MS = 1_500;
 const PEDACO = 1024 * 1024;
 const AMBIENTE_PERMITIDO = Object.freeze(['SystemRoot', 'SYSTEMROOT', 'windir', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'LANG', 'TZ']);
 const WINDOWS = Object.freeze(['tar', 'tasklist', 'taskkill']);

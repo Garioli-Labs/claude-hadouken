@@ -308,8 +308,10 @@ export function gravarSugestoes(dir, sug) {
 
 // ------------------------------------------------------------ cursor
 
+// `fora`: o dia local do último evento ajuste-fora de cada item (passo.js
+// grava no máximo um por item por dia; ruling da Task 5).
 export function cursorVazio() {
-  return { v: 1, arquivo: null, historicoAte: 0, anuncio: { dia: null, ajustes: 0, sugestoes: 0 }, avisos: {} };
+  return { v: 1, arquivo: null, historicoAte: 0, anuncio: { dia: null, ajustes: 0, sugestoes: 0 }, avisos: {}, fora: {} };
 }
 
 export function lerCursor(dir, agoraMs) {
@@ -327,6 +329,11 @@ export function lerCursor(dir, agoraMs) {
     if (ehObjeto(v.avisos)) {
       for (const t of TIPOS_EVENTO_APR) {
         if (Object.hasOwn(v.avisos, t) && typeof v.avisos[t] === 'string' && DIA_ISO.test(v.avisos[t])) c.avisos[t] = v.avisos[t];
+      }
+    }
+    if (ehObjeto(v.fora)) {
+      for (const item of Object.keys(ITENS)) {
+        if (Object.hasOwn(v.fora, item) && typeof v.fora[item] === 'string' && DIA_ISO.test(v.fora[item])) c.fora[item] = v.fora[item];
       }
     }
     return c;

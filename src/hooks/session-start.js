@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rodarHook, emitirContexto, emitirJson, falharAberto, dentroDeSubagente } from './comum.js';
@@ -25,6 +26,12 @@ import { registrarSessao } from '../ativas.js';
 //    mas só grava o que a sessão ainda não tem: um compact, clear ou resume
 //    da mesma sessão não troca a base dela (fix round 1). A fotografia nunca
 //    derruba nem muda a saída: erro vira o evento 'erro' config-foto.
+// 7. com o aprendizado ligado (otel/ligado.json), o anúncio e os avisos do
+//    aprendizado vão ao usuário pelo systemMessage (spec aprendizado §4.6,
+//    R13), fora do contexto do Claude; depois da saída, a vida do Collector e
+//    o passo de aprendizado (passo.js). Desligado, nada disso é carregado; só
+//    um otel/coletor.pid que sobrou de um desligar cuja parada falhou (Task
+//    10) carrega passo.js, para uma parada por melhor esforço.
 // session_id ausente ou inválido, ou sem diretório de dados: nenhum registro,
 // nenhuma linha, nenhuma escrita. O mesmo dentro de um subagente
 // (dentroDeSubagente, spec v0.4.0 §10, item 3).
@@ -69,6 +76,16 @@ async function dispararPainel(dir, agoraMs) {
     filho.unref();
   } catch {
     // sem painel nesta sessão; a barra e o contexto não mudam
+  }
+}
+
+// otel/coletor.pid como arquivo regular (lstat; link não conta): com o
+// aprendizado desligado, é tudo o que se olha (o fs já veio com base.js).
+function pidDeColetor(arquivo) {
+  try {
+    return fs.lstatSync(arquivo, { throwIfNoEntry: false })?.isFile() === true;
+  } catch {
+    return false;
   }
 }
 
@@ -120,10 +137,35 @@ rodarHook(async (entrada) => {
   const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs))];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
-  // Spec v0.4.0 §10, item 11: ao retomar com o cache expirado, uma linha ao
-  // usuário (systemMessage), fora do contexto do Claude.
+  // Aprendizado (spec aprendizado §4.6, §11, R13): arquivos.js é leve;
+  // passo.js só carrega com o aprendizado ligado. Um import que falha não
+  // tira a linha de consumo: segue como desligado.
+  let apr = null;
+  try {
+    apr = await import('../aprendizado/arquivos.js');
+  } catch { /* sem aprendizado nesta sessão */ }
+  const aprendizadoLigado = apr !== null && apr.ligadoExiste(dir);
+  let aprendizado = [];
+  if (aprendizadoLigado) {
+    try {
+      aprendizado = (await import('../aprendizado/passo.js')).linhasDoInicio({ dir, agoraMs });
+    } catch { /* sem linha do aprendizado nesta sessão */ }
+  }
+  // Ao usuário, fora do contexto do Claude (systemMessage): a linha de
+  // retomada (spec v0.4.0 §10, item 11: ao retomar com o cache expirado) e
+  // as do aprendizado (R13).
   const retomada = linhas.linhaRetomada(entrada);
-  if (retomada === null) emitirContexto('SessionStart', saida.join('\n'));
-  else emitirJson({ systemMessage: retomada, hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: saida.join('\n') } });
+  const aoUsuario = [retomada, ...aprendizado].filter((x) => typeof x === 'string' && x.length > 0);
+  if (aoUsuario.length === 0) emitirContexto('SessionStart', saida.join('\n'));
+  else emitirJson({ systemMessage: aoUsuario.join('\n'), hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: saida.join('\n') } });
   if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await dispararPainel(dir, agoraMs);
+  if (aprendizadoLigado) {
+    try {
+      (await import('../aprendizado/passo.js')).depoisDoInicio({ dir, sessionId, source: entrada.source, agoraMs });
+    } catch { /* o passo registra os próprios erros; um import que falha só pula o passo */ }
+  } else if (apr !== null && pidDeColetor(apr.caminhos(dir).pid)) {
+    try {
+      (await import('../aprendizado/passo.js')).pararSemLigado({ dir, agoraMs });
+    } catch { /* melhor esforço: a próxima sessão tenta de novo */ }
+  }
 });

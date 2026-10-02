@@ -204,8 +204,12 @@ test('cursor, eventos (50 no máximo) e ligado.json', () => {
   c.historicoAte = AGORA - 1000;
   c.anuncio = { dia: '2026-10-20', ajustes: 3, sugestoes: 1 };
   c.avisos['porta-ocupada'] = '2026-10-20';
+  c.fora['guarda.teto7d'] = '2026-10-20';
   gravarCursor(d, c);
   assert.deepEqual(lerCursor(d, AGORA), c);
+  gravarCursor(d, { ...c, fora: { 'guarda.teto7d': 'ontem', 'item.inventado': '2026-10-20', 'painel.amarelo': '2026-10-19' } });
+  assert.deepEqual(lerCursor(d, AGORA).fora, { 'painel.amarelo': '2026-10-19' }, 'só itens de ITENS com dia válido');
+  gravarCursor(d, c);
   for (let i = 0; i < 60; i++) anexarEventoApr(d, 'porta-ocupada', AGORA + i);
   anexarEventoApr(d, 'inventado', AGORA);
   const ev = lerEventosApr(d, AGORA + 100);
