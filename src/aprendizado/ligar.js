@@ -388,8 +388,15 @@ export function desligar(opcoes) {
     // resultado avisa. Um segundo desligar não tira nada do env (as chaves
     // já saíram) e tenta apagá-lo de novo.
     const registroFicou = existe(caminhos(dir).ligado);
+    // coletorPendente: a parada foi tentada num Collector vivo e a saída não
+    // foi confirmada (a parada falhou ou lançou com o PID no lugar, ou a
+    // espera pela saída esgotou ou não teve resposta): os mesmos casos em que
+    // o coletor.pid fica ou volta, para o próximo SessionStart ou SessionEnd.
+    // Nada rodando (sem-pid, morto, outro-processo) ou saída confirmada: false.
+    // É o que a mensagem usa para avisar; `parado` segue como era.
+    const coletorPendente = vivo === true;
     return {
-      ok: true, removidas, backup, parado, apagou, pasta: caminhos(dir).otel, ligadoInvalido, registroFicou,
+      ok: true, removidas, backup, parado, coletorPendente, apagou, pasta: caminhos(dir).otel, ligadoInvalido, registroFicou,
     };
   } catch {
     return falha('erro');

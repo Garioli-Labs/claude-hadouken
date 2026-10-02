@@ -221,8 +221,10 @@ test('desligado: o resultado do desligar, com registroFicou e alcance', () => {
   assert.match(msg.desligado({ ...base, apagou: true }, 'tudo'), /foram apagados/);
 });
 
-test('desligado: parado false avisa que o Collector pode estar de pé, conforme o alcance', () => {
-  const base = { ok: true, removidas: ['A'], backup: null, parado: false, apagou: false, pasta: 'C:\\h\\otel', ligadoInvalido: false, registroFicou: false };
+test('desligado: coletorPendente avisa que o Collector pode estar de pé, conforme o alcance', () => {
+  const base = {
+    ok: true, removidas: ['A'], backup: null, parado: false, coletorPendente: true, apagou: false, pasta: 'C:\\h\\otel', ligadoInvalido: false, registroFicou: false,
+  };
   const AVISO_TUDO = 'O Collector pode ainda estar de pé; ele é parado no próximo início ou fim de sessão, e o binário e coletor.pid ficam até lá.';
   const AVISO_SEM_BIN = 'O Collector pode ainda estar de pé; ele é parado no próximo início ou fim de sessão, e o coletor.pid fica até lá.';
   // tudo: o binário sairia; com o Collector talvez vivo, ele e o PID ficam.
@@ -236,11 +238,20 @@ test('desligado: parado false avisa que o Collector pode estar de pé, conforme 
     assert.ok(!t.includes(AVISO_TUDO), alcance);
     assert.doesNotMatch(t, /O Collector foi parado/);
   }
-  // parado true (ou ausente) não leva o aviso.
   for (const alcance of ['nada', 'dados', 'tudo']) {
-    assert.doesNotMatch(msg.desligado({ ...base, parado: true }, alcance), /pode ainda estar de pé/);
-    const { parado, ...semParado } = base;
-    assert.doesNotMatch(msg.desligado(semParado, alcance), /pode ainda estar de pé/);
+    // Saída confirmada: "foi parado", sem aviso.
+    const parado = msg.desligado({ ...base, parado: true, coletorPendente: false }, alcance);
+    assert.match(parado, /O Collector foi parado\./, alcance);
+    assert.doesNotMatch(parado, /pode ainda estar de pé/, alcance);
+    // Nada rodando (sem-pid, morto, outro-processo): nem "foi parado" nem aviso.
+    for (const nada of [{ ...base, coletorPendente: false }, (({ coletorPendente, ...r }) => r)(base)]) {
+      const t = msg.desligado(nada, alcance);
+      assert.doesNotMatch(t, /O Collector foi parado/, alcance);
+      assert.doesNotMatch(t, /pode ainda estar de pé/, alcance);
+      assert.match(t, /^hadouken: aprendizado desligado\. 1 chave saiu do env do settings\.json\. /, alcance);
+    }
+    // Só true conta: um valor que não é booleano não avisa.
+    assert.doesNotMatch(msg.desligado({ ...base, coletorPendente: 'sim' }, alcance), /pode ainda estar de pé/, alcance);
   }
 });
 

@@ -750,3 +750,42 @@ test('desligar tudo com o arquivo preso para sempre: desiste depois de 20 tentat
     assert.ok(fs.existsSync(cm.otel), code);
   }
 });
+
+// Ruling do controlador (follow-up de 527ca3f): coletorPendente só quando uma
+// parada foi tentada num Collector vivo e a saída não foi confirmada (os
+// mesmos casos em que o coletor.pid fica ou volta). Nada rodando (sem-pid,
+// morto, outro-processo) e saída confirmada: false. `parado` não muda.
+test('desligar: coletorPendente só com a saída do Collector vivo não confirmada', async () => {
+  const pararMorto = ({ dir }) => { fs.rmSync(caminhos(dir).pid, { force: true }); return { ok: true, motivo: 'morto' }; };
+  const pararOutro = ({ dir }) => { fs.rmSync(caminhos(dir).pid, { force: true }); return { ok: false, motivo: 'outro-processo' }; };
+  const semEspera = () => {};
+  const casos = [
+    { nome: 'sem-pid', comPid: false, parar: () => ({ ok: true, motivo: 'sem-pid' }), parado: false, pendente: false },
+    { nome: 'morto', comPid: true, parar: pararMorto, parado: false, pendente: false },
+    { nome: 'outro-processo', comPid: true, parar: pararOutro, parado: false, pendente: false },
+    { nome: 'saída confirmada', comPid: true, parar: pararComoTaskkill, saiu: () => true, parado: true, pendente: false },
+    { nome: 'prazo da saída esgotado', comPid: true, parar: pararComoTaskkill, saiu: () => false, parado: false, pendente: true, soComDados: true },
+    { nome: 'consulta da saída falhou', comPid: true, parar: pararComoTaskkill, saiu: () => null, parado: false, pendente: true, soComDados: true },
+    { nome: 'parada com erro', comPid: true, parar: () => ({ ok: false, motivo: 'erro' }), parado: false, pendente: true },
+    { nome: 'parada que lança', comPid: true, parar: () => { throw new Error('parada falsa que lança'); }, parado: false, pendente: true },
+  ];
+  for (const caso of casos) {
+    for (const alcance of ['nada', 'dados', 'tudo']) {
+      const rotulo = `${caso.nome}, ${alcance}`;
+      const c = cenario();
+      if (caso.comPid) await comColetor(c);
+      else await ligado(c);
+      const d = desligar({
+        dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, apagar: alcance, parar: caso.parar,
+        saiu: caso.saiu ?? (() => { throw new Error('não devia consultar'); }), esperar: semEspera,
+      });
+      assert.equal(d.ok, true, rotulo);
+      // No alcance nada a saída não é esperada: a parada que respondeu basta.
+      const pendente = caso.soComDados && alcance === 'nada' ? false : caso.pendente;
+      const parado = caso.soComDados && alcance === 'nada' ? true : caso.parado;
+      assert.equal(d.coletorPendente, pendente, rotulo);
+      assert.equal(d.parado, parado, rotulo);
+      assert.equal(fs.existsSync(caminhos(c.dir).pid), pendente, `${rotulo}: o coletor.pid fica se e só se pendente`);
+    }
+  }
+});
