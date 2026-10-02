@@ -216,13 +216,15 @@ export function lerPid(dir) {
 // processo com esse PID); { ok: false } quando não deu para saber (prazo,
 // programa ausente, erro). O ps sai com 1 e nada no stdout quando o PID não
 // existe (procps e BSD); o tasklist sai com 0 e uma linha "INFO" localizada.
+// O stdio é explícito: sem ele, o execFileSync repete o stderr do filho no
+// stderr do hook (revisão da Task 8).
 function consultarNome(pid, opcoes) {
   try {
     const { plataforma = process.platform, executar = execFileSync, systemRoot = process.env.SystemRoot } = opcoes ?? {};
     if (!Number.isSafeInteger(pid) || pid <= 0) return { ok: true, nome: null };
     if (ehWin(plataforma)) {
       const saida = String(executar(programa('tasklist', { plataforma, systemRoot }), ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
-        windowsHide: true, timeout: CONSULTA_PRAZO_MS, encoding: 'utf8',
+        windowsHide: true, timeout: CONSULTA_PRAZO_MS, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
       }));
       for (const linha of saida.split(/\r?\n/)) {
         const m = /^"([^"]{1,260})","(\d{1,10})"/.exec(linha.trim());
@@ -233,7 +235,7 @@ function consultarNome(pid, opcoes) {
     let saida;
     try {
       saida = String(executar(programa('ps', { plataforma }), ['-p', String(pid), '-o', 'comm='], {
-        timeout: CONSULTA_PRAZO_MS, encoding: 'utf8',
+        timeout: CONSULTA_PRAZO_MS, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
       })).trim();
     } catch (e) {
       return e?.status === 1 && String(e?.stdout ?? '').trim() === '' ? { ok: true, nome: null } : { ok: false };
@@ -251,12 +253,17 @@ export function nomeDoProcesso(pid, opcoes) {
 
 const ehColetor = (nome, plataforma) => typeof nome === 'string' && (ehWin(plataforma) ? nome.toLowerCase() === NOME_BINARIO.win32 : nome === NOME_BINARIO.posix);
 
+// { vivo, pid, emMs }; quando o tasklist ou o ps não respondeu, vem também
+// `consulta: 'falhou'` (vivo: false sem saber): quem chama não apaga o PID nem
+// trata o Collector como morto ou órfão por isso (Tasks 10 e 12).
 export function coletorVivo(dir, opcoes) {
   try {
     const p = lerPid(dir);
     if (p === null) return { vivo: false, pid: null, emMs: null };
     const plataforma = opcoes?.plataforma ?? process.platform;
-    return { vivo: ehColetor(nomeDoProcesso(p.pid, opcoes), plataforma), pid: p.pid, emMs: p.emMs };
+    const q = consultarNome(p.pid, opcoes);
+    if (!q.ok) return { vivo: false, pid: p.pid, emMs: p.emMs, consulta: 'falhou' };
+    return { vivo: ehColetor(q.nome, plataforma), pid: p.pid, emMs: p.emMs };
   } catch {
     return { vivo: false, pid: null, emMs: null };
   }

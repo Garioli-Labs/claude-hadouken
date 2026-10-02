@@ -1,13 +1,13 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   caminhoBinario, programa, registrarInstalacao, extrairColetor, conferirIntegridade, lerPid, nomeDoProcesso, coletorVivo,
   classificarLog, subirColetor, pararColetor, ehOrfao, hashArquivo, NOME_BINARIO, ORFAO_MS, PORTA_OCUPADA, _retomarSubindoVencida,
@@ -473,4 +473,97 @@ test('coletorVivo e órfão (§3.3): vivo pelo nome; órfão com mais de 30 min 
   assert.equal(ehOrfao({ emMs: agora - ORFAO_MS - 1, ultimaOutraSessaoMs: null, agoraMs: agora }), true);
   assert.equal(ehOrfao({ emMs: agora - ORFAO_MS - 1, ultimaOutraSessaoMs: agora - 60_000, agoraMs: agora }), false);
   assert.equal(ehOrfao({ emMs: agora - 60_000, ultimaOutraSessaoMs: null, agoraMs: agora }), false);
+});
+
+// Rodada 1 da revisão da Task 8.
+
+test('coletorVivo: consulta que falha vem marcada (consulta: "falhou"), sem virar "morto"', () => {
+  const d = novoDir();
+  const em = Date.now() - 60_000;
+  gravarPid(d, 4242, em);
+  const prazo = () => { throw Object.assign(new Error('tasklist: prazo'), { code: 'ETIMEDOUT' }); };
+  assert.deepEqual(coletorVivo(d, { plataforma: 'win32', systemRoot: 'C:\\Windows', executar: prazo }), { vivo: false, pid: 4242, emMs: em, consulta: 'falhou' });
+  const semPs = () => { throw Object.assign(new Error('spawn /bin/ps ENOENT'), { code: 'ENOENT' }); };
+  assert.deepEqual(coletorVivo(d, { plataforma: 'linux', executar: semPs }), { vivo: false, pid: 4242, emMs: em, consulta: 'falhou' });
+  // Morto de verdade: a forma de antes, sem o campo.
+  const ausente = () => { throw Object.assign(new Error('Command failed: /bin/ps'), { status: 1, stdout: '' }); };
+  assert.deepEqual(coletorVivo(d, { plataforma: 'linux', executar: ausente }), { vivo: false, pid: 4242, emMs: em });
+  assert.deepEqual(coletorVivo(d, { plataforma: 'win32', executar: () => 'INFO: No tasks are running which match the specified criteria.\r\n' }), { vivo: false, pid: 4242, emMs: em });
+  assert.deepEqual(coletorVivo(d, { plataforma: 'win32', executar: () => '"notepad.exe","4242","Console","1","8.000 K"\r\n' }), { vivo: false, pid: 4242, emMs: em });
+  assert.equal(lerPid(d).pid, 4242, 'coletorVivo só lê; o PID fica');
+});
+
+test('lerPid: PID 0, negativo, fracionário, string, fora do inteiro seguro ou arquivo acima do teto não é PID', () => {
+  const d = novoDir();
+  const arq = path.join(d, 'otel', 'coletor.pid');
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  const em = new Date().toISOString();
+  const nuncaConsulta = () => { throw new Error('sem PID válido, nada é consultado'); };
+  const casos = [
+    JSON.stringify({ v: 1, pid: 0, em }),
+    JSON.stringify({ v: 1, pid: -4242, em }),
+    JSON.stringify({ v: 1, pid: 4242.5, em }),
+    JSON.stringify({ v: 1, pid: '4242', em }),
+    JSON.stringify({ v: 1, pid: 2 ** 53, em }),
+    `{"v":1,"pid":1e400,"em":"${em}"}`,
+    JSON.stringify({ v: 1, em }),
+    JSON.stringify({ v: 2, pid: 4242, em }),
+    JSON.stringify([4242]),
+    JSON.stringify({ v: 1, pid: 4242, em, enchimento: 'x'.repeat(2000) }),
+  ];
+  for (const texto of casos) {
+    fs.writeFileSync(arq, texto);
+    const rotulo = texto.slice(0, 60);
+    assert.equal(lerPid(d), null, rotulo);
+    assert.deepEqual(coletorVivo(d, { plataforma: plat, executar: nuncaConsulta }), { vivo: false, pid: null, emMs: null }, rotulo);
+    assert.deepEqual(pararColetor({ dir: d, plataforma: plat, executar: nuncaConsulta }), { ok: true, motivo: 'sem-pid' }, rotulo);
+  }
+  fs.writeFileSync(arq, JSON.stringify({ v: 1, pid: 4242, em: 'não é data' }));
+  assert.deepEqual(lerPid(d), { pid: 4242, emMs: null }, 'instante ilegível: o PID vale, sem o instante');
+  fs.writeFileSync(arq, JSON.stringify({ v: 1, pid: 4242, em }));
+  assert.deepEqual(lerPid(d), { pid: 4242, emMs: Date.parse(em) });
+});
+
+test('consulta do processo: tasklist e ps com stdio explícito, o stderr deles nunca chega ao hook', () => {
+  const opcoes = [];
+  const espia = (saida) => (_arquivo, _args, o) => { opcoes.push(o); return saida; };
+  assert.equal(nomeDoProcesso(4242, { plataforma: 'win32', executar: espia('"otelcol-contrib.exe","4242","Console","1","80.000 K"\r\n') }), 'otelcol-contrib.exe');
+  assert.equal(nomeDoProcesso(4242, { plataforma: 'linux', executar: espia('otelcol-contrib\n') }), 'otelcol-contrib');
+  assert.equal(opcoes.length, 2);
+  for (const o of opcoes) assert.deepEqual(o.stdio, ['ignore', 'pipe', 'ignore']);
+});
+
+test('consulta do processo: um tasklist que escreve no stderr não suja o stderr de quem chama', {
+  skip: plat !== 'win32' && 'só no Windows: no POSIX o ps é /bin/ps fixo, sem como pôr um falso no lugar',
+}, () => {
+  const raiz = novoDir();
+  const falso = path.join(raiz, 'System32', 'tasklist.exe');
+  fs.mkdirSync(path.dirname(falso), { recursive: true });
+  // O node.exe com outro nome: com "/FI ..." nos argumentos, ele procura o
+  // módulo "\FI", escreve o erro no stderr e sai com 1.
+  fs.copyFileSync(process.execPath, falso);
+  // Aquecimento e prova de que o falso escreve no stderr. O antivírus examina
+  // o .exe novo na primeira execução, o que pode passar dos 5 s da consulta;
+  // depois dela, a consulta abaixo roda no tempo normal.
+  const prova = spawnSync(falso, ['/FI', 'PID eq 4242', '/FO', 'CSV', '/NH'], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+  assert.equal(prova.status, 1);
+  assert.match(prova.stderr, /Cannot find module/);
+  // O "hook": o execFileSync de verdade, envolvido só para anotar o status de
+  // saída, prova que o falso rodou (status 1) com as opções do coletor.js.
+  const modulo = pathToFileURL(path.join(aqui, '..', 'src', 'aprendizado', 'coletor.js')).href;
+  const codigo = [
+    "import cp from 'node:child_process';",
+    "import { syncBuiltinESMExports } from 'node:module';",
+    'const original = cp.execFileSync;',
+    'let status = null;',
+    'cp.execFileSync = (...a) => { try { return original(...a); } catch (e) { status = e.status; throw e; } };',
+    'syncBuiltinESMExports();',
+    `const { nomeDoProcesso } = await import(${JSON.stringify(modulo)});`,
+    "const nome = nomeDoProcesso(4242, { plataforma: 'win32', systemRoot: process.argv[1] });",
+    'process.stdout.write(JSON.stringify({ nome, status }));',
+  ].join('\n');
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', codigo, raiz], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { nome: null, status: 1 }, 'o tasklist falso rodou e saiu com 1');
+  assert.equal(r.stderr, '', 'nada do tasklist no stderr do hook');
 });
