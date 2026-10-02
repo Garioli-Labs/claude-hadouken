@@ -71,7 +71,9 @@ const IF_P4 = [
 test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', () => {
   const h = JSON.parse(ler('hooks', 'hooks.json')).hooks;
   const handlers = Object.entries(h).flatMap(([evento, grupos]) => grupos.flatMap((g) => g.hooks.map((x) => ({ evento, matcher: g.matcher, ...x }))));
-  const novos = handlers.filter((x) => Array.isArray(x.args));
+  // O aprender (aprendizado, R5) tem timeout próprio de 600 s e teste próprio
+  // em test/aprendizado-comando.test.js.
+  const novos = handlers.filter((x) => Array.isArray(x.args) && !x.args[0].endsWith('/aprender.js'));
   // 45 = 10 fora da P4 e da P5 estendida (P1, P5 x4 na pasta de dados,
   // liberar, P3, PostModelSwitch, StopFailure e o hook da agenda, C1 da
   // revisão final) + 17 da P4, um por `if` de IF_P4 (8 Bash, 9 PowerShell)

@@ -74,7 +74,9 @@
     ],
     "UserPromptExpansion": [
       { "matcher": "claude-hadouken:liberar",
-        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/liberar.js"], "timeout": 10 } ] }
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/liberar.js"], "timeout": 10 } ] },
+      { "matcher": "claude-hadouken:aprender",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/aprender.js"], "timeout": 600 } ] }
     ],
     "PreModelSwitch": [
       { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-modelo.js"], "timeout": 10 } ] }
