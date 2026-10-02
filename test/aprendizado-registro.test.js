@@ -297,6 +297,8 @@ test('consumidores: sem ligado.json nada vale; com ele, intervalo fora das horas
   aj.perfil.ritmoHora.h5[15] = 0.2;
   const hoje = new Date(AGORA);
   const dia = (hoje.getDay() + 6) % 7;
+  // Uma hora ativa que não é a de agora: sem nenhuma, o intervalo não vale.
+  aj.perfil.horasAtivas[dia] = 1 << ((hoje.getHours() + 1) % 24);
   gravarAjustes(d, aj);
   assert.equal(ajustesParaConsumo(d, AGORA), null);
   assert.equal(intervaloDoPainelMs(d, AGORA), null);

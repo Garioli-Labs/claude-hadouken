@@ -532,11 +532,15 @@ export function horaAtiva(perfil, ms) {
 }
 
 // O intervalo aprendido fora das horas ativas (R9), em ms; null = o de hoje.
+// Sem nenhuma hora ativa no perfil (todas as máscaras zeradas), não há base
+// para "fora das horas ativas" (§4.3) e também vale o de hoje: o ajustar.js
+// só aprende o intervalo com alguma hora ativa, então isso só acontece com
+// um perfil que encolheu antes do próximo ajuste ou um arquivo editado.
 export function intervaloDoPainelMs(dir, agoraMs) {
   const a = ajustesParaConsumo(dir, agoraMs);
   if (a === null) return null;
   const s = a.vigentes['painel.intervaloS'];
-  if (s === ITENS['painel.intervaloS'].padrao || horaAtiva(a.perfil, agoraMs)) return null;
+  if (s === ITENS['painel.intervaloS'].padrao || a.perfil.horasAtivas.every((m) => m === 0) || horaAtiva(a.perfil, agoraMs)) return null;
   return s * 1000;
 }
 

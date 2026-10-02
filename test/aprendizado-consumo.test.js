@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ajustesVazios, gravarAjustes, gravarLigado } from '../src/aprendizado/registro.js';
+import { ajustesVazios, gravarAjustes, gravarLigado, intervaloDoPainelMs } from '../src/aprendizado/registro.js';
 import { preverEstouro, ritmoMisturado } from '../src/previsao.js';
 import { ARQ_USO, estadoPainel, talvezAtualizar } from '../src/uso/painel.js';
 
@@ -19,6 +19,8 @@ const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const MIN = 60_000;
 const H = 60 * MIN;
 const AGORA = new Date(2026, 8, 29, 17, 4).getTime();
+// Perfil com horas ativas, mas não a de AGORA (17 h): só as 3 h, todo dia.
+const SO_AS_3 = new Array(7).fill(1 << 3);
 const iso = (ms) => new Date(ms).toISOString();
 const tmps = [];
 after(() => { for (const d of tmps) fs.rmSync(d, { recursive: true, force: true }); });
@@ -67,7 +69,7 @@ test('R9: fora das horas ativas, o intervalo aprendido de 120 s segura a leitura
     return { ok: true, uso: { sessao: { pct: 25, resetsAtMs: AGORA + H }, semana: { pct: 41, resetsAtMs: AGORA + 72 * H }, modelos: { fable: { pct: 57, resetsAtMs: AGORA + 72 * H } } } };
   };
   const opcoes = { dir: d, agoraMs: AGORA, env: {}, rodar, memLivre: () => 8 * 1024 ** 3, estadoAtivo: () => true, achar: () => path.join(os.tmpdir(), 'nao-existe', 'claude.exe') };
-  comAjustes(d, { 'painel.intervaloS': 120 });
+  comAjustes(d, { 'painel.intervaloS': 120 }, SO_AS_3);
   ligar(d);
   gravarUso(d, 25, AGORA - 60_000);
   assert.deepEqual(await talvezAtualizar(opcoes), { feito: false, motivo: 'recente' });
@@ -77,8 +79,12 @@ test('R9: fora das horas ativas, o intervalo aprendido de 120 s segura a leitura
   comAjustes(d, { 'painel.intervaloS': 120 }, new Array(7).fill(0xffffff));
   gravarUso(d, 25, AGORA - 60_000);
   assert.deepEqual(await talvezAtualizar(opcoes), { feito: true, motivo: 'ok' });
-  // Desligado, também.
+  // Sem nenhuma hora ativa no perfil, não há "fora das horas ativas": 30 s.
   comAjustes(d, { 'painel.intervaloS': 120 });
+  gravarUso(d, 25, AGORA - 60_000);
+  assert.deepEqual(await talvezAtualizar(opcoes), { feito: true, motivo: 'ok' });
+  // Desligado, também.
+  comAjustes(d, { 'painel.intervaloS': 120 }, SO_AS_3);
   desligar(d);
   gravarUso(d, 25, AGORA - 60_000);
   assert.deepEqual(await talvezAtualizar(opcoes), { feito: true, motivo: 'ok' });
@@ -86,7 +92,16 @@ test('R9: fora das horas ativas, o intervalo aprendido de 120 s segura a leitura
   ligar(d);
   gravarUso(d, 25, AGORA - 6_000);
   assert.deepEqual(await talvezAtualizar({ ...opcoes, forcar: true }), { feito: true, motivo: 'ok' });
-  assert.equal(chamadas.length, 4);
+  assert.equal(chamadas.length, 5);
+});
+
+test('R9: intervalo aprendido com horasAtivas todas zeradas não vale (null); com uma hora ativa que não é a de agora, vale', () => {
+  const d = novoDir();
+  ligar(d);
+  comAjustes(d, { 'painel.intervaloS': 120 });
+  assert.equal(intervaloDoPainelMs(d, AGORA), null);
+  comAjustes(d, { 'painel.intervaloS': 120 }, SO_AS_3);
+  assert.equal(intervaloDoPainelMs(d, AGORA), 120_000);
 });
 
 test('R10: ritmoMisturado só mistura com peso em (0; 0,5], ritmo atual positivo e típico da hora > 0', () => {
@@ -138,12 +153,52 @@ function hook(nome, home, entrada) {
   return spawnSync(process.execPath, [path.join(repo, 'src', 'hooks', nome)], { input: JSON.stringify(entrada), env, encoding: 'utf8', timeout: 30_000 });
 }
 
-test('§11: UserPromptSubmit com o aprendizado ligado e peso em vigor termina limpo', () => {
+// Um UserPromptSubmit de verdade (processo filho) sobre o mesmo estado: 5h em
+// 60% subindo 1 ponto por minuto (52, 54 … 60 em 8 min), reset em 1 h, e o
+// ajustes.json com peso 0,5 e ritmo típico de 3 pontos por minuto em toda
+// hora. O ajustes.json é gravado depois do SessionStart, cujo passo de
+// aprendizado poderia refazer o perfil. Devolve as linhas de projeção
+// injetadas e a faixa guardada em projecao.json.
+function promptComHistorico(ligado) {
   const d = novoDir();
-  ligar(d);
-  comAjustes(d, { 'previsao.pesoPerfil': 0.5 });
-  assert.equal(hook('session-start.js', d, { session_id: 'consumo-a', hook_event_name: 'SessionStart', source: 'startup' }).status, 0);
-  const r = hook('prompt-submit.js', d, { session_id: 'consumo-a', hook_event_name: 'UserPromptSubmit', prompt: 'oi' });
+  const id = `consumo-${ligado ? 'ligado' : 'desligado'}`;
+  const ss = hook('session-start.js', d, { session_id: id, hook_event_name: 'SessionStart', source: 'startup' });
+  assert.equal(ss.status, 0, ss.stderr);
+  if (ligado) ligar(d);
+  const aj = ajustesVazios();
+  aj.vigentes['previsao.pesoPerfil'] = 0.5;
+  aj.perfil.ritmoHora.h5 = new Array(24).fill(3);
+  assert.equal(gravarAjustes(d, aj).ok, true);
+  const agora = Date.now();
+  const s = Math.floor(agora / 1000);
+  fs.writeFileSync(path.join(d, 'estado.json'), JSON.stringify({
+    versao: 1, at: iso(agora),
+    five_hour: { used_percentage: 60, resets_at: s + 3600 },
+    seven_day: { used_percentage: 50, resets_at: s + 84 * 3600 },
+    sessoes: {},
+    historico: [[-8, 52], [-6, 54], [-4, 56], [-2, 58], [0, 60]].map(([m, v]) => ({ at: iso(agora + m * MIN), h5: v, d7: null })),
+  }));
+  const r = hook('prompt-submit.js', d, { session_id: id, hook_event_name: 'UserPromptSubmit', prompt: 'oi' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
+  const texto = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  const projecao = texto.split('\n').filter((l) => l.startsWith('hadouken: no ritmo atual'));
+  const memoria = JSON.parse(fs.readFileSync(path.join(d, 'projecao.json'), 'utf8'));
+  return { projecao, faixa: memoria[id]?.five_hour?.faixa };
+}
+
+test('§11 e R10: no UserPromptSubmit, o peso em vigor antecipa a linha de projeção; desligado, a de hoje', () => {
+  // Desligado (o ajustes.json existe, mas não é lido): 1 pt/min, 100% em
+  // ~40 min, faixa de 60 min.
+  const sem = promptComHistorico(false);
+  // Ligado: (1 − 0,5)·1 + 0,5·3 = 2 pt/min, 100% em ~20 min, faixa de 30 min.
+  const com = promptComHistorico(true);
+  assert.equal(sem.projecao.length, 1, JSON.stringify(sem));
+  assert.equal(com.projecao.length, 1, JSON.stringify(com));
+  assert.equal(sem.faixa, '60');
+  assert.equal(com.faixa, '30');
+  const hora = (linha) => /chega a 100% às (\d\d:\d\d),/.exec(linha)?.[1];
+  assert.ok(hora(sem.projecao[0]) && hora(com.projecao[0]));
+  assert.notEqual(hora(com.projecao[0]), hora(sem.projecao[0]));
+  assert.notEqual(com.projecao[0], sem.projecao[0]);
 });
