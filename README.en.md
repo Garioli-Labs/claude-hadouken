@@ -50,6 +50,7 @@ This is **v0.4.0** of the plugin's first subproject, the **Usage reader** (*Leit
   - [Column glossary](#column-glossary)
   - [1 h and 5 min cache: what TTL means](#1-h-and-5-min-cache-what-ttl-means)
   - [GitHub Actions](#github-actions)
+- [Local learning (optional)](#local-learning-optional)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Where the data lives](#where-the-data-lives)
@@ -429,7 +430,7 @@ Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch,
 | P5 | always, even with the guard off | editing hadouken's data folder (`~/.claude/hadouken`) with Write, Edit, MultiEdit or NotebookEdit |
 | P5 (settings and plugin) | always, even with the guard off | editing with those tools the user's `settings.json` and `settings.local.json` (in `~/.claude` and in `CLAUDE_CONFIG_DIR`) and the plugin itself (its root and `claude-hadouken` under `plugins/`); in project settings, only an edit that changes the value of `disableAllHooks`, `enabledPlugins` or `hooks` (P5 applies it to the current file and compares) or that adds or removes one of those words or `claude-hadouken` and, in a file that already has one of them, a Write or the replacement of a short stretch (under 40 characters). Above 1 MiB, an edit that names `settings` or `hadouken` is denied without being read; one that names neither passes (SECURITY.md, R2). If the change is needed, you apply it by hand |
 | P5 (config) | always, in a registered session, even with the guard off | a change to `disableAllHooks`, `enabledPlugins` or `hooks` in the user's `settings.json` or in the project's `.claude/settings.json` and `.claude/settings.local.json`, wherever it comes from (the regular P5 covers the edit tools first; Bash, PowerShell, you or another program land here). It is held only for the current session: the file on disk stays changed, and the next session reads it. Measured live only on the project settings; the user and local settings are covered by the code, with no live measurement |
-| release | always, even with the guard off | a child `claude` session, a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger, and MCP schedulers with `cron`, `schedule`, `trigger` or `task` in the name) with `/claude-hadouken:liberar` in its text |
+| release | always, even with the guard off | a child `claude` session with `/claude-hadouken:liberar` in its text; a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger, and MCP schedulers with `cron`, `schedule`, `trigger` or `task` in the name) with `/claude-hadouken:liberar` or, since local learning, `/claude-hadouken:aprender` in its text |
 
 The numbers can be tuned under the `guarda` key of `config.json` (the Fable 90% is `guarda.fable.tetoPct`). Loosening the configuration does not lift a lock that has already tripped.
 
@@ -843,6 +844,68 @@ The only accepted argument is the literal `--json`; anything else is ignored and
 
 ---
 
+## Local learning (optional)
+
+Off by default. When on, hadouken learns on this machine only, spending no tokens, from two sources: Claude Code's own OpenTelemetry, received by an official Collector (`otelcol-contrib`) that listens only on `127.0.0.1:47318`, and the data the hooks already save. With that it adjusts comfort settings by itself, within limits fixed in the code, and only ever **tightens** the guard by itself. Loosening the guard and switching models stay as suggestions you approve.
+
+### Turning it on, in two steps
+
+1. `/claude-hadouken:aprender ligar` shows the plan and changes nothing: the Collector version, the GitHub download address, the maximum size, the folder (`~/.claude/hadouken/otel/`), the keys that go into the `env` of `settings.json`, and an 8-character code.
+2. `/claude-hadouken:aprender ligar <code>` does it: downloads the Collector once, checks the SHA-256 pinned in the code (on a mismatch the file is deleted and nothing changes), extracts it with the system `tar`, writes the configuration and only then adds the keys to the `env` of `settings.json`, with a backup. If `settings.json` changed between the two steps, the code does not match and nothing happens.
+
+`ligar` refuses if `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_DETAILS` or `OTEL_LOG_RAW_API_BODIES` is on (in the `env` of `settings.json` or in the environment, with the name in any letter case, as Windows reads it), or if another OTLP endpoint is already configured. Telemetry starts with the next session. The command is a hook that runs before the model: it spends no tokens, and a `claude -p` or SDK session (a script) is refused; a scheduled task, a `/loop` or a routine carrying the command in its text is denied before it is created. If another session is in the middle of a `ligar`, a `desligar` or the learning step, the answer is that learning is busy, and `settings.json` does not change.
+
+The extracted binary takes about 367 MiB of disk; the downloaded `.tar.gz` (about 100 MiB) is deleted after extraction. Measured on Windows, the Collector uses about 108 MiB of memory when idle and reached 131 MiB at its peak.
+
+The Collector starts at the beginning of each session (no window, no waiting), does not start with less than 1.5 GiB of free memory, and stops at the end of the last open session.
+
+### What it adjusts by itself
+
+Only after 7 calendar days of data **and** 20 sessions, and at most one change per item every 24 h:
+
+| Item | Limits | When it changes |
+|---|---|---|
+| Panel interval outside active hours | 30 to 120 s | During your active hours the panel reads every 30 s; outside them, every 60 and then 120 s. |
+| Panel yellow band | 60 to 85% | From the lead time, in your history, between crossing the band and running out of the window. |
+| Panel red band | 85 to 95% | Same. |
+| Weight of the hourly pace in the forecast | 0 to 0.5 | Goes up 0.1 at a time when the hourly pace covers 80% of your active hours. It applies to the notices Claude receives; the guard keeps the current pace. |
+| Guard's Fable ceiling and 7-day ceiling | Down only, 5 points at a time, never below 70% | When the window ran out in 2 of the last 3 weeks. |
+
+Learned bands only change the colour of the VS Code panel; the notices Claude receives keep the usual bands.
+
+**Limit:** the bands learn from the short history in `estado.json`, which covers 3 h, and the learning step runs only at the start and the end of each session. In a session longer than 3 h, the oldest points leave the history before they are read, and the learned bands lean towards the end of those sessions.
+
+### Suggestions, never applied by themselves
+
+- **Loosen the guard**, at most up to the value in your `config.json`, when more than 30% was left over in the last 4 weeks.
+- **Switch model or effort** for one origin (the main session or a subagent), when the other one cost at most half per request over the last 4 weeks, with errors at most 2 points worse and at least 20 requests on each side. The measure is indirect (cost and errors, not quality), and hadouken never makes the switch. Today Claude Code does not send effort in its telemetry (measured on version 2.1.287), so the comparison is between models only, with effort shown as `-`, until the field arrives.
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `/claude-hadouken:aprender` or `… status` | The state, the adjustments in force, the suggestions and the latest events. |
+| `… ligar`, `… ligar <code>` | The preview and the run, above. |
+| `… desligar`, `… desligar <code>` | Also in two steps: the preview shows the keys that leave the `env` and what will be deleted, with an 8-character code; with the code, it stops the Collector and removes from `env` only the keys with the value `ligar` wrote. If `settings.json` changed between the two steps, nothing happens. The data stays; `desligar dados` deletes the learned data (the binary stays), and `desligar tudo` also deletes the `otel/` folder, binary included, each with its own code (`desligar dados <code>`, `desligar tudo <code>`). |
+| `… desfazer`, `… desfazer aN` | Reverts the last adjustment (or `aN`) and locks the item for 7 days. |
+| `… aprovar sN`, `… recusar sN` | Applies or discards a suggestion; discarding locks the same suggestion for 7 days. |
+
+At the start of a session, at most once a day and only when there is something new, a line like this shows up for you only, outside Claude's context (the plugin's messages are in Portuguese):
+
+```
+Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /claude-hadouken:aprender status).
+```
+
+### Learning privacy
+
+- **First barrier, in the Collector:** deletes `user.email`, `user.account_uuid`, `user.account_id`, `user.id`, `organization.id`, `workspace.host_paths` and every `vcs.*` before writing; it only takes OTLP/HTTP on 127.0.0.1, with no gRPC, no extensions and no other exporter.
+- **Second barrier, in the reader:** every record is rebuilt from scratch with only model, effort, origin, cost, tokens, duration and outcome; everything else, `session.id` included, is dropped.
+- **Content, never:** prompts, tool details and API bodies stay off, and `ligar` refuses if any of them is on.
+- **Retention:** the raw file rotates at 5 MB, keeping 3 old files and 30 days; the aggregates keep 26 weeks.
+- **Nothing leaves the machine:** the only network access is the Collector download, once, through `ligar <code>`.
+
+---
+
 ## Installation
 
 ### Requirements
@@ -991,6 +1054,9 @@ In `~/.claude/hadouken/` (or in `HADOUKEN_HOME`), outside any repository:
 | `github-cache.json` | Actions runs that already completed. |
 | `ativas/` | One file per session that loaded the plugin (the activation registry); files idle for more than 30 days are deleted automatically. |
 | `bin/` | Stable scripts called by the bar, the commands and the VS Code panel (`painel.mjs`), rewritten on every new session. |
+| `otel/` | Only with learning on: the Collector (`bin/`, with its hash in `bin/instalado.json`), the generated configuration (`config.yaml`), the filtered telemetry (`telemetria.jsonl`, rotated), the PID, the startup log, the startup lock (`subindo.lock`) and the record of what `ligar` put into `settings.json` (`ligado.json`). |
+| `aprendizado.json`, `ajustes.json`, `sugestoes.json` | Only with learning on: the aggregates (26 weeks), the adjustments in force with a record of each one, and the suggestions. |
+| `aprendizado-cursor.json`, `aprendizado-eventos.json`, `aprendizado.lock` | Only with learning on: how far the telemetry has been read, the latest events (port busy, low memory…) and the one-step-at-a-time lock. |
 | `guarda.json` | The guard (v0.4.0): the tripped locks, each with its trigger and the window's reset. |
 | `liberacao.json` | The active release, written only by the typed `/claude-hadouken:liberar`. |
 | `guarda-eventos.json` | The guard's 200 newest events (trips, denials, releases, config changes blocked, errors), with fixed labels and numbers only. Feeds "Guarda (7 dias)". |
@@ -1009,13 +1075,13 @@ You can delete the folder at any time; it is recreated on the next session, with
 
 **Summary:**
 
-- **No telemetry.** Nothing is sent to any service, including the plugin's author. The plugin never calls the Claude API.
-- **Network: `gh api`, read-only, and Claude Code's `/usage`.** The report runs `gh api <endpoint>` (always a GET) for the configured repos or for `origin`. The VS Code panel runs the official `claude -p /usage` command: Claude Code itself queries Anthropic, with your session, without calling the model. The plugin opens no connection of its own.
+- **No telemetry.** Nothing is sent to any service, including the plugin's author. The plugin never calls the Claude API. Local learning, optional and off by default, receives Claude Code's OpenTelemetry only on 127.0.0.1 and keeps it, filtered, in the data folder.
+- **Network: `gh api`, read-only, and Claude Code's `/usage`.** The report runs `gh api <endpoint>` (always a GET) for the configured repos or for `origin`. The VS Code panel runs the official `claude -p /usage` command: Claude Code itself queries Anthropic, with your session, without calling the model. The plugin opens no connection of its own. With learning on, the only exception is the one-time Collector download from GitHub, with its SHA-256 checked.
 - **No tokens.** The plugin never reads, asks for or stores a token or credential. The GitHub login belongs to `gh`. The "tokens" in the report are usage counts.
 - **Transcripts: numbers only.** From transcripts, the index keeps relative paths, session and request ids, numbers, dates, model, effort and the project name. No conversation content. The hook cost index (v0.4.0) keeps only numbers and each hook's command hash, never the text a hook from any plugin printed.
-- **Where it writes:** only in the data folder. The exceptions are the `statusLine` key of your `settings.json`, through the installer, with confirmation and a backup, and the panel extension, which the VS Code CLI installs in its extensions folder (can be turned off with `HADOUKEN_SEM_PAINEL=1`).
+- **Where it writes:** only in the data folder. The exceptions are the `statusLine` key of your `settings.json`, through the installer, with confirmation and a backup, and the panel extension, which the VS Code CLI installs in its extensions folder (can be turned off with `HADOUKEN_SEM_PAINEL=1`). Learning's `ligar` and `desligar` change only the telemetry keys in the `env` of `settings.json`, with the same writer and the same backup.
 
-**The guarantee:** nothing the plugin reads (state files, transcripts, the status line input, GitHub responses, command arguments) ever becomes executed code, a shell command, an arbitrary path, a terminal sequence or an instruction carrying the plugin's authority in Claude's context. Every threat in the model (S1 to S9: tampered file, malicious text, terminal sequences, argument injection, malicious repo, tampered script, installer triggered behind your back, supply chain, huge file; and, for the panel, S26 to S28: the panel runs `claude`, the installer runs the VS Code CLI, a tampered `uso-oficial.json`; and, from v0.4.0, S29 and S30: other plugins' text in the report, the bar's repeated reading) has a defence and a test with synthetic malicious input.
+**The guarantee:** nothing the plugin reads (state files, transcripts, the status line input, GitHub responses, command arguments) ever becomes executed code, a shell command, an arbitrary path, a terminal sequence or an instruction carrying the plugin's authority in Claude's context. Every threat in the model (S1 to S9: tampered file, malicious text, terminal sequences, argument injection, malicious repo, tampered script, installer triggered behind your back, supply chain, huge file; and, for the panel, S26 to S28: the panel runs `claude`, the installer runs the VS Code CLI, a tampered `uso-oficial.json`; and, from v0.4.0, S29 and S30: other plugins' text in the report, the bar's repeated reading; and, for learning, L1 to L8: forged OTLP, swapped binary, identity leak, exposed port, corrupted `settings.json`, deleted `ajustes.json`, the download and the Collector's processes) has a defence and a test with synthetic malicious input.
 
 **The honest limit:** no plugin can stop code that **already runs as your OS user**. A malicious skill that got that far can change any of your files, including `settings.json` and the plugin itself. What `claude-hadouken` guarantees is that it does not widen that power, and that it restores its own scripts on every new session.
 
@@ -1180,7 +1246,7 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 
 - **v0.2.0** = a prettier bar: percentages also as little squares (`▰▰▰▱▱▱▱▱`), the weekly pace mark on the 7-day bar, colours for ctx and cache, and an easier-to-read `/consumo` (panel with bars, share-of-total column, short names, decimal comma and thousands separator); and, for several sessions at once, the active session count on the bar, each window's run-out forecast (`→100% 13:10`), the projection notice to Claude and the "open sessions in the last hour" section in `/consumo`.
 - **v0.3.0** = the VS Code panel: 5 h, week and Fable in a status bar item, with Fable read from the official `/usage` without spending tokens, the forecast worded like claude.ai, and a lean read that uses little RAM. The terminal bar keeps only the session (model·effort, ctx and cache), and the session-start line swaps the expected value and the mode for the week's forecast sentence.
-- **v0.4.0** (this one) = the guard: instead of only notifying, hold back subagent dispatch, Fable use and the expensive dispatch when usage goes too far, with release only by the user (`/claude-hadouken:liberar`), and protect the plugin's files and the settings fields that would turn the guard off. `/consumo` gains "Guarda (7 dias)" and "Custo dos hooks (7 dias)"; the notices gain the floor reading, the reset in minutes, the return time and the week's pace; the bar redraws every minute while the session is idle; and resuming an idle session shows the cache tokens to be rewritten.
+- **v0.4.0** (this one) = the guard: instead of only notifying, hold back subagent dispatch, Fable use and the expensive dispatch when usage goes too far, with release only by the user (`/claude-hadouken:liberar`), and protect the plugin's files and the settings fields that would turn the guard off. `/consumo` gains "Guarda (7 dias)" and "Custo dos hooks (7 dias)"; the notices gain the floor reading, the reset in minutes, the return time and the week's pace; the bar redraws every minute while the session is idle; and resuming an idle session shows the cache tokens to be rewritten. Plus optional local learning: hadouken learns from Claude Code's OpenTelemetry, on this machine only and with no tokens, adjusts comfort within fixed limits, only tightens the guard by itself, and leaves loosening and model switches as suggestions.
 - **Later** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
 - **v1.0** = A + B + C + D.
 
