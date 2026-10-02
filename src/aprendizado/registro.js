@@ -5,7 +5,7 @@ import { gravarJsonAtomico } from '../estado.js';
 import { lerSemLink, lerTextoSemLink } from '../guarda/arquivo.js';
 import { MODELO_VALIDO } from '../guarda/registros.js';
 import { TOLERANCIA_JANELA_S } from '../util.js';
-import { apagar, esperar, fechar, instante, numeroFinito, varrerTmpVelhos } from '../base.js';
+import { apagar, esperar, fechar, idValido, instante, numeroFinito, varrerTmpVelhos } from '../base.js';
 import { ITENS, TETO, caminhos, ligadoExiste, valorDoItem } from './arquivos.js';
 import {
   aprendizadoVazio, CAMPOS_MODELO, CHAVE_MODELO, DURACAO_JANELA_MS, inicioSemana, JANELAS_MAX, LIMIARES, MODELOS_SEMANA_MAX, SEMANAS_MAX,
@@ -406,6 +406,152 @@ export function gravarLigado(dir, { chaves, criouEnv }, agoraMs) {
 
 export function apagarLigado(dir) {
   apagar(caminhos(dir).ligado);
+}
+
+// ------------------------------------------------------------ sessões encerradas
+
+// Rodada 2 da revisão da Task 12: uma marca por sessão que passou pelo
+// SessionEnd com o aprendizado ligado, otel/encerradas/<hex do id>, arquivo
+// vazio cuja data (mtime) é o fim. O estado.json é da barra e não perde a
+// sessão no SessionEnd; sem a marca, uma sessão fechada há menos de
+// OUTRA_SESSAO_MS ainda contava como aberta, e o fim da última não parava o
+// Collector (§3.3). Um arquivo por sessão, sem ler-alterar-gravar: dois fins
+// ao mesmo tempo nunca apagam a marca um do outro, e quem confere por último
+// vê a do outro. A sessão que cai sem SessionEnd não tem marca e segue a
+// regra de antes (5 min e órfão de 30 min). As defesas são as de ativas.js:
+// nome = hex de um id válido, lstat (link, pasta e arquivo com conteúdo não
+// valem), lista e poda com teto. Nenhuma função lança.
+//
+// ENCERRADA_MAX_MS passa das 24 h de OUTRA_SESSAO_MS com a Emenda A3 e das
+// 24 h que o estado.json guarda uma sessão; marca mais velha não vale e sai
+// na poda de marcarEncerrada.
+export const ENCERRADA_MAX_MS = 25 * 3_600_000;
+export const ENCERRADAS_LER_MAX = 512;
+const ENCERRADAS_PODAR_MAX = 50;
+const NOME_ENCERRADA = /^(?:[0-9a-f]{2}){1,64}$/;
+const nomeEncerrada = (id) => Buffer.from(id, 'utf8').toString('hex');
+const msMarca = (n) => numeroFinito(n) && n >= 0;
+const marcaValida = (info) => info.isFile() && info.size === 0;
+// A precisão da data varia por sistema de arquivos; a marca grava ms inteiros.
+const fimDe = (info) => Math.round(info.mtimeMs);
+
+function idDaMarca(nome) {
+  if (!NOME_ENCERRADA.test(nome)) return null;
+  const id = Buffer.from(nome, 'hex').toString('utf8');
+  return idValido(id) && nomeEncerrada(id) === nome ? id : null;
+}
+
+// A pasta das marcas, só se for pasta de verdade (lstat: link ou junção não
+// vale, e nada é criado através dela). Erro sobe para quem chama.
+function pastaEncerradas(dir, criar) {
+  const p = caminhos(dir).encerradas;
+  if (criar) fs.mkdirSync(p, { recursive: true });
+  const info = fs.lstatSync(p, { throwIfNoEntry: false });
+  return info && info.isDirectory() ? p : null;
+}
+
+// Até ENCERRADAS_LER_MAX entradas da pasta; `cada(id, caminho, info)` só para
+// as marcas válidas. Pasta ilegível: nada.
+function varrerEncerradas(p, cada) {
+  let d = null;
+  try {
+    d = fs.opendirSync(p);
+    for (let lidas = 0; lidas < ENCERRADAS_LER_MAX; lidas++) {
+      const e = d.readSync();
+      if (e === null) break;
+      const id = idDaMarca(e.name);
+      if (id === null) continue;
+      const caminho = path.join(p, e.name);
+      let info;
+      try {
+        info = fs.lstatSync(caminho);
+      } catch {
+        continue;
+      }
+      if (marcaValida(info)) cada(id, caminho, info);
+    }
+  } catch { /* pasta ilegível */ } finally {
+    try { d?.closeSync(); } catch { /* já fechada */ }
+  }
+}
+
+// Uma tentativa de datar a marca `arq` com `s` (segundos): marca existente →
+// lutimes (não segue link); ausente → cria com 'wx' e confere com fstat.
+// Devolve true, false (pasta, link, arquivo com conteúdo) ou 'corrida'.
+function datarMarca(arq, s) {
+  const info = fs.lstatSync(arq, { throwIfNoEntry: false });
+  if (info) {
+    if (!marcaValida(info)) return false;
+    fs.lutimesSync(arq, s, s);
+    return true;
+  }
+  let fd;
+  try {
+    fd = fs.openSync(arq, 'wx');
+  } catch (e) {
+    if (e?.code === 'EEXIST') return 'corrida';
+    throw e;
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) return false;
+    fs.futimesSync(fd, s, s);
+    return true;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// SessionEnd: marca a sessão como encerrada em `agoraMs` e poda até
+// ENCERRADAS_PODAR_MAX marcas vencidas.
+export function marcarEncerrada(dir, sessionId, agoraMs) {
+  try {
+    if (!idValido(sessionId) || !msMarca(agoraMs)) return { ok: false };
+    const p = pastaEncerradas(dir, true);
+    if (p === null) return { ok: false };
+    const arq = path.join(p, nomeEncerrada(sessionId));
+    let r = datarMarca(arq, agoraMs / 1000);
+    if (r === 'corrida') r = datarMarca(arq, agoraMs / 1000);
+    let podadas = 0;
+    varrerEncerradas(p, (_id, caminho, info) => {
+      if (podadas >= ENCERRADAS_PODAR_MAX || agoraMs - fimDe(info) <= ENCERRADA_MAX_MS) return;
+      try {
+        fs.unlinkSync(caminho);
+        podadas++;
+      } catch { /* sumiu ou sem permissão: segue */ }
+    });
+    return { ok: r === true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// SessionStart (resume e qualquer outra origem): a sessão está aberta de
+// novo, a marca sai. Só arquivo regular vazio (nunca pasta nem link).
+export function desmarcarEncerrada(dir, sessionId) {
+  try {
+    if (!idValido(sessionId)) return;
+    const p = pastaEncerradas(dir, false);
+    if (p === null) return;
+    const arq = path.join(p, nomeEncerrada(sessionId));
+    const info = fs.lstatSync(arq, { throwIfNoEntry: false });
+    if (info && marcaValida(info)) fs.unlinkSync(arq);
+  } catch { /* melhor esforço */ }
+}
+
+// Map id → fim (ms) das marcas válidas: até ENCERRADAS_LER_MAX entradas, sem
+// data mais de FUTURO_MS à frente nem mais velha que ENCERRADA_MAX_MS.
+export function lerEncerradas(dir, agoraMs) {
+  const r = new Map();
+  try {
+    if (!msMarca(agoraMs)) return r;
+    const p = pastaEncerradas(dir, false);
+    if (p === null) return r;
+    varrerEncerradas(p, (id, _caminho, info) => {
+      const fim = fimDe(info);
+      if (fim <= agoraMs + FUTURO_MS && agoraMs - fim <= ENCERRADA_MAX_MS) r.set(id, fim);
+    });
+  } catch { /* nada lido */ }
+  return r;
 }
 
 // ------------------------------------------------------------ trava

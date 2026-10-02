@@ -8,6 +8,7 @@ import {
   lerAprendizado, gravarAprendizado, ajustesVazios, lerAjustes, gravarAjustes, sugestoesVazias, lerSugestoes, gravarSugestoes,
   cursorVazio, lerCursor, gravarCursor, lerEventosApr, anexarEventoApr, lerLigado, gravarLigado, apagarLigado, pegarTrava,
   ajustesParaConsumo, intervaloDoPainelMs, faixasDoPainel, perfilDaPrevisao, _retomarTravaVencida,
+  marcarEncerrada, desmarcarEncerrada, lerEncerradas, ENCERRADAS_LER_MAX, ENCERRADA_MAX_MS,
 } from '../src/aprendizado/registro.js';
 import { aprendizadoVazio, agregarRegistros, atualizarJanela, marcarSessao, inicioSemana, SEMANAS_MAX } from '../src/aprendizado/agregar.js';
 
@@ -315,4 +316,85 @@ test('consumidores: sem ligado.json nada vale; com ele, intervalo fora das horas
   fs.writeFileSync(caminhos(d).ajustes, 'quebrado');
   assert.equal(intervaloDoPainelMs(d, AGORA), null);
   assert.deepEqual(faixasDoPainel(d, AGORA), { amarelo: 75, vermelho: 90 });
+});
+
+// Rodada 2 da revisão da Task 12: a marca de sessão encerrada
+// (otel/encerradas/<hex do id>), arquivo vazio com a data do fim.
+const hex = (id) => Buffer.from(id, 'utf8').toString('hex');
+const pastaEnc = (d) => path.join(caminhos(d).otel, 'encerradas');
+function marcaCrua(d, nome, ms, conteudo = '') {
+  fs.mkdirSync(pastaEnc(d), { recursive: true });
+  const arq = path.join(pastaEnc(d), nome);
+  fs.writeFileSync(arq, conteudo);
+  fs.utimesSync(arq, ms / 1000, ms / 1000);
+  return arq;
+}
+
+test('rodada 2: marcarEncerrada, lerEncerradas e desmarcarEncerrada', () => {
+  const d = novoDir();
+  assert.deepEqual([...lerEncerradas(d, AGORA)], [], 'sem pasta: vazio');
+  assert.equal(marcarEncerrada(d, 'sessao-a', AGORA - 1000).ok, true);
+  assert.equal(marcarEncerrada(d, 'sessao-b', AGORA - 2000).ok, true);
+  assert.equal(marcarEncerrada(d, 'sessao-a', AGORA).ok, true, 'marcar de novo renova a data');
+  const m = lerEncerradas(d, AGORA);
+  assert.equal(m.get('sessao-a'), AGORA);
+  assert.equal(m.get('sessao-b'), AGORA - 2000);
+  assert.equal(m.size, 2);
+  desmarcarEncerrada(d, 'sessao-a');
+  desmarcarEncerrada(d, 'nunca-marcada');
+  assert.deepEqual([...lerEncerradas(d, AGORA).keys()], ['sessao-b']);
+  assert.equal(marcarEncerrada(d, '../fora', AGORA).ok, false);
+  assert.equal(marcarEncerrada(d, 'x', Number.NaN).ok, false);
+  assert.doesNotThrow(() => desmarcarEncerrada(d, '../fora'));
+  assert.deepEqual(fs.readdirSync(pastaEnc(d)), [hex('sessao-b')]);
+});
+
+test('rodada 2: marca hostil (pasta, link, conteúdo, nome alheio, data fora) não vale e nada lança', () => {
+  const d = novoDir();
+  fs.mkdirSync(path.join(pastaEnc(d), hex('pasta')), { recursive: true });
+  marcaCrua(d, hex('cheia'), AGORA - 1000, 'x'.repeat(4096));
+  marcaCrua(d, hex('um-byte'), AGORA - 1000, '1');
+  marcaCrua(d, 'zz', AGORA - 1000);
+  marcaCrua(d, 'abc.txt', AGORA - 1000);
+  marcaCrua(d, hex('sessao').toUpperCase(), AGORA - 1000);
+  marcaCrua(d, hex('a b'), AGORA - 1000);
+  marcaCrua(d, hex('../x'), AGORA - 1000);
+  marcaCrua(d, hex('constructor'), AGORA - 1000);
+  marcaCrua(d, hex('futura'), AGORA + 10 * 60_000);
+  marcaCrua(d, hex('velha'), AGORA - ENCERRADA_MAX_MS - 60_000);
+  marcaCrua(d, hex('boa'), AGORA - 1000);
+  try {
+    fs.symlinkSync(path.join(pastaEnc(d), hex('boa')), path.join(pastaEnc(d), hex('link')));
+  } catch { /* sem permissão de link no Windows: o caso fica de fora */ }
+  const m = lerEncerradas(d, AGORA);
+  assert.deepEqual([...m], [['boa', AGORA - 1000]]);
+  // Marcar sobre uma pasta com o nome da sessão: falha, sem lançar.
+  assert.equal(marcarEncerrada(d, 'pasta', AGORA).ok, false);
+  assert.ok(fs.lstatSync(path.join(pastaEnc(d), hex('pasta'))).isDirectory());
+  desmarcarEncerrada(d, 'pasta');
+  assert.ok(fs.lstatSync(path.join(pastaEnc(d), hex('pasta'))).isDirectory(), 'desmarcar não apaga pasta');
+  // A marca vencida sai na próxima marcação (poda).
+  assert.equal(marcarEncerrada(d, 'nova', AGORA).ok, true);
+  assert.equal(fs.existsSync(path.join(pastaEnc(d), hex('velha'))), false);
+  assert.equal(fs.existsSync(path.join(pastaEnc(d), 'zz')), true, 'nome alheio fica');
+});
+
+test('rodada 2: encerradas que é arquivo ou estado sem pasta otel: vazio, marcar falha, nada lança', () => {
+  const d = novoDir();
+  fs.mkdirSync(caminhos(d).otel, { recursive: true });
+  fs.writeFileSync(pastaEnc(d), 'não sou pasta');
+  assert.equal(lerEncerradas(d, AGORA).size, 0);
+  assert.equal(marcarEncerrada(d, 'sessao-a', AGORA).ok, false);
+  assert.doesNotThrow(() => desmarcarEncerrada(d, 'sessao-a'));
+  assert.equal(fs.readFileSync(pastaEnc(d), 'utf8'), 'não sou pasta');
+  assert.equal(lerEncerradas(path.join(d, 'nao-existe'), AGORA).size, 0);
+  assert.equal(lerEncerradas(null, AGORA).size, 0);
+  assert.equal(lerEncerradas(d, Number.NaN).size, 0);
+});
+
+test('rodada 2: lerEncerradas lê no máximo ENCERRADAS_LER_MAX entradas', () => {
+  const d = novoDir();
+  for (let i = 0; i < ENCERRADAS_LER_MAX + 40; i++) marcaCrua(d, hex(`s${i}`), AGORA - 1000);
+  const m = lerEncerradas(d, AGORA);
+  assert.ok(m.size > 0 && m.size <= ENCERRADAS_LER_MAX, `lidas: ${m.size}`);
 });

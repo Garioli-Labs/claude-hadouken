@@ -14,6 +14,7 @@ export const ARQ = Object.freeze({
 });
 export const ARQ_OTEL = Object.freeze({
   bin: 'bin', ligado: 'ligado.json', pid: 'coletor.pid', log: 'coletor.log', config: 'config.yaml', subindo: 'subindo.lock', instalado: 'instalado.json',
+  encerradas: 'encerradas',
 });
 export const TETO = Object.freeze({
   aprendizado: 256 * 1024, ajustes: 64 * 1024, sugestoes: 16 * 1024, cursor: 4 * 1024, eventos: 16 * 1024,
@@ -43,6 +44,7 @@ export function caminhos(dir) {
     log: path.join(otel, ARQ_OTEL.log),
     config: path.join(otel, ARQ_OTEL.config),
     subindo: path.join(otel, ARQ_OTEL.subindo),
+    encerradas: path.join(otel, ARQ_OTEL.encerradas),
     instalado: path.join(bin, ARQ_OTEL.instalado),
     aprendizado: path.join(dir, ARQ.aprendizado),
     ajustes: path.join(dir, ARQ.ajustes),

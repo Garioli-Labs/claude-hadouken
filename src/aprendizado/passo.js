@@ -10,8 +10,8 @@ import { coletorVivo, ehOrfao, OUTRA_SESSAO_MS, pararColetor, subirColetor } fro
 import { anuncio, avisoColetor } from './mensagens.js';
 import { lerNovos } from './otlp.js';
 import {
-  anexarEventoApr, diaLocal, gravarAjustes, gravarAprendizado, gravarCursor, gravarSugestoes, lerAjustes, lerAprendizado,
-  lerCursor, lerEventosApr, lerSugestoes, pegarTrava,
+  anexarEventoApr, desmarcarEncerrada, diaLocal, gravarAjustes, gravarAprendizado, gravarCursor, gravarSugestoes, lerAjustes,
+  lerAprendizado, lerCursor, lerEncerradas, lerEventosApr, lerSugestoes, marcarEncerrada, pegarTrava,
 } from './registro.js';
 
 // O passo de aprendizado (spec aprendizado §3.1, §3.3, §4.6, §6, §7). Roda
@@ -52,16 +52,27 @@ function estadoDe(dir, agoraMs) {
   return lido.ok ? validarEstado(lido.valor, agoraMs) : null;
 }
 
-// R2: as sessões de estado.json fora a que chama; `recente` com `at` de até
-// OUTRA_SESSAO_MS (5 min; 24 h com a Emenda A3).
-export function outrasSessoes(estado, sessionId, agoraMs) {
+// Folga entre o último redesenho da barra (`at`) e a marca de fim: um `at`
+// até FIM_FOLGA_MS depois do fim ainda é daquela sessão encerrada; mais que
+// isso, a sessão voltou (resume sem a marca tirada) e conta de novo.
+const FIM_FOLGA_MS = 10_000;
+
+// R2: as sessões de estado.json fora a que chama e fora as encerradas
+// (`encerradas`: Map id → fim, de lerEncerradas; rodada 2 da revisão da Task
+// 12); `recente` com `at` de até OUTRA_SESSAO_MS (5 min; 24 h com a Emenda
+// A3). O estado.json não perde a sessão no SessionEnd: sem a marca de fim,
+// uma sessão recém-fechada contaria como aberta.
+export function outrasSessoes(estado, sessionId, agoraMs, encerradas = new Map()) {
   let ultimaMs = null;
   let recente = false;
   const sessoes = estado !== null && typeof estado === 'object' && estado.sessoes && typeof estado.sessoes === 'object' ? estado.sessoes : {};
+  const fins = encerradas instanceof Map ? encerradas : new Map();
   for (const [id, s] of Object.entries(sessoes)) {
     if (id === sessionId) continue;
     const t = instante(s?.at, agoraMs);
     if (t === null) continue;
+    const fim = fins.get(id);
+    if (fim !== undefined && t <= fim + FIM_FOLGA_MS) continue;
     if (ultimaMs === null || t > ultimaMs) ultimaMs = t;
     if (agoraMs - t <= OUTRA_SESSAO_MS) recente = true;
   }
@@ -231,7 +242,9 @@ const falhouParar = (p) => p?.ok === false && p.motivo === 'erro';
 // §3.3 SessionStart, depois da saída: órfão, subida e o passo.
 export function depoisDoInicio({ dir, sessionId, source, agoraMs, opcoesColetor = {} } = {}) {
   try {
-    const outras = outrasSessoes(estadoDe(dir, agoraMs), sessionId, agoraMs);
+    // A sessão que volta (resume) está aberta de novo: a marca de fim sai.
+    desmarcarEncerrada(dir, sessionId);
+    const outras = outrasSessoes(estadoDe(dir, agoraMs), sessionId, agoraMs, lerEncerradas(dir, agoraMs));
     const vivo = coletorVivo(dir, opcoesColetor);
     // Sem resposta do tasklist/ps, nada se sabe do Collector: nada é parado
     // nem sobe nesta sessão (Task 8).
@@ -260,10 +273,14 @@ export function depoisDoInicio({ dir, sessionId, source, agoraMs, opcoesColetor 
 // A parada vem antes (ruling I2): o SessionEnd pode ser cortado, e o
 // Collector parado no fim importa mais que o passo, que o próximo
 // SessionStart refaz. Pior caso: 3 chamadas de 1,5 s (consulta, taskkill e a
-// consulta depois do taskkill que falhou).
+// consulta depois do taskkill que falhou). A marca de fim vem antes da
+// conferência (rodada 2 da revisão da Task 12): com dois fins ao mesmo tempo,
+// quem confere por último vê a marca do outro e para o Collector.
 export function depoisDoFim({ dir, sessionId, agoraMs, opcoesColetor = {} } = {}) {
   try {
-    if (!outrasSessoes(estadoDe(dir, agoraMs), sessionId, agoraMs).recente && falhouParar(pararColetor({ ...opcoesColetor, dir }))) {
+    marcarEncerrada(dir, sessionId, agoraMs);
+    const outras = outrasSessoes(estadoDe(dir, agoraMs), sessionId, agoraMs, lerEncerradas(dir, agoraMs));
+    if (!outras.recente && falhouParar(pararColetor({ ...opcoesColetor, dir }))) {
       anexarEventoApr(dir, 'parar-falhou', agoraMs);
     }
   } catch {

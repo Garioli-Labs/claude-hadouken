@@ -6,8 +6,9 @@ import { sessaoAtiva, renovarSessao } from '../ativas.js';
 // Hook SessionEnd (spec 6.5, 8.2 e adendo A/C da Task 7): anexa uma linha ao
 // histórico de sessões (historico.js) com o consumo do último instantâneo.
 // Não imprime nada: o Claude Code já encerrou a conversa. Com o aprendizado
-// ligado, depois do histórico, para o Collector sem outra sessão ativa e roda
-// o passo de aprendizado (spec aprendizado §3.3, R2; passo.js).
+// ligado, depois do histórico, marca a sessão como encerrada
+// (otel/encerradas), para o Collector sem outra sessão ativa e roda o passo
+// de aprendizado (spec aprendizado §3.3, R2; passo.js).
 //
 // Sessão sem registro ativo, session_id inválido ou sem diretório de dados:
 // nada gravado. estado.js e historico.js vêm por import dinâmico depois do

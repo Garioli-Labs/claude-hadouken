@@ -351,6 +351,79 @@ test('§3.3 e R2: SessionEnd para o Collector só sem outra sessão nos últimos
   assert.ok(c2.chamadas.includes('taskkill.exe /pid 4242 /t /f'));
 });
 
+// Rodada 2 da revisão da Task 12 (passeio manual com o Collector real): o
+// estado.sessoes não é limpo no SessionEnd, então uma sessão que acabou de
+// fechar contava como aberta por 5 min e o fim da última sessão não parava o
+// Collector. A sessão encerrada fica marcada (otel/encerradas) e sai da
+// conta de outrasSessoes.
+test('rodada 2: A e depois B fecham em menos de 5 min; o fim de B (a última) para o Collector', () => {
+  const d = novoDir();
+  gravarPid(d, AGORA - H);
+  const fimA = AGORA - 4 * 60_000;
+  estadoCom(d, { a: fimA - 5000, b: fimA - 20_000 });
+  const ca = coletorFalso();
+  depoisDoFim({ dir: d, sessionId: 'a', agoraMs: fimA, opcoesColetor: ca.opcoes });
+  assert.ok(!ca.chamadas.some((x) => x.startsWith('taskkill')), 'B ainda aberta: o fim de A não para');
+  estadoCom(d, { a: fimA - 5000, b: AGORA - 6000 });
+  const cb = coletorFalso();
+  depoisDoFim({ dir: d, sessionId: 'b', agoraMs: AGORA, opcoesColetor: cb.opcoes });
+  assert.ok(cb.chamadas.includes('taskkill.exe /pid 4242 /t /f'), 'A já fechou: o fim de B para o Collector');
+});
+
+test('rodada 2: A aberta e B fechando; o Collector fica', () => {
+  const d = novoDir();
+  gravarPid(d, AGORA - H);
+  estadoCom(d, { a: AGORA - 60_000, b: AGORA - 5000 });
+  const c = coletorFalso();
+  depoisDoFim({ dir: d, sessionId: 'b', agoraMs: AGORA, opcoesColetor: c.opcoes });
+  assert.ok(!c.chamadas.some((x) => x.startsWith('taskkill')));
+});
+
+test('rodada 2: a sessão encerrada que volta (resume) conta de novo como aberta', () => {
+  const d = novoDir();
+  gravarPid(d, AGORA - 10 * 60_000);
+  const fimA = AGORA - 3 * 60_000;
+  estadoCom(d, { a: fimA - 5000, b: fimA - 10_000 });
+  depoisDoFim({ dir: d, sessionId: 'a', agoraMs: fimA, opcoesColetor: coletorFalso().opcoes });
+  // A volta: o SessionStart dela tira a marca.
+  depoisDoInicio({ dir: d, sessionId: 'a', source: 'resume', agoraMs: fimA + 30_000, opcoesColetor: coletorFalso().opcoes });
+  estadoCom(d, { a: fimA - 5000, b: AGORA - 5000 });
+  const c = coletorFalso();
+  depoisDoFim({ dir: d, sessionId: 'b', agoraMs: AGORA, opcoesColetor: c.opcoes });
+  assert.ok(!c.chamadas.some((x) => x.startsWith('taskkill')), 'A voltou: o fim de B não para');
+});
+
+test('rodada 2: marca de fim mais velha que a barra da sessão (voltou sem SessionStart do aprendizado) não vale', () => {
+  const fimA = AGORA - 4 * 60_000;
+  const encerradas = new Map([['a', fimA]]);
+  const voltou = { sessoes: { a: { at: new Date(AGORA - 30_000).toISOString() } } };
+  assert.deepEqual(outrasSessoes(voltou, 'b', AGORA, encerradas), { recente: true, ultimaMs: AGORA - 30_000 });
+  const fechou = { sessoes: { a: { at: new Date(fimA - 5000).toISOString() } } };
+  assert.deepEqual(outrasSessoes(fechou, 'b', AGORA, encerradas), { recente: false, ultimaMs: null });
+});
+
+test('rodada 2: a regra do órfão ignora a sessão encerrada', () => {
+  const fimVelha = AGORA - 10 * 60_000;
+  // Sem marca (sessão que caiu sem SessionEnd), a velha ainda segura o
+  // Collector, como antes.
+  const d0 = novoDir();
+  gravarPid(d0, AGORA - 2 * H);
+  estadoCom(d0, { velha: fimVelha - 5000 });
+  const c0 = coletorFalso();
+  depoisDoInicio({ dir: d0, sessionId: 'nova', source: 'startup', agoraMs: AGORA, opcoesColetor: c0.opcoes });
+  assert.ok(!c0.chamadas.some((x) => x.startsWith('taskkill')), 'sem marca: não é órfão');
+  // Com a marca do fim, só conta a outra, parada há 40 min: órfão.
+  const d = novoDir();
+  gravarPid(d, AGORA - 2 * H);
+  estadoCom(d, { velha: fimVelha - 5000, outra: fimVelha - 60_000 });
+  depoisDoFim({ dir: d, sessionId: 'velha', agoraMs: fimVelha, opcoesColetor: coletorFalso().opcoes });
+  estadoCom(d, { velha: fimVelha - 5000, outra: AGORA - 40 * 60_000 });
+  const c = coletorFalso();
+  depoisDoInicio({ dir: d, sessionId: 'nova', source: 'startup', agoraMs: AGORA, opcoesColetor: c.opcoes });
+  assert.ok(c.chamadas.includes('taskkill.exe /pid 4242 /t /f'), 'a velha encerrada não segura o órfão');
+  assert.ok(tiposDe(d).includes('orfao'));
+});
+
 test('§3.3 (ruling I2): o SessionEnd para o Collector antes do passo', () => {
   const d = novoDir();
   gravarPid(d, AGORA - H);
