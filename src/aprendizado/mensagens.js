@@ -80,6 +80,7 @@ const EVENTO_TXT = Object.freeze({
   orfao: 'Collector órfão reiniciado',
   'telemetria-corrompida': 'telemetria corrompida ignorada',
   'comando-recusado': 'comando recusado (não digitado pelo usuário)',
+  'parar-falhou': 'Collector não parou',
 });
 const AVISO = Object.freeze({
   'porta-ocupada': `Aprendizado: o Collector não subiu porque a porta ${HOST}:${PORTA} está ocupada por outro programa. Segue só com os dados dos hooks.`,
@@ -88,6 +89,7 @@ const AVISO = Object.freeze({
   'coletor-ausente': `Aprendizado: o binário do Collector não está na pasta. Rode ${CMD} desligar tudo e ligue de novo.`,
   'coletor-falhou': 'Aprendizado: o Collector parou com erro na última subida. Segue só com os dados dos hooks.',
   'sem-otel': 'Aprendizado: ainda não chegou telemetria do Claude Code; ela vale a partir da sessão seguinte ao ligar. Segue com os dados dos hooks.',
+  'parar-falhou': 'Aprendizado: o Collector não pôde ser parado; o hadouken tenta de novo na próxima sessão. Se o aviso continuar, encerre o processo otelcol-contrib.',
 });
 const SETTINGS_TXT = Object.freeze({
   'settings-link': 'o settings.json é um link; o hadouken não segue links',

@@ -51,13 +51,14 @@ test('§4.5: o texto da sugestão de modelo segue o modelo fixo da spec', () => 
 });
 
 test('avisos do Collector: um por tipo, todos fixos', () => {
-  for (const t of ['porta-ocupada', 'pouca-ram', 'coletor-hash', 'coletor-ausente', 'coletor-falhou', 'sem-otel']) {
+  for (const t of ['porta-ocupada', 'pouca-ram', 'coletor-hash', 'coletor-ausente', 'coletor-falhou', 'sem-otel', 'parar-falhou']) {
     const a = msg.avisoColetor(t);
     assert.match(a, /^Aprendizado: /, t);
     assert.doesNotMatch(a, CONTROLE, t);
   }
   assert.match(msg.avisoColetor('porta-ocupada'), /127\.0\.0\.1:47318/);
   assert.match(msg.avisoColetor('pouca-ram'), /1,5 GiB/);
+  assert.match(msg.avisoColetor('parar-falhou'), /^Aprendizado: o Collector não pôde ser parado/);
   assert.equal(msg.avisoColetor('ajuste-fora'), null);
   assert.equal(msg.avisoColetor('toString'), null);
 });

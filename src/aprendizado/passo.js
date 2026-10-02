@@ -23,16 +23,21 @@ import {
 // lança: uma exceção vira o evento 'erro' e o hook segue (§6).
 //
 // A vida do Collector (§3.3) cabe nos 5 s do hook: cada consulta ao
-// tasklist/ps tem 1,5 s (CONSULTA_PRAZO_MS de coletor.js). Uma consulta sem
-// resposta (coletorVivo com consulta: 'falhou') nunca vale como Collector
-// morto ou órfão: nesta sessão nada é parado nem sobe, e o PID fica. Uma
-// subida ou parada com 'erro' vira um evento, sem nova tentativa; o aviso
-// sai no máximo uma vez por dia (linhasDoInicio).
+// tasklist/ps e o taskkill têm 1,5 s (CONSULTA_PRAZO_MS de coletor.js), e
+// nenhum caminho passa de 3 chamadas (4,5 s): o órfão do SessionStart reusa
+// a consulta do coletorVivo na parada (coletorVivo, taskkill e a consulta
+// depois de um taskkill que falhou); o SessionEnd e o pararSemLigado fazem a
+// consulta do pararColetor, o taskkill e a mesma consulta final. Uma
+// consulta sem resposta (coletorVivo com consulta: 'falhou') nunca vale como
+// Collector morto ou órfão: nesta sessão nada é parado nem sobe, e o PID
+// fica. Uma subida com 'erro' vira 'coletor-falhou' e uma parada com 'erro'
+// vira 'parar-falhou', sem nova tentativa; o aviso sai no máximo uma vez por
+// dia (linhasDoInicio).
 
 const DIA_MS = 86_400_000;
 export const GATILHO_JANELA = Object.freeze({ G1: 'h5', G3: 'h5', G2: 'd7', G4: 'd7', G6: 'fable', G7: 'fable' });
 // Eventos que viram o aviso diário do SessionStart (§3.3, §6).
-export const AVISOS = Object.freeze(['porta-ocupada', 'pouca-ram', 'coletor-hash', 'coletor-ausente', 'coletor-falhou', 'sem-otel']);
+export const AVISOS = Object.freeze(['porta-ocupada', 'pouca-ram', 'coletor-hash', 'coletor-ausente', 'coletor-falhou', 'sem-otel', 'parar-falhou']);
 // Motivos de subirColetor que viram evento; 'vivo' e 'subindo' são normais.
 const EVENTO_DA_SUBIDA = Object.freeze({
   'pouca-ram': 'pouca-ram', 'coletor-ausente': 'coletor-ausente', 'coletor-hash': 'coletor-hash', config: 'coletor-falhou', erro: 'coletor-falhou',
@@ -98,7 +103,8 @@ export function rodarPasso({ dir, agoraMs, inicio = false } = {}) {
   try {
     const c = caminhos(dir);
     const ap = lerAprendizado(dir, agoraMs);
-    const cursor = lerCursor(dir, agoraMs);
+    const antes = lerCursor(dir, agoraMs);
+    const cursor = { ...antes };
     // 1. Telemetria nova (R11: só eventos e active_time).
     const n = lerNovos({ pasta: c.otel, cursor: cursor.arquivo, agoraMs });
     agregarRegistros(ap, n.registros);
@@ -146,7 +152,12 @@ export function rodarPasso({ dir, agoraMs, inicio = false } = {}) {
     }
     podar(ap, agoraMs);
     // O cursor só anda com os agregados gravados: uma falha relê, nunca perde.
-    if (!gravarAprendizado(dir, ap).ok) return { ok: false, motivo: 'erro' };
+    // Só o `fora` anda mesmo assim, para o ajuste-fora já anotado não
+    // repetir no passo seguinte (revisão M2).
+    if (!gravarAprendizado(dir, ap).ok) {
+      if (cursor.fora !== antes.fora) gravarCursor(dir, { ...antes, fora: cursor.fora });
+      return { ok: false, motivo: 'erro' };
+    }
     gravarCursor(dir, cursor);
     return { ok: true, novos, lidos: n.registros.length };
   } catch {
@@ -212,8 +223,9 @@ function anexarUnicos(dir, tipos, agoraMs) {
 }
 
 // pararColetor com 'erro' (consulta sem resposta, taskkill que falhou e o
-// processo de pé): o PID fica para a próxima sessão, sem nova tentativa
-// agora. 'outro-processo' e os sucessos não viram evento.
+// processo de pé): o evento 'parar-falhou', e o PID fica para a próxima
+// sessão, sem nova tentativa agora. 'outro-processo' e os sucessos não viram
+// evento.
 const falhouParar = (p) => p?.ok === false && p.motivo === 'erro';
 
 // §3.3 SessionStart, depois da saída: órfão, subida e o passo.
@@ -228,7 +240,7 @@ export function depoisDoInicio({ dir, sessionId, source, agoraMs, opcoesColetor 
       let subir = !vivo.vivo;
       if (vivo.vivo && ehOrfao({ emMs: vivo.emMs, ultimaOutraSessaoMs: outras.ultimaMs, agoraMs })) {
         eventos.push('orfao');
-        if (falhouParar(pararColetor({ ...opcoesColetor, dir }))) eventos.push('erro');
+        if (falhouParar(pararColetor({ ...opcoesColetor, dir, vivo }))) eventos.push('parar-falhou');
         else subir = true;
       }
       if (subir) {
@@ -247,11 +259,12 @@ export function depoisDoInicio({ dir, sessionId, source, agoraMs, opcoesColetor 
 // §3.3 SessionEnd: sem outra sessão ativa (R2), a parada; depois, o passo.
 // A parada vem antes (ruling I2): o SessionEnd pode ser cortado, e o
 // Collector parado no fim importa mais que o passo, que o próximo
-// SessionStart refaz.
+// SessionStart refaz. Pior caso: 3 chamadas de 1,5 s (consulta, taskkill e a
+// consulta depois do taskkill que falhou).
 export function depoisDoFim({ dir, sessionId, agoraMs, opcoesColetor = {} } = {}) {
   try {
     if (!outrasSessoes(estadoDe(dir, agoraMs), sessionId, agoraMs).recente && falhouParar(pararColetor({ ...opcoesColetor, dir }))) {
-      anexarEventoApr(dir, 'erro', agoraMs);
+      anexarEventoApr(dir, 'parar-falhou', agoraMs);
     }
   } catch {
     anexarEventoApr(dir, 'erro', agoraMs);
@@ -264,13 +277,16 @@ export function depoisDoFim({ dir, sessionId, agoraMs, opcoesColetor = {} } = {}
 }
 
 // SessionStart com o aprendizado desligado e um otel/coletor.pid de pé (o
-// resto de um desligar cuja parada falhou, Task 10): se o PID é do Collector,
-// uma parada, por melhor esforço. Morto, de outro programa ou sem resposta,
-// nada. Uma parada com 'erro' vira o evento 'erro' e mais nada.
+// resto de um desligar cuja parada falhou, Task 10): uma parada, por melhor
+// esforço. Sem resposta da consulta, nada (o PID fica). Fora isso, o
+// pararColetor decide: mata o Collector vivo (reusando a consulta, no
+// máximo 3 chamadas de 1,5 s) e apaga o PID de um processo morto ou de
+// outro programa (revisão I1). Uma parada com 'erro' vira 'parar-falhou'.
 export function pararSemLigado({ dir, agoraMs, opcoesColetor = {} } = {}) {
   try {
-    if (!coletorVivo(dir, opcoesColetor).vivo) return;
-    if (falhouParar(pararColetor({ ...opcoesColetor, dir }))) anexarEventoApr(dir, 'erro', agoraMs);
+    const vivo = coletorVivo(dir, opcoesColetor);
+    if (vivo.consulta === 'falhou') return;
+    if (falhouParar(pararColetor({ ...opcoesColetor, dir, vivo }))) anexarEventoApr(dir, 'parar-falhou', agoraMs);
   } catch {
     anexarEventoApr(dir, 'erro', agoraMs);
   }

@@ -526,19 +526,23 @@ export function subirColetor(opcoes) {
 // reaproveitado por outro programa nunca é morto). O arquivo de PID sai
 // quando o Collector foi morto, já não existe ou o PID é de outro programa;
 // fica quando a consulta falha ou o Collector continua de pé, para a próxima
-// tentativa.
+// tentativa. `vivo`: o resultado do coletorVivo da mesma sessão; com o
+// Collector vivo naquele mesmo PID, ele vale pela primeira consulta. Assim o
+// pior caso de quem já consultou fica em 3 chamadas de CONSULTA_PRAZO_MS
+// (coletorVivo, taskkill e a consulta depois do taskkill que falhou).
 export function pararColetor(opcoes) {
   try {
     const {
       dir, plataforma = process.platform, executar = execFileSync, systemRoot = process.env.SystemRoot,
-      matar = (pid, sinal) => process.kill(pid, sinal),
+      matar = (pid, sinal) => process.kill(pid, sinal), vivo = null,
     } = opcoes ?? {};
     if (typeof dir !== 'string') return { ok: false, motivo: 'erro' };
     const p = lerPid(dir);
     if (p === null) return { ok: true, motivo: 'sem-pid' };
     const arqPid = caminhos(dir).pid;
     const consulta = { plataforma, executar, systemRoot };
-    const q = consultarNome(p.pid, consulta);
+    const jaVivo = vivo !== null && typeof vivo === 'object' && vivo.vivo === true && vivo.pid === p.pid;
+    const q = jaVivo ? { ok: true, nome: nomeBinario(plataforma) } : consultarNome(p.pid, consulta);
     if (!q.ok) return { ok: false, motivo: 'erro' };
     if (q.nome === null) {
       apagar(arqPid);

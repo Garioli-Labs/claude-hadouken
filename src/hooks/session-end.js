@@ -23,6 +23,10 @@ rodarHook(async (entrada) => {
   if (!idValido(sessionId)) return;
   if (dirDados() === null) return;
   const agoraMs = Date.now();
+  // Sem o registro ativo da sessão (o SessionStart não registrou, ou o
+  // registro venceu), o hook sai aqui, antes da parada do Collector e do
+  // passo de aprendizado: o Collector fica para a regra do órfão de 30 min
+  // no próximo SessionStart (spec aprendizado §3.3), e o passo roda lá.
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   renovarSessao(sessionId, agoraMs);
   const [{ ARQ_ESTADO, lerJson }, { registroHistorico, anexarHistorico }] = await Promise.all([

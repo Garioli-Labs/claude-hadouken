@@ -463,6 +463,35 @@ test('pararColetor: processo já morto, consulta que falha e taskkill que falha'
   assert.equal(lerPid(d), null);
 });
 
+test('pararColetor com o coletorVivo da sessão: sem a primeira consulta, no máximo 3 chamadas de 1,5 s no total', () => {
+  const d = novoDir();
+  const W = { plataforma: 'win32', systemRoot: 'C:\\Windows' };
+  const VIVO = '"otelcol-contrib.exe","4242","Console","1","80.000 K"\r\n';
+  const chamadas = [];
+  const negado = (arquivo) => {
+    chamadas.push(path.win32.basename(arquivo));
+    if (arquivo.endsWith('taskkill.exe')) throw Object.assign(new Error('acesso negado'), { status: 1 });
+    return VIVO;
+  };
+  gravarPid(d, 4242);
+  const vivo = coletorVivo(d, { ...W, executar: negado });
+  assert.equal(vivo.vivo, true);
+  assert.deepEqual(pararColetor({ dir: d, ...W, executar: negado, vivo }), { ok: false, motivo: 'erro' });
+  assert.deepEqual(chamadas, ['tasklist.exe', 'taskkill.exe', 'tasklist.exe'], 'a consulta do coletorVivo vale pela primeira');
+  assert.equal(lerPid(d).pid, 4242);
+
+  // O resultado só vale para o mesmo PID e com o Collector vivo; fora disso,
+  // a consulta normal.
+  chamadas.length = 0;
+  const ok = (arquivo) => { chamadas.push(path.win32.basename(arquivo)); return VIVO; };
+  assert.deepEqual(pararColetor({ dir: d, ...W, executar: ok, vivo: { vivo: true, pid: 9999, emMs: 0 } }), { ok: true, motivo: 'parado' });
+  assert.deepEqual(chamadas, ['tasklist.exe', 'taskkill.exe']);
+  gravarPid(d, 4242);
+  chamadas.length = 0;
+  assert.deepEqual(pararColetor({ dir: d, ...W, executar: ok, vivo: { vivo: false, pid: 4242, emMs: 0 } }), { ok: true, motivo: 'parado' });
+  assert.deepEqual(chamadas, ['tasklist.exe', 'taskkill.exe']);
+});
+
 test('coletorVivo e órfão (§3.3): vivo pelo nome; órfão com mais de 30 min sem sessão', () => {
   const d = novoDir();
   assert.deepEqual(coletorVivo(d, { plataforma: plat, executar: consultaFalsa(new Set()) }), { vivo: false, pid: null, emMs: null });

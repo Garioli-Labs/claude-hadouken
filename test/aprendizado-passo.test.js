@@ -4,7 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { aprendizadoVazio } from '../src/aprendizado/agregar.js';
 import { caminhos } from '../src/aprendizado/arquivos.js';
 import { caminhoBinario, registrarInstalacao } from '../src/aprendizado/coletor.js';
@@ -22,6 +22,7 @@ import { gravarJsonAtomico } from '../src/estado.js';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const FIXTURE = path.join(repo, 'test', 'fixtures', 'passo-paralelo.mjs');
+const ATRASAR = path.join(repo, 'test', 'fixtures', 'atrasar-passo.mjs');
 const H = 3_600_000;
 const DIA = 24 * H;
 // Meio-dia local de hoje: AGORA + 1 min nunca vira o dia (o anúncio e os
@@ -62,8 +63,10 @@ function estadoCom(dir, sessoes) {
   });
 }
 // Windows forçado, com tasklist e taskkill falsos: o PID 4242 é o Collector.
-// tasklist: 'vivo' (o Collector), 'outro' (outro programa) ou 'falha' (prazo);
-// taskkill: 'ok' ou 'falha'; aoMatar roda no momento do taskkill.
+// tasklist: 'vivo' (o Collector), 'outro' (outro programa), 'morto' (nenhum
+// processo com o PID) ou 'falha' (prazo); taskkill: 'ok' ou 'falha'; aoMatar
+// roda no momento do taskkill.
+const SEM_PROCESSO = 'INFO: No tasks are running which match the specified criteria.\r\n';
 function coletorFalso({ tasklist = 'vivo', taskkill = 'ok', pid = 5151, aoMatar = () => {} } = {}) {
   const chamadas = [];
   return {
@@ -75,6 +78,7 @@ function coletorFalso({ tasklist = 'vivo', taskkill = 'ok', pid = 5151, aoMatar 
         chamadas.push(`${path.win32.basename(arq)} ${args.join(' ')}`);
         if (arq.endsWith('tasklist.exe')) {
           if (tasklist === 'falha') throw Object.assign(new Error('tasklist: prazo'), { code: 'ETIMEDOUT' });
+          if (tasklist === 'morto') return SEM_PROCESSO;
           return tasklist === 'vivo' ? '"otelcol-contrib.exe","4242","Console","1","50 000 K"\r\n' : '"notepad.exe","4242","Console","1","9 000 K"\r\n';
         }
         aoMatar();
@@ -121,6 +125,7 @@ test('Foco de revisão 3: dois passos em paralelo não contam em dobro, e só um
   assert.equal(vencedores[0].lidos, 2000);
   for (const r of [a, b]) if (r.ok && r !== vencedores[0]) assert.equal(r.lidos, 0);
   assert.equal(pedidos(d, AGORA), 2000);
+  assert.equal(fs.existsSync(caminhos(d).trava), false, 'a trava sai nos dois processos');
 });
 
 test('§6: linha corrompida vira evento, o resto conta e nenhum ajuste sai daquela leitura', () => {
@@ -207,6 +212,28 @@ test('§6 e ruling da Task 5: ajuste-fora vira evento no máximo uma vez por ite
   assert.equal(fora(), 2, 'no dia seguinte, de novo');
 });
 
+test('§6 (revisão M2): com o aprendizado.json sem gravar, o ajuste-fora não repete e o cursor do arquivo não anda', (t) => {
+  const d = novoDir();
+  maduroComForaNaGuarda(d);
+  escreverTelemetria(d, [linhaPedido(AGORA - 1000)]);
+  const destino = path.resolve(caminhos(d).aprendizado);
+  const original = fs.renameSync;
+  // O rename final do aprendizado.json falha (EIO, sem nova tentativa).
+  t.mock.method(fs, 'renameSync', (de, para) => {
+    if (path.resolve(String(para)) === destino) throw Object.assign(new Error('falha de disco simulada'), { code: 'EIO' });
+    return original(de, para);
+  });
+  assert.deepEqual(rodarPasso({ dir: d, agoraMs: AGORA }), { ok: false, motivo: 'erro' });
+  assert.deepEqual(rodarPasso({ dir: d, agoraMs: AGORA + 60_000 }), { ok: false, motivo: 'erro' });
+  const fora = () => tiposDe(d, AGORA + 2 * DIA).filter((x) => x === 'ajuste-fora').length;
+  assert.equal(fora(), 1, 'a falha não repete o evento');
+  assert.equal(lerCursor(d, AGORA).arquivo, null, 'o cursor da telemetria não andou: a leitura se refaz');
+  t.mock.restoreAll();
+  assert.equal(rodarPasso({ dir: d, agoraMs: AGORA + 2 * 60_000 }).ok, true);
+  assert.equal(fora(), 1);
+  assert.equal(pedidos(d, AGORA), 1, 'o pedido conta uma vez, depois da falha');
+});
+
 test('§4.6: o anúncio sai uma vez por dia e só com novidade, no texto da spec', () => {
   const d = novoDir();
   const ontem = new Date(AGORA - DIA).toISOString();
@@ -255,7 +282,9 @@ test('§3.3: Collector órfão (vivo, sem sessão há mais de 30 min) é parado 
   estadoCom(d, { velha: AGORA - H });
   const c = coletorFalso();
   depoisDoInicio({ dir: d, sessionId: 'nova', source: 'startup', agoraMs: AGORA, opcoesColetor: c.opcoes });
-  assert.ok(c.chamadas.includes('taskkill.exe /pid 4242 /t /f'), c.chamadas.join('; '));
+  // Revisão (foco 4): a consulta do coletorVivo vale para a parada, sem
+  // segunda consulta antes do taskkill.
+  assert.deepEqual(c.chamadas, ['tasklist.exe /FI PID eq 4242 /FO CSV /NH', 'taskkill.exe /pid 4242 /t /f']);
   const tipos = tiposDe(d);
   assert.ok(tipos.includes('orfao'));
   assert.ok(tipos.includes('coletor-ausente'), 'sem binário, a subida registra o motivo');
@@ -283,15 +312,15 @@ test('Task 8: consulta que falha não apaga o PID, não trata como órfão nem s
   assert.equal(lerAprendizado(d, AGORA).sessoes, 1, 'o passo roda do mesmo jeito');
 });
 
-test('Task 8: parar o órfão com erro vira o evento erro, sem nova tentativa nem subida', () => {
+test('Task 8 e revisão: parar o órfão com erro vira o evento parar-falhou, sem nova tentativa nem subida, em no máximo 3 chamadas', () => {
   const d = novoDir();
   gravarPid(d, AGORA - 2 * H);
   const c = coletorFalso({ taskkill: 'falha' });
   depoisDoInicio({ dir: d, sessionId: 'nova', source: 'startup', agoraMs: AGORA, opcoesColetor: c.opcoes });
-  assert.equal(c.chamadas.filter((x) => x.startsWith('taskkill')).length, 1, 'uma tentativa');
-  assert.ok(!c.chamadas.includes('gerar'));
-  const tipos = tiposDe(d);
-  assert.ok(tipos.includes('orfao') && tipos.includes('erro'), tipos.join(','));
+  // O pior caso do órfão: coletorVivo, taskkill e a consulta depois do
+  // taskkill que falhou, 3 × 1,5 s (CONSULTA_PRAZO_MS).
+  assert.deepEqual(c.chamadas, ['tasklist.exe /FI PID eq 4242 /FO CSV /NH', 'taskkill.exe /pid 4242 /t /f', 'tasklist.exe /FI PID eq 4242 /FO CSV /NH']);
+  assert.deepEqual(tiposDe(d), ['orfao', 'parar-falhou']);
   assert.ok(fs.existsSync(caminhos(d).pid), 'o PID fica para a próxima sessão');
 });
 
@@ -333,40 +362,68 @@ test('§3.3 (ruling I2): o SessionEnd para o Collector antes do passo', () => {
   assert.equal(pedidos(d, AGORA), 1, 'e o passo rodou depois');
 });
 
-test('§3.3 (ruling I2): parar com erro no SessionEnd vira o evento erro e o passo roda', () => {
+test('§3.3 (ruling I2): parar com erro no SessionEnd vira o evento parar-falhou e o passo roda', () => {
   const d = novoDir();
   gravarPid(d, AGORA - H);
   const c = coletorFalso({ tasklist: 'falha' });
   depoisDoFim({ dir: d, sessionId: 'saindo', agoraMs: AGORA, opcoesColetor: c.opcoes });
   assert.ok(!c.chamadas.some((x) => x.startsWith('taskkill')));
-  assert.deepEqual(tiposDe(d), ['erro']);
+  assert.deepEqual(tiposDe(d), ['parar-falhou']);
   assert.ok(fs.existsSync(caminhos(d).pid));
   assert.ok(fs.existsSync(caminhos(d).aprendizado));
 });
 
-test('Task 10: desligado com PID de um Collector vivo, ele é parado uma vez; morto ou sem resposta, nada', () => {
+test('Task 10 e revisão I1: desligado com PID, o Collector vivo é parado uma vez; morto ou de outro programa, o PID sai; sem resposta, nada', () => {
+  const Q = 'tasklist.exe /FI PID eq 4242 /FO CSV /NH';
+  const K = 'taskkill.exe /pid 4242 /t /f';
   const d = novoDir();
   gravarPid(d, AGORA - H);
   const vivo = coletorFalso();
   pararSemLigado({ dir: d, agoraMs: AGORA, opcoesColetor: vivo.opcoes });
-  assert.ok(vivo.chamadas.includes('taskkill.exe /pid 4242 /t /f'));
+  assert.deepEqual(vivo.chamadas, [Q, K], 'uma consulta só antes do taskkill');
   assert.equal(fs.existsSync(caminhos(d).pid), false);
   assert.equal(fs.existsSync(caminhos(d).eventos), false, 'sucesso não grava evento');
 
   gravarPid(d, AGORA - H);
   const outro = coletorFalso({ tasklist: 'outro' });
   pararSemLigado({ dir: d, agoraMs: AGORA, opcoesColetor: outro.opcoes });
-  assert.deepEqual(outro.chamadas, ['tasklist.exe /FI PID eq 4242 /FO CSV /NH'], 'PID de outro programa: não mata');
+  assert.ok(!outro.chamadas.includes(K), 'PID de outro programa: não mata');
+  assert.equal(fs.existsSync(caminhos(d).pid), false, 'e o PID que não é do Collector sai');
+
+  gravarPid(d, AGORA - H);
+  const morto = coletorFalso({ tasklist: 'morto' });
+  pararSemLigado({ dir: d, agoraMs: AGORA, opcoesColetor: morto.opcoes });
+  assert.ok(!morto.chamadas.includes(K));
+  assert.equal(fs.existsSync(caminhos(d).pid), false, 'o PID de um processo morto sai');
+  assert.equal(fs.existsSync(caminhos(d).eventos), false);
+
+  gravarPid(d, AGORA - H);
   const mudo = coletorFalso({ tasklist: 'falha' });
   pararSemLigado({ dir: d, agoraMs: AGORA, opcoesColetor: mudo.opcoes });
-  assert.deepEqual(mudo.chamadas, ['tasklist.exe /FI PID eq 4242 /FO CSV /NH']);
+  assert.deepEqual(mudo.chamadas, [Q], 'sem resposta: nada mais');
   assert.ok(fs.existsSync(caminhos(d).pid), 'o PID fica');
   assert.equal(fs.existsSync(caminhos(d).eventos), false);
 
   const teimoso = coletorFalso({ taskkill: 'falha' });
   pararSemLigado({ dir: d, agoraMs: AGORA, opcoesColetor: teimoso.opcoes });
-  assert.equal(teimoso.chamadas.filter((x) => x.startsWith('taskkill')).length, 1);
-  assert.deepEqual(tiposDe(d), ['erro']);
+  assert.deepEqual(teimoso.chamadas, [Q, K, Q], 'uma tentativa, no máximo 3 chamadas');
+  assert.ok(fs.existsSync(caminhos(d).pid));
+  assert.deepEqual(tiposDe(d), ['parar-falhou']);
+});
+
+test('revisão: a parada que falha vira aviso uma vez por dia, no texto fixo', () => {
+  const d = novoDir();
+  gravarPid(d, AGORA - H);
+  const teimoso = coletorFalso({ taskkill: 'falha' });
+  depoisDoFim({ dir: d, sessionId: 'saindo', agoraMs: AGORA, opcoesColetor: teimoso.opcoes });
+  assert.deepEqual(tiposDe(d), ['parar-falhou']);
+  assert.deepEqual(linhasDoInicio({ dir: d, agoraMs: AGORA + 1000 }), [
+    'Aprendizado: o Collector não pôde ser parado; o hadouken tenta de novo na próxima sessão. Se o aviso continuar, encerre o processo otelcol-contrib.',
+  ]);
+  depoisDoFim({ dir: d, sessionId: 'saindo', agoraMs: AGORA + 2000, opcoesColetor: teimoso.opcoes });
+  assert.deepEqual(linhasDoInicio({ dir: d, agoraMs: AGORA + 3000 }), [], 'no mesmo dia, nada');
+  depoisDoFim({ dir: d, sessionId: 'saindo', agoraMs: AGORA + DIA, opcoesColetor: teimoso.opcoes });
+  assert.equal(linhasDoInicio({ dir: d, agoraMs: AGORA + DIA + 1000 }).length, 1, 'no dia seguinte, de novo');
 });
 
 test('nenhuma das funções lança, mesmo sem pasta válida', () => {
@@ -377,24 +434,50 @@ test('nenhuma das funções lança, mesmo sem pasta válida', () => {
   assert.doesNotThrow(() => pararSemLigado({ dir: undefined, agoraMs: AGORA }));
 });
 
-function hook(nome, home, entrada) {
-  const env = {
+function ambienteDoHook(home) {
+  assert.ok(home.startsWith(os.tmpdir()));
+  return {
     ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1',
     HADOUKEN_SETTINGS: path.join(home, 'settings.json'), CLAUDE_CONFIG_DIR: path.join(home, 'claude'),
   };
-  assert.ok(home.startsWith(os.tmpdir()));
-  const r = spawnSync(process.execPath, [path.join(repo, 'src', 'hooks', nome)], { input: JSON.stringify(entrada), env, encoding: 'utf8', timeout: 30_000 });
+}
+function hook(nome, home, entrada) {
+  const r = spawnSync(process.execPath, [path.join(repo, 'src', 'hooks', nome)], { input: JSON.stringify(entrada), env: ambienteDoHook(home), encoding: 'utf8', timeout: 30_000 });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
+// O hook com a pré-carga atrasar-passo.mjs: devolve o stdout e o instante em
+// que o primeiro byte dele chegou aqui.
+function hookComAtraso(nome, home, entrada, registro) {
+  return new Promise((resolver, rejeitar) => {
+    const p = spawn(process.execPath, ['--import', pathToFileURL(ATRASAR).href, path.join(repo, 'src', 'hooks', nome)], {
+      env: { ...ambienteDoHook(home), HADOUKEN_TESTE_ORDEM: registro }, stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let saida = '';
+    let erro = '';
+    let primeiroMs = null;
+    p.stdout.setEncoding('utf8');
+    p.stdout.on('data', (x) => { if (primeiroMs === null) primeiroMs = Date.now(); saida += x; });
+    p.stderr.on('data', (x) => { erro += x; });
+    p.on('error', rejeitar);
+    p.on('close', (status) => (status === 0 ? resolver({ saida, primeiroMs }) : rejeitar(new Error(`status ${status}: ${erro}`))));
+    p.stdin.end(JSON.stringify(entrada));
+  });
+}
 
-test('R13: ligado, o SessionStart manda o aviso por systemMessage, fora do contexto; o SessionEnd roda o passo', () => {
+test('R13: ligado, o SessionStart manda o aviso por systemMessage, fora do contexto; o SessionEnd roda o passo', async () => {
   const d = novoDir();
   gravarLigado(d, { chaves: {}, criouEnv: false }, AGORA);
   const inicio = { session_id: 'sessao-a', hook_event_name: 'SessionStart', source: 'startup' };
-  const primeira = JSON.parse(hook('session-start.js', d, inicio));
+  // Revisão M3: com o passo atrasado de propósito, a saída chega antes de o
+  // passo gravar o aprendizado.json.
+  const registro = path.join(d, 'ordem.txt');
+  const r = await hookComAtraso('session-start.js', d, inicio, registro);
+  const primeira = JSON.parse(r.saida);
   assert.equal(primeira.systemMessage, undefined, 'nada a anunciar ainda');
-  assert.ok(fs.existsSync(caminhos(d).aprendizado), 'o passo rodou depois da saída');
+  assert.ok(fs.existsSync(caminhos(d).aprendizado), 'o passo rodou');
+  const gravouMs = Number(fs.readFileSync(registro, 'utf8').trim().split('\n')[0]);
+  assert.ok(r.primeiroMs !== null && r.primeiroMs < gravouMs, `a saída (${r.primeiroMs}) chega antes da gravação do passo (${gravouMs})`);
   // Sem binário (ou sem RAM), a subida deixou um evento que vira aviso.
   const segunda = JSON.parse(hook('session-start.js', d, { ...inicio, source: 'resume' }));
   assert.match(segunda.systemMessage, /^Aprendizado: /);

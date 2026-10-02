@@ -32,10 +32,12 @@ const TRAVA_TENTATIVAS = 5;
 const TRAVA_ESPERA_MS = 50;
 // 'comando-recusado': o /claude-hadouken:aprender recusado por vir de -p/SDK
 // ou de uma origem que não é o comando digitado (Task 11, ruling I1), só com
-// o aprendizado ligado.
+// o aprendizado ligado. 'parar-falhou': o pararColetor com 'erro' (consulta
+// sem resposta ou taskkill que falhou com o Collector de pé; revisão da Task
+// 12).
 export const TIPOS_EVENTO_APR = Object.freeze([
   'porta-ocupada', 'pouca-ram', 'coletor-hash', 'coletor-falhou', 'coletor-ausente', 'ajuste-fora', 'erro', 'sem-otel', 'orfao', 'telemetria-corrompida',
-  'comando-recusado',
+  'comando-recusado', 'parar-falhou',
 ]);
 export const MOTIVOS = Object.freeze([
   'fora-do-horario', 'horario-mudou', 'faixa-historico', 'perfil-por-hora', 'perfil-insuficiente', 'esgotou-2-de-3', 'sobra-4-semanas', 'desfazer',
