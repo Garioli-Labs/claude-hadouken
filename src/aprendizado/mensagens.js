@@ -353,7 +353,16 @@ export function desligado(r, alcance) {
   if (r.ligadoInvalido) l.push('O otel/ligado.json estava ilegível: nenhuma chave foi tirada do settings.json; confira o env dele à mão.');
   else if (r.removidas.length > 0) l.push(`${plural(r.removidas.length, 'chave saiu', 'chaves saíram')} do env do settings.json${typeof r.backup === 'string' ? ` (cópia em ${caminhoTxt(r.backup)})` : ''}.`);
   else l.push('O env do settings.json não tinha chaves do hadouken com o valor dele para tirar.');
-  if (r.parado) l.push('O Collector foi parado.');
+  if (r.parado === true) l.push('O Collector foi parado.');
+  // parado false (desde 527ca3f): a saída do Collector não foi confirmada; o
+  // PID fica (e o binário, em tudo) para o próximo SessionStart ou SessionEnd
+  // pará-lo. Em nada e dados o binário fica de qualquer jeito, então o aviso
+  // fala só do coletor.pid.
+  else if (r.parado === false) {
+    l.push(alcance === 'tudo'
+      ? 'O Collector pode ainda estar de pé; ele é parado no próximo início ou fim de sessão, e o binário e coletor.pid ficam até lá.'
+      : 'O Collector pode ainda estar de pé; ele é parado no próximo início ou fim de sessão, e o coletor.pid fica até lá.');
+  }
   const pasta = caminhoTxt(r.pasta);
   if (alcance === 'dados' || alcance === 'tudo') {
     l.push(r.apagou

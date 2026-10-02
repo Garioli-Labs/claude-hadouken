@@ -221,6 +221,29 @@ test('desligado: o resultado do desligar, com registroFicou e alcance', () => {
   assert.match(msg.desligado({ ...base, apagou: true }, 'tudo'), /foram apagados/);
 });
 
+test('desligado: parado false avisa que o Collector pode estar de pé, conforme o alcance', () => {
+  const base = { ok: true, removidas: ['A'], backup: null, parado: false, apagou: false, pasta: 'C:\\h\\otel', ligadoInvalido: false, registroFicou: false };
+  const AVISO_TUDO = 'O Collector pode ainda estar de pé; ele é parado no próximo início ou fim de sessão, e o binário e coletor.pid ficam até lá.';
+  const AVISO_SEM_BIN = 'O Collector pode ainda estar de pé; ele é parado no próximo início ou fim de sessão, e o coletor.pid fica até lá.';
+  // tudo: o binário sairia; com o Collector talvez vivo, ele e o PID ficam.
+  const tudo = msg.desligado(base, 'tudo');
+  assert.ok(tudo.includes(AVISO_TUDO), tudo);
+  assert.doesNotMatch(tudo, /O Collector foi parado/);
+  // nada e dados: o binário fica de qualquer jeito; só o PID é o que fica "até lá".
+  for (const alcance of ['nada', 'dados']) {
+    const t = msg.desligado(base, alcance);
+    assert.ok(t.includes(AVISO_SEM_BIN), `${alcance}: ${t}`);
+    assert.ok(!t.includes(AVISO_TUDO), alcance);
+    assert.doesNotMatch(t, /O Collector foi parado/);
+  }
+  // parado true (ou ausente) não leva o aviso.
+  for (const alcance of ['nada', 'dados', 'tudo']) {
+    assert.doesNotMatch(msg.desligado({ ...base, parado: true }, alcance), /pode ainda estar de pé/);
+    const { parado, ...semParado } = base;
+    assert.doesNotMatch(msg.desligado(semParado, alcance), /pode ainda estar de pé/);
+  }
+});
+
 test('as constantes são fixas e sem caractere de controle', () => {
   for (const k of ['USO', 'RECUSADO_ENTRYPOINT', 'RECUSADO_ORIGEM', 'DESLIGADO', 'OCUPADO', 'FALHOU', 'NAO_GRAVADO', 'SEM_SUGESTAO', 'MUDOU']) {
     assert.equal(typeof msg[k], 'string', k);
