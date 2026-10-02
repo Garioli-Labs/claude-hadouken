@@ -13,6 +13,12 @@ import { numeroFinito } from './base.js';
 // sessões, registradas ou não. Sem previsão abaixo do mínimo por janela em
 // REGRAS_JANELA (pontos e cobertura), inclinação ≤ 0 ou não finita, ou
 // previsão que não cai antes do reset (o reset chega primeiro). Nunca lança.
+//
+// Com o aprendizado ligado (spec aprendizado §4.3, R10), o UserPromptSubmit
+// passa `perfil` ({ peso, h5, d7 } de perfilDaPrevisao): o ritmo atual é
+// misturado ao ritmo típico da hora local, com peso de até 0,5. A guarda
+// (src/guarda/avaliar.js) nunca passa perfil: um perfil que atrasasse a
+// previsão afrouxaria o G1/G2 sem aprovação.
 
 export const JANELA_5H_MS = 20 * 60_000;
 export const JANELA_7D_MS = 3 * 3_600_000;
@@ -26,6 +32,8 @@ export const REGRAS_JANELA = Object.freeze({
   seven_day: Object.freeze({ pontosMin: 10, coberturaMinMs: 2 * 3_600_000 }),
 });
 const MINUTO_MS = 60_000;
+// O máximo do item previsao.pesoPerfil (src/aprendizado/arquivos.js, ITENS).
+const PESO_PERFIL_MAX = 0.5;
 // Ponto até 5 min no futuro ainda vale: a mesma folga de relógio de instante
 // (base.js), que o estado já aplicou ao validar o histórico.
 const FUTURO_MS = 5 * 60_000;
@@ -101,11 +109,31 @@ function pontosDaColuna(historico, coluna, alcance, agoraMs) {
   return pontos;
 }
 
+// R10: (1 − peso)·b + peso·típico da hora local, em pontos por minuto. Só
+// com b > 0 (sem ritmo atual não há previsão, e o perfil não cria uma), peso
+// em (0; PESO_PERFIL_MAX] e o típico da hora número finito > 0; em qualquer
+// outro caso, b como veio. Nunca lança.
+export function ritmoMisturado(b, perfil, coluna, agoraMs) {
+  try {
+    if (!numeroFinito(b) || b <= 0 || perfil === null || typeof perfil !== 'object') return b;
+    const { peso } = perfil;
+    if (!numeroFinito(peso) || peso <= 0 || peso > PESO_PERFIL_MAX) return b;
+    const serie = perfil[coluna];
+    if (!Array.isArray(serie) || serie.length !== 24 || !numeroFinito(agoraMs)) return b;
+    const tipico = serie[new Date(agoraMs).getHours()];
+    if (!numeroFinito(tipico) || tipico <= 0) return b;
+    const r = (1 - peso) * b + peso * tipico;
+    return numeroFinito(r) ? r : b;
+  } catch {
+    return b;
+  }
+}
+
 // Previsão de uma janela: os pontos da coluna dentro do alcance (de agora −
 // alcance até agora + FUTURO_MS, porcentagem em [0, 100]), a inclinação deles
 // e agora + (100 − usado) ÷ inclinação (com as regras da janela), arredondado
 // ao ms. Só vale se cair depois de agora e antes do reset.
-function preverJanela(historico, coluna, alcance, regras, janela, agoraMs) {
+function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfil = null) {
   if (janela === null || typeof janela !== 'object') return null;
   const usado = janela.used_percentage;
   const resetS = janela.resets_at;
@@ -115,7 +143,7 @@ function preverJanela(historico, coluna, alcance, regras, janela, agoraMs) {
   const resetMs = resetS * 1000;
   if (!numeroFinito(resetMs) || resetMs <= agoraMs) return null;
   const pontos = pontosDaColuna(historico, coluna, alcance, agoraMs);
-  const b = inclinacao(pontos, regras);
+  const b = ritmoMisturado(inclinacao(pontos, regras), perfil, coluna, agoraMs);
   if (b === null || b <= 0) return null;
   const quando = Math.round(agoraMs + ((100 - usado) / b) * MINUTO_MS);
   return numeroFinito(quando) && quando > agoraMs && quando < resetMs ? quando : null;
@@ -128,10 +156,10 @@ function preverJanela(historico, coluna, alcance, regras, janela, agoraMs) {
 export function preverEstouro(opcoes) {
   const previsao = { five_hour: null, seven_day: null };
   try {
-    const { historico, limites, agoraMs } = opcoes ?? {};
+    const { historico, limites, agoraMs, perfil = null } = opcoes ?? {};
     if (!Array.isArray(historico) || !numeroFinito(agoraMs) || limites === null || typeof limites !== 'object') return previsao;
     for (const [k, [coluna, alcance, regras]] of Object.entries(ALCANCE)) {
-      previsao[k] = preverJanela(historico, coluna, alcance, regras, limites[k], agoraMs);
+      previsao[k] = preverJanela(historico, coluna, alcance, regras, limites[k], agoraMs, perfil);
     }
     return previsao;
   } catch {

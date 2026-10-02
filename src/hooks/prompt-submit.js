@@ -14,7 +14,8 @@ import { sessaoAtiva, renovarSessao } from '../ativas.js';
 // Roda em toda sessão aberta, registrada ou não, então o caminho até o gate
 // carrega o mínimo: comum.js (stdin), base.js e ativas.js. Sessão sem
 // registro ativo não imprime nem grava nada. estado.js, alerta.js, previsao.js
-// e a memória de alertas vêm por import dinâmico depois do gate (adendo E).
+// e a memória de alertas vêm por import dinâmico depois do gate (adendo E),
+// como aprendizado/arquivos.js e, só com o aprendizado ligado, registro.js.
 //
 // Texto injetado (spec 8.1, S1): só as linhas de alerta.js, feitas de números
 // validados, horários formatados e rótulos fixos. O session_id passa por
@@ -74,7 +75,18 @@ rodarHook(async (entrada) => {
   const leituras = leiturasComPiso(estado, agoraMs);
   const ultima = ultimaLeitura(estado, agoraMs);
   const temLeitura = leituras.five_hour !== null || leituras.seven_day !== null;
-  const previsao = preverEstouro({ historico: estado?.historico, limites, agoraMs });
+  // Spec aprendizado §4.3 e R10: com o aprendizado ligado e peso > 0, a
+  // previsão das linhas de alerta mistura o ritmo típico da hora. A guarda
+  // (src/guarda/avaliar.js) segue com a regressão pura. Desligado, nada do
+  // aprendizado é carregado além do módulo leve de nomes.
+  let perfil = null;
+  try {
+    const { ligadoExiste } = await import('../aprendizado/arquivos.js');
+    if (ligadoExiste(dir)) perfil = (await import('../aprendizado/registro.js')).perfilDaPrevisao(dir, agoraMs);
+  } catch {
+    perfil = null;
+  }
+  const previsao = preverEstouro({ historico: estado?.historico, limites, agoraMs, perfil });
   const ativas = sessoesAtivas(estado, agoraMs, sessionId);
   const arqAlertas = join(dir, ARQ_ALERTAS);
   const lidoAlertas = lerJson(arqAlertas, ALERTAS_MAX_BYTES);

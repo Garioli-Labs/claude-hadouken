@@ -6,6 +6,7 @@ import { ARQ_ESTADO, gravarJsonAtomico, lerJson, LIMITE_VELHO_MS, limitesValidos
 import { diaHora, horaLocal } from '../util.js';
 import { acharClaude, ambienteUso, rodarUso } from './oficial.js';
 import { fraseEsgota } from './frase.js';
+import { faixasDoPainel, intervaloDoPainelMs } from '../aprendizado/registro.js';
 import {
   ARQ_USO, BLOQUEIO_CUSTO_MS, ehObjeto, janelaGravada, lerUso, MOTIVOS_RODAR, naFaixaDoDate, VERSAO,
 } from './ler-uso.js';
@@ -60,12 +61,13 @@ const bloqueioEmVigor = (uso, agoraMs) => uso !== null && uso.bloqueado !== null
 
 // Passos 2 e 3 de talvezAtualizar: bloqueio em vigor (mesmo com forcar) e
 // leitura recente, pela mais nova entre lidoEm e estado.em. Devolve o motivo
-// para não ler, ou null.
-function barreira(uso, agoraMs, forcado) {
+// para não ler, ou null. `recenteMs` é o intervalo aprendido menos a folga
+// de um tique (spec aprendizado §4.3, R9), ou RECENTE_MS.
+function barreira(uso, agoraMs, forcado, recenteMs = RECENTE_MS) {
   if (uso === null) return null;
   if (bloqueioEmVigor(uso, agoraMs)) return 'bloqueado';
   const ultimo = Math.max(msDe(uso.lidoEm), msDe(uso.estado?.em));
-  const espera = MOTIVOS_ESPERA.has(uso.estado?.motivo) && msDe(uso.estado.em) === ultimo ? ESPERA_FALHA_MS : RECENTE_MS;
+  const espera = MOTIVOS_ESPERA.has(uso.estado?.motivo) && msDe(uso.estado.em) === ultimo ? ESPERA_FALHA_MS : recenteMs;
   if (numeroFinito(ultimo) && agoraMs - ultimo < (forcado ? PISO_FORCADO_MS : espera)) return 'recente';
   return null;
 }
@@ -199,7 +201,8 @@ function gravarResultado(dir, agoraMs, res) {
 // 0. HADOUKEN_SEM_PAINEL=1 no ambiente: 'desligado';
 // 1. sem pasta de dados: 'sem-pasta';
 // 2. bloqueio por custo em vigor: 'bloqueado', mesmo com forcar;
-// 3. leitura (ou tentativa) de menos de 25 s, ou de menos de 15 min depois
+// 3. leitura (ou tentativa) de menos de 25 s (com o aprendizado, fora das
+//    horas ativas: do intervalo aprendido menos 5 s), ou de menos de 15 min depois
 //    de 'tempo', 'saida', 'formato' ou 'erro', ou gravação que falhou há menos de 25 s neste
 //    processo: 'recente' (com forcar, só o piso de 5 s);
 // 4. sem forcar e sem sessão ativa: 'sem-sessao';
@@ -232,8 +235,13 @@ export async function talvezAtualizar(opcoes) {
     if (typeof dir !== 'string' || dir === '') return naoFeito('sem-pasta');
     if (!naFaixaDoDate(agoraMs)) return naoFeito('erro');
     const forcado = forcar === true;
+    // Spec aprendizado §4.3 e R9: fora das horas ativas, o intervalo
+    // aprendido no lugar dos 30 s, com a mesma folga de um tique. O comando
+    // manual (forcar) segue com o piso de 5 s. Desligado: null, e nada muda.
+    const aprendido = forcado ? null : intervaloDoPainelMs(dir, agoraMs);
+    const recenteMs = aprendido === null ? RECENTE_MS : aprendido - (INTERVALO_MS - RECENTE_MS);
     if (gravacaoFalhouHaPouco(dir, agoraMs, forcado)) return naoFeito('recente');
-    const antes = barreira(lerUso(dir, agoraMs), agoraMs, forcado);
+    const antes = barreira(lerUso(dir, agoraMs), agoraMs, forcado, recenteMs);
     if (antes !== null) return naoFeito(antes);
     if (!forcado) {
       const ativo = typeof estadoAtivo === 'function' ? await estadoAtivo() : temSessaoAtiva(dir, agoraMs);
@@ -244,7 +252,7 @@ export async function talvezAtualizar(opcoes) {
     const pega = pegarTrava(dir, agoraMs);
     if (!pega.ok) return naoFeito(pega.motivo);
     trava = pega.arquivo;
-    const depois = barreira(lerUso(dir, agoraMs), agoraMs, forcado);
+    const depois = barreira(lerUso(dir, agoraMs), agoraMs, forcado, recenteMs);
     if (depois !== null) return naoFeito(depois);
     const cwd = path.join(dir, DIR_CWD);
     fs.mkdirSync(cwd, { recursive: true });
@@ -371,8 +379,9 @@ function linhaMotivo(ultimoMotivo, uso, agoraMs) {
 // - texto: "5h 25% · sem 41% · Fable 57%", com — na janela sem leitura e o
 //   piso inteiro de cada percentual; sem janela nenhuma, "Hadouken: sem
 //   leitura";
-// - nivel: pela pior janela, 'erro' a partir de 90%, 'aviso' a partir de
-//   75%, senão 'ok'; sem janela nenhuma, 'sem-leitura';
+// - nivel: pela pior janela, 'erro' a partir da faixa vermelha (90%, ou a
+//   aprendida), 'aviso' a partir da amarela (75%, ou a aprendida), senão
+//   'ok'; sem janela nenhuma, 'sem-leitura';
 // - dica: Markdown só com rótulos fixos e números, um parágrafo por linha.
 // 5h e semana juntam a statusline e o /usage (mesclar); o Fable vem só do
 // /usage. Nunca lança: em erro, sem leitura e dica vazia.
@@ -394,7 +403,10 @@ export function estadoPainel(opcoes) {
     if (janelas.length > 0) {
       texto = `5h ${pctTexto(sessao)} · sem ${pctTexto(semana)} · Fable ${pctTexto(fable)}`;
       const pior = Math.max(...janelas.map((j) => Math.floor(j.pct)));
-      nivel = pior >= 90 ? 'erro' : pior >= 75 ? 'aviso' : 'ok';
+      // Spec aprendizado R14: as faixas aprendidas mudam só este nível; sem
+      // aprendizado, 75 e 90, como antes.
+      const faixas = faixasDoPainel(dir, agoraMs);
+      nivel = pior >= faixas.vermelho ? 'erro' : pior >= faixas.amarelo ? 'aviso' : 'ok';
     }
     const linhas = [
       linhaJanela('**Sessão (5h):**', sessao, JANELA_5H_MS, agoraMs),
