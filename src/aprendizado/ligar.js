@@ -16,10 +16,12 @@ import { aplicarDesligar, aplicarLigar, CHAVES_LIGAR, consultarDesligar, consult
 // em qualquer falha: baixa e confere o hash (baixar.js), extrai e apaga o
 // .tar.gz (coletor.js, R7), gera a configuração, grava otel/ligado.json (R8,
 // o que o desligar tira) e só então o `env` do settings.json (settings-env.js);
-// se o settings.json falha, o ligado.json sai e o Collector que este ligar
-// subiu é parado. O desligar também tem prévia (previaDesligar, §6 última
-// linha): com o `esperado` dela, um settings.json que mudou no meio dá
-// 'settings-mudou' antes de qualquer outro efeito. Rede e processo filho
+// o par final (ligado.json e env) roda sob a trava do aprendizado, a mesma do
+// desligar e do passo. Se o settings.json falha, o ligado.json sai e o
+// Collector que este ligar subiu é parado (voltarAtras). O desligar também
+// tem prévia (previaDesligar, §6 última linha): com o `esperado` dela, um
+// settings.json que mudou no meio dá 'settings-mudou' antes de qualquer
+// outro efeito. Rede e processo filho
 // ficam nos módulos de fronteira; este só os chama. Argumentos com as regras
 // de settings-env.js: pasta e arquivo absolutos, agoraMs inteiro seguro não
 // negativo; fora disso, 'argumentos' sem tocar em nada. Nenhuma função lança.
@@ -63,6 +65,10 @@ export function previa(opcoes) {
       arquivo,
       adicionar: c.adicionar,
       criaEnv: c.criaEnv,
+      // O conferirIntegridade (coletor.js) pode regravar o otel/bin/
+      // instalado.json quando o tamanho ou o mtime do binário mudaram e o
+      // hash ainda confere: a foto nova, com o mesmo sha256 (cache do R7).
+      // É a única gravação possível da prévia, e não muda o que ela mostra.
       baixar: integridade(dir, { plataforma })?.ok !== true,
     };
     return { ok: true, plano, assinatura: c.assinatura, codigo: codigoDe(c.assinatura, plano) };
@@ -93,73 +99,6 @@ function varrerSobras(pasta) {
   }
 }
 
-export async function ligar(opcoes) {
-  let tarGz = null;
-  let concluido = false;
-  let gravouLigado = false;
-  let pararSubido = null;
-  let dirLigado = null;
-  try {
-    const {
-      dir, arquivo, codigo, agoraMs, ambiente = process.env, plataforma = process.platform, arch = process.arch,
-      baixar = baixarColetor, extrair = extrairColetor, subir = subirColetor, parar = pararColetor, aplicar = aplicarLigar,
-      integridade = conferirIntegridade, exigirColetor = A3_ATRAPALHA, opcoesBaixar = {}, executar, systemRoot,
-    } = opcoes ?? {};
-    if (!agoraValido(agoraMs)) return falha('argumentos');
-    const p = previa({ dir, arquivo, ambiente, plataforma, arch, integridade });
-    if (!p.ok) return p;
-    if (typeof codigo !== 'string' || codigo.toLowerCase() !== p.codigo) return falha('codigo');
-    const c = caminhos(dir);
-    fs.mkdirSync(c.bin, { recursive: true });
-    varrerSobras(c.bin);
-    if (p.plano.baixar) {
-      tarGz = path.join(c.bin, FIXADO[p.plano.chave].arquivo);
-      // Só o destino e a chave: URL, tamanho e hash são os fixados em baixar.js.
-      const b = await baixar({ ...opcoesBaixar, destino: tarGz, chave: p.plano.chave });
-      if (b?.ok !== true) return falha('download', typeof b?.motivo === 'string' ? b.motivo : 'rede');
-      const x = extrair({ dir, tarGz, plataforma, executar, systemRoot });
-      if (x?.ok !== true) return falha('extrair');
-    }
-    if (gravarConfig(dir)?.ok !== true) return falha('config');
-    // Emenda A3: se o Claude Code atrapalha com o endpoint fora do ar, o
-    // Collector tem de estar de pé antes de o env entrar no settings.json.
-    // 'vivo' é um Collector que já estava de pé: segue, e a volta atrás não o
-    // para, porque não foi este ligar que o subiu. 'erro' (consulta sem
-    // resposta) vira o detalhe, sem nova tentativa.
-    if (exigirColetor) {
-      const s = subir({ dir, agoraMs, plataforma, executar, systemRoot });
-      if (s?.ok === true) pararSubido = () => parar({ dir, plataforma, executar, systemRoot });
-      else if (s?.motivo !== 'vivo') return falha('coletor', typeof s?.motivo === 'string' ? s.motivo : 'erro');
-    }
-    const chaves = Object.fromEntries(p.plano.adicionar.map((k) => [k, CHAVES_LIGAR[k]]));
-    // Outro ligar com o mesmo código terminou durante o download: o
-    // ligado.json é dele, e a volta atrás deste nunca pode apagá-lo.
-    if (ligadoExiste(dir)) return falha('ja-ligado');
-    dirLigado = dir;
-    gravouLigado = true;
-    if (gravarLigado(dir, { chaves, criouEnv: p.plano.criaEnv }, agoraMs)?.ok !== true) return falha('escrita');
-    const a = aplicar({ arquivo, agoraMs, ambiente, esperado: p.assinatura });
-    if (a?.ok !== true) return typeof a?.motivo === 'string' ? a : falha('erro-interno');
-    concluido = true;
-    return { ok: true, plano: p.plano, backup: a.backup };
-  } catch {
-    return falha('erro-interno');
-  } finally {
-    // A volta atrás roda em toda saída que não ligou, inclusive numa exceção.
-    if (!concluido) {
-      if (gravouLigado) apagarLigado(dirLigado);
-      if (pararSubido !== null) {
-        try {
-          pararSubido();
-        } catch {
-          /* uma tentativa só, sem laço; o pararColetor que falha deixa o PID */
-        }
-      }
-    }
-    if (tarGz !== null) apagar(tarGz);
-  }
-}
-
 function existe(alvo) {
   try {
     return fs.lstatSync(alvo, { throwIfNoEntry: false }) !== undefined;
@@ -168,9 +107,114 @@ function existe(alvo) {
   }
 }
 
+// Os passos do ligar, em ordem. `feito` anota o que este ligar criou e a
+// volta atrás desfaz: o .tar.gz, a trava, o ligado.json e o Collector.
+async function passosDoLigar(o, feito) {
+  const {
+    dir, arquivo, codigo, agoraMs, ambiente = process.env, plataforma = process.platform, arch = process.arch,
+    baixar = baixarColetor, extrair = extrairColetor, subir = subirColetor, parar = pararColetor, aplicar = aplicarLigar,
+    integridade = conferirIntegridade, exigirColetor = A3_ATRAPALHA, opcoesBaixar = {}, executar, systemRoot,
+  } = o;
+  if (!agoraValido(agoraMs)) return falha('argumentos');
+  const p = previa({ dir, arquivo, ambiente, plataforma, arch, integridade });
+  if (!p.ok) return p;
+  if (typeof codigo !== 'string' || codigo.toLowerCase() !== p.codigo) return falha('codigo');
+  feito.dir = dir;
+  const c = caminhos(dir);
+  fs.mkdirSync(c.bin, { recursive: true });
+  varrerSobras(c.bin);
+  if (p.plano.baixar) {
+    feito.tarGz = path.join(c.bin, FIXADO[p.plano.chave].arquivo);
+    // Só o destino e a chave: URL, tamanho e hash são os fixados em baixar.js.
+    const b = await baixar({ ...opcoesBaixar, destino: feito.tarGz, chave: p.plano.chave });
+    if (b?.ok !== true) return falha('download', typeof b?.motivo === 'string' ? b.motivo : 'rede');
+    const x = extrair({ dir, tarGz: feito.tarGz, plataforma, executar, systemRoot });
+    if (x?.ok !== true) return falha('extrair');
+  }
+  if (gravarConfig(dir)?.ok !== true) return falha('config');
+  // Emenda A3: se o Claude Code atrapalha com o endpoint fora do ar, o
+  // Collector tem de estar de pé antes de o env entrar no settings.json.
+  // 'vivo' é um Collector que já estava de pé: segue, e a volta atrás não o
+  // para, porque não foi este ligar que o subiu. 'erro' (consulta sem
+  // resposta) vira o detalhe, sem nova tentativa.
+  if (exigirColetor) {
+    const s = subir({ dir, agoraMs, plataforma, executar, systemRoot });
+    if (s?.ok === true) feito.pararSubido = () => parar({ dir, plataforma, executar, systemRoot });
+    else if (s?.motivo !== 'vivo') return falha('coletor', typeof s?.motivo === 'string' ? s.motivo : 'erro');
+  }
+  // O par final sob a trava do aprendizado (a do desligar e do passo): um
+  // desligar ou outro ligar nunca cai entre o ligado.json e o env. Ocupada
+  // (5 tentativas, registro.js): 'ocupado'; erro ao criá-la: 'escrita'.
+  const t = pegarTrava(dir);
+  if (!t.ok) return falha(t.motivo === 'ocupada' ? 'ocupado' : 'escrita');
+  feito.trava = t;
+  // Outro ligar com o mesmo código terminou durante o download: o
+  // ligado.json é dele, e a volta atrás deste nunca o apaga.
+  if (ligadoExiste(dir)) return falha('ja-ligado');
+  const chaves = Object.fromEntries(p.plano.adicionar.map((k) => [k, CHAVES_LIGAR[k]]));
+  if (gravarLigado(dir, { chaves, criouEnv: p.plano.criaEnv }, agoraMs)?.ok !== true) return falha('escrita');
+  // Só depois de gravado: o que estava no lugar de um ligado.json que não
+  // foi gravado não é deste ligar.
+  feito.gravouLigado = true;
+  const a = aplicar({ arquivo, agoraMs, ambiente, esperado: p.assinatura });
+  if (a?.ok !== true) return typeof a?.motivo === 'string' ? a : falha('erro-interno');
+  return { ok: true, plano: p.plano, backup: a.backup };
+}
+
+// A volta atrás de um ligar que não ligou, ainda sob a trava quando este
+// ligar a tem. O ligado.json sai só se foi este ligar que o gravou; se ele
+// fica (o unlink falhou), o resultado ganha `registroFicou: true`. O
+// Collector que este ligar subiu é parado, com uma tentativa só e sem laço
+// (o pararColetor que falha deixa o PID), exceto quando há um ligado.json
+// válido que não é deste ligar: aí outro ligar ganhou ('ja-ligado', ou
+// 'ocupado' com ele no meio) e pode estar usando este Collector, que recebeu
+// como 'vivo'. Deixá-lo de pé é o lado seguro: com o ligado.json do outro, o
+// SessionStart e o SessionEnd o acham pelo arquivo de PID.
+function voltarAtras(r, feito) {
+  let registroFicou = false;
+  if (feito.gravouLigado) {
+    apagarLigado(feito.dir);
+    registroFicou = existe(caminhos(feito.dir).ligado);
+  }
+  if (feito.pararSubido !== null && (feito.gravouLigado || !ligadoExiste(feito.dir))) {
+    try {
+      feito.pararSubido();
+    } catch {
+      /* uma tentativa só */
+    }
+  }
+  return registroFicou ? { ...r, registroFicou: true } : r;
+}
+
+export async function ligar(opcoes) {
+  const feito = { dir: null, tarGz: null, trava: null, gravouLigado: false, pararSubido: null };
+  let r;
+  try {
+    r = await passosDoLigar(opcoes ?? {}, feito);
+  } catch {
+    r = falha('erro-interno');
+  }
+  try {
+    if (r?.ok !== true) r = voltarAtras(r, feito);
+  } catch {
+    /* fica o motivo dos passos */
+  }
+  try {
+    feito.trava?.soltar();
+  } catch {
+    /* fica para a retomada da trava vencida */
+  }
+  if (feito.tarGz !== null) apagar(feito.tarGz);
+  return r;
+}
+
 // Tira uma entrada sem seguir link: link e arquivo saem sozinhos; pasta de
 // verdade sai inteira. maxRetries cobre o Windows, que segura o binário ou o
-// telemetria.jsonl por alguns ms depois do taskkill.
+// telemetria.jsonl por alguns ms depois do taskkill. Junção do Windows: o
+// lstat a vê como link (isSymbolicLink, não isDirectory), então o rmSync sem
+// recursive tira só a junção, nunca o alvo (medido no Node 24 e no Windows
+// 11, com teste); se o rmSync falhar, o resultado é false, e o desligar
+// devolve apagou: false, sem ter seguido o link.
 function tirar(alvo) {
   try {
     const info = fs.lstatSync(alvo, { throwIfNoEntry: false });
@@ -268,8 +312,13 @@ export function desligar(opcoes) {
     }
     apagarLigado(dir);
     const apagou = alcance === 'nada' ? false : apagarDados(dir, alcance === 'tudo', pr?.ok !== true);
+    // O ligado.json que o unlink não tirou (dados e tudo tentam de novo):
+    // para o resto do plugin o aprendizado pode continuar ligado, então o
+    // resultado avisa. Um segundo desligar não tira nada do env (as chaves
+    // já saíram) e tenta apagá-lo de novo.
+    const registroFicou = existe(caminhos(dir).ligado);
     return {
-      ok: true, removidas, backup, parado: pr?.ok === true && pr.motivo === 'parado', apagou, pasta: caminhos(dir).otel, ligadoInvalido,
+      ok: true, removidas, backup, parado: pr?.ok === true && pr.motivo === 'parado', apagou, pasta: caminhos(dir).otel, ligadoInvalido, registroFicou,
     };
   } catch {
     return falha('erro');

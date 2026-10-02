@@ -287,6 +287,7 @@ test('desligar com o esperado da previaDesligar: igual ao desligar sem ele', asy
     dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, esperado: p.assinatura, parar: () => { parou++; return { ok: true, motivo: 'parado' }; },
   });
   assert.equal(d.ok, true, JSON.stringify(d));
+  assert.equal(d.registroFicou, false);
   assert.deepEqual(d.removidas, p.remover);
   assert.equal(d.backup, `${c.arquivo}.bak-hadouken-${AGORA + 1}`);
   assert.equal(parou, 1);
@@ -447,18 +448,161 @@ test('Emenda A3: subir com erro vira coletor/erro; Collector já vivo segue e n�
   assert.equal(ligadoExiste(c.dir), false);
 });
 
-test('outro ligar terminou durante o download: ja-ligado, e o ligado.json dele fica', async () => {
+const OUTRO_LIGADO = '{"v":1,"chaves":{},"criouEnv":false,"em":"2026-10-08T15:00:00.000Z"}';
+const subirOk = () => ({ ok: true, pid: 4242, evento: null });
+const naoAplicar = () => { throw new Error('não devia gravar o settings.json'); };
+// Simula um ligado.json que o unlink não tira (pasta não vazia no lugar dele).
+function trocarPorPasta(arq) {
+  fs.rmSync(arq, { force: true });
+  fs.mkdirSync(arq);
+  fs.writeFileSync(path.join(arq, 'preso'), 'x');
+}
+
+test('outro ligar terminou durante o download: ja-ligado, o ligado.json dele fica e o Collector não é parado', async () => {
   const c = cenario();
   const p = previa(base(c));
-  const outro = '{"v":1,"chaves":{},"criouEnv":false,"em":"2026-10-08T15:00:00.000Z"}';
+  let parou = 0;
   const r = await ligar(base(c, {
     codigo: p.codigo,
-    baixar: async (o) => { fs.writeFileSync(caminhos(c.dir).ligado, outro); return baixarOk(o); },
-    aplicar: () => { throw new Error('não devia gravar o settings.json'); },
+    exigirColetor: true,
+    subir: subirOk,
+    parar: () => { parou++; return { ok: true, motivo: 'parado' }; },
+    baixar: async (o) => { fs.writeFileSync(caminhos(c.dir).ligado, OUTRO_LIGADO); return baixarOk(o); },
+    aplicar: naoAplicar,
   }));
   assert.deepEqual(r, { ok: false, motivo: 'ja-ligado' });
-  assert.equal(fs.readFileSync(caminhos(c.dir).ligado, 'utf8'), outro);
+  assert.equal(fs.readFileSync(caminhos(c.dir).ligado, 'utf8'), OUTRO_LIGADO);
+  assert.equal(parou, 0, 'o outro ligar pode estar usando este Collector');
+  assert.equal(fs.existsSync(caminhos(c.dir).trava), false, 'a trava foi solta');
   assert.equal(fs.readFileSync(c.arquivo, 'utf8'), ORIGINAL);
+});
+
+test('trava ocupada na hora de gravar: ocupado, nada gravado e o Collector que este ligar subiu é parado', async () => {
+  const c = cenario();
+  const cm = caminhos(c.dir);
+  fs.writeFileSync(cm.trava, 'token de outro');
+  const p = previa(base(c));
+  let parou = 0;
+  const r = await ligar(base(c, {
+    codigo: p.codigo, exigirColetor: true, subir: subirOk, parar: () => { parou++; return { ok: true, motivo: 'parado' }; }, aplicar: naoAplicar,
+  }));
+  assert.deepEqual(r, { ok: false, motivo: 'ocupado' });
+  assert.equal(parou, 1);
+  assert.equal(ligadoExiste(c.dir), false);
+  assert.equal(fs.readFileSync(cm.trava, 'utf8'), 'token de outro', 'a trava de quem a tem fica');
+  assert.equal(fs.existsSync(path.join(cm.bin, FIXADO[CHAVE].arquivo)), false, 'o .tar.gz sai');
+  assert.equal(fs.readFileSync(c.arquivo, 'utf8'), ORIGINAL);
+});
+
+test('trava ocupada por outro ligar que já gravou o ligado.json: ocupado, o ligado.json dele fica e o Collector não é parado', async () => {
+  const c = cenario();
+  const cm = caminhos(c.dir);
+  const p = previa(base(c));
+  let parou = 0;
+  const r = await ligar(base(c, {
+    codigo: p.codigo,
+    exigirColetor: true,
+    subir: subirOk,
+    parar: () => { parou++; return { ok: true, motivo: 'parado' }; },
+    baixar: async (o) => { fs.writeFileSync(cm.ligado, OUTRO_LIGADO); fs.writeFileSync(cm.trava, 'token de outro'); return baixarOk(o); },
+    aplicar: naoAplicar,
+  }));
+  assert.deepEqual(r, { ok: false, motivo: 'ocupado' });
+  assert.equal(parou, 0);
+  assert.equal(fs.readFileSync(cm.ligado, 'utf8'), OUTRO_LIGADO);
+  assert.equal(fs.readFileSync(cm.trava, 'utf8'), 'token de outro');
+});
+
+test('gravarLigado falha: escrita, o que estava no lugar fica (não é deste ligar) e o Collector que subiu é parado', async () => {
+  const c = cenario();
+  const cm = caminhos(c.dir);
+  const p = previa(base(c));
+  let parou = 0;
+  const r = await ligar(base(c, {
+    codigo: p.codigo,
+    exigirColetor: true,
+    subir: () => { trocarPorPasta(cm.ligado); return subirOk(); },
+    parar: () => { parou++; return { ok: true, motivo: 'parado' }; },
+    aplicar: naoAplicar,
+  }));
+  assert.deepEqual(r, { ok: false, motivo: 'escrita' });
+  assert.equal(parou, 1);
+  assert.ok(fs.existsSync(path.join(cm.ligado, 'preso')));
+  assert.equal(fs.existsSync(cm.trava), false);
+});
+
+test('volta atrás que não consegue apagar o ligado.json: registroFicou', async () => {
+  const c = cenario();
+  const p = previa(base(c));
+  const r = await ligar(base(c, {
+    codigo: p.codigo,
+    aplicar: () => { trocarPorPasta(caminhos(c.dir).ligado); return { ok: false, motivo: 'settings-mudou' }; },
+  }));
+  assert.deepEqual(r, { ok: false, motivo: 'settings-mudou', registroFicou: true });
+});
+
+test('desligar que não consegue apagar o ligado.json: registroFicou; dados e tudo o tiram na limpeza', async () => {
+  for (const alcance of ['nada', 'dados', 'tudo']) {
+    const c = cenario();
+    await ligado(c);
+    const parar = ({ dir }) => { trocarPorPasta(caminhos(dir).ligado); return { ok: true, motivo: 'sem-pid' }; };
+    const d = desligar({ dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, apagar: alcance, parar });
+    assert.equal(d.ok, true, alcance);
+    assert.equal(d.registroFicou, alcance === 'nada', alcance);
+    assert.equal(fs.existsSync(caminhos(c.dir).ligado), alcance === 'nada', alcance);
+  }
+});
+
+test('R4: o plano muda sem o settings.json mudar (a integridade passa a pedir download) → codigo', async () => {
+  const c = cenario();
+  const p = previa(base(c, { integridade: () => ({ ok: true }) }));
+  assert.equal(p.plano.baixar, false);
+  const r = await ligar(base(c, { codigo: p.codigo, integridade: () => ({ ok: false, motivo: 'coletor-hash' }), baixar: nuncaBaixar }));
+  assert.deepEqual(r, { ok: false, motivo: 'codigo' });
+  assert.equal(fs.existsSync(caminhos(c.dir).otel), false);
+  assert.equal(fs.readFileSync(c.arquivo, 'utf8'), ORIGINAL);
+});
+
+test('volta atrás com o aplicarLigar de verdade: settings.json mudado ou somente leitura durante o download', async () => {
+  for (const caso of ['settings-mudou', 'settings-somente-leitura']) {
+    const c = cenario();
+    const mudado = ORIGINAL.replace('opus', 'sonnet');
+    const p = previa(base(c));
+    let parou = 0;
+    const r = await ligar(base(c, {
+      codigo: p.codigo,
+      exigirColetor: true,
+      subir: subirOk,
+      parar: () => { parou++; return { ok: true, motivo: 'parado' }; },
+      baixar: async (o) => {
+        if (caso === 'settings-mudou') fs.writeFileSync(c.arquivo, mudado);
+        else fs.chmodSync(c.arquivo, 0o444);
+        return baixarOk(o);
+      },
+    }));
+    assert.deepEqual(r, { ok: false, motivo: caso }, caso);
+    assert.equal(parou, 1, caso);
+    assert.equal(ligadoExiste(c.dir), false, caso);
+    assert.equal(fs.readFileSync(c.arquivo, 'utf8'), caso === 'settings-mudou' ? mudado : ORIGINAL, caso);
+    assert.deepEqual(fs.readdirSync(c.raiz).filter((n) => n.includes('.bak-hadouken-')), [], `${caso}: nenhuma cópia, nada foi gravado`);
+  }
+});
+
+test('desligar tudo com otel/ como junção (ou link de pasta): só o link sai, o alvo fica', async (t) => {
+  const c = cenario();
+  const fora = path.join(c.raiz, 'fora');
+  fs.mkdirSync(fora);
+  fs.writeFileSync(path.join(fora, 'precioso.txt'), 'x');
+  try {
+    fs.symlinkSync(fora, caminhos(c.dir).otel, 'junction');
+  } catch (e) {
+    if (e.code === 'EPERM') { t.skip('sem permissão para criar link'); return; }
+    throw e;
+  }
+  const d = desligar({ dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, apagar: 'tudo', parar: () => ({ ok: true, motivo: 'sem-pid' }) });
+  assert.equal(d.ok, true);
+  assert.ok(fs.existsSync(path.join(fora, 'precioso.txt')), 'nunca segue o link');
+  assert.equal(d.apagou, fs.lstatSync(caminhos(c.dir).otel, { throwIfNoEntry: false }) === undefined);
 });
 
 test('ligar que lança no meio (aplicar falso): volta atrás e para o Collector que subiu', async () => {
