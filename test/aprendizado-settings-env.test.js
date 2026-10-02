@@ -1,11 +1,12 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  aplicarDesligar, aplicarLigar, assinaturaSettings, CHAVES_LIGAR, consultarLigar, ENDPOINT, interruptorLigado,
-  planejarDesligar, planejarLigar,
+  aplicarDesligar, aplicarLigar, assinaturaSettings, CHAVES_LIGAR, consultarDesligar, consultarLigar, ENDPOINT,
+  interruptorLigado, planejarDesligar, planejarLigar,
 } from '../src/aprendizado/settings-env.js';
 import { lerSettings } from '../src/configuracao.js';
 
@@ -188,6 +189,7 @@ test('argumentos: caminho que não é absoluto ou agoraMs inválido são recusad
     assert.deepEqual(consultarLigar({ arquivo, ambiente: {} }), ARGUMENTOS, nome);
     assert.deepEqual(aplicarLigar({ arquivo, agoraMs: AGORA, ambiente: {}, esperado }), ARGUMENTOS, nome);
     assert.deepEqual(aplicarDesligar({ arquivo, agoraMs: AGORA, ligado }), ARGUMENTOS, nome);
+    assert.deepEqual(consultarDesligar({ arquivo, ligado }), ARGUMENTOS, nome);
   }
   for (const agoraMs of [undefined, -1, 1.5, Number.NaN, '1', 2 ** 53]) {
     assert.deepEqual(aplicarLigar({ arquivo: arq, agoraMs, ambiente: {}, esperado }), ARGUMENTOS, String(agoraMs));
@@ -197,6 +199,7 @@ test('argumentos: caminho que não é absoluto ou agoraMs inválido são recusad
     assert.deepEqual(consultarLigar(opcoes), ARGUMENTOS, String(opcoes));
     assert.deepEqual(aplicarLigar(opcoes), ARGUMENTOS, String(opcoes));
     assert.deepEqual(aplicarDesligar(opcoes), ARGUMENTOS, String(opcoes));
+    assert.deepEqual(consultarDesligar(opcoes), ARGUMENTOS, String(opcoes));
   }
   assert.deepEqual(fs.readFileSync(arq), antes);
   assert.equal(fs.readdirSync(path.dirname(arq)).length, 1, 'nem cópia nem temporário');
@@ -207,4 +210,107 @@ test('planejarLigar não lança com valor que não vira texto: recusa', () => {
   assert.deepEqual(planejarLigar({ env: { OTEL_METRICS_EXPORTER: semTexto } }, {}), { ok: false, motivo: 'env-conflito' });
   assert.deepEqual(planejarLigar({}, { OTEL_EXPORTER_OTLP_ENDPOINT: semTexto }), { ok: false, motivo: 'outro-endpoint' });
   assert.equal(interruptorLigado(semTexto), true);
+});
+
+// Rodada 1 (revisão da Task 9, Important 1): no Windows o nome de variável de
+// ambiente não diferencia caixa, então `otel_log_user_prompts` no env do
+// settings.json (ou no ambiente) liga o mesmo interruptor. Toda variante de
+// caixa conta; basta uma ligada, ou com outro endpoint, para recusar.
+const CONTEUDO = { ok: false, motivo: 'conteudo-ligado' };
+const OUTRO = { ok: false, motivo: 'outro-endpoint' };
+const CONFLITO = { ok: false, motivo: 'env-conflito' };
+
+test('variante de caixa no env ou no ambiente: conteúdo ligado ou outro endpoint recusa', () => {
+  assert.deepEqual(planejarLigar({ env: { otel_log_user_prompts: '1' } }, {}), CONTEUDO);
+  assert.deepEqual(planejarLigar({ env: { Otel_Log_Tool_Details: 'true' } }, {}), CONTEUDO);
+  assert.deepEqual(planejarLigar({}, { otel_log_raw_api_bodies: 'yes' }), CONTEUDO);
+  assert.deepEqual(planejarLigar({}, { oTeL_lOg_UsEr_PrOmPtS: 'on' }), CONTEUDO);
+  assert.deepEqual(planejarLigar({ env: { OTEL_LOG_USER_PROMPTS: '0', otel_log_user_prompts: '1' } }, {}), CONTEUDO, 'uma variante ligada basta');
+  assert.deepEqual(planejarLigar({ env: { OTEL_LOG_TOOL_DETAıLS: '1' } }, {}), CONTEUDO, 'ı vira I no toUpperCase: recusa a mais, nunca a menos');
+  assert.equal(planejarLigar({ env: { otel_log_user_prompts: '0' } }, { otel_log_tool_details: 'off' }).ok, true);
+  assert.deepEqual(planejarLigar({ env: { otel_exporter_otlp_endpoint: 'http://10.0.0.5:4318' } }, {}), OUTRO);
+  assert.deepEqual(planejarLigar({ env: { Otel_Exporter_Otlp_Logs_Endpoint: 'https://coletor.exemplo' } }, {}), OUTRO);
+  assert.deepEqual(planejarLigar({}, { otel_exporter_otlp_traces_endpoint: 'https://coletor.exemplo' }), OUTRO);
+  assert.deepEqual(planejarLigar({}, { OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT, otel_exporter_otlp_endpoint: 'http://x:1' }), OUTRO);
+  assert.equal(planejarLigar({}, { otel_exporter_otlp_endpoint: ENDPOINT }).ok, true, 'o nosso endpoint em outra caixa não recusa');
+});
+
+test('variante de caixa de uma chave nossa: outro valor é conflito; o mesmo valor conta como a chave e nunca vira duplicata', () => {
+  assert.deepEqual(planejarLigar({ env: { otel_metrics_exporter: 'console' } }, {}), CONFLITO);
+  assert.deepEqual(planejarLigar({ env: { OTEL_METRICS_EXPORTER: 'otlp', Otel_Metrics_Exporter: 'console' } }, {}), CONFLITO);
+  const p = planejarLigar({ env: { otel_metrics_exporter: 'otlp', Otel_Exporter_Otlp_Endpoint: ENDPOINT } }, {});
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.adicionar, Object.keys(CHAVES_LIGAR).filter((k) => k !== 'OTEL_METRICS_EXPORTER' && k !== 'OTEL_EXPORTER_OTLP_ENDPOINT'));
+  // De ponta a ponta: o ligar não grava OTEL_METRICS_EXPORTER ao lado da
+  // variante do usuário, e o desligar não a tira (não é nossa).
+  const original = '{\n  "env": {\n    "otel_metrics_exporter": "otlp"\n  }\n}\n';
+  const arq = novoArquivo(original);
+  const r = aplicarLigar({ arquivo: arq, agoraMs: AGORA, ambiente: {}, esperado: esperadoDe(arq) });
+  assert.equal(r.ok, true);
+  assert.equal(Object.hasOwn(r.adicionadas, 'OTEL_METRICS_EXPORTER'), false);
+  const env = JSON.parse(fs.readFileSync(arq, 'utf8')).env;
+  assert.deepEqual(Object.keys(env).filter((k) => k.toUpperCase() === 'OTEL_METRICS_EXPORTER'), ['otel_metrics_exporter']);
+  const d = aplicarDesligar({ arquivo: arq, agoraMs: AGORA + 1, ligado: ligadoDe(r) });
+  assert.equal(d.ok, true);
+  assert.equal(fs.readFileSync(arq, 'utf8'), original);
+});
+
+// Rodada 1, Minor 1: spec §6 última linha também no desligar. Em dois
+// tempos, como o ligar: consultarDesligar devolve o plano e a assinatura sem
+// gravar; aplicarDesligar com `esperado` recusa se o arquivo mudou. Sem
+// `esperado` (undefined), o comportamento é o de antes.
+const MUDOU = { ok: false, motivo: 'settings-mudou' };
+
+test('consultarDesligar não grava; aplicarDesligar com esperado diferente recusa sem gravar; com o certo desliga', () => {
+  const arq = novoArquivo('{\n  "env": {\n    "MINHA": "x"\n  }\n}\n');
+  const r = aplicarLigar({ arquivo: arq, agoraMs: AGORA, ambiente: {}, esperado: esperadoDe(arq) });
+  const ligado = ligadoDe(r);
+  const ligadoBytes = fs.readFileSync(arq);
+  const c = consultarDesligar({ arquivo: arq, ligado });
+  assert.deepEqual(c, { ok: true, assinatura: esperadoDe(arq), remover: Object.keys(CHAVES_LIGAR), removeEnv: false });
+  assert.deepEqual(fs.readFileSync(arq), ligadoBytes, 'consultar não grava');
+  const v = JSON.parse(ligadoBytes.toString('utf8'));
+  v.model = 'opus';
+  fs.writeFileSync(arq, `${JSON.stringify(v, null, 2)}\n`);
+  const mudado = fs.readFileSync(arq);
+  const nomes = fs.readdirSync(path.dirname(arq)).sort();
+  assert.deepEqual(aplicarDesligar({ arquivo: arq, agoraMs: AGORA + 1, ligado, esperado: c.assinatura }), MUDOU);
+  assert.deepEqual(aplicarDesligar({ arquivo: arq, agoraMs: AGORA + 1, ligado, esperado: null }), MUDOU, 'só undefined é "sem esperado"');
+  assert.deepEqual(fs.readFileSync(arq), mudado);
+  assert.deepEqual(fs.readdirSync(path.dirname(arq)).sort(), nomes, 'nem cópia nem temporário');
+  const c2 = consultarDesligar({ arquivo: arq, ligado });
+  const d = aplicarDesligar({ arquivo: arq, agoraMs: AGORA + 2, ligado, esperado: c2.assinatura });
+  assert.equal(d.ok, true);
+  assert.deepEqual(d.removidas, Object.keys(CHAVES_LIGAR));
+  assert.deepEqual(JSON.parse(fs.readFileSync(arq, 'utf8')), { env: { MINHA: 'x' }, model: 'opus' });
+});
+
+test('consultarDesligar: arquivo ausente, nada a tirar, somente leitura e env criado pelo ligar', () => {
+  const ausente = novoArquivo();
+  const ligado = { chaves: CHAVES_LIGAR, criouEnv: true };
+  assert.deepEqual(consultarDesligar({ arquivo: ausente, ligado }), { ok: true, assinatura: 'ausente', remover: [], removeEnv: false });
+  assert.deepEqual(aplicarDesligar({ arquivo: ausente, agoraMs: AGORA, ligado, esperado: 'ausente' }), { ok: true, removidas: [], backup: null });
+  assert.deepEqual(aplicarDesligar({ arquivo: ausente, agoraMs: AGORA, ligado, esperado: 'a'.repeat(64) }), MUDOU, 'mudou mesmo sem nada a tirar');
+  const arq = novoArquivo();
+  const r = aplicarLigar({ arquivo: arq, agoraMs: AGORA, ambiente: {}, esperado: 'ausente' });
+  assert.deepEqual(consultarDesligar({ arquivo: arq, ligado: ligadoDe(r) }), {
+    ok: true, assinatura: esperadoDe(arq), remover: Object.keys(CHAVES_LIGAR), removeEnv: true,
+  });
+  fs.chmodSync(arq, 0o444);
+  assert.deepEqual(consultarDesligar({ arquivo: arq, ligado: ligadoDe(r) }), { ok: false, motivo: 'settings-somente-leitura' });
+  assert.deepEqual(consultarDesligar({ arquivo: arq, ligado: { chaves: {}, criouEnv: false } }), {
+    ok: true, assinatura: esperadoDe(arq), remover: [], removeEnv: false,
+  }, 'sem nada a tirar, somente leitura não impede');
+});
+
+// Rodada 1, Minor 3: assinaturaSettings nunca lança. Sem arquivo é
+// 'ausente'; `existe` sem bytes Buffer (o lerSettings nunca dá) é 'invalida',
+// que não é hex nem 'ausente' e nunca casa com a assinatura de uma prévia.
+test('assinaturaSettings: ausente, invalida ou o SHA-256 dos bytes, sem lançar', () => {
+  for (const lido of [undefined, null, 7, { ok: true, existe: false, info: null }]) assert.equal(assinaturaSettings(lido), 'ausente', String(lido));
+  for (const lido of [{ existe: true }, { existe: true, bytes: '{}' }, { existe: true, bytes: [1, 2] }]) {
+    assert.equal(assinaturaSettings(lido), 'invalida', JSON.stringify(lido));
+  }
+  const arq = novoArquivo('{}\n');
+  assert.equal(esperadoDe(arq), crypto.createHash('sha256').update('{}\n').digest('hex'));
 });
