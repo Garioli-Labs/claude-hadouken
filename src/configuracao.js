@@ -684,3 +684,8 @@ export function removerStatusline(opcoes) {
     return falha('erro-interno');
   }
 }
+
+// Aprendizado (spec aprendizado §3.2, R1): src/aprendizado/settings-env.js
+// edita o `env` com as mesmas garantias da barra (sem link, teto, UTF-8,
+// formato do original, backup, troca conferida pelo lstat).
+export { lerSettings, gravar as gravarSettings, bloqueioDeEscrita };
