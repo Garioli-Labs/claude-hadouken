@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { caminhos, ligadoExiste } from '../src/aprendizado/arquivos.js';
 import { FIXADO } from '../src/aprendizado/baixar.js';
-import { caminhoBinario, registrarInstalacao } from '../src/aprendizado/coletor.js';
+import { caminhoBinario, lerPid, registrarInstalacao } from '../src/aprendizado/coletor.js';
 import { desligar, ligar, previa, previaDesligar } from '../src/aprendizado/ligar.js';
 import { lerLigado } from '../src/aprendizado/registro.js';
 import { CHAVES_LIGAR } from '../src/aprendizado/settings-env.js';
@@ -341,7 +341,9 @@ test('ligado.json inválido com esperado: a assinatura é conferida mesmo sem ch
   assert.equal(parou, 1);
 });
 
-test('desligar com a parada sem resposta (erro): o arquivo de PID fica, também em dados e tudo', async () => {
+// Rodada 2 da revisão da Task 10: o Collector pode estar de pé, então o
+// binário fica também em tudo (nunca se apaga o binário de um processo vivo).
+test('desligar com a parada sem resposta (erro): o arquivo de PID e o binário ficam, também em dados e tudo', async () => {
   for (const alcance of ['nada', 'dados', 'tudo']) {
     const c = cenario();
     await ligado(c);
@@ -358,7 +360,7 @@ test('desligar com a parada sem resposta (erro): o arquivo de PID fica, também 
     assert.equal(ligadoExiste(c.dir), false, alcance);
     if (alcance === 'nada') continue;
     assert.equal(fs.existsSync(cm.aprendizado), false, alcance);
-    assert.deepEqual(fs.readdirSync(cm.otel).sort(), alcance === 'tudo' ? ['coletor.pid'] : ['bin', 'coletor.pid'], alcance);
+    assert.deepEqual(fs.readdirSync(cm.otel).sort(), ['bin', 'coletor.pid'], alcance);
   }
 });
 
@@ -620,4 +622,131 @@ test('ligar que lança no meio (aplicar falso): volta atrás e para o Collector 
   assert.equal(parou, 1);
   assert.equal(ligadoExiste(c.dir), false);
   assert.equal(fs.readFileSync(c.arquivo, 'utf8'), ORIGINAL);
+});
+
+// Rodada 2 da revisão da Task 10: o taskkill /t /f volta antes de o processo
+// sair e soltar os arquivos, e o `desligar tudo` deixava a otel/ para trás.
+// Parada falsa como a de verdade (apaga o arquivo de PID e diz 'parado');
+// consulta, espera e rmSync falsos: nenhum processo e nenhum relógio de verdade.
+const EM_PID = '2026-10-08T15:00:00.000Z';
+const pararComoTaskkill = ({ dir }) => { fs.rmSync(caminhos(dir).pid, { force: true }); return { ok: true, motivo: 'parado' }; };
+async function comColetor(c) {
+  await ligado(c);
+  const cm = caminhos(c.dir);
+  fs.writeFileSync(cm.pid, JSON.stringify({ v: 1, pid: 4242, em: EM_PID }));
+  fs.writeFileSync(cm.aprendizado, '{}');
+  fs.writeFileSync(path.join(cm.otel, 'telemetria.jsonl'), '{}\n');
+  return cm;
+}
+const ocupado = (code) => Object.assign(new Error(`${code}: arquivo preso`), { code });
+
+test('desligar dados e tudo depois do taskkill: consulta a saída a cada 200 ms e só apaga quando o processo sumiu; nada fica', async () => {
+  for (const alcance of ['dados', 'tudo']) {
+    const c = cenario();
+    const cm = await comColetor(c);
+    const consultas = [];
+    const esperas = [];
+    // De pé nas 3 primeiras consultas; enquanto isso nada foi apagado.
+    const saiu = (pid) => {
+      consultas.push({ pid, telemetria: fs.existsSync(path.join(cm.otel, 'telemetria.jsonl')) });
+      return consultas.length > 3;
+    };
+    const d = desligar({
+      dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, apagar: alcance, parar: pararComoTaskkill, saiu, esperar: (ms) => esperas.push(ms),
+    });
+    assert.equal(d.ok, true, alcance);
+    assert.equal(d.parado, true, alcance);
+    assert.equal(d.apagou, true, alcance);
+    assert.deepEqual(consultas, Array(4).fill({ pid: 4242, telemetria: true }), alcance);
+    assert.deepEqual(esperas, [200, 200, 200], alcance);
+    assert.equal(fs.existsSync(cm.aprendizado), false, alcance);
+    if (alcance === 'tudo') assert.equal(fs.existsSync(cm.otel), false);
+    else assert.deepEqual(fs.readdirSync(cm.otel), ['bin']);
+  }
+  // Sem nada a apagar (alcance nada) ou sem PID antes da parada: nenhuma consulta.
+  const c = cenario();
+  await comColetor(c);
+  const saiu = () => { throw new Error('não devia consultar'); };
+  const d = desligar({ dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, parar: pararComoTaskkill, saiu, esperar: () => { throw new Error('não devia esperar'); } });
+  assert.equal(d.parado, true);
+  const c2 = cenario();
+  await ligado(c2);
+  const d2 = desligar({ dir: c2.dir, arquivo: c2.arquivo, agoraMs: AGORA + 1, apagar: 'tudo', parar: () => ({ ok: true, motivo: 'parado' }), saiu });
+  assert.equal(d2.apagou, true);
+});
+
+test('desligar com o Collector que não sai no prazo (~5 s) ou sem resposta da consulta: o PID volta, o binário fica, apagou false, sem travar', async () => {
+  const casos = [
+    { nome: 'não sai', saiu: () => false, consultas: 25, esperas: 24 },
+    { nome: 'consulta sem resposta', saiu: () => null, consultas: 1, esperas: 0 },
+    { nome: 'consulta que lança', saiu: () => { throw new Error('consulta falsa que lança'); }, consultas: 1, esperas: 0 },
+  ];
+  for (const caso of casos) {
+    for (const alcance of ['dados', 'tudo']) {
+      const rotulo = `${caso.nome}, ${alcance}`;
+      const c = cenario();
+      const cm = await comColetor(c);
+      let consultas = 0;
+      const esperas = [];
+      const d = desligar({
+        dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, apagar: alcance, parar: pararComoTaskkill,
+        saiu: (pid) => { consultas++; assert.equal(pid, 4242); return caso.saiu(); }, esperar: (ms) => esperas.push(ms),
+      });
+      assert.equal(d.ok, true, rotulo);
+      assert.deepEqual(d.removidas, Object.keys(CHAVES_LIGAR), rotulo);
+      assert.equal(d.parado, false, `${rotulo}: a saída não foi confirmada`);
+      assert.equal(d.apagou, false, rotulo);
+      assert.equal(consultas, caso.consultas, rotulo);
+      assert.deepEqual(esperas, Array(caso.esperas).fill(200), rotulo);
+      assert.deepEqual(lerPid(c.dir), { pid: 4242, emMs: Date.parse(EM_PID) }, `${rotulo}: o PID volta para a próxima sessão parar`);
+      assert.deepEqual(fs.readdirSync(cm.otel).sort(), ['bin', 'coletor.pid'], rotulo);
+      assert.ok(fs.existsSync(caminhoBinario(c.dir, PLATAFORMA)), rotulo);
+      assert.equal(fs.existsSync(cm.aprendizado), false, rotulo);
+      assert.equal(ligadoExiste(c.dir), false, rotulo);
+    }
+  }
+});
+
+test('desligar com o Windows segurando arquivos (EBUSY, EPERM) por um tempo: tenta de novo a cada 250 ms e apaga', async () => {
+  for (const alcance of ['dados', 'tudo']) {
+    const c = cenario();
+    const cm = await comColetor(c);
+    // Em tudo a otel/ sai de uma vez; em dados, arquivo por arquivo.
+    const preso = alcance === 'tudo' ? cm.otel : path.join(cm.otel, 'telemetria.jsonl');
+    const esperas = [];
+    let falhas = 0;
+    const rm = (alvo, opcoes) => {
+      if (alvo === preso && falhas < 3) throw ocupado(falhas++ % 2 === 0 ? 'EBUSY' : 'EPERM');
+      return fs.rmSync(alvo, opcoes);
+    };
+    const d = desligar({
+      dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, apagar: alcance, parar: pararComoTaskkill, saiu: () => true, esperar: (ms) => esperas.push(ms), rm,
+    });
+    assert.equal(d.apagou, true, alcance);
+    assert.equal(falhas, 3, alcance);
+    assert.deepEqual(esperas, [250, 250, 250], alcance);
+    if (alcance === 'tudo') assert.equal(fs.existsSync(cm.otel), false);
+    else assert.deepEqual(fs.readdirSync(cm.otel), ['bin']);
+  }
+});
+
+test('desligar tudo com o arquivo preso para sempre: desiste depois de 20 tentativas e avisa; erro que não é de arquivo preso não repete', async () => {
+  for (const code of ['EBUSY', 'EIO']) {
+    const c = cenario();
+    const cm = await comColetor(c);
+    const esperas = [];
+    let tentativas = 0;
+    const rm = (alvo, opcoes) => {
+      if (alvo === cm.otel) { tentativas++; throw ocupado(code); }
+      return fs.rmSync(alvo, opcoes);
+    };
+    const d = desligar({
+      dir: c.dir, arquivo: c.arquivo, agoraMs: AGORA + 1, apagar: 'tudo', parar: pararComoTaskkill, saiu: () => true, esperar: (ms) => esperas.push(ms), rm,
+    });
+    assert.equal(d.ok, true, code);
+    assert.equal(d.apagou, false, code);
+    assert.equal(tentativas, code === 'EBUSY' ? 20 : 1, code);
+    assert.deepEqual(esperas, Array(code === 'EBUSY' ? 19 : 0).fill(250), code);
+    assert.ok(fs.existsSync(cm.otel), code);
+  }
 });

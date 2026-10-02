@@ -1,10 +1,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { apagar } from '../base.js';
+import { apagar, esperar as esperarMs } from '../base.js';
+import { gravarJsonAtomico } from '../estado.js';
 import { ARQ_OTEL, caminhos, ligadoExiste } from './arquivos.js';
 import { baixarColetor, FIXADO, plataformaAtual, PRAZO_MS, TAMANHO_MAX, urlDoColetor, VERSAO_COLETOR } from './baixar.js';
-import { A3_ATRAPALHA, conferirIntegridade, extrairColetor, gravarConfig, pararColetor, subirColetor } from './coletor.js';
+import {
+  A3_ATRAPALHA, coletorSaiu, conferirIntegridade, extrairColetor, gravarConfig, lerPid, pararColetor, subirColetor,
+} from './coletor.js';
 import { HOST, PORTA } from './config-coletor.js';
 import { apagarLigado, gravarLigado, lerLigado, pegarTrava } from './registro.js';
 import { aplicarDesligar, aplicarLigar, CHAVES_LIGAR, consultarDesligar, consultarLigar } from './settings-env.js';
@@ -208,32 +211,73 @@ export async function ligar(opcoes) {
   return r;
 }
 
-// Tira uma entrada sem seguir link: link e arquivo saem sozinhos; pasta de
-// verdade sai inteira. maxRetries cobre o Windows, que segura o binário ou o
-// telemetria.jsonl por alguns ms depois do taskkill. Junção do Windows: o
-// lstat a vê como link (isSymbolicLink, não isDirectory), então o rmSync sem
-// recursive tira só a junção, nunca o alvo (medido no Node 24 e no Windows
-// 11, com teste); se o rmSync falhar, o resultado é false, e o desligar
-// devolve apagou: false, sem ter seguido o link.
-function tirar(alvo) {
-  try {
-    const info = fs.lstatSync(alvo, { throwIfNoEntry: false });
-    if (!info) return true;
-    fs.rmSync(alvo, { recursive: info.isDirectory(), force: true, maxRetries: 5, retryDelay: 100 });
-    return fs.lstatSync(alvo, { throwIfNoEntry: false }) === undefined;
-  } catch {
-    return false;
+// Rodada 2 da revisão da Task 10 (medido no Windows 11: o `desligar tudo`
+// deixava a otel/ inteira, e um Remove-Item segundos depois apagava): o
+// taskkill /t /f volta antes de o processo sair e soltar o binário e o
+// telemetria.jsonl. Duas defesas. (1) Depois de uma parada, o desligar
+// consulta o PID a cada SAIDA_ESPERA_MS, no máximo SAIDA_CONSULTAS vezes
+// (~5 s de espera mais as consultas, cada uma com o prazo do coletor.js), até
+// o Collector sumir; consulta sem resposta para na hora. (2) Cada entrada é
+// tentada até TIRAR_TENTATIVAS vezes, TIRAR_ESPERA_MS entre elas (~5 s), só
+// nos erros de arquivo preso. A repetição é daqui, e não o maxRetries do
+// rmSync: ele só vale com recursive (arquivo solto não repetiria) e espera
+// cada vez mais. O hook do comando tem 600 s; o pior caso fica em segundos.
+const SAIDA_CONSULTAS = 25;
+const SAIDA_ESPERA_MS = 200;
+const TIRAR_TENTATIVAS = 20;
+const TIRAR_ESPERA_MS = 250;
+const PRESO = new Set(['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY', 'EMFILE', 'ENFILE']);
+
+// true só quando a consulta disse que o Collector saiu. Ainda de pé no fim,
+// ou sem resposta: false, e o desligar o trata como vivo.
+function esperarSaida(pid, saiu, esperar) {
+  for (let i = 1; ; i++) {
+    let s;
+    try {
+      s = saiu(pid);
+    } catch {
+      s = null;
+    }
+    if (s === true) return true;
+    if (s !== false || i >= SAIDA_CONSULTAS) return false;
+    esperar(SAIDA_ESPERA_MS);
   }
 }
 
-// true só quando tudo o que o alcance pede saiu. Com `manterPid`, a parada
-// não respondeu: o Collector pode estar de pé, e o arquivo de PID fica para o
-// próximo SessionEnd ou SessionStart achá-lo (nunca se perde um Collector
-// vivo); como ele não saiu, o resultado é false.
-function apagarDados(dir, tudo, manterPid) {
+// Tira uma entrada sem seguir link: link e arquivo saem sozinhos; pasta de
+// verdade sai inteira. Junção do Windows: o lstat a vê como link
+// (isSymbolicLink, não isDirectory), então o rmSync sem recursive tira só a
+// junção, nunca o alvo (medido no Node 24 e no Windows 11, com teste); se o
+// rmSync falhar, o resultado é false, e o desligar devolve apagou: false, sem
+// ter seguido o link. Arquivo preso (EBUSY, EPERM...) ou entrada que ainda
+// aparece depois do rmSync (exclusão pendente no Windows): de novo, até
+// TIRAR_TENTATIVAS vezes; outro erro desiste na hora.
+function tirar(alvo, rm, esperar) {
+  for (let i = 1; ; i++) {
+    try {
+      const info = fs.lstatSync(alvo, { throwIfNoEntry: false });
+      if (!info) return true;
+      rm(alvo, { recursive: info.isDirectory(), force: true });
+      if (fs.lstatSync(alvo, { throwIfNoEntry: false }) === undefined) return true;
+    } catch (e) {
+      if (!PRESO.has(e?.code)) return false;
+    }
+    if (i >= TIRAR_TENTATIVAS) return false;
+    esperar(TIRAR_ESPERA_MS);
+  }
+}
+
+// true só quando tudo o que o alcance pede saiu. Com `vivo`, o Collector
+// pode estar de pé (a parada não respondeu, ou ele não saiu no prazo): o
+// arquivo de PID fica para o próximo SessionEnd ou SessionStart achá-lo
+// (nunca se perde um Collector vivo) e o binário fica também em tudo (nunca
+// se apaga o binário de um processo vivo); como eles não saíram, o resultado
+// é false.
+function apagarDados(dir, { tudo, vivo, rm, esperar }) {
   const c = caminhos(dir);
+  const tira = (alvo) => tirar(alvo, rm, esperar);
   let ok = true;
-  for (const k of DADOS) ok = tirar(c[k]) && ok;
+  for (const k of DADOS) ok = tira(c[k]) && ok;
   let info;
   try {
     info = fs.lstatSync(c.otel, { throwIfNoEntry: false });
@@ -241,8 +285,8 @@ function apagarDados(dir, tudo, manterPid) {
     return false;
   }
   if (!info) return ok;
-  const pidFica = manterPid && info.isDirectory() && existe(c.pid);
-  if (!info.isDirectory() || (tudo && !pidFica)) return tirar(c.otel) && ok;
+  const fica = vivo && info.isDirectory();
+  if (!info.isDirectory() || (tudo && !fica)) return tira(c.otel) && ok;
   let nomes;
   try {
     nomes = fs.readdirSync(c.otel);
@@ -250,10 +294,23 @@ function apagarDados(dir, tudo, manterPid) {
     return false;
   }
   for (const nome of nomes) {
-    if ((nome === ARQ_OTEL.pid && pidFica) || (nome === ARQ_OTEL.bin && !tudo)) continue;
-    ok = tirar(path.join(c.otel, nome)) && ok;
+    if ((fica && (nome === ARQ_OTEL.pid || nome === ARQ_OTEL.bin)) || (nome === ARQ_OTEL.bin && !tudo)) continue;
+    ok = tira(path.join(c.otel, nome)) && ok;
   }
-  return ok && !pidFica;
+  return ok && !fica;
+}
+
+// O Collector parado que não saiu no prazo: o arquivo de PID (que o
+// pararColetor apagou) volta, para a próxima sessão tentar de novo
+// (passo.js pararSemLigado). Só quando não há outro no lugar.
+function devolverPid(dir, antes) {
+  try {
+    const arq = caminhos(dir).pid;
+    if (existe(arq)) return;
+    gravarJsonAtomico(arq, { v: 1, pid: antes.pid, em: antes.emMs === null ? null : new Date(antes.emMs).toISOString() });
+  } catch {
+    /* sem o PID, a pasta e o binário ficam assim mesmo (vivo) */
+  }
 }
 
 // §6 última linha: o que o desligar vai tirar do `env`, com a assinatura dos
@@ -278,6 +335,7 @@ export function previaDesligar(opcoes) {
 export function desligar(opcoes) {
   const {
     dir, arquivo, agoraMs, apagar: alcance = 'nada', parar = pararColetor, plataforma = process.platform, executar, systemRoot, esperado,
+    saiu = (pid) => coletorSaiu(pid, { plataforma, executar, systemRoot }), esperar = esperarMs, rm = fs.rmSync,
   } = opcoes ?? {};
   if (!ALCANCES.includes(alcance)) return falha('uso');
   if (!caminhoValido(dir) || !caminhoValido(arquivo) || !agoraValido(agoraMs)) return falha('argumentos');
@@ -304,6 +362,10 @@ export function desligar(opcoes) {
         backup = d.backup;
       }
     }
+    // O PID vem antes da parada: o pararColetor apaga o arquivo depois do
+    // taskkill, e é por ele que se espera o processo sair (só quando há o
+    // que apagar; no alcance nada, a parada basta).
+    const antes = alcance === 'nada' ? null : lerPid(dir);
     let pr = null;
     try {
       pr = parar({ dir, plataforma, executar, systemRoot });
@@ -311,14 +373,23 @@ export function desligar(opcoes) {
       pr = null;
     }
     apagarLigado(dir);
-    const apagou = alcance === 'nada' ? false : apagarDados(dir, alcance === 'tudo', pr?.ok !== true);
+    // Parada que falhou: o pararColetor deixa o PID, e com ele o Collector
+    // conta como vivo (o de outro programa já saiu do arquivo: nada a guardar).
+    let vivo = pr?.ok !== true && existe(caminhos(dir).pid);
+    let parado = pr?.ok === true && pr.motivo === 'parado';
+    if (parado && antes !== null && !esperarSaida(antes.pid, saiu, esperar)) {
+      devolverPid(dir, antes);
+      vivo = true;
+      parado = false;
+    }
+    const apagou = alcance === 'nada' ? false : apagarDados(dir, { tudo: alcance === 'tudo', vivo, rm, esperar });
     // O ligado.json que o unlink não tirou (dados e tudo tentam de novo):
     // para o resto do plugin o aprendizado pode continuar ligado, então o
     // resultado avisa. Um segundo desligar não tira nada do env (as chaves
     // já saíram) e tenta apagá-lo de novo.
     const registroFicou = existe(caminhos(dir).ligado);
     return {
-      ok: true, removidas, backup, parado: pr?.ok === true && pr.motivo === 'parado', apagou, pasta: caminhos(dir).otel, ligadoInvalido, registroFicou,
+      ok: true, removidas, backup, parado, apagou, pasta: caminhos(dir).otel, ligadoInvalido, registroFicou,
     };
   } catch {
     return falha('erro');

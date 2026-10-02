@@ -9,7 +9,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  caminhoBinario, programa, registrarInstalacao, extrairColetor, conferirIntegridade, lerPid, nomeDoProcesso, coletorVivo,
+  caminhoBinario, programa, registrarInstalacao, extrairColetor, conferirIntegridade, lerPid, nomeDoProcesso, coletorVivo, coletorSaiu,
   classificarLog, subirColetor, pararColetor, ehOrfao, hashArquivo, NOME_BINARIO, ORFAO_MS, PORTA_OCUPADA, _retomarSubindoVencida,
 } from '../src/aprendizado/coletor.js';
 
@@ -595,4 +595,18 @@ test('consulta do processo: um tasklist que escreve no stderr não suja o stderr
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(JSON.parse(r.stdout), { nome: null, status: 1 }, 'o tasklist falso rodou e saiu com 1');
   assert.equal(r.stderr, '', 'nada do tasklist no stderr do hook');
+});
+
+// Rodada 2 da revisão da Task 10: o desligar espera o Collector parado sair
+// antes de apagar a pasta (o taskkill /t /f volta antes disso).
+test('coletorSaiu: true sem processo ou com outro programa no PID, false com o Collector, null sem resposta', () => {
+  assert.equal(coletorSaiu(4242, { plataforma: plat, executar: consultaFalsa(new Set()) }), true);
+  assert.equal(coletorSaiu(4242, { plataforma: plat, executar: consultaFalsa(new Set([4242])) }), false);
+  assert.equal(coletorSaiu(4242, { plataforma: 'win32', executar: () => '"notepad.exe","4242","Console","1","1.000 K"\r\n' }), true, 'PID já reaproveitado');
+  assert.equal(coletorSaiu(4242, { plataforma: 'win32', executar: () => '"OTELCOL-CONTRIB.EXE","4242","Console","1","1.000 K"\r\n' }), false);
+  const prazo = () => { throw Object.assign(new Error('tasklist: prazo'), { code: 'ETIMEDOUT' }); };
+  assert.equal(coletorSaiu(4242, { plataforma: 'win32', systemRoot: 'C:\\Windows', executar: prazo }), null);
+  const semPs = () => { throw Object.assign(new Error('spawn /bin/ps ENOENT'), { code: 'ENOENT' }); };
+  assert.equal(coletorSaiu(4242, { plataforma: 'linux', executar: semPs }), null);
+  assert.equal(coletorSaiu(4242, { plataforma: 'linux', executar: () => { throw Object.assign(new Error('status 1'), { status: 1, stdout: '' }); } }), true);
 });

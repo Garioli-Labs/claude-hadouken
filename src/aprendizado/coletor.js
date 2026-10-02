@@ -273,6 +273,22 @@ export function coletorVivo(dir, opcoes) {
   }
 }
 
+// Depois de uma parada (rodada 2 da revisão da Task 10): o taskkill /t /f
+// volta antes de o processo sair e soltar os arquivos, e o desligar consulta
+// por aqui até ele sumir. Pelo PID (o pararColetor já apagou o arquivo de
+// PID): true quando nenhum Collector responde mais por ele (sumiu ou o PID já
+// é de outro programa), false quando o Collector ainda está lá, null quando o
+// tasklist ou o ps não respondeu (não dá para saber).
+export function coletorSaiu(pid, opcoes) {
+  try {
+    const q = consultarNome(pid, opcoes);
+    if (!q.ok) return null;
+    return !ehColetor(q.nome, opcoes?.plataforma ?? process.platform);
+  } catch {
+    return null;
+  }
+}
+
 // R6: o fim do log da subida anterior (até 64 KiB), só classificado. Lido
 // pelo conteúdo: o início do trecho vem do fstat do descritor e a leitura vai
 // até o fim de verdade, sem confiar no tamanho da listagem (Emenda
