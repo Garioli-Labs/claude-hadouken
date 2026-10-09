@@ -33,7 +33,9 @@ Os nomes dos marketplaces são os que o Claude Code registra hoje (`known_market
 - `claude-hadouken` (mesmo marketplace, sem faixa de versão). Sem faixa porque uma faixa resolve por tag `claude-hadouken--v<versão>` e o `claude plugin tag` recusa nomes que começam com `claude-`; o hadouken já fixa a própria versão pelo `version` do manifesto.
 - `{ name: "superpowers", marketplace: "claude-plugins-official" }`, `{ name: "mattpocock-skills", marketplace: "mattpocock" }`, `{ name: "poka-yoke", marketplace: "poka-yoke" }`, `{ name: "clean-architecture", marketplace: "clean-architecture-skills" }`, `{ name: "fullstack-dev-skills", marketplace: "fullstack-dev-skills" }`, `{ name: "ui-ux-pro-max", marketplace: "ui-ux-pro-max-skill" }`.
 
-Sem faixa de versão nas de terceiros na 1.0.0: não sabemos se esses autores publicam tags `<plugin>--v<versão>`, e uma faixa sem tag falha a instalação ("has no git tag satisfying"). Custo: uma versão nova de um terceiro chega sem teste nosso. O plano confere as tags de cada um; onde houver, a 1.1.0 passa a fixar `^major`.
+Sem faixa de versão nas de terceiros. Conferido em 2026-10-09 (`git ls-remote --tags`): nenhum dos seis repositórios publica tags `<plugin>--v<versão>`, o formato que uma faixa exige (mattpocock/skills, poka-yoke, clean-architecture-skills, jeffallan/claude-skills e ui-ux-pro-max-skill usam `vX.Y.Z`; claude-plugins-official não tem tags). Uma faixa então falharia a instalação (plugin com repositório próprio) ou só seria conferida ao carregar, desligando o kit inteiro numa versão nova (plugin dentro do marketplace, caso do Matt).
+
+Em troca, aviso de versão nova (decisão do Sr. Garioli): `kit/testado.json` guarda a versão de cada dependência com que o kit foi testado; um workflow semanal do GitHub Actions (`.github/workflows/kit-versoes.yml`, `schedule` uma vez por semana, mais `workflow_dispatch`) lê o `plugin.json`/entrada de marketplace publicado de cada uma, compara com o `testado.json` e abre uma issue (uma por dependência, sem duplicar a aberta) quando a versão principal mudou; versão menor ou correção só aparece no resumo do job. A rede fica no Actions, nunca no plugin. Atualizar o `testado.json` é passo manual depois de testar.
 
 Google Cloud e Cloudflare ficam fora (específicos de projeto).
 
@@ -106,13 +108,14 @@ Depois do merge e do push (decisão dele), ele roda no terminal:
 - Teste do `fluxo.js`: rodado com stdin vazio, sai 0 e imprime JSON válido com `additionalContext` ≤ 700 caracteres; leitura estática prova que não importa os módulos da seção 5.2 (no estilo de `test/aprendizado-fronteiras.test.js`).
 - Teste da skill `fluxo`: todo nome `plugin:skill` citado na tabela existe numa lista fixa conferida no plano (pega erro de digitação).
 - Teste das cópias: `kit/skills/graphify` tem `LICENSE-MIT`; `kit/skills/yu-ux-web-expert` tem `ATTRIBUTIONS.md`.
+- Teste do `kit/testado.json`: cada dependência do `plugin.json` do kit tem versão registrada, e vice-versa.
 - `node --test` inteiro do repositório segue passando.
 - Roteiro manual (controlador, com `--plugin-dir ./kit --plugin-dir ./rea` e `CLAUDE_CONFIG_DIR` temporário quando der): a sessão mostra o resumo do fluxo; `/hadouken-kit:fluxo` carrega; com o rea ligado, `/mcp` lista `rea`.
 
 ## 10. Fora do escopo
 
 - Sandcastle e agentes AFK.
-- Faixas de versão nas dependências de terceiros (1.1.0, depois de conferir as tags).
+- Faixas de versão nas dependências de terceiros (nenhum autor publica as tags exigidas; o aviso semanal da seção 3 cobre).
 - Mudança no `claude-hadouken` ou na v0.4.0.
 
 ## 11. Ordem de entrega
