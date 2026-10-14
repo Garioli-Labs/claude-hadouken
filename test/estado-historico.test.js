@@ -187,6 +187,17 @@ test('sessão parada sai da conta de ativas em 5 min mesmo com a barra rodando a
   assert.equal(sessoesAtivas(validarEstado(lerJson(arq()).valor, agora + 11 * MIN), agora + 11 * MIN), 1);
 });
 
+test('transcript ainda não criado ou com mtime no futuro: a barra parada não renova o trabalho (re-revisão do I-1)', () => {
+  const ausente = path.join(dir, 'ainda-nao.jsonl');
+  for (let i = 0; i <= 10; i++) atualizarEstado(entrada(40, 60 + i, { session_id: 'nova', transcript_path: ausente }), agora + i * MIN);
+  assert.equal(sessoesAtivas(validarEstado(lerJson(arq()).valor, agora + 10 * MIN), agora + 10 * MIN), 0);
+  const futuro = path.join(dir, 'futuro.jsonl');
+  fs.writeFileSync(futuro, '{}\n');
+  fs.utimesSync(futuro, new Date(agora + 60 * MIN), new Date(agora + 60 * MIN));
+  for (let i = 0; i <= 10; i++) atualizarEstado(entrada(40, 80 + i, { session_id: 'adiantada', transcript_path: futuro }), agora + i * MIN);
+  assert.equal(sessoesAtivas(validarEstado(lerJson(arq()).valor, agora + 10 * MIN), agora + 10 * MIN), 0);
+});
+
 test('sem transcript legível, cada tick conta como trabalho (comportamento anterior)', () => {
   for (let i = 0; i <= 10; i++) atualizarEstado(entrada(40, 60 + i, { session_id: 'sem' }), agora + i * MIN);
   assert.equal(sessoesAtivas(validarEstado(lerJson(arq()).valor, agora + 10 * MIN), agora + 10 * MIN), 1);

@@ -27,6 +27,9 @@ export const MAX_SESSOES = 50;
 // Sessão ativa (spec v0.2.0 §12.1): o `at` dela em estado.sessoes, que a barra
 // renova a cada atualização, tem no máximo isto de idade.
 export const ATIVA_RECENTE_MS = 5 * 60_000;
+// mtime do transcript acima de agora + isto não vale como escrita (relógio
+// adiantado ou touch): senão a sessão ficaria ativa para sempre.
+const MTIME_FOLGA_MS = 5_000;
 // Histórico curto das leituras de limite (spec v0.2.0 §12.2): no máximo um
 // ponto a cada HISTORICO_PASSO_MS e HISTORICO_MAX pontos, nenhum com mais de
 // HISTORICO_IDADE_MS. Só a previsão de estouro (previsao.js) o lê.
@@ -359,16 +362,20 @@ function juntarSessoes(lista, atual) {
 // sessão aberta); `trabalho` é o último tick em que o transcript foi escrito,
 // o que conta para sessoesAtivas. A barra redesenha a cada refreshInterval
 // mesmo com o terminal parado: sem transcript novo desde o trabalho anterior,
-// ele fica (portão v0.4.0, I-1). Transcript ilegível ou ausente no stdin:
-// cada tick conta como trabalho, a regra de antes.
+// ele fica (portão v0.4.0, I-1). Sem caminho utilizável no stdin
+// (mtimeTranscript undefined): cada tick conta como trabalho, a regra de antes.
 function sessaoDaEntrada(e, agoraIso, agoraMs, anteriores) {
   if (!idValido(e.session_id)) return null;
   const prev = ehObjeto(anteriores) && Object.hasOwn(anteriores, e.session_id) ? anteriores[e.session_id] : null;
   const prevT = ehObjeto(prev) ? instante(prev.trabalho ?? prev.at, agoraMs) : null;
   let trabalho = agoraIso;
   if (prevT !== null) {
+    // Escrita só conta com mtime depois do trabalho anterior e não no futuro.
+    // Transcript ainda não criado (sessão aberta sem mensagem), link ou
+    // pasta (null) é não escrito, como em stdinRepetido.
     const m = mtimeTranscript(e.transcript_path);
-    if (numeroFinito(m) && m <= prevT) trabalho = new Date(prevT).toISOString();
+    const escreveu = numeroFinito(m) && m > prevT && m <= agoraMs + MTIME_FOLGA_MS;
+    if (m !== undefined && !escreveu) trabalho = new Date(prevT).toISOString();
   }
   const s = sessaoValida({
     at: agoraIso,
