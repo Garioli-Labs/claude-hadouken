@@ -290,3 +290,41 @@ test('cursor com o ino real e posição negativa ou além do fim: leitura recome
     assert.equal(r.corrompido, false);
   }
 });
+
+// Portão v0.4.0, I-2: se o arquivo não abre, o tamanho vem da listagem, que
+// no Windows com o Collector vivo é 0. Um tamanho da listagem menor que o
+// cursor não é truncamento: o cursor fica e nada é relido.
+test('abertura falhou e a listagem mostra 0: o cursor fica, nada é reagregado', (t) => {
+  const d = novoDir();
+  const arq = path.join(d, ARQ_TELEMETRIA);
+  fs.writeFileSync(arq, `${linhaPedido(AGORA - 2000)}\n${linhaPedido(AGORA - 1000)}\n`);
+  const r1 = lerNovos({ pasta: d, cursor: null, agoraMs: AGORA });
+  assert.equal(r1.registros.length, 2);
+  const lstatReal = fs.lstatSync;
+  t.mock.method(fs, 'lstatSync', (p, o) => {
+    const real = lstatReal(p, o);
+    return p === arq && real ? Object.assign(Object.create(Object.getPrototypeOf(real)), real, { size: 0n }) : real;
+  });
+  const openReal = fs.openSync;
+  t.mock.method(fs, 'openSync', (p, ...a) => {
+    if (p === arq) throw Object.assign(new Error('ocupado'), { code: 'EBUSY' });
+    return openReal(p, ...a);
+  });
+  const r2 = lerNovos({ pasta: d, cursor: r1.cursor, agoraMs: AGORA });
+  assert.deepEqual(r2.registros, []);
+  assert.deepEqual(r2.cursor, r1.cursor);
+  t.mock.restoreAll();
+  fs.appendFileSync(arq, `${linhaPedido(AGORA - 500)}\n`);
+  const r3 = lerNovos({ pasta: d, cursor: r2.cursor, agoraMs: AGORA });
+  assert.deepEqual(r3.registros.map((x) => x.em), [AGORA - 500]);
+});
+
+test('truncamento visto pelo descritor ainda relê do começo', () => {
+  const d = novoDir();
+  const arq = path.join(d, ARQ_TELEMETRIA);
+  fs.writeFileSync(arq, `${linhaPedido(AGORA - 2000)}\n${linhaPedido(AGORA - 1000)}\n`);
+  const r1 = lerNovos({ pasta: d, cursor: null, agoraMs: AGORA });
+  fs.writeFileSync(arq, `${linhaPedido(AGORA - 500)}\n`);
+  const r2 = lerNovos({ pasta: d, cursor: r1.cursor, agoraMs: AGORA });
+  assert.deepEqual(r2.registros.map((x) => x.em), [AGORA - 500]);
+});

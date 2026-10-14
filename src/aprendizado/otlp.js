@@ -989,9 +989,15 @@ export function lerNovos(opcoes) {
     const atual = fs.lstatSync(arquivo, { bigint: true, throwIfNoEntry: false });
     if (!atual) return semNada;
     if (!atual.isFile()) return { ...semNada, corrompido: true };
-    const tamanho = tamanhoAberto(arquivo, atual.ino) ?? Number(atual.size);
+    const aberto = tamanhoAberto(arquivo, atual.ino);
+    const tamanho = aberto ?? Number(atual.size);
     const ino = String(atual.ino);
     const cur = cursorValido(cursor);
+    // Tamanho da listagem menor que o cursor não é truncamento: no Windows,
+    // com o Collector vivo, ela mostra 0. Só o descritor prova que o arquivo
+    // encolheu; sem ele, o cursor fica e o próximo passo tenta de novo
+    // (portão v0.4.0, I-2).
+    if (aberto === null && cur !== null && cur.ino === ino && cur.pos > tamanho) return { ...semNada, cursor };
     const segmentos = [];
     if (cur !== null && cur.ino === ino) {
       segmentos.push({ arquivo, ino: atual.ino, desde: cur.pos <= tamanho ? cur.pos : 0, ate: tamanho, final: false });
