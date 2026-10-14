@@ -51,6 +51,7 @@ This is **v0.4.0** of the plugin's first subproject, the **Usage reader** (*Leit
   - [1 h and 5 min cache: what TTL means](#1-h-and-5-min-cache-what-ttl-means)
   - [GitHub Actions](#github-actions)
 - [Local learning (optional)](#local-learning-optional)
+- [hadouken-kit and hadouken-rea (optional)](#hadouken-kit-and-hadouken-rea-optional)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Where the data lives](#where-the-data-lives)
@@ -905,6 +906,31 @@ It also warns, once a day per kind, when the Collector does not start, does not 
 - **Content, never:** prompts, tool details and API bodies stay off, and `ligar` refuses if any of them is on.
 - **Retention:** the raw file rotates at 5 MB, keeping 3 old files and 30 days; the aggregates keep 26 weeks.
 - **Nothing leaves the machine:** the only network access is the Collector download, once, through `ligar <code>`.
+
+---
+
+## hadouken-kit and hadouken-rea (optional)
+
+The `claude-hadouken` marketplace carries two more plugins, separate from usage and the guard. **hadouken-kit** installs the daily skill set in one go: `claude-hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills` (`mattpocock`), `poka-yoke` (`poka-yoke`), `clean-architecture` (`clean-architecture-skills`), `fullstack-dev-skills` (`fullstack-dev-skills`) and `ui-ux-pro-max` (`ui-ux-pro-max-skill`). It also brings the `hadouken-kit:fluxo` skill, which says which one to use at each step, and copies of `yu-ux-web-expert` and `graphify`. If you only want usage and the guard, install only `claude-hadouken`.
+
+In the terminal (outside a session, or with `!` inside one):
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+claude plugin marketplace add mattpocock/skills
+claude plugin marketplace add rainmanjam/poka-yoke
+claude plugin marketplace add nathankim0/clean-architecture-skills
+claude plugin marketplace add jeffallan/claude-skills
+claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
+claude plugin install hadouken-kit@claude-hadouken
+```
+
+- **Why the `marketplace add` lines first.** Claude Code only installs a dependency from a marketplace that is already registered. Without it, the kit installs but stays disabled with `Dependency "<name>" is not installed`.
+- **Outside a session.** Installing or enabling a plugin inside an open session is held by the guard's `ConfigChange` hook. Run the commands in the terminal and open a new session.
+- **Skills at the right moment.** Each session, the kit puts a 5-line summary in context (about 400 tokens, no model call) with the moment of each skill: `superpowers` runs the process and the Matt Pocock skills fire on their own at their moments (stress-testing a plan, prototype, spec, tickets, handoff, merge conflict, branch review, module design, domain, research, triage, teaching). The full table, with all 22 Matt skills, is in `/hadouken-kit:fluxo`.
+- **yu-ux-web-expert.** The first time, it installs its dependencies (`axe-core`, `lighthouse`, Chromium) in the plugin folder, and again after each kit update, because the folder changes with the version.
+- **REA, off by default.** To turn it on: `claude plugin install hadouken-rea@claude-hadouken` and `claude plugin enable hadouken-rea@claude-hadouken`. It opens `npx -y rea-agents@6.1.0 mcp` (exact version; on Windows through `cmd.exe /d /c`), needs Node 22.19+, 24.11+ or 26+, and **runs the programs it analyzes with your user's permissions**.
+- **Versions.** A weekly GitHub Actions workflow compares published versions with the tested ones (`kit/testado.json`) and opens an issue when a dependency ships a new major version. Nothing in the kit talks to the network.
 
 ---
 
