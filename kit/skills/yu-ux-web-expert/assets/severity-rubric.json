@@ -1,0 +1,130 @@
+{
+  "schema": "yu-ux-web-expert/severity/1.0",
+  "principio": "Classifica e prioriza; nao bloqueia entrega. A decisao e de quem assume o risco.",
+  "niveis": [
+    {
+      "id": "P0",
+      "nome": "Critico",
+      "criterio": "Impede a tarefa principal para algum grupo de usuarios, OU viola WCAG 2.2 nivel A, OU quebra o fluxo de conversao",
+      "recomendacao": "Corrigir antes de publicar",
+      "exemplos": [
+        "Acao principal inalcancavel por teclado (2.1.1)",
+        "Botao de envio sem nome acessivel (4.1.2)",
+        "Formulario que perde os dados ao dar erro",
+        "Conteudo essencial invisivel em 360px por overflow",
+        "Armadilha de foco em modal"
+      ]
+    },
+    {
+      "id": "P1",
+      "nome": "Alto",
+      "criterio": "Dano mensuravel de usabilidade ou conversao, OU viola WCAG 2.2 nivel AA, OU Core Web Vital na faixa 'ruim'",
+      "recomendacao": "Corrigir nesta rodada",
+      "limiares": {
+        "lcp_s": 4.0,
+        "cls": 0.25,
+        "inp_ms": 500,
+        "contraste_texto_normal": 4.5,
+        "contraste_texto_grande_e_ui": 3.0
+      },
+      "exemplos": [
+        "Contraste de CTA abaixo de 4.5:1 (1.4.3)",
+        "Foco nao visivel (2.4.7)",
+        "LCP acima de 4s no perfil Brasil",
+        "Alvo de toque abaixo de 24x24 CSS px (2.5.8)",
+        "Campo sem label associado (3.3.2)"
+      ]
+    },
+    {
+      "id": "P2",
+      "nome": "Medio",
+      "criterio": "Atrito real, inconsistencia de sistema, OU Core Web Vital na faixa 'precisa melhorar'",
+      "recomendacao": "Backlog priorizado",
+      "limiares": {
+        "lcp_s": 2.5,
+        "cls": 0.1,
+        "inp_ms": 200
+      },
+      "exemplos": [
+        "Multiplos valores quase identicos para o mesmo papel semantico",
+        "Microcopy de botao generica ('Enviar', 'Clique aqui')",
+        "Escala tipografica sem hierarquia clara",
+        "Imagem sem dimensao explicita, sem CLS medido ainda"
+      ]
+    },
+    {
+      "id": "P3",
+      "nome": "Baixo",
+      "criterio": "Polimento, preferencia estetica, ganho marginal",
+      "recomendacao": "Opcional",
+      "exemplos": [
+        "Alinhamento optico",
+        "Duracao de transicao fora da faixa recomendada",
+        "Otimizacao de formato de imagem ja leve"
+      ]
+    }
+  ],
+  "regras": {
+    "anti_inflacao": "Acima de 5 achados P0, reavaliar: provavelmente alguns sao P1. Declarar a contagem por nivel no relatorio.",
+    "ordem_de_execucao": "Priorizar por (impacto x alcance) / esforco, NAO por severidade pura. Se a lista 'Por onde comecar' sair igual a ordem de severidade, o custo/beneficio nao foi considerado.",
+    "cinco_elementos": [
+      "localizacao",
+      "medicao",
+      "impacto_no_usuario",
+      "correcao_concreta",
+      "comando_de_reverificacao"
+    ],
+    "sem_medicao": "Achado sem medicao possivel entra como julgamento declarado, nunca com numero estimado.",
+    "desfazer_vence_confirmar": "Ordem de preferencia para acao destrutiva: (1) tornar reversivel; (2) undo com janela de carencia; (3) acao proporcional a consequencia (digitar o nome); (4) dialogo que declara a consequencia especifica. 'Tem certeza?' nao e dispositivo.",
+    "contencao": "Atrito e pago por todo usuario em toda utilizacao legitima; o erro acontece raramente. Recomendar protecao demais e erro de auditoria tao real quanto deixar passar um problema."
+  },
+  "eixo_secundario_nivel_de_defesa": {
+    "principio": "Severidade diz o quanto doi; o nivel diz a forca da defesa existente. Sao eixos independentes. Corrigir = subir o nivel, nao escrever um aviso melhor.",
+    "origem": "Poka-yoke (Shigeo Shingo) aplicado a interface; forcing functions de Norman; heuristica 5 de Nielsen. Adaptacao a partir de rainmanjam/poka-yoke (MIT).",
+    "niveis": [
+      {
+        "id": 1,
+        "nome": "Controle",
+        "definicao": "A acao errada nao pode ser tomada",
+        "exemplos": [
+          "seletor que nao oferece a opcao invalida",
+          "max/min imposto pelo controle",
+          "submit inexistente ate o form ser valido",
+          "acao destrutiva ausente para quem nao tem permissao"
+        ]
+      },
+      {
+        "id": 2,
+        "nome": "Aviso",
+        "definicao": "Possivel, mas sinalizado no instante em que acontece",
+        "exemplos": [
+          "validacao no blur",
+          "contador que fica vermelho",
+          "banner declarando a escala da acao"
+        ]
+      },
+      {
+        "id": 3,
+        "nome": "Deteccao",
+        "definicao": "Pego depois do envio",
+        "exemplos": [
+          "resumo de erros no topo",
+          "servidor recusa",
+          "chamado de suporte"
+        ]
+      },
+      {
+        "id": 0,
+        "nome": "Depende de leitura",
+        "definicao": "So funciona se a pessoa ler e lembrar",
+        "exemplos": [
+          "texto de apoio",
+          "tooltip",
+          "aviso em modal que todo mundo fecha"
+        ]
+      }
+    ],
+    "notacao": "P1 · defesa atual nivel 0 · correcao leva a nivel 1",
+    "por_que_importa": "O nivel e observavel no codigo, entao a recomendacao fica verificavel depois. A severidade sozinha e julgamento."
+  }
+}
