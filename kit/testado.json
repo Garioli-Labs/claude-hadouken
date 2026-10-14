@@ -1,0 +1,12 @@
+{
+  "dependencias": {
+    "claude-hadouken@claude-hadouken": "0.4.0",
+    "superpowers@claude-plugins-official": "6.4.1",
+    "mattpocock-skills@mattpocock": "1.2.0",
+    "poka-yoke@poka-yoke": "0.2.0",
+    "clean-architecture@clean-architecture-skills": "1.0.0",
+    "fullstack-dev-skills@fullstack-dev-skills": "0.4.16",
+    "ui-ux-pro-max@ui-ux-pro-max-skill": "2.13.0"
+  },
+  "npm": { "rea-agents": "6.1.0" }
+}
