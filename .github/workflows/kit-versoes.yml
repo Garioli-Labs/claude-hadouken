@@ -1,0 +1,29 @@
+name: kit-versoes
+on:
+  schedule:
+    - cron: '17 9 * * 1'   # segunda, 09:17 UTC
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  versoes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node .github/scripts/kit-versoes.mjs
+      - name: Abrir issue por versão principal nova (sem duplicar)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node -e 'for (const p of require("./principais.json")) console.log([p.chave, p.testada, p.publicada].join("\t"))' |
+          while IFS=$'\t' read -r chave testada publicada; do
+            titulo="kit: ${chave} ${publicada} (testado com ${testada})"
+            if gh issue list --state open --search "in:title \"kit: ${chave} \"" --json number --jq 'length' | grep -qx 0; then
+              gh issue create --title "$titulo" --body "Versão principal nova de \`${chave}\`: ${publicada}. O kit foi testado com ${testada}. Teste e atualize \`kit/testado.json\`."
+            fi
+          done
