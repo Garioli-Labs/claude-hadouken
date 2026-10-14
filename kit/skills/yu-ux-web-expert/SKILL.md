@@ -19,7 +19,7 @@ compatibility: >-
   installed on first run by scripts/setup.sh. Live-page modes require network
   access or a local dev server; without them, fall back to static analysis and
   say so.
-allowed-tools: Bash Read Write Edit Grep Glob WebFetch
+allowed-tools: Read Grep Glob
 metadata:
   domain: design
   rubrics: [nielsen-heuristics, wcag-2.2-aa, core-web-vitals, baymard-ecommerce]

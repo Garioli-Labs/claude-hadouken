@@ -44,3 +44,15 @@ test('fontes: cada dependência do testado.json tem de onde ler', () => {
     assert.match(fontes[k].repo, /^[\w.-]+\/[\w.-]+$/, k);
   }
 });
+
+// I5 da revisão final: o job agendado tem issues: write; as actions vão por
+// SHA de commit e sem a credencial persistida, como no ci.yml.
+test('kit-versoes.yml: actions por SHA, sem credencial persistida e sem cache', async () => {
+  const fs = await import('node:fs');
+  const y = fs.readFileSync(new URL('../.github/workflows/kit-versoes.yml', import.meta.url), 'utf8');
+  const usos = [...y.matchAll(/uses:\s*(\S+)/g)].map((m) => m[1]);
+  assert.ok(usos.length >= 2);
+  for (const u of usos) assert.match(u, /@[0-9a-f]{40}$/, u);
+  assert.match(y, /persist-credentials:\s*false/);
+  assert.match(y, /package-manager-cache:\s*false/);
+});

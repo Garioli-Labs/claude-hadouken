@@ -906,6 +906,8 @@ O marketplace `claude-hadouken` traz mais dois plugins, separados do consumo e d
 No terminal (fora de sessão, ou com `!` dentro dela):
 
 ```bash
+claude plugin marketplace add Garioli-Labs/claude-hadouken
+claude plugin marketplace update claude-hadouken
 claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin marketplace add mattpocock/skills
 claude plugin marketplace add rainmanjam/poka-yoke
@@ -914,13 +916,13 @@ claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
 claude plugin install hadouken-kit@claude-hadouken
 ```
 
-- **Por que os `marketplace add` antes.** O Claude Code só instala uma dependência de um marketplace já registrado. Sem ele, o kit instala com o aviso `dependency "<nome>" was not installed (no marketplace you have added lists it)` e não carrega.
+- **Por que os `marketplace add` antes.** O primeiro registra o marketplace do hadouken (quem já tem a v0.4.0 vê "already" e segue; o `update` traz a entrada do kit). O Claude Code só instala uma dependência de um marketplace já registrado. Sem ele, o kit instala com o aviso `dependency "<nome>" was not installed (no marketplace you have added lists it)` e não carrega.
 - **Fora de sessão.** Instalar ou ligar plugin dentro de uma sessão aberta é segurado pelo hook `ConfigChange` da guarda. Rode os comandos no terminal e abra uma sessão nova.
-- **As skills na hora certa.** A cada sessão, o kit põe no contexto um resumo de 5 linhas (uns 400 tokens, nenhuma chamada de modelo) com o momento de cada skill: o `superpowers` cuida do processo e as do Matt Pocock entram sozinhas nos momentos delas (pôr um plano à prova, protótipo, spec, tickets, handoff, conflito de merge, revisão do branch, desenho de módulo, domínio, pesquisa, triagem, ensino). A tabela completa, com as 22 skills do Matt, está em `/hadouken-kit:fluxo`.
+- **As skills na hora certa.** A cada sessão, o kit põe no contexto um resumo de 5 linhas (uns 400 tokens, nenhuma chamada de modelo) com o momento de cada skill: o `superpowers` cuida do processo e as do Matt Pocock entram nos momentos delas (pôr um plano à prova, protótipo, spec, tickets, handoff, conflito de merge, revisão do branch, desenho de módulo, domínio, pesquisa, triagem, ensino). O Claude aciona sozinho as que o autor deixa o modelo acionar; as outras 13 (`to-spec`, `to-tickets`, `handoff`, `triage`, `teach` e mais) têm `disable-model-invocation`, e no momento delas o Claude sugere que você digite o comando (`/mattpocock-skills:handoff`, por exemplo). A tabela completa, com as 22 skills do Matt, está em `/hadouken-kit:fluxo`.
 - **clean-architecture fora do kit.** Desde 2026-10-14 o `plugin.json` dele é um link simbólico. No Windows, o git clona o link como texto e a instalação falha com `JSON parse error: Unexpected token '.'`; como dependência, derrubaria o kit inteiro. No Linux e no macOS ele instala à parte: `claude plugin marketplace add nathankim0/clean-architecture-skills` e `claude plugin install clean-architecture@clean-architecture-skills`.
-- **yu-ux-web-expert.** Na primeira vez, ela instala as dependências dela (`axe-core`, `lighthouse`, Chromium) na pasta do plugin, e de novo depois de cada atualização do kit, porque a pasta muda de versão.
-- **REA, desligado por padrão.** Para ligar: `claude plugin install hadouken-rea@claude-hadouken` e `claude plugin enable hadouken-rea@claude-hadouken`. Ele abre `npx -y rea-agents@6.1.0 mcp` (versão exata; no Windows, pelo `cmd.exe /d /c`), precisa de Node 22.19+, 24.11+ ou 26+ e **executa os programas analisados com as permissões do seu usuário**. Na primeira vez, o `npx` baixa o pacote (uns 20 a 30 s) e o `/mcp` pode acusar tempo esgotado; com o pacote no cache, conecta em segundos (reconecte pelo `/mcp` ou abra uma sessão nova).
-- **Versões.** Um workflow semanal do GitHub Actions compara as versões publicadas com as testadas (`kit/testado.json`) e abre uma issue quando uma dependência lança versão principal nova. Nada do kit fala com a rede.
+- **yu-ux-web-expert.** Na primeira vez, o `setup.sh` dela instala `axe-core` e `lighthouse` (pelo `package-lock.json` do kit) na pasta do plugin, o `playwright` no Python do usuário e o Chromium no cache do Playwright; o `axe-core` e o `lighthouse` voltam a ser instalados depois de cada atualização do kit, porque a pasta muda de versão. A cópia do kit não libera Bash, Write, Edit nem WebFetch sem pergunta (`allowed-tools: Read Grep Glob`): ela lê páginas de terceiros, e cada comando passa pela sua permissão.
+- **REA, desligado por padrão.** Para ligar: `claude plugin install hadouken-rea@claude-hadouken` e `claude plugin enable hadouken-rea@claude-hadouken`. Ele abre `npx -y rea-agents@6.1.0 mcp` (versão exata; no Windows, pelo `cmd.exe /d /c`) com o cwd na pasta do plugin, nunca no projeto aberto (um `node_modules` ou `.npmrc` do repositório não entra); passe caminhos absolutos ao REA. Precisa de Node 22.19+, 24.11+ ou 26+ e **executa os programas analisados com as permissões do seu usuário**. Na primeira vez, o `npx` baixa o pacote (uns 20 a 30 s) e o `/mcp` pode acusar tempo esgotado; com o pacote no cache, conecta em segundos (reconecte pelo `/mcp` ou abra uma sessão nova).
+- **Versões.** Um workflow semanal do GitHub Actions compara as versões publicadas com as testadas (`kit/testado.json`) e abre uma issue quando uma dependência lança versão principal nova. O kit só fala com a rede quando o `setup.sh` da yu-ux roda (npm, pip, Playwright) e o REA, quando ligado, no primeiro `npx`.
 
 ---
 

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,4 +47,35 @@ test('yu-ux: o SKILL.md diz onde a skill mora dentro do plugin', () => {
 
 test('nenhum arquivo do kit é link simbólico', () => {
   for (const p of todos(path.join(repo, 'kit'))) assert.ok(!fs.lstatSync(p).isSymbolicLink(), p);
+});
+
+// C2 da revisão final: skill distribuída pelo marketplace não libera
+// ferramenta de escrita ou execução sem pergunta (a yu-ux lê páginas de
+// terceiros; uma injeção viraria comando).
+test('nenhum SKILL.md do kit dispensa a pergunta de Bash, Write, Edit ou WebFetch', () => {
+  for (const nome of fs.readdirSync(kit)) {
+    const s = fs.readFileSync(path.join(kit, nome, 'SKILL.md'), 'utf8');
+    const frente = s.split('\n---\n')[0];
+    const linha = /^allowed-tools:(.*)$/m.exec(frente)?.[1] ?? '';
+    assert.doesNotMatch(linha, /\b(?:Bash|Write|Edit|MultiEdit|NotebookEdit|WebFetch)\b/, nome);
+  }
+});
+
+// I2 da revisão final: o .gitignore da yu-ux ignora vendor/; o clone do
+// GitHub precisa dos manifestos com o lock.
+test('yu-ux: vendor/package.json e package-lock.json estão no git', () => {
+  const r = spawnSync('git', ['ls-files', 'kit/skills/yu-ux-web-expert/vendor'], { cwd: repo, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const l = r.stdout.trim().split('\n');
+  assert.ok(l.includes('kit/skills/yu-ux-web-expert/vendor/package.json'), r.stdout);
+  assert.ok(l.includes('kit/skills/yu-ux-web-expert/vendor/package-lock.json'), r.stdout);
+});
+
+// I3 da revisão final: o graphify 0.9.25 é Apache-2.0 (o MIT vale só para o
+// que veio antes da relicença); o NOTICE aponta para o LICENSE.
+test('graphify: LICENSE (Apache-2.0) da tag v0.9.25 junto do NOTICE', () => {
+  const g = path.join(kit, 'graphify');
+  assert.match(fs.readFileSync(path.join(g, 'LICENSE'), 'utf8'), /Apache License\s+Version 2\.0/);
+  const r = spawnSync('git', ['ls-files', 'kit/skills/graphify/LICENSE'], { cwd: repo, encoding: 'utf8' });
+  assert.equal(r.stdout.trim(), 'kit/skills/graphify/LICENSE');
 });

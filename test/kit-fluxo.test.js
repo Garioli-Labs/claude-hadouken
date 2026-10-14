@@ -19,6 +19,25 @@ const POCOCK = [
   'grill-me', 'grilling', 'handoff', 'teach', 'writing-great-skills',
 ].map((s) => `mattpocock-skills:${s}`);
 
+// C1 da revisão final: estas 13 têm disable-model-invocation: true no
+// frontmatter (mattpocock-skills 1.2.0, conferido em 2026-10-14); o modelo
+// não as aciona, então o kit só as cita como /comando, para sugerir ao usuário.
+const SO_USUARIO = ['ask-matt', 'grill-with-docs', 'implement', 'improve-codebase-architecture',
+  'setup-matt-pocock-skills', 'to-spec', 'to-tickets', 'triage', 'wayfinder', 'grill-me', 'handoff',
+  'teach', 'writing-great-skills'].map((s) => `mattpocock-skills:${s}`);
+const CACHE_MATT = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'mattpocock', 'mattpocock-skills', '1.2.0');
+
+// Cita a skill no texto: as do usuário só com a barra; as outras só sem.
+function citacoes(texto) {
+  return [...texto.matchAll(/(\/?)([a-z0-9-]+:[a-z0-9-]+)/g)].map((m) => ({ barra: m[1] === '/', nome: m[2] }));
+}
+function conferirBarras(texto) {
+  for (const c of citacoes(texto)) {
+    if (!c.nome.startsWith('mattpocock-skills:')) continue;
+    assert.equal(c.barra, SO_USUARIO.includes(c.nome), `${c.barra ? '/' : ''}${c.nome}`);
+  }
+}
+
 // Lista conferida em 2026-10-14 contra o cache instalado (superpowers 6.4.1,
 // mattpocock-skills 1.2.0, poka-yoke 0.2.0) e as skills do próprio kit.
 const EXISTENTES = new Set([
@@ -71,20 +90,38 @@ test('hooks.json: SessionStart em forma exec com args e timeout 5', () => {
 
 test('SKILL fluxo: todo plugin:skill citado existe', () => {
   const s = fs.readFileSync(path.join(repo, 'kit', 'skills', 'fluxo', 'SKILL.md'), 'utf8');
-  const citados = [...s.matchAll(/`([a-z0-9-]+:[a-z0-9-]+)`/g)].map((m) => m[1]);
+  const citados = [...s.matchAll(/`\/?([a-z0-9-]+:[a-z0-9-]+)`/g)].map((m) => m[1]);
   assert.ok(citados.length >= 15);
   for (const c of citados) assert.ok(EXISTENTES.has(c) || c.startsWith('poka-yoke:'), c);
 });
 
 test('SKILL fluxo: cada uma das 22 skills do Matt Pocock tem o seu momento na tabela', () => {
   const s = fs.readFileSync(path.join(repo, 'kit', 'skills', 'fluxo', 'SKILL.md'), 'utf8');
-  for (const p of POCOCK) assert.ok(s.includes(`\`${p}\``), p);
+  for (const p of POCOCK) assert.ok(s.includes(`\`${p}\``) || s.includes(`\`/${p}\``), p);
+  conferirBarras(s);
+  assert.match(s, /sugira/);
+});
+
+test('SO_USUARIO bate com o frontmatter do mattpocock-skills instalado', { skip: !fs.existsSync(CACHE_MATT) && 'sem o cache 1.2.0' }, () => {
+  const arquivos = fs.readdirSync(path.join(CACHE_MATT, 'skills'), { recursive: true })
+    .filter((f) => path.basename(f) === 'SKILL.md' && !String(f).startsWith('deprecated'));
+  let conferidas = 0;
+  for (const f of arquivos) {
+    const texto = fs.readFileSync(path.join(CACHE_MATT, 'skills', f), 'utf8');
+    const nome = `mattpocock-skills:${/^name:\s*(\S+)/m.exec(texto)?.[1]}`;
+    if (!POCOCK.includes(nome)) continue;
+    conferidas++;
+    assert.equal(/^disable-model-invocation:\s*true\s*$/m.test(texto), SO_USUARIO.includes(nome), nome);
+  }
+  assert.ok(conferidas >= 20, `${conferidas} conferidas`);
 });
 
 test('o resumo do hook cita só nomes existentes e manda acionar sozinho', () => {
   const t = contexto();
   for (const m of t.matchAll(/([a-z0-9-]+:[a-z0-9-]+)/g)) assert.ok(EXISTENTES.has(m[1]), m[1]);
   assert.match(t, /sozinho/);
+  assert.match(t, /sugira/);
+  conferirBarras(t);
   // Os momentos do Matt Pocock que só ele cobre estão no resumo, não só na skill.
   for (const s of ['grilling', 'prototype', 'to-spec', 'to-tickets', 'wayfinder', 'handoff',
     'resolving-merge-conflicts', 'code-review', 'codebase-design', 'improve-codebase-architecture',

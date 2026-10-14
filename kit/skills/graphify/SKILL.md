@@ -2,7 +2,7 @@
 name: graphify
 description: "Use for any question about a codebase, its architecture, file relationships, or project content — especially when graphify-out/ exists, where the question should be treated as a graphify query first. Turns any input (code, docs, papers, images, videos) into a persistent knowledge graph with god nodes, community detection, and query/path/explain tools."
 ---
-> Requer `pip install graphifyy==0.9.25` (o texto desta skill corresponde a essa versão do pacote). Licença: Apache-2.0 ou MIT, de safishamsi/graphify; ver `LICENSE-MIT` e `NOTICE` ao lado.
+> Requer `pip install graphifyy==0.9.25` (o texto desta skill corresponde a essa versão do pacote). Licença: Apache-2.0 (`LICENSE` e `NOTICE` ao lado), de Graphify-Labs/graphify; o `LICENSE-MIT` vale para o código anterior à relicença.
 
 # /graphify
 
