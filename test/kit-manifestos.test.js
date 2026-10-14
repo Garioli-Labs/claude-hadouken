@@ -75,6 +75,6 @@ test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node',
     command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/lancar.mjs'] } } });
 });
 
-test('claude-hadouken intocado: plugin.json segue 0.4.0', () => {
-  assert.equal(ler('.claude-plugin/plugin.json').version, '0.4.0');
+test('claude-hadouken: plugin.json em 0.5.0', () => {
+  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.0');
 });

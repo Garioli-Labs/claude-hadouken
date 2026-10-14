@@ -1,6 +1,6 @@
 {
   "dependencias": {
-    "claude-hadouken@claude-hadouken": "0.4.0",
+    "claude-hadouken@claude-hadouken": "0.5.0",
     "superpowers@claude-plugins-official": "6.4.1",
     "mattpocock-skills@mattpocock": "1.2.0",
     "poka-yoke@poka-yoke": "0.2.0",
