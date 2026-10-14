@@ -1059,6 +1059,19 @@ test('G6 com o texto do S4: limite geral ou de outro modelo não trava o Fable',
   }
 });
 
+// Menor M-4 do portão v0.4.0: a resposta do assistente que só cita o Fable
+// num limite geral não trava o Fable; ali só vale a frase do limite.
+test('G6: Fable citado na última resposta, com limite geral, conta como geral', () => {
+  for (const msg of ['Vou usar o Fable para revisar.', 'fable 5.1 is the reviewer']) {
+    const home = novoHome();
+    registrar(home, 's1');
+    semSaida(rodar('limite-atingido.js', falhaS4('API Error: 429 rate_limit_error', { last_assistant_message: msg }), home));
+    const v = limitesDe(home);
+    assert.equal(v.fable, null, msg);
+    assert.equal(typeof v.geral, 'number');
+  }
+});
+
 test('liberar grava também o escopo e o prazo (liberacao-escopo), sem mudar o evento liberacao', () => {
   const home = novoHome();
   registrar(home, 's1');

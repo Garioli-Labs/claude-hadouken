@@ -1,0 +1,10 @@
+{
+  "name": "yu-ux-web-expert-vendor",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Dependencias locais da skill yu-ux-web-expert",
+  "dependencies": {
+    "axe-core": "^4.13.0",
+    "lighthouse": "^13.4.1"
+  }
+}

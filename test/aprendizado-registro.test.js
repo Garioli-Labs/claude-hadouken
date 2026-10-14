@@ -208,6 +208,15 @@ test('cursor, eventos (50 no máximo) e ligado.json', () => {
   c.fora['guarda.teto7d'] = '2026-10-20';
   gravarCursor(d, c);
   assert.deepEqual(lerCursor(d, AGORA), c);
+  // Menor M-2 do portão v0.4.0: historicoAte no futuro (relógio que voltou)
+  // fica limitado a agora; zerar reagregaria o histórico inteiro.
+  gravarCursor(d, { ...c, historicoAte: AGORA + 3 * 24 * 3_600_000 });
+  assert.equal(lerCursor(d, AGORA).historicoAte, AGORA);
+  for (const ruim of [-5, 'x', null, Number.NaN]) {
+    gravarCursor(d, { ...c, historicoAte: ruim });
+    assert.equal(lerCursor(d, AGORA).historicoAte, 0, String(ruim));
+  }
+  gravarCursor(d, c);
   gravarCursor(d, { ...c, fora: { 'guarda.teto7d': 'ontem', 'item.inventado': '2026-10-20', 'painel.amarelo': '2026-10-19' } });
   assert.deepEqual(lerCursor(d, AGORA).fora, { 'painel.amarelo': '2026-10-19' }, 'só itens de ITENS com dia válido');
   gravarCursor(d, c);
@@ -219,7 +228,9 @@ test('cursor, eventos (50 no máximo) e ligado.json', () => {
   assert.equal(lerLigado(d), null);
   assert.equal(ligadoExiste(d), false);
   fs.mkdirSync(path.join(d, 'otel'));
-  gravarLigado(d, { chaves: { OTEL_LOGS_EXPORTER: 'otlp', 'rm -rf': 'x', OTEL_X: 'a b' }, criouEnv: true }, AGORA);
+  // Menor M3 do portão v0.4.0: só as chaves que o ligar grava (CHAVES_LIGAR);
+  // PATH ou OTEL_SERVICE_NAME num ligado.json mexido nunca viram alvo do desligar.
+  gravarLigado(d, { chaves: { OTEL_LOGS_EXPORTER: 'otlp', 'rm -rf': 'x', OTEL_X: 'a b', PATH: 'c', OTEL_SERVICE_NAME: 'x' }, criouEnv: true }, AGORA);
   assert.deepEqual(lerLigado(d), { chaves: { OTEL_LOGS_EXPORTER: 'otlp' }, criouEnv: true });
   assert.equal(ligadoExiste(d), true);
   apagarLigado(d);

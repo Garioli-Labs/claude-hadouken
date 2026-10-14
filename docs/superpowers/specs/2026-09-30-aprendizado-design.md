@@ -1,6 +1,6 @@
 # claude-hadouken v0.4.0: aprendizado local (design)
 
-Data: 2026-09-30. Versão alvo: v0.4.0, junto com a guarda (partes 1 e 2). A v0.5.0 fica para a integração com o Pipa e o WhatsApp.
+Data: 2026-09-30. Versão alvo: v0.4.0, junto com a guarda (partes 1 e 2). A integração com o Pipa e o WhatsApp fica para a v0.6.0 (a v0.5.0 é o hadouken-kit, o hadouken-rea e os menores do portão da v0.4.0; decisão do Sr. Garioli em 2026-10-14).
 Pedido do Sr. Garioli: "o hadouken aprende como que acontece nos terminais pra se melhorar e se auto-otimizar, recolhendo dados não sensíveis e dados de telemetria. Pode usar até mesmo o open telemetry."
 
 ## 1. Decisões do Sr. Garioli (requisitos)
@@ -27,7 +27,7 @@ Pedido do Sr. Garioli: "o hadouken aprende como que acontece nos terminais pra s
 - Ler conteúdo: prompts, respostas, argumentos de ferramenta e corpo da API. As chaves de conteúdo do OTel ficam desligadas (§5.2).
 - Traces (beta no Claude Code). Só entram métricas e eventos (logs).
 - Afrouxar a guarda sem aprovação, e trocar modelo sozinho.
-- Integração com o Pipa e o WhatsApp (v0.5.0).
+- Integração com o Pipa e o WhatsApp (v0.6.0).
 
 ## 3. Arquitetura e fluxo
 

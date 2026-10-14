@@ -56,6 +56,10 @@ export const ORIGENS = Object.freeze(['user_settings', 'project_settings', 'loca
 // ('sem-sessao', no hook), só eles bloqueiam (falha fechada: o furo que se
 // quer fechar é justamente esse arquivo); o do usuário passa.
 export const ORIGENS_DO_PROJETO = Object.freeze(['project_settings', 'local_settings']);
+
+// As origens do ConfigChange que não são settings da guarda: passam sempre.
+const ORIGENS_FORA = Object.freeze(['policy_settings', 'skills']);
+const NOMES_SETTINGS = Object.freeze(['settings.json', 'settings.local.json']);
 const CAMINHO_MAX = 4096;
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -303,12 +307,19 @@ export function mudancaNaGuarda(dir, sessionId, arquivo, agoraMs) {
 }
 
 // A decisão do hook ConfigChange (regra 2 da Task 19b): null passa; um texto
-// é o detalhe do bloqueio. source fora das três origens: passa. file_path que
+// é o detalhe do bloqueio. As outras origens conhecidas (policy_settings,
+// skills) passam. source ausente ou desconhecido (menor M1 do portão v0.4.0)
+// não passa calado: com caminho absoluto de um settings.json ou
+// settings.local.json, compara como as três; sem ele, passa. file_path que
 // não é caminho absoluto (ausente, não texto, vazio, relativo): bloqueia
 // ('sem-caminho') nos settings de projeto e locais e passa nos do usuário. A
 // comparação é com a fotografia da sessão sessionId (o session_id do stdin).
 export function decisaoConfig(dir, sessionId, source, filePath, agoraMs) {
-  if (!ORIGENS.includes(source)) return null;
+  if (ORIGENS_FORA.includes(source)) return null;
+  if (!ORIGENS.includes(source)) {
+    if (!absoluto(filePath) || !NOMES_SETTINGS.includes(path.basename(filePath).toLowerCase())) return null;
+    return mudancaNaGuarda(dir, sessionId, filePath, agoraMs);
+  }
   if (!absoluto(filePath)) return ORIGENS_DO_PROJETO.includes(source) ? 'sem-caminho' : null;
   return mudancaNaGuarda(dir, sessionId, filePath, agoraMs);
 }

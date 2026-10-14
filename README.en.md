@@ -23,7 +23,7 @@
 
 It all shows up in a status bar at the bottom of Claude Code, in a VS Code status bar item, in an on-demand report, and in short notices that Claude itself receives when it is time to shift gears.
 
-This is **v0.4.0** of the plugin's first subproject, the **Usage reader** (*Leitor de consumo*). It brings the **usage guard**: instead of only warning, hadouken holds subagent dispatch, Fable use and the expensive dispatch when usage goes past the point, until you release it (see [The usage guard](#the-usage-guard)). `/claude-hadouken:consumo` gains the "Guarda (7 dias)" and "Custo dos hooks (7 dias)" sections, and the notices to Claude now give the age of a stale reading, the reset in minutes and the week's pace. The Claude Code status bar shows only what belongs to the session: model, effort, context and cache. The account limits, which are the same in every session, show up once, in a VS Code status bar item, with Fable read from the official `/usage` without spending tokens and the forecast worded like claude.ai. Zero dependencies, Node.js only.
+This is **v0.5.0** of the plugin's first subproject, the **Usage reader** (*Leitor de consumo*). It brings two optional plugins in the same marketplace: **hadouken-kit**, which installs and pins the workflow skills (superpowers, Matt Pocock's and others) and tells Claude the moment for each one, and **hadouken-rea**, the reverse engineering MCP server (see [hadouken-kit and hadouken-rea](#hadouken-kit-and-hadouken-rea-optional)). v0.4.0 brought the **usage guard**: instead of only warning, hadouken holds subagent dispatch, Fable use and the expensive dispatch when usage goes past the point, until you release it (see [The usage guard](#the-usage-guard)). `/claude-hadouken:consumo` gains the "Guarda (7 dias)" and "Custo dos hooks (7 dias)" sections, and the notices to Claude now give the age of a stale reading, the reset in minutes and the week's pace. The Claude Code status bar shows only what belongs to the session: model, effort, context and cache. The account limits, which are the same in every session, show up once, in a VS Code status bar item, with Fable read from the official `/usage` without spending tokens and the forecast worded like claude.ai. Zero dependencies, Node.js only.
 
 > [!NOTE]
 > The plugin's interface (status bar, panel, notices and report) is in Brazilian Portuguese. This README quotes it verbatim and explains each part in English.
@@ -51,6 +51,7 @@ This is **v0.4.0** of the plugin's first subproject, the **Usage reader** (*Leit
   - [1 h and 5 min cache: what TTL means](#1-h-and-5-min-cache-what-ttl-means)
   - [GitHub Actions](#github-actions)
 - [Local learning (optional)](#local-learning-optional)
+- [hadouken-kit and hadouken-rea (optional)](#hadouken-kit-and-hadouken-rea-optional)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Where the data lives](#where-the-data-lives)
@@ -908,6 +909,33 @@ It also warns, once a day per kind, when the Collector does not start, does not 
 
 ---
 
+## hadouken-kit and hadouken-rea (optional)
+
+The `claude-hadouken` marketplace carries two more plugins, separate from usage and the guard. **hadouken-kit** installs the daily skill set in one go: `claude-hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills` (`mattpocock`), `poka-yoke` (`poka-yoke`), `fullstack-dev-skills` (`fullstack-dev-skills`) and `ui-ux-pro-max` (`ui-ux-pro-max-skill`). It also brings the `hadouken-kit:fluxo` skill, which says which one to use at each step, and copies of `yu-ux-web-expert` and `graphify`. If you only want usage and the guard, install only `claude-hadouken`.
+
+In the terminal (outside a session, or with `!` inside one):
+
+```bash
+claude plugin marketplace add Garioli-Labs/claude-hadouken
+claude plugin marketplace update claude-hadouken
+claude plugin marketplace add anthropics/claude-plugins-official
+claude plugin marketplace add mattpocock/skills
+claude plugin marketplace add rainmanjam/poka-yoke
+claude plugin marketplace add jeffallan/claude-skills
+claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
+claude plugin install hadouken-kit@claude-hadouken
+```
+
+- **Why the `marketplace add` lines first.** The first one registers the hadouken marketplace (if you already have v0.4.0 it says "already" and moves on; `update` brings the kit's entry). Claude Code only installs a dependency from a marketplace that is already registered. Without it, the kit installs with the warning `dependency "<name>" was not installed (no marketplace you have added lists it)` and does not load.
+- **Outside a session.** Installing or enabling a plugin inside an open session is held by the guard's `ConfigChange` hook. Run the commands in the terminal and open a new session.
+- **Skills at the right moment.** Each session, the kit puts a 5-line summary in context (about 400 tokens, no model call) with the moment of each skill: `superpowers` runs the process and the Matt Pocock skills come in at their moments (stress-testing a plan, prototype, spec, tickets, handoff, merge conflict, branch review, module design, domain, research, triage, teaching). Claude fires on its own the ones the author lets the model invoke; the other 13 (`to-spec`, `to-tickets`, `handoff`, `triage`, `teach` and more) have `disable-model-invocation`, and at their moment Claude suggests you type the command (`/mattpocock-skills:handoff`, for example). The full table, with all 22 Matt skills, is in `/hadouken-kit:fluxo`.
+- **clean-architecture is out of the kit.** Since 2026-10-14 its `plugin.json` is a symbolic link. On Windows, git checks the link out as text and the install fails with `JSON parse error: Unexpected token '.'`; as a dependency, it would take the whole kit down. On Linux and macOS, install it separately: `claude plugin marketplace add nathankim0/clean-architecture-skills` and `claude plugin install clean-architecture@clean-architecture-skills`.
+- **yu-ux-web-expert.** The first time, its `setup.sh` installs `axe-core` and `lighthouse` (from the kit's `package-lock.json`) in the plugin folder, `playwright` in the user's Python and Chromium in Playwright's cache; `axe-core` and `lighthouse` are installed again after each kit update, because the folder changes with the version. The kit's copy does not grant Bash, Write, Edit or WebFetch without asking (`allowed-tools: Read Grep Glob`): it reads third-party pages, and every command goes through your permission.
+- **REA, off by default.** To turn it on: `claude plugin install hadouken-rea@claude-hadouken` and `claude plugin enable hadouken-rea@claude-hadouken`. It opens `npx -y rea-agents@6.1.0 mcp` (exact version; on Windows through `cmd.exe /d /c`) with its working directory in the plugin folder, never the open project (a repository's `node_modules` or `.npmrc` does not come in); give the REA absolute paths. It needs Node 22.19+, 24.11+ or 26+, and **runs the programs it analyzes with your user's permissions**. The first time, `npx` downloads the package (about 20 to 30 s) and `/mcp` may report a timeout; once the package is cached, it connects in seconds (reconnect from `/mcp` or open a new session).
+- **Versions.** A weekly GitHub Actions workflow compares published versions with the tested ones (`kit/testado.json`) and opens an issue when a dependency ships a new major version. The kit only talks to the network when the yu-ux `setup.sh` runs (npm, pip, Playwright) and, once enabled, when the REA's first `npx` runs.
+
+---
+
 ## Installation
 
 ### Requirements
@@ -1241,15 +1269,16 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 
 | Subproject | What it does | Status |
 |---|---|---|
-| **A. Usage reader** | Status bar, VS Code panel, notices, guard and report. | **v0.4.0** (this one) |
+| **A. Usage reader** | Status bar, VS Code panel, notices, guard and report. | **v0.5.0** (this one) |
 | B. Router | Dynamic session launcher, fixed main agent, agents per model × effort, injected rules and a divergence check against the project's rules. | Planned |
 | C. Planner | Session and week planning from the project plan and the measured cost per task. | Planned |
 | D. GitHub guards | Guards for pushes and for CI on documentation-only changes, plus improvement suggestions. | Planned |
 
 - **v0.2.0** = a prettier bar: percentages also as little squares (`▰▰▰▱▱▱▱▱`), the weekly pace mark on the 7-day bar, colours for ctx and cache, and an easier-to-read `/consumo` (panel with bars, share-of-total column, short names, decimal comma and thousands separator); and, for several sessions at once, the active session count on the bar, each window's run-out forecast (`→100% 13:10`), the projection notice to Claude and the "open sessions in the last hour" section in `/consumo`.
 - **v0.3.0** = the VS Code panel: 5 h, week and Fable in a status bar item, with Fable read from the official `/usage` without spending tokens, the forecast worded like claude.ai, and a lean read that uses little RAM. The terminal bar keeps only the session (model·effort, ctx and cache), and the session-start line swaps the expected value and the mode for the week's forecast sentence.
-- **v0.4.0** (this one) = the guard: instead of only notifying, hold back subagent dispatch, Fable use and the expensive dispatch when usage goes too far, with release only by the user (`/claude-hadouken:liberar`), and protect the plugin's files and the settings fields that would turn the guard off. `/consumo` gains "Guarda (7 dias)" and "Custo dos hooks (7 dias)"; the notices gain the floor reading, the reset in minutes, the return time and the week's pace; the bar redraws every minute while the session is idle; and resuming an idle session shows the cache tokens to be rewritten. Plus optional local learning: hadouken learns from Claude Code's OpenTelemetry, on this machine only and with no tokens, adjusts comfort within fixed limits, only tightens the guard by itself, and leaves loosening and model switches as suggestions.
-- **Later** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
+- **v0.4.0** = the guard: instead of only notifying, hold back subagent dispatch, Fable use and the expensive dispatch when usage goes too far, with release only by the user (`/claude-hadouken:liberar`), and protect the plugin's files and the settings fields that would turn the guard off. `/consumo` gains "Guarda (7 dias)" and "Custo dos hooks (7 dias)"; the notices gain the floor reading, the reset in minutes, the return time and the week's pace; the bar redraws every minute while the session is idle; and resuming an idle session shows the cache tokens to be rewritten. Plus optional local learning: hadouken learns from Claude Code's OpenTelemetry, on this machine only and with no tokens, adjusts comfort within fixed limits, only tightens the guard by itself, and leaves loosening and model switches as suggestions.
+- **v0.5.0** (this one) = hadouken-kit and hadouken-rea, optional in the same marketplace: the kit installs and pins the workflow skills (superpowers, Matt Pocock, yu-ux-web-expert, graphify and others), tells Claude the moment for each one and warns when a dependency ships a new major version; the REA turns on the reverse engineering MCP server. Plus the minor fixes from the v0.4.0 review.
+- **v0.6.0** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
 - **v1.0** = A + B + C + D.
 
 ---

@@ -470,6 +470,19 @@ test('piso (§10, item 1): 59 min é fresca; 61 min e 23 h são piso com a idade
   assert.deepEqual(comPiso(piso(null, 92, 23 * H)).linhas, [`7d em ≥ 92% (leitura de 23 h) com reset ${quandoLocal(reset7, agora)}: só leitura; recomendar parar.`]);
 });
 
+// Menor M-3 do portão v0.4.0: o piso é "pelo menos X%"; folga (abaixo do
+// esperado) com uma leitura velha pode ser falsa, então vale como normal.
+test('piso: folga vira normal; leitura fresca segue com folga', () => {
+  const fresca = comPiso(piso(null, 10, 30 * MIN_MS));
+  assert.equal(fresca.novos.seven_day.faixa, 'folga');
+  assert.match(fresca.linhas[0], /modo folga/);
+  const velha = comPiso(piso(null, 10, 3 * H));
+  assert.equal(velha.novos.seven_day.faixa, 'normal');
+  assert.deepEqual(velha.linhas, []);
+  // Da folga guardada para o piso: anuncia o modo normal.
+  assert.match(comPiso(piso(null, 10, 3 * H), fresca.novos).linhas[0], /modo normal/);
+});
+
 test('piso: a faixa sai uma vez; sem leitura e faixa nunca no mesmo prompt', () => {
   const r1 = comPiso(piso(82, 61, 3 * H));
   assert.equal(r1.linhas.length, 2);

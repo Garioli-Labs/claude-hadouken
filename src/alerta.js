@@ -290,7 +290,11 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
 
   const f7 = janelas.seven_day;
   if (f7) {
-    const { faixa, esperado } = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs });
+    const calculada = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs });
+    const esperado = calculada.esperado;
+    // O piso é "pelo menos X%": folga com leitura velha pode ser falsa, vale
+    // como normal (menor M-3 do portão v0.4.0).
+    const faixa = f7.piso === true && calculada.faixa === 'folga' ? 'normal' : calculada.faixa;
     const guardada = ant.seven_day;
     const mesma = mesmaJanela(guardada, f7.resets_at);
     const anterior = mesma ? guardada.faixa : null;
