@@ -1,11 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { apagar, DATA_MAX_MS, dirDados, fechar, instante, numeroFinito } from '../base.js';
+import { apagar, dirDados, fechar, instante, numeroFinito } from '../base.js';
 import { ARQ_ESTADO, gravarJsonAtomico, lerJson, LIMITE_VELHO_MS, limitesValidos, sessoesAtivas, validarEstado } from '../estado.js';
 import { diaHora, horaLocal } from '../util.js';
 import { acharClaude, ambienteUso, rodarUso } from './oficial.js';
 import { fraseEsgota } from './frase.js';
+import { faixasDoPainel, intervaloDoPainelMs } from '../aprendizado/registro.js';
+import {
+  ARQ_USO, BLOQUEIO_CUSTO_MS, ehObjeto, janelaGravada, lerUso, MOTIVOS_RODAR, naFaixaDoDate, VERSAO,
+} from './ler-uso.js';
 
 // Lógica do painel do VS Code (spec, emenda E3, E4 e E8/S28). A extensão é
 // fina: carrega este módulo pelo shim estável <dirDados>/bin/painel.mjs e só
@@ -16,9 +20,12 @@ import { fraseEsgota } from './frase.js';
 // nunca rejeita.
 //
 // fs e os são usados pelo objeto padrão (fs.openSync, os.freemem), nunca
-// desestruturados, como no resto do plugin.
+// desestruturados, como no resto do plugin. A leitura validada do
+// uso-oficial.json (lerUso) mora em ler-uso.js (guarda v0.4.0, emenda E7).
 
-export const ARQ_USO = 'uso-oficial.json';
+// Continuam públicos por painel.js (shim painel.mjs, extensão e testes).
+export { ARQ_USO, BLOQUEIO_CUSTO_MS, lerUso };
+
 export const ARQ_TRAVA = 'uso-oficial.lock';
 // Pasta vazia onde o `claude` roda, para o índice de arquivos não varrer
 // nada (E3).
@@ -30,12 +37,6 @@ export const TRAVA_VENCIDA_MS = 90_000;
 // Abaixo disto de memória livre, nenhuma leitura é disparada (E3, Foco 4):
 // o `claude` enxuto chega a 270 MB de pico.
 export const RAM_MIN_BYTES = 1.5 * 1024 ** 3;
-// Trava de custo (E2): o /usage passou a chamar o modelo; 24 h sem ler.
-export const BLOQUEIO_CUSTO_MS = 24 * 3_600_000;
-
-const VERSAO = 1;
-// Teto do uso-oficial.json (o arquivo real tem uns 500 bytes).
-const MAX_USO_BYTES = 16 * 1024;
 // Uma leitura com menos de 25 s dispensa a próxima (E3); o comando manual
 // (forcar) só respeita um piso de 5 s.
 const RECENTE_MS = INTERVALO_MS - 5_000;
@@ -48,95 +49,25 @@ const PISO_FORCADO_MS = 5_000;
 // (forcar) segue com o piso de 5 s.
 export const ESPERA_FALHA_MS = 15 * 60_000;
 const MOTIVOS_ESPERA = new Set(['tempo', 'saida', 'formato', 'erro']);
-// Folga de relógio para o `ate` do bloqueio, a mesma de instante (base.js).
-const FOLGA_RELOGIO_MS = 5 * 60_000;
-const MAX_ISO = 64;
 const JANELA_5H_MS = 5 * 3_600_000;
 const JANELA_7D_MS = 7 * 24 * 3_600_000;
 const MIN_MS = 60_000;
 
-// Motivos gravados em estado.motivo: o sucesso e as falhas de rodarUso.
-const MOTIVOS_RODAR = new Set(['sem-claude', 'tempo', 'saida', 'custo', 'formato', 'erro']);
-const MOTIVOS_GRAVADOS = new Set(['ok', ...MOTIVOS_RODAR]);
-
-const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-const naFaixaDoDate = (ms) => numeroFinito(ms) && Math.abs(ms) <= DATA_MAX_MS;
 const naoFeito = (motivo) => ({ feito: false, motivo });
 const SEM_LEITURA = Object.freeze({ texto: 'Hadouken: sem leitura', nivel: 'sem-leitura', dica: '' });
-
-// Janela gravada (S28): { pct em [0, 100], resetsAtMs finito e positivo, ou
-// null }. Qualquer outra forma é "sem leitura" (null), nunca 0. Devolve uma
-// cópia só com os dois campos, cada um lido uma vez.
-function janelaGravada(j) {
-  if (!ehObjeto(j) || !Object.hasOwn(j, 'resetsAtMs')) return null;
-  const pct = j.pct;
-  const resetsAtMs = j.resetsAtMs;
-  if (!numeroFinito(pct) || pct < 0 || pct > 100) return null;
-  if (resetsAtMs !== null && !(naFaixaDoDate(resetsAtMs) && resetsAtMs > 0)) return null;
-  return { pct, resetsAtMs };
-}
-
-// estado: { motivo de lista fechada, em legível por instante }, senão null.
-function estadoGravado(e, agoraMs) {
-  if (!ehObjeto(e)) return null;
-  const motivo = e.motivo;
-  const em = instante(e.em, agoraMs);
-  if (!MOTIVOS_GRAVADOS.has(motivo) || em === null) return null;
-  return { motivo, em: new Date(em).toISOString() };
-}
-
-// bloqueado: { motivo 'custo', ate legível }. O `ate` fica no futuro, então
-// não passa por instante (que recusa mais de 5 min à frente); o teto é o
-// próprio bloqueio mais a folga de relógio, para um arquivo mexido não travar
-// a leitura por meses. Vencido continua legível: quem chama decide.
-function bloqueioGravado(b, agoraMs) {
-  if (!ehObjeto(b) || b.motivo !== 'custo' || typeof b.ate !== 'string' || b.ate.length > MAX_ISO) return null;
-  const ate = Date.parse(b.ate);
-  if (!naFaixaDoDate(ate) || ate > agoraMs + BLOQUEIO_CUSTO_MS + FOLGA_RELOGIO_MS) return null;
-  return { motivo: 'custo', ate: new Date(ate).toISOString() };
-}
-
-// uso-oficial.json validado (E4, S28): versão 1, lido com teto de 16 KiB, e
-// reconstruído só com campos no schema. Sem `lidoEm` legível as janelas não
-// têm data e saem; `estado` e `bloqueado` ficam, cada um validado à parte.
-// `modelos` só guarda o fable. Arquivo ausente, ilegível ou de outra versão:
-// null. Nunca lança.
-export function lerUso(dir, agoraMs) {
-  try {
-    if (typeof dir !== 'string' || dir === '' || !naFaixaDoDate(agoraMs)) return null;
-    const lido = lerJson(path.join(dir, ARQ_USO), MAX_USO_BYTES);
-    if (!lido.ok || !ehObjeto(lido.valor) || lido.valor.versao !== VERSAO) return null;
-    const v = lido.valor;
-    const lidoMs = instante(v.lidoEm, agoraMs);
-    const comLeitura = lidoMs !== null;
-    const modelos = {};
-    const fable = comLeitura && ehObjeto(v.modelos) ? janelaGravada(v.modelos.fable) : null;
-    if (fable !== null) modelos.fable = fable;
-    return {
-      versao: VERSAO,
-      lidoEm: comLeitura ? new Date(lidoMs).toISOString() : null,
-      sessao: comLeitura ? janelaGravada(v.sessao) : null,
-      semana: comLeitura ? janelaGravada(v.semana) : null,
-      modelos,
-      estado: estadoGravado(v.estado, agoraMs),
-      bloqueado: bloqueioGravado(v.bloqueado, agoraMs),
-    };
-  } catch {
-    return null;
-  }
-}
 
 const msDe = (iso) => (typeof iso === 'string' ? Date.parse(iso) : Number.NEGATIVE_INFINITY);
 const bloqueioEmVigor = (uso, agoraMs) => uso !== null && uso.bloqueado !== null && msDe(uso.bloqueado.ate) > agoraMs;
 
 // Passos 2 e 3 de talvezAtualizar: bloqueio em vigor (mesmo com forcar) e
 // leitura recente, pela mais nova entre lidoEm e estado.em. Devolve o motivo
-// para não ler, ou null.
-function barreira(uso, agoraMs, forcado) {
+// para não ler, ou null. `recenteMs` é o intervalo aprendido menos a folga
+// de um tique (spec aprendizado §4.3, R9), ou RECENTE_MS.
+function barreira(uso, agoraMs, forcado, recenteMs = RECENTE_MS) {
   if (uso === null) return null;
   if (bloqueioEmVigor(uso, agoraMs)) return 'bloqueado';
   const ultimo = Math.max(msDe(uso.lidoEm), msDe(uso.estado?.em));
-  const espera = MOTIVOS_ESPERA.has(uso.estado?.motivo) && msDe(uso.estado.em) === ultimo ? ESPERA_FALHA_MS : RECENTE_MS;
+  const espera = MOTIVOS_ESPERA.has(uso.estado?.motivo) && msDe(uso.estado.em) === ultimo ? ESPERA_FALHA_MS : recenteMs;
   if (numeroFinito(ultimo) && agoraMs - ultimo < (forcado ? PISO_FORCADO_MS : espera)) return 'recente';
   return null;
 }
@@ -270,7 +201,8 @@ function gravarResultado(dir, agoraMs, res) {
 // 0. HADOUKEN_SEM_PAINEL=1 no ambiente: 'desligado';
 // 1. sem pasta de dados: 'sem-pasta';
 // 2. bloqueio por custo em vigor: 'bloqueado', mesmo com forcar;
-// 3. leitura (ou tentativa) de menos de 25 s, ou de menos de 15 min depois
+// 3. leitura (ou tentativa) de menos de 25 s (com o aprendizado, fora das
+//    horas ativas: do intervalo aprendido menos 5 s), ou de menos de 15 min depois
 //    de 'tempo', 'saida', 'formato' ou 'erro', ou gravação que falhou há menos de 25 s neste
 //    processo: 'recente' (com forcar, só o piso de 5 s);
 // 4. sem forcar e sem sessão ativa: 'sem-sessao';
@@ -303,8 +235,13 @@ export async function talvezAtualizar(opcoes) {
     if (typeof dir !== 'string' || dir === '') return naoFeito('sem-pasta');
     if (!naFaixaDoDate(agoraMs)) return naoFeito('erro');
     const forcado = forcar === true;
+    // Spec aprendizado §4.3 e R9: fora das horas ativas, o intervalo
+    // aprendido no lugar dos 30 s, com a mesma folga de um tique. O comando
+    // manual (forcar) segue com o piso de 5 s. Desligado: null, e nada muda.
+    const aprendido = forcado ? null : intervaloDoPainelMs(dir, agoraMs);
+    const recenteMs = aprendido === null ? RECENTE_MS : aprendido - (INTERVALO_MS - RECENTE_MS);
     if (gravacaoFalhouHaPouco(dir, agoraMs, forcado)) return naoFeito('recente');
-    const antes = barreira(lerUso(dir, agoraMs), agoraMs, forcado);
+    const antes = barreira(lerUso(dir, agoraMs), agoraMs, forcado, recenteMs);
     if (antes !== null) return naoFeito(antes);
     if (!forcado) {
       const ativo = typeof estadoAtivo === 'function' ? await estadoAtivo() : temSessaoAtiva(dir, agoraMs);
@@ -315,7 +252,7 @@ export async function talvezAtualizar(opcoes) {
     const pega = pegarTrava(dir, agoraMs);
     if (!pega.ok) return naoFeito(pega.motivo);
     trava = pega.arquivo;
-    const depois = barreira(lerUso(dir, agoraMs), agoraMs, forcado);
+    const depois = barreira(lerUso(dir, agoraMs), agoraMs, forcado, recenteMs);
     if (depois !== null) return naoFeito(depois);
     const cwd = path.join(dir, DIR_CWD);
     fs.mkdirSync(cwd, { recursive: true });
@@ -442,8 +379,9 @@ function linhaMotivo(ultimoMotivo, uso, agoraMs) {
 // - texto: "5h 25% · sem 41% · Fable 57%", com — na janela sem leitura e o
 //   piso inteiro de cada percentual; sem janela nenhuma, "Hadouken: sem
 //   leitura";
-// - nivel: pela pior janela, 'erro' a partir de 90%, 'aviso' a partir de
-//   75%, senão 'ok'; sem janela nenhuma, 'sem-leitura';
+// - nivel: pela pior janela, 'erro' a partir da faixa vermelha (90%, ou a
+//   aprendida), 'aviso' a partir da amarela (75%, ou a aprendida), senão
+//   'ok'; sem janela nenhuma, 'sem-leitura';
 // - dica: Markdown só com rótulos fixos e números, um parágrafo por linha.
 // 5h e semana juntam a statusline e o /usage (mesclar); o Fable vem só do
 // /usage. Nunca lança: em erro, sem leitura e dica vazia.
@@ -465,7 +403,10 @@ export function estadoPainel(opcoes) {
     if (janelas.length > 0) {
       texto = `5h ${pctTexto(sessao)} · sem ${pctTexto(semana)} · Fable ${pctTexto(fable)}`;
       const pior = Math.max(...janelas.map((j) => Math.floor(j.pct)));
-      nivel = pior >= 90 ? 'erro' : pior >= 75 ? 'aviso' : 'ok';
+      // Spec aprendizado R14: as faixas aprendidas mudam só este nível; sem
+      // aprendizado, 75 e 90, como antes.
+      const faixas = faixasDoPainel(dir, agoraMs);
+      nivel = pior >= faixas.vermelho ? 'erro' : pior >= faixas.amarelo ? 'aviso' : 'ok';
     }
     const linhas = [
       linhaJanela('**Sessão (5h):**', sessao, JANELA_5H_MS, agoraMs),

@@ -343,7 +343,9 @@ test('sem ICU: os três hooks e a barra carregam, saem com código 0 e sem stder
   const raiz = pluginSemIcu();
   const home = novoTmp('hdk sem icu home ');
   assert.ok(home.startsWith(os.tmpdir()));
-  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: raiz, NO_COLOR: '1', HADOUKEN_SEM_PAINEL: '1' };
+  // CLAUDE_CONFIG_DIR numa pasta temporária que não existe (Task 19b): a
+  // fotografia do SessionStart nunca lê o settings de ~/.claude de verdade.
+  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: raiz, NO_COLOR: '1', HADOUKEN_SEM_PAINEL: '1', CLAUDE_CONFIG_DIR: path.join(home, 'sem-config') };
   const rodar = (rel, entrada) => spawnSync(process.execPath, [path.join(raiz, 'src', rel)], {
     input: JSON.stringify(entrada), env, encoding: 'utf8', timeout: 15_000,
   });
@@ -357,7 +359,7 @@ test('sem ICU: os três hooks e a barra carregam, saem com código 0 e sem stder
   const ctx = JSON.parse(inicio.stdout).hookSpecificOutput;
   assert.equal(ctx.hookEventName, 'SessionStart');
   // Sem estado.json ainda: a linha fixa de "sem leitura".
-  assert.match(ctx.additionalContext, /^Consumo sem leitura: rode \/usage\.$/);
+  assert.match(ctx.additionalContext, /^Consumo ainda sem leitura nesta máquina\.$/);
   const s = Math.floor(Date.now() / 1000);
   const barra = rodar('statusline.js', {
     session_id: 's1',

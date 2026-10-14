@@ -4,9 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { agregar } from './agregacao.js';
 import { numeroFinito } from './base.js';
+import { mapaDePlugins, resumirCusto } from './custo-hooks.js';
 import { ARQ_ESTADO, dirDados, lerJson, limitesValidos, validarEstado } from './estado.js';
 import { resolverExecutavel } from './executavel.js';
 import { coletarGithub, repoValido } from './github.js';
+import { dirConfigClaude } from './guarda/despacho.js';
+import { resumoGuarda } from './guarda/resumo.js';
+import { indexarHooks, lerHooksDoPlugin, lerInstalados } from './indice-hooks.js';
 import {
   AVISO_CONFIG, CLAUDE_ILEGIVEIS, CLAUDE_RAIZ_RECUSADA, CLAUDE_SEM_HOME, CLAUDE_SEM_RECENTES,
   CLAUDE_SEM_TRANSCRIPTS, montarRelatorio,
@@ -278,6 +282,23 @@ async function coletarClaude(raiz, { hojeMs, seteDiasMs, semana }, agoraMs) {
   };
 }
 
+// Custo dos hooks (spec v0.4.0 §9.4): índice próprio (indice-hooks.js) sobre
+// os mesmos transcripts, mapa de plugins pelo hash do comando nos
+// hooks/hooks.json de installed_plugins.json, e o resumo de 7 dias. Sem raiz
+// ou sem nenhum transcript: null (sem seção). Nunca rejeita.
+async function coletarCustoHooks(raiz, dirConfig, agoraMs) {
+  try {
+    if (raiz === null) return null;
+    const desdeMs = agoraMs - SEMANA_MS;
+    const idx = await indexarHooks({ raiz, desdeMs, agoraMs });
+    if (idx.arquivos === 0) return null;
+    const mapa = mapaDePlugins(lerInstalados(dirConfig), lerHooksDoPlugin);
+    return resumirCusto(idx.itens, mapa, desdeMs);
+  } catch {
+    return null;
+  }
+}
+
 // ------------------------------------------------------------------ GitHub
 
 async function coletarRepos(dir, { gh, cwd, prazoMs }, agoraMs) {
@@ -293,9 +314,11 @@ async function coletarRepos(dir, { gh, cwd, prazoMs }, agoraMs) {
 // { ok: false, motivo }. Opções (todas opcionais, para os testes e para a
 // medição): agoraMs, gh (executor; padrão o gh do PATH, por caminho
 // absoluto, nunca o do cwd), raizTranscripts
-// (padrão <CLAUDE_CONFIG_DIR>/projects ou ~/.claude/projects), cwd (onde
-// procurar o origin) e prazoGithubMs (padrão 10 s, passado explicitamente ao
-// coletor). Transcripts e GitHub rodam em paralelo. Nunca rejeita.
+// (padrão <CLAUDE_CONFIG_DIR>/projects ou ~/.claude/projects), dirConfigClaude
+// (onde ler plugins/installed_plugins.json para o custo dos hooks; padrão
+// CLAUDE_CONFIG_DIR ou ~/.claude), cwd (onde procurar o origin) e
+// prazoGithubMs (padrão 10 s, passado explicitamente ao coletor).
+// Transcripts, GitHub e custo dos hooks rodam em paralelo. Nunca rejeita.
 export async function gerarRelatorio(opcoes) {
   try {
     const o = opcoes !== null && typeof opcoes === 'object' ? opcoes : {};
@@ -308,11 +331,15 @@ export async function gerarRelatorio(opcoes) {
       if (lido.ok) estado = lido.valor;
     }
     const raiz = typeof o.raizTranscripts === 'string' && o.raizTranscripts !== '' ? o.raizTranscripts : raizPadrao();
-    const [claude, gh] = await Promise.all([
+    const dirConfig = typeof o.dirConfigClaude === 'string' && o.dirConfigClaude !== '' ? o.dirConfigClaude : dirConfigClaude(process.env, os.homedir());
+    const [claude, gh, custoHooks] = await Promise.all([
       coletarClaude(raiz, periodos(estado, agoraMs), agoraMs),
       coletarRepos(dir, { gh: o.gh, cwd: o.cwd, prazoMs }, agoraMs),
+      coletarCustoHooks(raiz, dirConfig, agoraMs),
     ]);
-    return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos }) };
+    // "Guarda (7 dias)" (spec v0.4.0 §9.4): só leitura, síncrona e pequena.
+    const guarda = dir === null ? null : resumoGuarda(dir, agoraMs);
+    return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos, guarda, custoHooks }) };
   } catch (e) {
     return { ok: false, motivo: codigoErro(e) };
   }

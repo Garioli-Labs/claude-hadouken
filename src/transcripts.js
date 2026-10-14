@@ -38,6 +38,10 @@ import { effortValido, EFFORTS_VALIDOS, sanear } from './util.js';
 // (sendo escrita agora, ou plantada) nunca é decodificada: fica depois do
 // offset e só é relida quando o arquivo mudar. Assim cada byte é decodificado
 // uma vez só, e uma cauda hostil não custa um JSON.parse a cada chamada.
+//
+// As funções de leitura segura (lstat, O_NOFOLLOW, dev/ino, linhas com teto,
+// âncora) são exportadas para indice-hooks.js (spec v0.4.0 §9.4, decisão 13
+// do plano da parte 2), sem mudar de comportamento.
 
 export const ARQ_INDICE = 'indice-transcripts.json';
 // Linha acima disto (bytes, sem o \n) é pulada sem ser guardada inteira.
@@ -90,14 +94,14 @@ const INVALIDA = Symbol('invalida');
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const proprio = (o, k) => (Object.hasOwn(o, k) ? o[k] : undefined);
 const inteiroEntre = (n, min, max) => Number.isInteger(n) && n >= min && n <= max;
-const sumiu = (e) => e?.code === 'ENOENT' || e?.code === 'ENOTDIR';
-const hash48 = (dados) => crypto.createHash('sha256').update(dados).digest().readUIntBE(0, 6);
+export const sumiu = (e) => e?.code === 'ENOENT' || e?.code === 'ENOTDIR';
+export const hash48 = (dados) => crypto.createHash('sha256').update(dados).digest().readUIntBE(0, 6);
 // mtime em ms com precisão de µs, derivado sempre do mesmo jeito (lstat e
 // fstat), para a comparação com o índice ser exata.
-const mtimeDe = (st) => Number(st.mtimeNs / 1000n) / 1000;
+export const mtimeDe = (st) => Number(st.mtimeNs / 1000n) / 1000;
 const leituraIlegivel = () => ({ registros: [], linhasInvalidas: 0, ilegivel: true });
 const resultadoNeutro = () => ({ registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false });
-const fechar = async (fh) => { try { await fh.close(); } catch { /* já fechado */ } };
+export const fechar = async (fh) => { try { await fh.close(); } catch { /* já fechado */ } };
 
 // requestId (ou message.id) aceito como chave: padrão fixo e nunca um membro de
 // Object.prototype, para que um consumidor que indexe por ele num objeto comum
@@ -394,8 +398,10 @@ function tratarLinha(linha, ctx) {
 // guardar) e os até 4 KiB antes dele, tirados dos mesmos bytes que viraram
 // registros: a âncora nunca descreve um conteúdo diferente do que foi lido.
 // `antes` são os até 4 KiB antes de `inicio`, já conferidos contra a âncora
-// guardada.
-async function lerFaixa(fh, inicio, fim, ctx, antes) {
+// guardada. `ctx.tratar` (opcional) troca o tratamento da linha: o índice do
+// custo dos hooks (indice-hooks.js, spec v0.4.0 §9.4) usa a mesma leitura com
+// o próprio filtro. O ctx precisa ter `invalidas`.
+export async function lerFaixa(fh, inicio, fim, ctx, antes) {
   const buf = Buffer.allocUnsafe(Math.max(1, Math.min(PEDACO, fim - inicio)));
   let pos = inicio;
   let partes = [];
@@ -431,7 +437,7 @@ async function lerFaixa(fh, inicio, fim, ctx, antes) {
           const linha = tam === 0 ? vista.subarray(i, ate) : Buffer.concat([...partes, vista.subarray(i, ate)], total);
           partes = [];
           tam = 0;
-          tratarLinha(linha, ctx);
+          (ctx.tratar ?? tratarLinha)(linha, ctx);
         }
       }
       if (nl === -1) break;
@@ -459,7 +465,7 @@ function ultimosBytes(a, b) {
 
 // Os até 4 KiB antes de `offset`, lidos do arquivo, para conferir a âncora de
 // um arquivo que cresceu. null se não deu para ler tudo (encolheu no meio).
-async function bytesAntes(fh, offset) {
+export async function bytesAntes(fh, offset) {
   const n = Math.min(offset, ANCORA_BYTES);
   const b = Buffer.alloc(n);
   let lidos = 0;
@@ -474,7 +480,7 @@ async function bytesAntes(fh, offset) {
 // Abre sem seguir link nem travar em FIFO e confere, pelo mesmo descritor, que
 // é o arquivo regular visto no lstat (mesmo dev e ino, em bigint para não
 // perder bits do id de arquivo do NTFS).
-async function abrirConferido(abs, visto) {
+export async function abrirConferido(abs, visto) {
   let fh;
   try {
     fh = await fsp.open(abs, ABRIR);
@@ -645,7 +651,7 @@ async function listarSubagentes(dirSessao, relSessao, padrao, orc, saida) {
 // janela. O dano fica limitado: os arquivos de lá passam pelas mesmas
 // checagens de arquivo e são lidos como não confiáveis, então só rendem
 // números de tokens e rótulos saneados, que o mesmo usuário já poderia ler.
-async function listarTranscripts(base, teto) {
+export async function listarTranscripts(base, teto) {
   const saida = { itens: [], ilegiveis: 0, truncado: false, raizOk: false };
   const orc = { arquivos: teto, entradas: teto * ENTRADAS_POR_ARQUIVO };
   let st;
@@ -687,7 +693,7 @@ async function listarTranscripts(base, teto) {
 // <projeto>/<sessão>/subagents/agent-<x>.jsonl, 0 = recusada. A chave só serve
 // de busca num Map (o arquivo é sempre aberto pelo caminho da caminhada), mas
 // uma chave que a caminhada não geraria invalida o índice.
-function formaDaChave(rel) {
+export function formaDaChave(rel) {
   if (typeof rel !== 'string' || rel.includes('\0')) return 0;
   const partes = rel.split('/');
   if (!partes.every((s) => s.length > 0 && s !== '.' && s !== '..')) return 0;

@@ -1,25 +1,95 @@
 {
   "hooks": {
     "SessionStart": [
-      {
-        "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/src/hooks/session-start.js\"", "timeout": 5 }
-        ]
-      }
+      { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/src/hooks/session-start.js\"", "timeout": 5 } ] }
     ],
     "UserPromptSubmit": [
-      {
-        "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/src/hooks/prompt-submit.js\"", "timeout": 5 }
-        ]
-      }
+      { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/src/hooks/prompt-submit.js\"", "timeout": 10 } ] }
     ],
     "SessionEnd": [
-      {
+      { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/src/hooks/session-end.js\"", "timeout": 5 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Agent|Task|Workflow",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-despacho.js"], "timeout": 10 } ] },
+      { "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/src/hooks/session-end.js\"", "timeout": 5 }
-        ]
-      }
+          { "type": "command", "if": "Bash(claude *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "Bash(npx *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "Bash(node *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "Bash(bash *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "Bash(sh *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "Bash(cmd *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "Bash(pwsh *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "Bash(powershell *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 }
+        ] },
+      { "matcher": "PowerShell",
+        "hooks": [
+          { "type": "command", "if": "PowerShell(claude *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(npx *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(node *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(bash *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(sh *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(cmd *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(pwsh *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(powershell *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 },
+          { "type": "command", "if": "PowerShell(Start-Process *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-filha.js"], "timeout": 10 }
+        ] },
+      { "matcher": "Write",
+        "hooks": [
+          { "type": "command", "if": "Write(~/.claude/hadouken/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Write(~/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Write(~/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Write(~/.claude/plugins/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Write(//**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Write(//**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
+        ] },
+      { "matcher": "Edit",
+        "hooks": [
+          { "type": "command", "if": "Edit(~/.claude/hadouken/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Edit(~/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Edit(~/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Edit(~/.claude/plugins/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Edit(//**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "Edit(//**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
+        ] },
+      { "matcher": "MultiEdit",
+        "hooks": [
+          { "type": "command", "if": "MultiEdit(~/.claude/hadouken/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "MultiEdit(~/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "MultiEdit(~/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "MultiEdit(~/.claude/plugins/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "MultiEdit(//**/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "MultiEdit(//**/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
+        ] },
+      { "matcher": "NotebookEdit",
+        "hooks": [
+          { "type": "command", "if": "NotebookEdit(~/.claude/hadouken/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "NotebookEdit(~/.claude/settings.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "NotebookEdit(~/.claude/settings.local.json)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 },
+          { "type": "command", "if": "NotebookEdit(~/.claude/plugins/**)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-arquivos.js"], "timeout": 10 }
+        ] },
+      { "matcher": "CronCreate|ScheduleWakeup|RemoteTrigger|mcp__.*([Cc][Rr][Oo][Nn]|[Ss][Cc][Hh][Ee][Dd][Uu][Ll][Ee]|[Tt][Rr][Ii][Gg][Gg][Ee][Rr]|[Tt][Aa][Ss][Kk]).*",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-agenda.js"], "timeout": 10 } ] }
+    ],
+    "UserPromptExpansion": [
+      { "matcher": "claude-hadouken:liberar",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/liberar.js"], "timeout": 10 } ] },
+      { "matcher": "claude-hadouken:aprender",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/aprender.js"], "timeout": 600 } ] }
+    ],
+    "PreModelSwitch": [
+      { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-modelo.js"], "timeout": 10 } ] }
+    ],
+    "PostModelSwitch": [
+      { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/modelo-trocado.js"], "timeout": 5 } ] }
+    ],
+    "ConfigChange": [
+      { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-config.js"], "timeout": 10 } ] }
+    ],
+    "StopFailure": [
+      { "matcher": "rate_limit",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/limite-atingido.js"], "timeout": 5 } ] }
     ]
   }
 }

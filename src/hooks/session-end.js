@@ -5,7 +5,10 @@ import { sessaoAtiva, renovarSessao } from '../ativas.js';
 
 // Hook SessionEnd (spec 6.5, 8.2 e adendo A/C da Task 7): anexa uma linha ao
 // histórico de sessões (historico.js) com o consumo do último instantâneo.
-// Não imprime nada: o Claude Code já encerrou a conversa.
+// Não imprime nada: o Claude Code já encerrou a conversa. Com o aprendizado
+// ligado, depois do histórico, marca a sessão como encerrada
+// (otel/encerradas), para o Collector sem outra sessão ativa e roda o passo
+// de aprendizado (spec aprendizado §3.3, R2; passo.js).
 //
 // Sessão sem registro ativo, session_id inválido ou sem diretório de dados:
 // nada gravado. estado.js e historico.js vêm por import dinâmico depois do
@@ -21,6 +24,10 @@ rodarHook(async (entrada) => {
   if (!idValido(sessionId)) return;
   if (dirDados() === null) return;
   const agoraMs = Date.now();
+  // Sem o registro ativo da sessão (o SessionStart não registrou, ou o
+  // registro venceu), o hook sai aqui, antes da parada do Collector e do
+  // passo de aprendizado: o Collector fica para a regra do órfão de 30 min
+  // no próximo SessionStart (spec aprendizado §3.3), e o passo roda lá.
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   renovarSessao(sessionId, agoraMs);
   const [{ ARQ_ESTADO, lerJson }, { registroHistorico, anexarHistorico }] = await Promise.all([
@@ -32,4 +39,8 @@ rodarHook(async (entrada) => {
   const lido = lerJson(join(dir, ARQ_ESTADO));
   const registro = registroHistorico({ entrada, estadoBruto: lido.ok ? lido.valor : null, sessionId, agoraMs });
   anexarHistorico(dir, registro);
+  try {
+    const { ligadoExiste } = await import('../aprendizado/arquivos.js');
+    if (ligadoExiste(dir)) (await import('../aprendizado/passo.js')).depoisDoFim({ dir, sessionId, agoraMs });
+  } catch { /* o histórico já foi gravado; o passo fica para a próxima sessão */ }
 });

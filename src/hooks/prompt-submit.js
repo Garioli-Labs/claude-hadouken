@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { rodarHook, emitirContexto } from './comum.js';
+import { rodarHook, emitirContexto, emitirJson, falharAberto } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva, renovarSessao } from '../ativas.js';
 
@@ -8,12 +8,14 @@ import { sessaoAtiva, renovarSessao } from '../ativas.js';
 // linha só quando a faixa muda (alerta.js), ou "sem leitura" uma vez por
 // sessão. Spec v0.2.0 §12 (avisos ao Claude): com a previsão de estouro do
 // histórico do estado (previsao.js) e as sessões ativas, também o aviso de
-// projeção. Nunca bloqueia o prompt.
+// projeção. Desde a v0.4.0, bloqueia o prompt digitado numa sessão Fable com
+// a guarda disparada (P2, src/guarda/prompt.js).
 //
 // Roda em toda sessão aberta, registrada ou não, então o caminho até o gate
 // carrega o mínimo: comum.js (stdin), base.js e ativas.js. Sessão sem
 // registro ativo não imprime nem grava nada. estado.js, alerta.js, previsao.js
-// e a memória de alertas vêm por import dinâmico depois do gate (adendo E).
+// e a memória de alertas vêm por import dinâmico depois do gate (adendo E),
+// como aprendizado/arquivos.js e, só com o aprendizado ligado, registro.js.
 //
 // Texto injetado (spec 8.1, S1): só as linhas de alerta.js, feitas de números
 // validados, horários formatados e rótulos fixos. O session_id passa por
@@ -36,14 +38,27 @@ rodarHook(async (entrada) => {
   const agoraMs = Date.now();
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   renovarSessao(sessionId, agoraMs);
+  // Spec v0.4.0 §4.2 P2: a guarda decide antes dos alertas. Prompt
+  // bloqueado não recebe linha nenhuma (o reason vai só ao usuário). Uma
+  // exceção fora de decidirPrompt (o import, por exemplo) também passa e
+  // registra o evento 'erro' P2 (falharAberto, §4.5).
+  let p2 = { bloquear: null, linha: null };
+  await falharAberto(dirDados(), 'P2', agoraMs, async () => {
+    const { decidirPrompt } = await import('../guarda/prompt.js');
+    p2 = decidirPrompt({ dir: dirDados(), sessionId, prompt: entrada.prompt, agoraMs });
+  });
+  if (p2.bloquear !== null) {
+    emitirJson({ decision: 'block', reason: p2.bloquear });
+    return;
+  }
   const [
-    { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, gravarJsonAtomico, sessoesAtivas },
+    { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, leiturasComPiso, ultimaLeitura, gravarJsonAtomico, sessoesAtivas },
     { avaliarAlertas },
     {
       ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar,
       ARQ_PROJECAO, projecaoGuardada, projecaoParaGravar, precisaGravarProjecao,
     },
-    { preverEstouro },
+    { preverEstouro, ritmo7dPorHora },
   ] = await Promise.all([
     import('../estado.js'),
     import('../alerta.js'),
@@ -55,7 +70,23 @@ rodarHook(async (entrada) => {
   const lidoEstado = lerJson(join(dir, ARQ_ESTADO));
   const estado = lidoEstado.ok ? validarEstado(lidoEstado.valor, agoraMs) : null;
   const limites = limitesValidos(estado, agoraMs);
-  const previsao = preverEstouro({ historico: estado?.historico, limites, agoraMs });
+  // Spec v0.4.0 §10, item 1: as faixas usam a leitura fresca ou o piso de até
+  // 24 h; sem os dois, a linha diz desde quando não há leitura.
+  const leituras = leiturasComPiso(estado, agoraMs);
+  const ultima = ultimaLeitura(estado, agoraMs);
+  const temLeitura = leituras.five_hour !== null || leituras.seven_day !== null;
+  // Spec aprendizado §4.3 e R10: com o aprendizado ligado e peso > 0, a
+  // previsão das linhas de alerta mistura o ritmo típico da hora. A guarda
+  // (src/guarda/avaliar.js) segue com a regressão pura. Desligado, nada do
+  // aprendizado é carregado além do módulo leve de nomes.
+  let perfil = null;
+  try {
+    const { ligadoExiste } = await import('../aprendizado/arquivos.js');
+    if (ligadoExiste(dir)) perfil = (await import('../aprendizado/registro.js')).perfilDaPrevisao(dir, agoraMs);
+  } catch {
+    perfil = null;
+  }
+  const previsao = preverEstouro({ historico: estado?.historico, limites, agoraMs, perfil });
   const ativas = sessoesAtivas(estado, agoraMs, sessionId);
   const arqAlertas = join(dir, ARQ_ALERTAS);
   const lidoAlertas = lerJson(arqAlertas, ALERTAS_MAX_BYTES);
@@ -65,14 +96,18 @@ rodarHook(async (entrada) => {
   const lidoProjecao = lerJson(arqProjecao, ALERTAS_MAX_BYTES);
   const projecaoLida = lidoProjecao.ok ? lidoProjecao.valor : null;
   const { linhas, novos } = avaliarAlertas({
-    limites, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
-    previsao, sessoesAtivas: ativas,
+    limites, leituras, ultima, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
+    previsao,
+    ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs }),
+    sessoesAtivas: ativas,
   });
-  // `at` só anda quando a memória foi conferida contra uma leitura válida
-  // (decisão D): sem leitura, fica o at lido.
-  const registro = alertasParaGravar(novos, limites ? agoraMs : atMs);
+  // `at` só anda quando a memória foi conferida contra uma leitura (decisão
+  // D), fresca ou piso (spec v0.4.0 §10, item 1): com só o piso, a memória
+  // precisa andar, senão alertasGuardados a esquece depois de 1 h e a faixa
+  // volta a cada prompt. Sem leitura nenhuma, fica o at lido.
+  const registro = alertasParaGravar(novos, temLeitura ? agoraMs : atMs);
   if (precisaGravar(registro, guardado, agoraMs)) gravarJsonAtomico(arqAlertas, registro);
   const registroProjecao = projecaoParaGravar(novos.projecao);
   if (precisaGravarProjecao(registroProjecao, projecaoLida)) gravarJsonAtomico(arqProjecao, registroProjecao);
-  emitirContexto('UserPromptSubmit', linhas.join('\n'));
-});
+  emitirContexto('UserPromptSubmit', (p2.linha === null ? linhas : [...linhas, p2.linha]).join('\n'));
+}, undefined, undefined, 'P2');

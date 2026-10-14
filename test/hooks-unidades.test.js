@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { linhaEstado, linhaShimIndisponivel, linhaSemRegistro, LINHA_SEM_LEITURA } from '../src/hooks/linha-estado.js';
+import { linhaEstado, linhaShimIndisponivel, linhaSemRegistro, linhaRetomada, LINHA_SEM_LEITURA_NUNCA } from '../src/hooks/linha-estado.js';
 import {
   alertasGuardados, alertasParaGravar, precisaGravar, SEM_LEITURA_MAX, AT_RENOVAR_MS, PROJECAO_MAX,
   ARQ_PROJECAO, projecaoGuardada, projecaoParaGravar, precisaGravarProjecao,
@@ -13,7 +13,7 @@ import {
 } from '../src/hooks/historico.js';
 import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO } from '../src/alerta.js';
 import { LIMITE_VELHO_MS } from '../src/estado.js';
-import { horaLocal, diaHora } from '../src/util.js';
+import { horaLocal, quandoLocal } from '../src/util.js';
 import { fraseEsgota } from '../src/uso/frase.js';
 
 // Unidades dos hooks (Task 7): a linha de estado do SessionStart, a memória de
@@ -57,14 +57,14 @@ const e1 = (p5, p7, r7 = E1_R7) => ({
 });
 
 test('linhaEstado: sem limites diz sem leitura', () => {
-  assert.equal(LINHA_SEM_LEITURA, 'Consumo sem leitura: rode /usage.');
+  assert.equal(LINHA_SEM_LEITURA_NUNCA, 'Consumo ainda sem leitura nesta máquina.');
   for (const l of [null, undefined, {}, [], 'x', 42, { five_hour: null, seven_day: null }]) {
-    assert.equal(linhaEstado(l, AGORA), LINHA_SEM_LEITURA, JSON.stringify(l));
+    assert.equal(linhaEstado(l, AGORA), LINHA_SEM_LEITURA_NUNCA, JSON.stringify(l));
   }
 });
 
 test('linhaEstado: caso E1, com a frase da janela de 7 d (E5) e piso nos números', () => {
-  const linha = 'Consumo: 5h 25% (reset 17:20) · 7d 41% (reset seg 22:00); nesse ritmo, esgota amanhã à noite.';
+  const linha = 'Consumo: 5h 25% (reset 17:20) · 7d 41% (reset seg 05/10 22:00); nesse ritmo, esgota amanhã à noite.';
   assert.equal(linhaEstado(e1(25, 41), E1), linha);
   // 25.9 nunca aparece como 26%, nem 89.6 como 90%.
   assert.equal(linhaEstado(e1(25.9, 41), E1), linha);
@@ -72,20 +72,20 @@ test('linhaEstado: caso E1, com a frase da janela de 7 d (E5) e piso nos número
 });
 
 test('linhaEstado: não esgota antes do reinício, limite atingido e sem frase', () => {
-  assert.equal(linhaEstado(e1(25, 10), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 10% (reset seg 22:00); nesse ritmo, não esgota antes do reinício.');
-  assert.equal(linhaEstado(e1(25, 100), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 100% (reset seg 22:00); limite semanal atingido.');
+  assert.equal(linhaEstado(e1(25, 10), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 10% (reset seg 05/10 22:00); nesse ritmo, não esgota antes do reinício.');
+  assert.equal(linhaEstado(e1(25, 100), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 100% (reset seg 05/10 22:00); limite semanal atingido.');
   // Uso zero: sem frase.
-  assert.equal(linhaEstado(e1(25, 0), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 0% (reset seg 22:00).');
+  assert.equal(linhaEstado(e1(25, 0), E1), 'Consumo: 5h 25% (reset 17:20) · 7d 0% (reset seg 05/10 22:00).');
   // Menos de 30 min decorridos na janela: sem frase; a linha termina no reset.
   const r7 = (E1 + 7 * 24 * H - 10 * 60_000) / 1000;
-  assert.equal(linhaEstado(e1(25, 5, r7), E1), `Consumo: 5h 25% (reset 17:20) · 7d 5% (reset ${diaHora(r7)}).`);
+  assert.equal(linhaEstado(e1(25, 5, r7), E1), `Consumo: 5h 25% (reset 17:20) · 7d 5% (reset ${quandoLocal(r7, E1)}).`);
 });
 
 // A cauda só sai nas formas conhecidas de fraseEsgota (S1: números e
 // palavras fixas), e o "quando" é o da frase.
 test('linhaEstado: toda cauda é uma das formas fixas, com o quando de fraseEsgota', () => {
   const QUANDO = String.raw`(?:por volta das \d\d:\d\d|(?:hoje|amanhã|domingo|segunda|terça|quarta|quinta|sexta|sábado) (?:de madrugada|de manhã|à tarde|à noite)|em \d\d/\d\d)`;
-  const FORMA = new RegExp(String.raw`^Consumo: 5h sem leitura · 7d \d+% \((?:reset (?:dom|seg|ter|qua|qui|sex|sáb) \d\d:\d\d)\)(?:; nesse ritmo, esgota ${QUANDO}|; nesse ritmo, não esgota antes do reinício|; limite semanal atingido)?\.$`, 'u');
+  const FORMA = new RegExp(String.raw`^Consumo: 5h sem leitura · 7d \d+% \((?:reset (?:hoje|amanhã|(?:dom|seg|ter|qua|qui|sex|sáb) \d\d/\d\d) \d\d:\d\d)\)(?:; nesse ritmo, esgota ${QUANDO}|; nesse ritmo, não esgota antes do reinício|; limite semanal atingido)?\.$`, 'u');
   const vistas = new Set();
   for (const horas of [1, 5, 12, 24, 48, 100, 150, 167]) {
     const r7 = Math.floor((E1 + 7 * 24 * H - horas * H) / 1000);
@@ -113,7 +113,7 @@ test('linhaEstado: janela ausente ou fora do schema aparece como sem leitura', (
   // 48% com 84 h decorridas: os 52% restantes levam 91 h, depois do reset.
   assert.equal(
     linhaEstado({ seven_day: { used_percentage: 48, resets_at: R7 } }, AGORA),
-    `Consumo: 5h sem leitura · 7d 48% (reset ${diaHora(R7)}); nesse ritmo, não esgota antes do reinício.`,
+    `Consumo: 5h sem leitura · 7d 48% (reset ${quandoLocal(R7, AGORA)}); nesse ritmo, não esgota antes do reinício.`,
   );
   const ruins = [
     { used_percentage: '42', resets_at: R5 },
@@ -129,10 +129,10 @@ test('linhaEstado: janela ausente ou fora do schema aparece como sem leitura', (
   ];
   for (const j of ruins) {
     const l = linhaEstado({ five_hour: j, seven_day: j }, AGORA);
-    assert.equal(l, LINHA_SEM_LEITURA, JSON.stringify(j));
+    assert.equal(l, LINHA_SEM_LEITURA_NUNCA, JSON.stringify(j));
   }
   // agoraMs inválido: a janela de 7d não tem como calcular o ritmo.
-  assert.equal(linhaEstado({ seven_day: { used_percentage: 50, resets_at: R7 } }, Number.NaN), LINHA_SEM_LEITURA);
+  assert.equal(linhaEstado({ seven_day: { used_percentage: 50, resets_at: R7 } }, Number.NaN), LINHA_SEM_LEITURA_NUNCA);
 });
 
 test('linhaEstado: nunca lança nem repete texto de fora', () => {
@@ -140,7 +140,7 @@ test('linhaEstado: nunca lança nem repete texto de fora', () => {
     get five_hour() { throw new Error(INSTRUCAO); },
     seven_day: { used_percentage: 50, resets_at: R7, faixa: INSTRUCAO },
   };
-  assert.equal(linhaEstado(hostil, AGORA), LINHA_SEM_LEITURA);
+  assert.equal(linhaEstado(hostil, AGORA), LINHA_SEM_LEITURA_NUNCA);
   const l = linhaEstado({ five_hour: { used_percentage: 42, resets_at: R5, nota: INSTRUCAO }, seven_day: null }, AGORA);
   assert.ok(!l.includes('Ignore'));
   assert.ok(!controleProibido(l));
@@ -292,7 +292,9 @@ test('recomeço de ponta a ponta: 85% velho e 60% agora na mesma janela não ger
   // A mesma memória, recente: a descida é anunciada (comportamento da Task 3).
   assert.deepEqual(avaliar({ ...memoria, at: iso(AGORA - 10 * 60_000) }, 60), ['5h voltou a 60%: faixa normal.']);
   // Velha e ainda em faixa restritiva: anuncia de novo.
-  assert.deepEqual(avaliar(memoria, 85), ['5h em 85%: serializar — sem Workflow nem subagentes em paralelo.']);
+  const l = avaliar(memoria, 85);
+  assert.equal(l.length, 1);
+  assert.match(l[0], /^5h em 85% \(reset em \d+ min\): serializar — sem Workflow nem subagentes em paralelo\.$/);
   // Velha e janela nova neutra: nada de "restrições anteriores suspensas".
   assert.deepEqual(avaliar(memoria, 10, R5 + 5 * 3600), []);
 });
@@ -846,4 +848,29 @@ test('precisaGravarProjecao: memória mudada regrava; igual não; sem memória n
   // v0.1.0 contra o registro desta versão, igual e recente, não regrava.
   const v010 = guardado();
   assert.equal(precisaGravar(registroDe(v010, AGORA), v010, AGORA), false);
+});
+
+test('linhaEstado com piso (§10, item 1) e quandoLocal no 7d (§10, item 7)', () => {
+  const leituras = {
+    five_hour: { used_percentage: 25.7, resets_at: R5, idadeMs: 2 * H + 1, fresca: false },
+    seven_day: { used_percentage: 41, resets_at: R7, idadeMs: 5 * 60_000, fresca: true },
+  };
+  const l = linhaEstado(leituras, AGORA);
+  assert.ok(l.startsWith(`Consumo: 5h ≥ 25% (leitura de 2 h; reset ${horaLocal(R5)}) · 7d 41% (reset ${quandoLocal(R7, AGORA)})`), l);
+  assert.equal(linhaEstado({ five_hour: null, seven_day: null }, AGORA, null), LINHA_SEM_LEITURA_NUNCA);
+  const ultima = { desdeMs: AGORA - 30 * H, five_hour: null, seven_day: null };
+  assert.equal(linhaEstado({ five_hour: null, seven_day: null }, AGORA, ultima), `Consumo sem leitura nova desde ${quandoLocal((AGORA - 30 * H) / 1000, AGORA)}; trate como o último modo conhecido (normal).`);
+});
+
+test('linhaRetomada (spec v0.4.0 §10, item 11): só resume com cache expirado e contexto grande; só tokens', () => {
+  const base = { source: 'resume', prompt_cache_likely_expired: true, context_tokens: 182_345, seconds_since_last_response: 7200, estimated_cache_write_usd: 0.68 };
+  assert.equal(linhaRetomada(base), 'hadouken: retomar reescreve ~182 k tokens de cache.');
+  assert.equal(linhaRetomada({ ...base, context_tokens: 1_234_567 }), 'hadouken: retomar reescreve ~1 235 k tokens de cache.');
+  assert.equal(linhaRetomada({ ...base, context_tokens: 20_000 }), 'hadouken: retomar reescreve ~20 k tokens de cache.');
+  for (const e of [
+    null, {}, { ...base, source: 'startup' }, { ...base, source: 'fork' }, { ...base, prompt_cache_likely_expired: false },
+    { ...base, prompt_cache_likely_expired: 'true' }, { ...base, context_tokens: 19_999 }, { ...base, context_tokens: 1e7 + 1 },
+    { ...base, context_tokens: 182_345.5 }, { ...base, context_tokens: '182345' }, { ...base, context_tokens: INSTRUCAO },
+  ]) assert.equal(linhaRetomada(e), null, JSON.stringify(e));
+  assert.ok(!linhaRetomada(base).includes('0.68'), 'sem dólar');
 });

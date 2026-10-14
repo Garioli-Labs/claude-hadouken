@@ -328,32 +328,53 @@ ${corpo}
 
 // ------------------------------------------------------------------ avisos
 
-// Uma manhã em sequência: início de sessão e três prompts, cada um com a
+// Uma manhã em sequência: início de sessão e seis prompts, cada um com a
 // leitura que o Claude Code acabou de mandar. A memória de avisos passa de um
-// prompt para o outro, como em alertas.json.
+// prompt para o outro, como em alertas.json. `ritmo7dH` é o ritmo da semana
+// nas últimas 3 h, em pontos por hora (ritmo7dPorHora de previsao.js), que o
+// hook de prompt passa quando há 2 h de leituras.
 const passos = [
   ['# prompt com 5h em 74%', limites(74, 59)],
   ['# prompt seguinte, ainda em 76%: mesma faixa, nada é injetado', limites(76, 59)],
   ['# prompt com 5h em 83%', limites(83, 59)],
-  ['# prompt com 7d em 78% (esperado 65%)', limites(83, 78)],
+  ['# prompt com 7d em 78% (esperado 65%), subindo 1,5 ponto por hora', limites(83, 78), null, 1.5],
   ['# 3 sessões ativas; no ritmo atual, 5h chega a 100% às 12:50 (daqui a 50 min)', limites(83, 78), { five_hour: Date.parse('2026-09-26T12:50:00-03:00'), seven_day: null }],
-  ['# prompt seguinte, previsão às 12:45: mesma faixa (60 min), nada é injetado', limites(83, 78), { five_hour: Date.parse('2026-09-26T12:45:00-03:00'), seven_day: null }],
-  ['# previsão às 12:25 (daqui a 25 min): faixa de 30 min, novo aviso', limites(83, 78), { five_hour: Date.parse('2026-09-26T12:25:00-03:00'), seven_day: null }],
+  ['# prompt com 5h em 91%', limites(91, 78)],
 ];
-const linhasAvisos = [comentario('# início da sessão (SessionStart)'), simples(linhaEstado(limites(42, 59), AGORA_MS))];
+// Linha mais larga que isto quebra em palavras, com a continuação recuada,
+// para a imagem caber na largura do README. Só a quebra é da imagem: o texto
+// é o de avaliarAlertas e de linhaEstado, inteiro e na ordem.
+const COLUNAS_AVISOS = 100;
+function quebrar(texto) {
+  const saida = [];
+  let atual = '';
+  for (const palavra of texto.split(' ')) {
+    const prefixo = saida.length === 0 ? '' : '  ';
+    if (atual !== '' && largura(prefixo + atual + ' ' + palavra) > COLUNAS_AVISOS) {
+      saida.push(prefixo + atual);
+      atual = palavra;
+    } else {
+      atual = atual === '' ? palavra : `${atual} ${palavra}`;
+    }
+  }
+  saida.push((saida.length === 0 ? '' : '  ') + atual);
+  return saida;
+}
+const linhasAvisos = [comentario('# início da sessão (SessionStart)'), ...quebrar(linhaEstado(limites(42, 59), AGORA_MS)).map((t) => simples(t))];
 let anteriores = null;
 ({ novos: anteriores } = avaliarAlertas({ limites: limites(42, 59), anteriores, sessionId: 's1', agoraMs: AGORA_MS }));
-for (const [nota, lim, previsao] of passos) {
+for (const [nota, lim, previsao, ritmo7dH] of passos) {
   const extra = previsao ? { previsao, sessoesAtivas: 3 } : {};
+  if (ritmo7dH !== undefined) extra.ritmo7dH = ritmo7dH;
   const { linhas, novos } = avaliarAlertas({ limites: lim, anteriores, sessionId: 's1', agoraMs: AGORA_MS, ...extra });
   anteriores = novos;
   linhasAvisos.push([], comentario(nota));
   if (linhas.length === 0) linhasAvisos.push(simples('(nenhuma linha)', CORES.apagado));
-  for (const l of linhas) linhasAvisos.push(simples(l));
+  for (const l of linhas) for (const t of quebrar(l)) linhasAvisos.push(simples(t));
 }
 gravar('avisos.svg', janela({
   titulo: 'o que o Claude recebe no contexto',
-  descricao: 'Linhas que o Claude recebe: o consumo no início da sessão (5h 42% com reset às 15:30, 7d 59% com reset segunda 22:00 e, nesse ritmo, não esgota antes do reinício) e um aviso a cada mudança de faixa (5h em 74%: atenção; 5h em 83%: serializar; 7d 78% contra 65%: modo econômico). Depois, com 3 sessões ativas, o aviso de projeção: a 5h chega a 100% às 12:50, antes do reset das 15:30; na mesma faixa de 60 minutos nada se repete; a 25 minutos do estouro, um aviso novo. Um prompt na mesma faixa não gera linha.',
+  descricao: 'Linhas que o Claude recebe: o consumo no início da sessão (5h 42% com reset às 15:30, 7d 59% com reset segunda, 28/09, às 22:00 e, nesse ritmo, não esgota antes do reinício) e um aviso a cada mudança de faixa: 5h em 74%, reset em 210 min: atenção; 5h em 83%, reset em 210 min: serializar; 7d 78% contra 65% esperado: modo econômico, com o ritmo de 1,5 ponto por hora, o sustentável de 0,4 ponto por hora e, nesse ritmo, o fim amanhã às 02:40. Depois, com 3 sessões ativas, o aviso de projeção: a 5h chega a 100% às 12:50, antes do reset das 15:30, com a frase de perguntar ao usuário antes de mudar um plano que ele decidiu. Por fim, 5h em 91%: fechar a tarefa em curso, reset às 15:30, e, se agendar a volta, marcar 15:32. Um prompt na mesma faixa não gera linha.',
   linhas: linhasAvisos,
 }));
 

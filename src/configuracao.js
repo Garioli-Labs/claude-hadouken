@@ -143,7 +143,12 @@ export function caminhoAceito(caminho) {
 // Marcador da pasta de dados na chave para instalar à mão (statusLineManual).
 export const MARCADOR_PASTA = '<pasta de dados>';
 const comandoPara = (alvo) => `node "${alvo}"`;
-const valorStatusLine = (comando) => ({ type: 'command', command: comando, padding: 0 });
+// Spec v0.4.0 §10, item 8 (spike S7 aprovado): a barra se redesenha a cada
+// REFRESH_S segundos também com a sessão parada; a regra de frescor de
+// estado.js impede que o stdin repetido pareça leitura nova. Custo declarado
+// no README: um processo Node por minuto por terminal.
+const REFRESH_S = 60;
+const valorStatusLine = (comando) => ({ type: 'command', command: comando, padding: 0, refreshInterval: REFRESH_S });
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const falha = (motivo, codigo = null) => (codigo === null ? { ok: false, motivo } : { ok: false, motivo, codigo });
@@ -237,12 +242,19 @@ function plano(settings, proposto) {
   const existe = Object.hasOwn(settings, CHAVE) && settings[CHAVE] !== undefined;
   const atual = existe ? settings[CHAVE] : null;
   if (!existe) return { acao: 'instalar', atual, proposto };
-  return { acao: ehNossa(atual, proposto.command) ? 'ja-instalado' : 'conflito', atual, proposto };
+  if (!ehNossa(atual, proposto.command)) return { acao: 'conflito', atual, proposto };
+  // A nossa sem refreshInterval (instalada pela v0.3.x ou antes): 'atualizar',
+  // que só acrescenta a chave e mantém o resto da statusLine do usuário. Com
+  // qualquer refreshInterval, fica como está: o valor que o usuário escolheu
+  // não é trocado.
+  if (Object.hasOwn(atual, 'refreshInterval')) return { acao: 'ja-instalado', atual, proposto };
+  return { acao: 'atualizar', atual, proposto: { ...atual, refreshInterval: REFRESH_S } };
 }
 
 // Plano para um settings já lido (null ou undefined = arquivo ausente):
 // 'instalar' (sem statusLine própria), 'ja-instalado' (a nossa, comando
-// exato) ou 'conflito' (qualquer outra, inclusive null ou texto). Topo que não
+// exato), 'atualizar' (a nossa, sem refreshInterval: o proposto é ela mais a
+// chave) ou 'conflito' (qualquer outra, inclusive null ou texto). Topo que não
 // é objeto: 'settings-invalido'. Nunca lança.
 export function planejarStatusline(settings) {
   try {
@@ -636,7 +648,8 @@ export function consultarStatusline(opcoes) {
 // Instala a nossa statusLine. Conflito só é trocado com substituir === true
 // (spec 8.2: trocar a barra de outra ferramenta apaga a barra das sessões
 // abertas). Devolve { ok: true, acao: 'instalar' | 'substituir' |
-// 'ja-instalado', backup: caminho | null } ou { ok: false, motivo[, codigo] }.
+// 'atualizar' | 'ja-instalado', backup: caminho | null } ou
+// { ok: false, motivo[, codigo] }.
 export function aplicarStatusline(opcoes) {
   try {
     const c = preparar(opcoes, true);
@@ -647,7 +660,7 @@ export function aplicarStatusline(opcoes) {
     if (bloqueio !== null) return bloqueio;
     const g = gravar(c.arquivo, c.lido, { ...c.settings, [CHAVE]: c.proposto }, c.agoraMs);
     if (!g.ok) return g;
-    return { ok: true, acao: c.acao === 'conflito' ? 'substituir' : 'instalar', backup: g.backup };
+    return { ok: true, acao: c.acao === 'conflito' ? 'substituir' : c.acao, backup: g.backup };
   } catch {
     return falha('erro-interno');
   }
@@ -671,3 +684,8 @@ export function removerStatusline(opcoes) {
     return falha('erro-interno');
   }
 }
+
+// Aprendizado (spec aprendizado §3.2, R1): src/aprendizado/settings-env.js
+// edita o `env` com as mesmas garantias da barra (sem link, teto, UTF-8,
+// formato do original, backup, troca conferida pelo lstat).
+export { lerSettings, gravar as gravarSettings, bloqueioDeEscrita };

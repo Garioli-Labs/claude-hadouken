@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sincronizarShims } from '../src/shim.js';
 import { registrarSessao } from '../src/ativas.js';
 import { dirDados } from '../src/base.js';
+import { marcarSessao } from '../src/guarda/registros.js';
 
 // Shims estáveis (spec 8.1, S6): <dirDados>/bin/statusline.mjs e cli.mjs, uma
 // linha cada, `await import("<file URL do alvo>").catch(...)`, e painel.mjs
@@ -461,8 +462,17 @@ test('nunca lança: HADOUKEN_HOME que é arquivo devolve o código do sistema e 
 
 test('shim executa a statusline de verdade para sessão registrada (caminho com espaço)', () => {
   assert.deepEqual(registrarSessao('s1', Date.now()), { ok: true });
+  // v0.4.0: a sessão também tem a marca da guarda (spec §4.1, como o
+  // SessionStart grava), senão a barra ganharia "sem guarda nesta sessão", e
+  // uma leitura baixa de rate_limits, senão "guarda sem leitura" (§8.3): a
+  // guarda fica armada e o segmento dela, vazio.
+  assert.deepEqual(marcarSessao(home, 's1'), { ok: true });
   assert.deepEqual(sincronizarShims(repo), { ok: true, alterados: ['statusline.mjs', 'cli.mjs', 'painel.mjs'] });
-  const r = rodarShim('statusline.mjs', '{"session_id":"s1"}');
+  const s = Math.floor(Date.now() / 1000);
+  const r = rodarShim('statusline.mjs', JSON.stringify({
+    session_id: 's1',
+    rate_limits: { five_hour: { used_percentage: 20, resets_at: s + 3600 }, seven_day: { used_percentage: 40, resets_at: s + 3 * 86_400 } },
+  }));
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
   // E6: a barra fica só com a sessão.

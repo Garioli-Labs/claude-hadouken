@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as base from '../src/base.js';
 import * as util from '../src/util.js';
 import * as alerta from '../src/alerta.js';
-import { LINHA_SEM_LEITURA } from '../src/hooks/linha-estado.js';
+import { LINHA_SEM_LEITURA_NUNCA } from '../src/hooks/linha-estado.js';
 import * as barrinha from '../src/barrinha.js';
 import { jsonSeguro as jsonSeguroComandos, _reservas as reservasComandos } from '../src/comandos.js';
 import { _reservas as reservasInstalar } from '../src/instalar-cli.js';
@@ -56,7 +56,8 @@ test('os ajudantes divididos só são definidos na casa deles', () => {
     ['classe dos glifos da barra', 'util.js', /\[│↻·▰▱┃→\]/gu],
     ['jsonSeguro', 'util.js', definicao('jsonSeguro')],
     ['escaparInvisiveis', null, definicao('escaparInvisiveis')],
-    ['texto da linha sem leitura', 'alerta.js', /Consumo sem leitura/g],
+    ['texto da linha sem leitura', 'alerta.js', /Consumo ainda sem leitura nesta máquina/g],
+    ['texto da linha sem leitura nova', 'alerta.js', /Consumo sem leitura nova desde/g],
     ['CASAS', 'barrinha.js', definicao('CASAS')],
     ['CHEIA', 'barrinha.js', definicao('CHEIA')],
     ['VAZIA', 'barrinha.js', definicao('VAZIA')],
@@ -103,10 +104,10 @@ test('as casas exportam os ajudantes, e quem os reexporta entrega o mesmo', () =
   assert.equal(jsonSeguroComandos, util.jsonSeguro, 'comandos.js reexporta o de util.js');
   assert.equal(reservasComandos.ESCAPAR, util.REGRA_JSON_SEGURO);
   assert.equal(reservasInstalar.INVISIVEL, util.REGRA_JSON_SEGURO);
-  assert.equal(LINHA_SEM_LEITURA, alerta.LINHA_SEM_LEITURA);
+  assert.equal(LINHA_SEM_LEITURA_NUNCA, alerta.LINHA_SEM_LEITURA_NUNCA);
   assert.equal(typeof base.lerStdin, 'function');
   assert.equal(util.lerStdin, base.lerStdin, 'util.js reexporta o lerStdin de base.js');
-  assert.equal(alerta.LINHA_SEM_LEITURA, 'Consumo sem leitura: rode /usage.');
+  assert.equal(alerta.LINHA_SEM_LEITURA_NUNCA, 'Consumo ainda sem leitura nesta máquina.');
 });
 
 test('numeroFinito e codigoErro: só número finito; o código em texto, senão o padrão', () => {

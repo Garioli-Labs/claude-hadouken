@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizarEffort, horaLocal, diaHora, formatarTokens, milhar, decimal, sanear, EFFORTS_VALIDOS, effortValido } from '../src/util.js';
+import { normalizarEffort, horaLocal, diaHora, quandoLocal, formatarTokens, milhar, decimal, sanear, EFFORTS_VALIDOS, effortValido } from '../src/util.js';
 
 test('normalizarEffort aceita string, objeto e ausência', () => {
   assert.equal(normalizarEffort('high'), 'high');
@@ -381,4 +381,94 @@ test('lerStdin chamado de novo não acumula ouvintes de erro', async () => {
   );
   assert.equal(r.codigo, 0, r.erro);
   assert.equal(r.saida, '1');
+});
+
+// Vigia da P4 (Task 18, Step 0): acima do teto o texto não é devolvido nem
+// acumulado; o resto do stdin é lido até o fim ou o prazo, e só se procura a
+// vigia no texto cru, pedaço a pedaço, com uma sobra entre pedaços.
+const BASE_URL = new URL('../src/base.js', import.meta.url).href;
+const vigiado = (args, depois = '') => `const { lerStdinVigiando } = await import(${JSON.stringify(BASE_URL)});\n` +
+  `const t0 = Date.now(); const p = lerStdinVigiando(${args});\n${depois}\n` +
+  'const r = await p; process.stdout.write(JSON.stringify({ ...r, ms: Date.now() - t0 }));';
+const semMs = ({ ms, ...r }) => r;
+
+test('lerStdinVigiando: abaixo do teto devolve o texto; acima, só diz se a vigia casou', async () => {
+  const casos = [
+    ['1000, 8, /claude|liberar/i', 'abc', { texto: 'abc', excedeu: false, casou: false, cortado: false }],
+    ['1000, 8, /claude|liberar/i', `CLAUDE${'x'.repeat(20)}`, { texto: '', excedeu: true, casou: true, cortado: false }],
+    ['1000, 8, /claude|liberar/i', `${'ç'.repeat(40)}liberar`, { texto: '', excedeu: true, casou: true, cortado: false }],
+    ['1000, 8, /claude|liberar/i', 'x'.repeat(64), { texto: '', excedeu: true, casou: false, cortado: false }],
+    // Sem vigia, o mesmo que lerStdin: acima do teto, vazio.
+    ['1000, 8', `claude${'x'.repeat(20)}`, { texto: '', excedeu: true, casou: false, cortado: false }],
+  ];
+  for (const [args, entrada, esperado] of casos) {
+    const r = await rodarFilho(vigiado(args), { entrada });
+    assert.equal(r.codigo, 0, r.erro);
+    assert.deepEqual(semMs(JSON.parse(r.saida)), esperado, `${args} ${entrada.slice(0, 12)}`);
+  }
+});
+
+test('lerStdinVigiando: a palavra partida entre dois pedaços casa; sem ela, o fim do stdin decide', async () => {
+  // Pedaços emitidos à mão: a fronteira fica exatamente no meio da palavra.
+  const emitir = (...ps) => ps.map((p) => `process.stdin.emit('data', Buffer.from(${JSON.stringify(p)}));`).join('\n');
+  let r = await rodarFilho(vigiado('2000, 8, /claude|liberar/i', emitir('x'.repeat(10), 'y'.repeat(100), 'cla', 'UDE')), { entrada: '', semFim: true });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: true, casou: true, cortado: false });
+  r = await rodarFilho(vigiado('2000, 8, /claude|liberar/i', `${emitir('x'.repeat(10), 'cla', 'u de')}\nprocess.stdin.emit('end');`), { entrada: '', semFim: true });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: true, casou: false, cortado: false });
+});
+
+test('lerStdinVigiando: a vigia que casa termina sem esperar o fim; sem casar, o prazo termina', async () => {
+  // O stdin nunca fecha: com o prazo de 10 s, só a vigia termina a tempo.
+  let r = await rodarFilho(vigiado('10000, 16, /claude|liberar/i'), { entrada: `${'x'.repeat(64)}liberar`, semFim: true, timeoutMs: 8000 });
+  assert.equal(r.codigo, 0, r.erro);
+  let o = JSON.parse(r.saida);
+  assert.deepEqual(semMs(o), { texto: '', excedeu: true, casou: true, cortado: false });
+  assert.ok(o.ms < 2000, `demorou ${o.ms} ms`);
+  r = await rodarFilho(vigiado('200, 16, /claude|liberar/i'), { entrada: 'x'.repeat(64), semFim: true, timeoutMs: 8000 });
+  assert.equal(r.codigo, 0, r.erro);
+  o = JSON.parse(r.saida);
+  assert.deepEqual(semMs(o), { texto: '', excedeu: true, casou: false, cortado: false });
+  assert.ok(o.ms >= 150 && o.ms < 2000, `demorou ${o.ms} ms`);
+});
+
+// M5 da revisão final da parte 1 (spec v0.4.0 §4.5): o prazo que chega com
+// bytes já lidos e sem o fim do stdin é leitura cortada; o hook registra o
+// evento 'erro' (rodarHook em hooks/comum.js). Sem byte nenhum, ou com o fim,
+// não é corte.
+test('lerStdinVigiando: prazo com bytes lidos e sem o fim marca cortado', async () => {
+  let r = await rodarFilho(vigiado('200'), { entrada: '{"a":', semFim: true, timeoutMs: 8000 });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '{"a":', excedeu: false, casou: false, cortado: true });
+  r = await rodarFilho(vigiado('200'), { semFim: true, timeoutMs: 8000 });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '', excedeu: false, casou: false, cortado: false });
+  r = await rodarFilho(vigiado('2000'), { entrada: '{"a":' });
+  assert.equal(r.codigo, 0, r.erro);
+  assert.deepEqual(semMs(JSON.parse(r.saida)), { texto: '{"a":', excedeu: false, casou: false, cortado: false });
+});
+
+// Datas montadas com componentes locais: o teste vale em qualquer fuso.
+const local = (a, m, d, h, min) => new Date(a, m, d, h, min).getTime();
+const s = (ms) => ms / 1000;
+
+test('quandoLocal: hoje, amanhã, ontem e data com dia da semana', () => {
+  const agora = local(2026, 8, 29, 10, 0); // ter 29/09
+  assert.equal(quandoLocal(s(local(2026, 8, 29, 13, 31)), agora), 'hoje 13:31');
+  assert.equal(quandoLocal(s(local(2026, 8, 30, 0, 5)), agora), 'amanhã 00:05');
+  assert.equal(quandoLocal(s(local(2026, 8, 28, 23, 50)), agora), 'ontem 23:50');
+  assert.equal(quandoLocal(s(local(2026, 9, 1, 13, 31)), agora), 'qui 01/10 13:31');
+  // O mesmo dia da semana 7 dias à frente nunca sai só como "ter".
+  assert.equal(quandoLocal(s(local(2026, 9, 6, 9, 0)), agora), 'ter 06/10 09:00');
+});
+
+test('quandoLocal: virada de ano e entradas inválidas', () => {
+  const agora = local(2026, 11, 31, 23, 0);
+  assert.equal(quandoLocal(s(local(2027, 0, 1, 1, 0)), agora), 'amanhã 01:00');
+  assert.equal(quandoLocal(s(local(2027, 0, 3, 1, 0)), agora), 'dom 03/01 01:00');
+  for (const ruim of [NaN, Infinity, '1', null, undefined]) {
+    assert.equal(quandoLocal(ruim, agora), '—');
+    assert.equal(quandoLocal(1_800_000_000, ruim), '—');
+  }
 });

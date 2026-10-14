@@ -8,6 +8,7 @@ import path from 'node:path';
 import {
   dirDados, lerJson, gravarJsonAtomico, atualizarEstado, limitesValidos, validarEstado,
   idValido, instante, LIMITE_VELHO_MS, MAX_SESSOES, SESSAO_MAX_MS, ARQ_ESTADO,
+  leiturasComPiso, LEITURA_PISO_MAX_MS, ultimaLeitura,
 } from '../src/estado.js';
 import { EFFORTS_VALIDOS, TOLERANCIA_JANELA_S } from '../src/util.js';
 import { formatarBarra } from '../src/formato.js';
@@ -370,8 +371,8 @@ test('sessões lidas do disco passam pelo mesmo validador', () => {
   atualizarEstado(entrada({ session_id: 'nova' }), agora);
   const e = lerEstado();
   assert.deepEqual(Object.keys(e.sessoes).sort(), ['boa', 'nova', 'turbo']);
-  assert.deepEqual(e.sessoes.turbo, { at: iso(agora - 1000), model: null, effort: null, cwd: null, context_pct: null, cache_hit: null });
-  assert.deepEqual(e.sessoes.boa, { at: iso(agora - 2000), model: 'Opus', effort: 'low', cwd: 'C:/p', context_pct: 12, cache_hit: 0.5 });
+  assert.deepEqual(e.sessoes.turbo, { at: iso(agora - 1000), trabalho: null, model: null, effort: null, cwd: null, context_pct: null, cache_hit: null });
+  assert.deepEqual(e.sessoes.boa, { at: iso(agora - 2000), trabalho: null, model: 'Opus', effort: 'low', cwd: 'C:/p', context_pct: 12, cache_hit: 0.5 });
   semPoluicao();
 });
 
@@ -1282,4 +1283,112 @@ test('I-2: at por janela ausente, nulo, so no prototipo, invalido ou sem o do to
   const misto = validarEstado({ versao: 1, at: iso(agora - 5000), five_hour: f5, seven_day: s7, sessoes: {} }, agora);
   assert.deepEqual([misto.at, misto.five_hour.at, misto.seven_day.at], [iso(agora - 5000), null, iso(agora - 1000)]);
   semPoluicao();
+});
+
+test('leiturasComPiso: fresca até 1 h, piso até 24 h com reset no futuro, nada depois', () => {
+  const agora = Date.UTC(2026, 8, 29, 12, 0);
+  const iso = (ms) => new Date(ms).toISOString();
+  const est = (idadeMs, resetS) => ({
+    versao: 1, at: iso(agora - idadeMs), sessoes: {}, historico: [],
+    five_hour: null,
+    seven_day: { used_percentage: 86, resets_at: resetS, at: iso(agora - idadeMs) },
+  });
+  const futuro = agora / 1000 + 3 * 86_400;
+  const casos = [
+    [59 * 60_000, true], [61 * 60_000, false], [23 * 3_600_000, false],
+  ];
+  for (const [idade, fresca] of casos) {
+    const r = leiturasComPiso(est(idade, futuro), agora);
+    assert.deepEqual(r.seven_day, { used_percentage: 86, resets_at: futuro, idadeMs: idade, fresca });
+    assert.equal(r.five_hour, null);
+  }
+  assert.equal(leiturasComPiso(est(25 * 3_600_000, futuro), agora).seven_day, null);
+  assert.equal(leiturasComPiso(est(2 * 3_600_000, agora / 1000 - 1), agora).seven_day, null);
+  assert.equal(LEITURA_PISO_MAX_MS, 86_400_000);
+});
+
+test('leiturasComPiso: entrada inválida nunca lança', () => {
+  const vazio = { five_hour: null, seven_day: null };
+  for (const ruim of [null, 1, 'x', [], { versao: 2 }]) assert.deepEqual(leiturasComPiso(ruim, Date.now()), vazio);
+  assert.deepEqual(leiturasComPiso({ versao: 1 }, NaN), vazio);
+});
+
+test('ultimaLeitura (spec v0.4.0 §10, item 1): a leitura mais nova de qualquer idade, janelas como estão', () => {
+  const H = 3_600_000;
+  const v = {
+    versao: 1, at: iso(agora - 30 * H),
+    five_hour: { used_percentage: 40, resets_at: (agora - 26 * H) / 1000, at: iso(agora - 30 * H) },
+    seven_day: { used_percentage: 61, resets_at: (agora + 72 * H) / 1000, at: iso(agora - 26 * H) },
+    sessoes: {}, historico: [],
+  };
+  assert.deepEqual(ultimaLeitura(validarEstado(v, agora), agora), {
+    desdeMs: agora - 26 * H,
+    five_hour: { used_percentage: 40, resets_at: (agora - 26 * H) / 1000 },
+    seven_day: { used_percentage: 61, resets_at: (agora + 72 * H) / 1000 },
+  });
+  // Formato de antes (sem `at` por janela): vale o do topo.
+  const antigo = { ...v, five_hour: { used_percentage: 40, resets_at: agoraS + 3600 }, seven_day: null };
+  assert.equal(ultimaLeitura(validarEstado(antigo, agora), agora).desdeMs, agora - 30 * H);
+  assert.equal(ultimaLeitura(null, agora), null);
+  assert.equal(ultimaLeitura({ versao: 2 }, agora), null);
+  assert.equal(ultimaLeitura(validarEstado({ versao: 1, at: null, five_hour: null, seven_day: null, sessoes: {}, historico: [] }, agora), agora), null);
+  assert.equal(ultimaLeitura(validarEstado(v, agora), Number.NaN), null);
+});
+
+// Regra de frescor (spec v0.4.0 §10, item 8; decisão 5 do plano da parte 2).
+const RL_FRESCOR = { five_hour: { used_percentage: 42, resets_at: agoraS + 4 * 3600 }, seven_day: { used_percentage: 48, resets_at: agoraS + 86400 } };
+const datarArq = (arq, ms) => fs.utimesSync(arq, ms / 1000, ms / 1000);
+
+test('foco 3: o mesmo stdin 60 vezes em 60 min não renova at nem cria ponto; transcript escrito depois renova', () => {
+  const tr = path.join(dir, 'sessao.jsonl');
+  fs.writeFileSync(tr, '{}\n');
+  datarArq(tr, agora - 10 * 60_000);
+  const e = entrada({ transcript_path: tr, rate_limits: RL_FRESCOR });
+  atualizarEstado(e, agora);
+  for (let i = 1; i <= 60; i++) atualizarEstado(e, agora + i * 60_000);
+  const v = lerEstado();
+  assert.equal(v.five_hour.at, iso(agora));
+  assert.equal(v.seven_day.at, iso(agora));
+  assert.equal(v.historico.length, 1);
+  // Caso dirigido por evento: o transcript foi escrito depois do `at`, e a
+  // mesma leitura renova (sem regressão).
+  const depois = agora + 61 * 60_000;
+  datarArq(tr, depois - 30_000);
+  atualizarEstado(e, depois);
+  const w = lerEstado();
+  assert.equal(w.five_hour.at, iso(depois));
+  assert.equal(w.seven_day.at, iso(depois));
+  assert.equal(w.historico.length, 2);
+});
+
+test('frescor: valor novo renova mesmo sem transcript novo; transcript sumido conta como não escrito', () => {
+  const tr = path.join(dir, 'sessao.jsonl');
+  fs.writeFileSync(tr, '{}\n');
+  datarArq(tr, agora - 10 * 60_000);
+  atualizarEstado(entrada({ transcript_path: tr, rate_limits: RL_FRESCOR }), agora);
+  const novo = { ...RL_FRESCOR, five_hour: { ...RL_FRESCOR.five_hour, used_percentage: 43 } };
+  atualizarEstado(entrada({ transcript_path: tr, rate_limits: novo }), agora + 5 * 60_000);
+  assert.equal(lerEstado().five_hour.at, iso(agora + 5 * 60_000));
+  const sumiu = path.join(dir, 'sumiu.jsonl');
+  atualizarEstado(entrada({ transcript_path: sumiu, rate_limits: novo }), agora + 10 * 60_000);
+  assert.equal(lerEstado().five_hour.at, iso(agora + 5 * 60_000));
+});
+
+test('frescor: sem transcript_path válido, a regra de antes (renova)', () => {
+  const invalidos = [undefined, 'relativo.jsonl', path.join(dir, 'x.txt'), `${dir}\0x.jsonl`, 42, `/${'a'.repeat(5000)}.jsonl`];
+  for (const [i, t] of invalidos.entries()) {
+    const base = agora + i * 10 * 60_000;
+    atualizarEstado(entrada({ transcript_path: t, rate_limits: RL_FRESCOR }), base);
+    atualizarEstado(entrada({ transcript_path: t, rate_limits: RL_FRESCOR }), base + 60_000);
+    assert.equal(lerEstado().five_hour.at, iso(base + 60_000), String(t));
+  }
+});
+
+test('frescor: janela do formato de antes (sem at próprio) nunca conta como repetida', () => {
+  const tr = path.join(dir, 'sessao.jsonl');
+  fs.writeFileSync(tr, '{}\n');
+  datarArq(tr, agora - 10 * 60_000);
+  gravarBruto({ versao: 1, at: iso(agora - 60_000), five_hour: { ...RL_FRESCOR.five_hour }, seven_day: { ...RL_FRESCOR.seven_day }, sessoes: {}, historico: [] });
+  atualizarEstado(entrada({ transcript_path: tr, rate_limits: RL_FRESCOR }), agora);
+  assert.equal(lerEstado().five_hour.at, iso(agora));
 });

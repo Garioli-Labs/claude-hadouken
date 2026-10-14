@@ -27,6 +27,9 @@ export const MAX_SESSOES = 50;
 // Sessão ativa (spec v0.2.0 §12.1): o `at` dela em estado.sessoes, que a barra
 // renova a cada atualização, tem no máximo isto de idade.
 export const ATIVA_RECENTE_MS = 5 * 60_000;
+// mtime do transcript acima de agora + isto não vale como escrita (relógio
+// adiantado ou touch): senão a sessão ficaria ativa para sempre.
+const MTIME_FOLGA_MS = 5_000;
 // Histórico curto das leituras de limite (spec v0.2.0 §12.2): no máximo um
 // ponto a cada HISTORICO_PASSO_MS e HISTORICO_MAX pontos, nenhum com mais de
 // HISTORICO_IDADE_MS. Só a previsão de estouro (previsao.js) o lê.
@@ -85,8 +88,9 @@ export function lerJson(arquivo, maxBytes = MAX_BYTES_PADRAO) {
 // fstat já decidia, porque o stat nunca protegeu contra o que fosse trocado
 // entre ele e o open. O que o stat recusava antes (pasta, junção, FIFO,
 // dispositivo) agora é aberto e recusado aqui sem ler um byte; o O_NONBLOCK
-// impede que um FIFO trave o open.
-function lerLimitado(arquivo, limite) {
+// impede que um FIFO trave o open. Exportada para o frontmatter dos agentes
+// (guarda/despacho.js, M7 da revisão final da parte 1), que não é JSON.
+export function lerLimitado(arquivo, limite) {
   let fd;
   try {
     fd = fs.openSync(arquivo, ABRIR_LEITURA);
@@ -317,8 +321,10 @@ function sessaoValida(bruta, agoraMs) {
   if (!ehObjeto(bruta)) return null;
   const t = instante(bruta.at, agoraMs);
   if (t === null || agoraMs - t > SESSAO_MAX_MS) return null;
+  const tt = instante(bruta.trabalho, agoraMs);
   return {
     at: new Date(t).toISOString(),
+    trabalho: tt === null ? null : new Date(tt).toISOString(),
     model: sanear(bruta.model, MAX_MODEL),
     effort: effortValido(bruta.effort),
     cwd: sanear(bruta.cwd, MAX_CWD),
@@ -352,10 +358,28 @@ function juntarSessoes(lista, atual) {
   return sessoes;
 }
 
-function sessaoDaEntrada(e, agoraIso, agoraMs) {
+// `at` é o último tick da barra (o Collector o usa para saber se há outra
+// sessão aberta); `trabalho` é o último tick em que o transcript foi escrito,
+// o que conta para sessoesAtivas. A barra redesenha a cada refreshInterval
+// mesmo com o terminal parado: sem transcript novo desde o trabalho anterior,
+// ele fica (portão v0.4.0, I-1). Sem caminho utilizável no stdin
+// (mtimeTranscript undefined): cada tick conta como trabalho, a regra de antes.
+function sessaoDaEntrada(e, agoraIso, agoraMs, anteriores) {
   if (!idValido(e.session_id)) return null;
+  const prev = ehObjeto(anteriores) && Object.hasOwn(anteriores, e.session_id) ? anteriores[e.session_id] : null;
+  const prevT = ehObjeto(prev) ? instante(prev.trabalho ?? prev.at, agoraMs) : null;
+  let trabalho = agoraIso;
+  if (prevT !== null) {
+    // Escrita só conta com mtime depois do trabalho anterior e não no futuro.
+    // Transcript ainda não criado (sessão aberta sem mensagem), link ou
+    // pasta (null) é não escrito, como em stdinRepetido.
+    const m = mtimeTranscript(e.transcript_path);
+    const escreveu = numeroFinito(m) && m > prevT && m <= agoraMs + MTIME_FOLGA_MS;
+    if (m !== undefined && !escreveu) trabalho = new Date(prevT).toISOString();
+  }
   const s = sessaoValida({
     at: agoraIso,
+    trabalho,
     model: ehObjeto(e.model) ? e.model.display_name : undefined,
     effort: e.effort,
     cwd: e.cwd,
@@ -422,6 +446,53 @@ function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
   return delta <= -(duracaoS - TOLERANCIA_JANELA_S);
 }
 
+// Regra de frescor (spec v0.4.0 §10, item 8; decisão 5 do plano da parte 2).
+// Com refreshInterval, a statusline roda com a sessão parada e o stdin repete
+// a última leitura do Claude Code; carimbar `at` nela faria um valor parado
+// parecer fresco (mantemGuardada, limitesValidos), e os pontos planos puxariam
+// a inclinação para baixo. "Repetido": toda janela presente é igual à
+// guardada (mesmo valor, reset ±TOLERANCIA_JANELA_S, `at` próprio válido) e o
+// transcript da sessão não foi escrito depois do `at` mais velho delas.
+// Transcript escrito depois (o caso dirigido por evento) renova como antes.
+
+const TRANSCRIPT_MAX = 4096;
+
+// mtime (ms) do transcript da sessão: undefined quando o stdin não traz um
+// caminho utilizável (não texto, vazio, longo, com NUL, relativo, não .jsonl):
+// aí vale a regra de antes. null quando o caminho não é arquivo regular
+// (ausente, pasta, link: lstat não segue) ou o lstat falha: conta como não
+// escrito. Só lstat; nada é aberto nem lido.
+function mtimeTranscript(bruto) {
+  if (typeof bruto !== 'string' || bruto.length === 0 || bruto.length > TRANSCRIPT_MAX || bruto.includes('\0')) return undefined;
+  if (!path.isAbsolute(bruto) || !bruto.toLowerCase().endsWith('.jsonl')) return undefined;
+  try {
+    const st = fs.lstatSync(bruto, { throwIfNoEntry: false });
+    return st?.isFile() === true && numeroFinito(st.mtimeMs) ? st.mtimeMs : null;
+  } catch {
+    return null;
+  }
+}
+
+// `lerMtime` só é chamado quando as janelas já batem (um lstat a menos no
+// caso comum, em que o valor mudou).
+function stdinRepetido(anterior, rl, lerMtime, agoraMs) {
+  let maisVelho = null;
+  for (const k of JANELAS) {
+    const nova = janelaValida(rl[k]);
+    if (nova === null) continue;
+    const g = anterior[k];
+    if (!ehObjeto(g) || typeof g.at !== 'string') return false;
+    const lidaEm = instante(g.at, agoraMs);
+    if (lidaEm === null) return false;
+    if (nova.used_percentage !== g.used_percentage || Math.abs(nova.resets_at - g.resets_at) > TOLERANCIA_JANELA_S) return false;
+    if (maisVelho === null || lidaEm < maisVelho) maisVelho = lidaEm;
+  }
+  if (maisVelho === null) return false;
+  const m = lerMtime();
+  if (m === undefined) return false;
+  return m === null || m <= maisVelho;
+}
+
 // Junta a entrada da statusline ao estado gravado e regrava `estado.json`.
 // Cada janela da leitura nova passa por mantemGuardada. A que entra ganha
 // `at` = agora; a segurada fica com o próprio `at`, que só uma leitura real
@@ -429,6 +500,8 @@ function mantemGuardada(guardada, nova, duracaoS, agoraMs) {
 // fica null: nenhum valor guardado sobrevive a uma leitura de agora sem ter
 // sido comparado. Se nenhuma entrou (sem leitura válida, ou só leituras
 // seguradas), o instantâneo anterior fica como está, cada janela com seu `at`.
+// Stdin repetido (stdinRepetido, spec v0.4.0 §10, item 8): nenhuma janela
+// entra, e `at` e histórico ficam parados.
 // O `at` do topo é sempre atDoTopo das janelas gravadas, e o histórico ganha
 // o ponto desta leitura (historicoDepois). Devolve o
 // estado mesmo quando a gravação falha, para a barra seguir mostrando a
@@ -453,9 +526,10 @@ export function atualizarEstado(entrada, agoraMs) {
     // (mantemGuardada, a mesma régua de limitesValidos, que já não exibe a
     // janela velha): a leitura velha de uma sessão ociosa só ganha quando
     // ninguém leu aquela janela na última hora, e aí é o melhor dado que há.
+    const repetido = stdinRepetido(anterior, rl, () => mtimeTranscript(e.transcript_path), agoraMs);
     for (const k of JANELAS) {
       const nova = janelaValida(rl[k]);
-      const fica = nova !== null && mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs);
+      const fica = nova !== null && (repetido || mantemGuardada(anterior[k], nova, DURACAO_S[k], agoraMs));
       if (fica) novas[k] = anterior[k];
       else novas[k] = nova === null ? null : { ...nova, at: agoraIso };
       if (nova !== null && !fica) {
@@ -467,7 +541,7 @@ export function atualizarEstado(entrada, agoraMs) {
     // de agora); se nada entrou, o snapshot guardado fica inteiro, com seus at.
     if (entrou) Object.assign(estado, { at: atDoTopo([novas.five_hour, novas.seven_day], null), ...novas });
     else Object.assign(estado, { at: anterior.at, five_hour: anterior.five_hour, seven_day: anterior.seven_day });
-    estado.sessoes = juntarSessoes(Object.entries(anterior.sessoes), sessaoDaEntrada(e, agoraIso, agoraMs));
+    estado.sessoes = juntarSessoes(Object.entries(anterior.sessoes), sessaoDaEntrada(e, agoraIso, agoraMs, anterior.sessoes));
     estado.historico = historicoDepois(anterior, entraram, agoraMs, agoraIso);
     const r = gravarJsonAtomico(arq, estado);
     return r.ok ? { ok: true, estado } : { ok: false, motivo: r.motivo, estado };
@@ -476,8 +550,8 @@ export function atualizarEstado(entrada, agoraMs) {
   }
 }
 
-// Sessões ativas (spec §12.1): as de estado.sessoes com id válido e `at`
-// legível por instante (até 5 min no futuro) de no máximo ATIVA_RECENTE_MS,
+// Sessões ativas (spec §12.1): as de estado.sessoes com id válido e
+// `trabalho` (ou, no formato de antes, `at`) legível por instante (até 5 min no futuro) de no máximo ATIVA_RECENTE_MS,
 // mais `atual`, se for id válido e ainda não contado (a sessão que chama está
 // trabalhando agora, mesmo que a barra dela não tenha redesenhado nos últimos
 // minutos). Inteiro de 0 a MAX_SESSOES, o teto de estado.sessoes. Nunca lança.
@@ -489,7 +563,7 @@ export function sessoesAtivas(estado, agoraMs, atual) {
     let contouAtual = false;
     for (const [id, s] of Object.entries(sessoes)) {
       if (!idValido(id) || !ehObjeto(s)) continue;
-      const t = instante(s.at, agoraMs);
+      const t = instante(s.trabalho ?? s.at, agoraMs);
       if (t === null || agoraMs - t > ATIVA_RECENTE_MS) continue;
       n++;
       if (id === atual) contouAtual = true;
@@ -518,6 +592,60 @@ export function limitesValidos(estado, agoraMs) {
       limites[k] = { used_percentage: j.used_percentage, resets_at: j.resets_at };
     }
     return limites.five_hour || limites.seven_day ? limites : null;
+  } catch {
+    return null;
+  }
+}
+
+// Idade máxima de uma leitura usada como piso pela guarda (spec v0.4.0 §5.1).
+export const LEITURA_PISO_MAX_MS = 24 * 3_600_000;
+
+// Leituras da guarda (spec v0.4.0 §5.1): por janela, a leitura fresca (até
+// LIMITE_VELHO_MS) ou o piso (até LEITURA_PISO_MAX_MS, com reset ainda no
+// futuro). O uso só sobe dentro de uma janela, então o valor antigo é um
+// mínimo. Mesmo schema e mesma idade por janela de limitesValidos
+// (janelaGuardada e leituraDe); `fresca` separa os dois casos. Nunca lança.
+export function leiturasComPiso(estado, agoraMs) {
+  const vazio = { five_hour: null, seven_day: null };
+  try {
+    if (!ehObjeto(estado) || estado.versao !== VERSAO || !numeroFinito(agoraMs)) return vazio;
+    const tTopo = instante(estado.at, agoraMs);
+    const r = { five_hour: null, seven_day: null };
+    for (const k of JANELAS) {
+      const j = janelaGuardada(estado[k], tTopo, agoraMs);
+      if (j === null) continue;
+      const lidaEm = leituraDe(j, tTopo);
+      if (!numeroFinito(lidaEm) || j.resets_at * 1000 <= agoraMs) continue;
+      const idadeMs = Math.max(0, agoraMs - lidaEm);
+      if (idadeMs > LEITURA_PISO_MAX_MS) continue;
+      r[k] = { used_percentage: j.used_percentage, resets_at: j.resets_at, idadeMs, fresca: idadeMs <= LIMITE_VELHO_MS };
+    }
+    return r;
+  } catch {
+    return vazio;
+  }
+}
+
+// Última leitura conhecida (spec v0.4.0 §10, item 1): o instante da leitura
+// mais nova entre as janelas guardadas, de qualquer idade, e as duas janelas
+// como estão (o reset pode já ter passado; quem usa decide). Serve à linha
+// "sem leitura nova desde {quando}" quando não há leitura fresca nem piso.
+// Mesmo schema e mesmo `at` por janela de leiturasComPiso. null sem janela
+// nenhuma (nunca houve leitura, ou o estado é ilegível). Nunca lança.
+export function ultimaLeitura(estado, agoraMs) {
+  try {
+    if (!ehObjeto(estado) || estado.versao !== VERSAO || !numeroFinito(agoraMs)) return null;
+    const tTopo = instante(estado.at, agoraMs);
+    const r = { desdeMs: null, five_hour: null, seven_day: null };
+    for (const k of JANELAS) {
+      const j = janelaGuardada(estado[k], tTopo, agoraMs);
+      if (j === null) continue;
+      const lidaEm = leituraDe(j, tTopo);
+      if (!numeroFinito(lidaEm)) continue;
+      r[k] = { used_percentage: j.used_percentage, resets_at: j.resets_at };
+      if (r.desdeMs === null || lidaEm > r.desdeMs) r.desdeMs = lidaEm;
+    }
+    return r.desdeMs === null ? null : r;
   } catch {
     return null;
   }

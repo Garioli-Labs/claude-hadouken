@@ -21,6 +21,7 @@ const corCache = (n) => (n >= FAIXAS_CACHE.verde ? 'verde' : n >= FAIXAS_CACHE.a
 const MAX_MODELO = 40;
 const SEM_VALOR = '—';
 const SEPARADOR = ' │ ';
+const GUARDA_MAX = 120;
 const noIntervalo = (n, min, max) => numeroFinito(n) && n >= min && n <= max;
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const pinta = (texto, cor, ligado) => (ligado ? `${COR[cor]}${texto}${COR.fim}` : texto);
@@ -49,10 +50,11 @@ function indicador(rotulo, valor, resto) {
 // As opções antigas `limites`, `agoraMs`, `previsao` e `sessoesAtivas` seguem
 // aceitas, para não quebrar quem chama, mas nem são lidas. Campo ausente ou
 // fora do schema vira "—". Nunca lança: uma falha interna devolve '' (spec
-// 6.4, linha vazia).
+// 6.4, linha vazia). Spec §8.3: `guarda` (texto de segmentoBarra) vai no fim,
+// saneado; vazio não muda nada.
 export function formatarBarra(opcoes) {
   try {
-    const { entrada, cor } = opcoes ?? {};
+    const { entrada, cor, guarda } = opcoes ?? {};
     const e = ehObjeto(entrada) ? entrada : {};
     const ligado = cor === true;
 
@@ -78,6 +80,11 @@ export function formatarBarra(opcoes) {
     } else {
       partes.push(`cache ${SEM_VALOR}`);
     }
+
+    // Spec v0.4.0 §8.3: o segmento da guarda (mensagens.segmentoBarra), no
+    // fim e só quando há algo a dizer. Texto do código, saneado mesmo assim (S3).
+    const g = typeof guarda === 'string' && guarda.length > 0 ? sanear(guarda, GUARDA_MAX) : null;
+    if (g) partes.push(g);
 
     return partes.join(SEPARADOR);
   } catch {

@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { rodarHook, emitirContexto } from './comum.js';
+import { rodarHook, emitirContexto, emitirJson, falharAberto, dentroDeSubagente } from './comum.js';
 import { caminhoDoAmbiente, dirDados, idValido } from '../base.js';
 import { registrarSessao } from '../ativas.js';
 
@@ -16,9 +18,23 @@ import { registrarSessao } from '../ativas.js';
 // 4. depois da saída, com os shims em dia e sem HADOUKEN_SEM_PAINEL=1,
 //    dispara em segundo plano a instalação da extensão do painel no VS Code
 //    (dispararPainel). Nada deste passo entra no contexto (zero tokens), e o
-//    hook não espera o filho.
+//    hook não espera o filho;
+// 5. grava a marca da guarda e o modelo da sessão (spec v0.4.0 §4.3);
+// 6. fotografa os campos da guarda (disableAllHooks, enabledPlugins, hooks)
+//    dos três settings da sessão em <dirDados>/config-base.json, a base do
+//    hook ConfigChange (Task 19b, guarda/config-base.js). Roda em toda origem,
+//    mas só grava o que a sessão ainda não tem: um compact, clear ou resume
+//    da mesma sessão não troca a base dela (fix round 1). A fotografia nunca
+//    derruba nem muda a saída: erro vira o evento 'erro' config-foto.
+// 7. com o aprendizado ligado (otel/ligado.json), o anúncio e os avisos do
+//    aprendizado vão ao usuário pelo systemMessage (spec aprendizado §4.6,
+//    R13), fora do contexto do Claude; depois da saída, a vida do Collector e
+//    o passo de aprendizado (passo.js). Desligado, nada disso é carregado; só
+//    um otel/coletor.pid que sobrou de um desligar cuja parada falhou (Task
+//    10) carrega passo.js, para uma parada por melhor esforço.
 // session_id ausente ou inválido, ou sem diretório de dados: nenhum registro,
-// nenhuma linha, nenhuma escrita.
+// nenhuma linha, nenhuma escrita. O mesmo dentro de um subagente
+// (dentroDeSubagente, spec v0.4.0 §10, item 3).
 //
 // Texto injetado (spec 8.1, S1): só números validados, horários formatados e
 // rótulos fixos de linha-estado.js. Nada de estado.json, do stdin, do
@@ -63,15 +79,54 @@ async function dispararPainel(dir, agoraMs) {
   }
 }
 
+// otel/coletor.pid como arquivo regular (lstat; link não conta): com o
+// aprendizado desligado, é tudo o que se olha (o fs já veio com base.js).
+function pidDeColetor(arquivo) {
+  try {
+    return fs.lstatSync(arquivo, { throwIfNoEntry: false })?.isFile() === true;
+  } catch {
+    return false;
+  }
+}
+
 rodarHook(async (entrada) => {
   if (entrada === null || !Object.hasOwn(entrada, 'session_id')) return;
   const sessionId = entrada.session_id;
   if (!idValido(sessionId)) return;
+  // Spec v0.4.0 §10, item 3: dentro de um subagente (o SessionStart:compact
+  // dele chega com o session_id da mãe), nada. Nem registro, nem shims, nem
+  // linha, nem modelo: o `model` ali é o do subagente, e gravá-lo como o da
+  // sessão soltaria a P2 e a P3 numa sessão Fable.
+  if (dentroDeSubagente(entrada)) return;
   const dir = dirDados();
   if (dir === null) return;
   const agoraMs = Date.now();
   const registro = registrarSessao(sessionId, agoraMs);
-  const [{ sincronizarShims }, { ARQ_ESTADO, lerJson, validarEstado, limitesValidos }, linhas] = await Promise.all([
+  // Spec v0.4.0 §4.3 e §11: a marca "sessão com a guarda" e o modelo da
+  // sessão (o campo model do SessionStart, quando vier). Uma exceção aqui
+  // registra 'erro' e não tira a linha de consumo nem os shims (§4.5). A
+  // marca que não grava (marcarSessao devolve ok false, sem lançar; ex.:
+  // guarda-sessoes como arquivo) também vira 'erro', e o modelo segue.
+  await falharAberto(dir, 'SessionStart', agoraMs, async () => {
+    const reg = await import('../guarda/registros.js');
+    if (!reg.marcarSessao(dir, sessionId).ok) reg.anexarEvento(dir, 'erro', 'SessionStart', agoraMs);
+    const modelo = reg.normalizarModelo(entrada.model);
+    if (modelo !== null) reg.gravarModeloSessao(dir, sessionId, modelo, agoraMs);
+  });
+  // Task 19b: a fotografia dos settings da sessão (o do usuário e os dois do
+  // projeto no cwd; sem cwd absoluto na entrada, o do processo, que o Claude
+  // Code abre no projeto), sob o session_id; o que a sessão já tem fica.
+  // Exceção (o hash, a casa que não se lê) ou gravação que falha: 'erro'
+  // config-foto, e o SessionStart segue igual.
+  await falharAberto(dir, 'config-foto', agoraMs, async () => {
+    const foto = await import('../guarda/config-base.js');
+    const cwd = typeof entrada.cwd === 'string' && path.isAbsolute(entrada.cwd) ? entrada.cwd : process.cwd();
+    let casa = null;
+    try { casa = os.homedir(); } catch { /* sem casa: o do usuário só pelo CLAUDE_CONFIG_DIR */ }
+    const arquivos = foto.settingsDaSessao({ cwd, configDir: process.env.CLAUDE_CONFIG_DIR, casa });
+    if (!foto.fotografar(dir, sessionId, arquivos, agoraMs).ok) (await import('../guarda/registros.js')).anexarEvento(dir, 'erro', 'config-foto', agoraMs);
+  });
+  const [{ sincronizarShims }, { ARQ_ESTADO, lerJson, validarEstado, leiturasComPiso, ultimaLeitura }, linhas] = await Promise.all([
     import('../shim.js'),
     import('../estado.js'),
     import('./linha-estado.js'),
@@ -79,9 +134,38 @@ rodarHook(async (entrada) => {
   const shims = sincronizarShims(process.env.CLAUDE_PLUGIN_ROOT);
   const lido = lerJson(path.join(dir, ARQ_ESTADO));
   const estado = lido.ok ? validarEstado(lido.valor, agoraMs) : null;
-  const saida = [linhas.linhaEstado(limitesValidos(estado, agoraMs), agoraMs)];
+  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs))];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
-  emitirContexto('SessionStart', saida.join('\n'));
+  // Aprendizado (spec aprendizado §4.6, §11, R13): arquivos.js é leve;
+  // passo.js só carrega com o aprendizado ligado. Um import que falha não
+  // tira a linha de consumo: segue como desligado.
+  let apr = null;
+  try {
+    apr = await import('../aprendizado/arquivos.js');
+  } catch { /* sem aprendizado nesta sessão */ }
+  const aprendizadoLigado = apr !== null && apr.ligadoExiste(dir);
+  let aprendizado = [];
+  if (aprendizadoLigado) {
+    try {
+      aprendizado = (await import('../aprendizado/passo.js')).linhasDoInicio({ dir, agoraMs });
+    } catch { /* sem linha do aprendizado nesta sessão */ }
+  }
+  // Ao usuário, fora do contexto do Claude (systemMessage): a linha de
+  // retomada (spec v0.4.0 §10, item 11: ao retomar com o cache expirado) e
+  // as do aprendizado (R13).
+  const retomada = linhas.linhaRetomada(entrada);
+  const aoUsuario = [retomada, ...aprendizado].filter((x) => typeof x === 'string' && x.length > 0);
+  if (aoUsuario.length === 0) emitirContexto('SessionStart', saida.join('\n'));
+  else emitirJson({ systemMessage: aoUsuario.join('\n'), hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: saida.join('\n') } });
   if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await dispararPainel(dir, agoraMs);
+  if (aprendizadoLigado) {
+    try {
+      (await import('../aprendizado/passo.js')).depoisDoInicio({ dir, sessionId, source: entrada.source, agoraMs });
+    } catch { /* o passo registra os próprios erros; um import que falha só pula o passo */ }
+  } else if (apr !== null && pidDeColetor(apr.caminhos(dir).pid)) {
+    try {
+      (await import('../aprendizado/passo.js')).pararSemLigado({ dir, agoraMs });
+    } catch { /* melhor esforço: a próxima sessão tenta de novo */ }
+  }
 });

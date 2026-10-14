@@ -2,6 +2,8 @@
 
 > **Escopo (Sr. Garioli, 2026-09-29, noite):** a guarda saiu da v0.3.0 e entra na v0.4.0. A v0.3.0 foi lançada com o painel no VS Code e a barra só da sessão (plano `2026-09-29-painel-vscode.md`).
 
+> **Pré-voo (2026-09-30):** F1–F9 e D1–D7 do pré-voo aplicados.
+
 > **Para agentes:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam checkbox (`- [ ]`).
 
 **Objetivo:** travar despacho de subagente, uso do Fable e despacho caro (effort alto), onde o gasto começa, até o Sr. Garioli liberar com `/claude-hadouken:liberar`.
@@ -129,7 +131,7 @@ export const JANELA_5H_MS = 20 * 60_000;
 export const JANELA_7D_MS = 3 * 3_600_000;
 export const PONTOS_MIN = 3;
 export const COBERTURA_MIN_MS = 6 * 60_000;
-// Regras por janela (spec v0.3.0 §10, item 2, proposta 2 da pesquisa): no 7d,
+// Regras por janela (spec v0.4.0 §10, item 2, proposta 2 da pesquisa): no 7d,
 // 26 min de pontos projetavam estouro semanal a partir de uma rajada (B1).
 // O 7d exige 2 h de cobertura e 10 pontos; o 5h fica como na v0.2.
 export const REGRAS_JANELA = Object.freeze({
@@ -238,7 +240,7 @@ const inicioDoDia = (ms) => {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 };
 
-// Horário de 7d sem ambiguidade (spec v0.3.0 §10, item 7): "hoje 13:31",
+// Horário de 7d sem ambiguidade (spec v0.4.0 §10, item 7): "hoje 13:31",
 // "amanhã 13:31", "ontem 23:50" ou "qui 02/10 13:31". Nunca só o dia da
 // semana, que repete 7 dias à frente. A diferença de dias sai das meias-noites
 // locais, arredondada (o horário de verão muda um dia para 23 ou 25 h).
@@ -324,10 +326,10 @@ Expected: FAIL (export ausente).
 - [ ] **Step 3: Implementar em `src/estado.js`** (depois de `limitesValidos`)
 
 ```js
-// Idade máxima de uma leitura usada como piso pela guarda (spec v0.3.0 §5.1).
+// Idade máxima de uma leitura usada como piso pela guarda (spec v0.4.0 §5.1).
 export const LEITURA_PISO_MAX_MS = 24 * 3_600_000;
 
-// Leituras da guarda (spec v0.3.0 §5.1): por janela, a leitura fresca (até
+// Leituras da guarda (spec v0.4.0 §5.1): por janela, a leitura fresca (até
 // LIMITE_VELHO_MS) ou o piso (até LEITURA_PISO_MAX_MS, com reset ainda no
 // futuro). O uso só sobe dentro de uma janela, então o valor antigo é um
 // mínimo. Mesmo schema e mesma idade por janela de limitesValidos
@@ -442,6 +444,22 @@ test('lerConfigGuarda: ausente, ilegível e válido', () => {
   assert.equal(lerConfigGuarda(tmp).config.teto7d, 70);
   assert.deepEqual(lerConfigGuarda(null), { config: { ...PADRAO_GUARDA }, avisos: [] });
 });
+
+test('lerConfigGuarda: config.json presente que não abre é ilegível, não ausente (fail-closed)', (t) => {
+  // lerJson devolve 'ausente' quando o open falha num arquivo que existe
+  // (preso por outro processo, sem permissão). Aqui isso vira padrões com
+  // aviso: um "ligada: false" que não se lê nunca desliga a guarda.
+  if (process.platform === 'win32' || process.getuid?.() === 0) { t.skip('sem como negar a leitura de um arquivo aqui'); return; }
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk-cfg-'));
+  try {
+    const arq = path.join(d, 'config.json');
+    fs.writeFileSync(arq, JSON.stringify({ guarda: { ligada: false } }));
+    fs.chmodSync(arq, 0o000);
+    assert.deepEqual(lerConfigGuarda(d), { config: { ...PADRAO_GUARDA }, avisos: ['config.json ilegível: guarda com os padrões'] });
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
 ```
 
 - [ ] **Step 2: Rodar e ver falhar**
@@ -452,10 +470,11 @@ Expected: FAIL (módulo ausente).
 - [ ] **Step 3: Implementar `src/guarda/config.js`**
 
 ```js
+import fs from 'node:fs';
 import path from 'node:path';
 import { lerJson } from '../estado.js';
 
-// Tetos da guarda (spec v0.3.0 §5.4, D1 emendado em 2026-09-29): a chave
+// Tetos da guarda (spec v0.4.0 §5.4, D1 emendado em 2026-09-29): a chave
 // `guarda` do mesmo config.json dos repos. reposValidos (v0.1 e v0.2) ignora
 // chaves que não conhece, então a chave nova não muda nada para eles (§14).
 // Cada campo é inteiro numa faixa fixa; o que não passa usa o padrão e gera
@@ -514,15 +533,30 @@ export function guardaDaConfig(valor) {
   }
 }
 
+// O arquivo existe no disco, mesmo que não abra. lerJson devolve 'ausente'
+// também quando o open falha num arquivo presente (preso por outro processo,
+// sem permissão); só ENOENT/ENOTDIR no lstat é ausência de fato (a mesma
+// regra de faltaArquivo em consumo.js, que não se importa daqui).
+function existe(arquivo) {
+  try {
+    fs.lstatSync(arquivo);
+    return true;
+  } catch (e) {
+    return !(e?.code === 'ENOENT' || e?.code === 'ENOTDIR');
+  }
+}
+
 // Lê <dir>/config.json. `dir` null ou arquivo ausente: padrões sem aviso.
-// Arquivo presente mas ilegível (JSON quebrado, acima de 64 KiB, pasta): padrões
-// com um aviso. Nunca lança.
+// Arquivo presente mas ilegível (JSON quebrado, acima de 64 KiB, pasta, preso
+// ou sem permissão): padrões com um aviso (fail-closed: um "ligada: false"
+// que não se lê nunca desliga a guarda). Nunca lança.
 export function lerConfigGuarda(dir) {
   try {
     if (typeof dir !== 'string') return { config: { ...PADRAO_GUARDA }, avisos: [] };
-    const lido = lerJson(path.join(dir, ARQ_CONFIG), CONFIG_MAX_BYTES);
+    const arquivo = path.join(dir, ARQ_CONFIG);
+    const lido = lerJson(arquivo, CONFIG_MAX_BYTES);
     if (!lido.ok) {
-      return lido.motivo === 'ausente'
+      return lido.motivo === 'ausente' && !existe(arquivo)
         ? { config: { ...PADRAO_GUARDA }, avisos: [] }
         : { config: { ...PADRAO_GUARDA }, avisos: ['config.json ilegível: guarda com os padrões'] };
     }
@@ -541,7 +575,7 @@ Expected: PASS. `test/consumo.test.js` continua passando: `reposDaConfig` ignora
 - [ ] **Step 5: Acrescentar o teste de compatibilidade de §14 em `test/consumo.test.js`**
 
 ```js
-test('config.json com guarda e sem repos: repos null, sem aviso (§14 v0.3.0)', () => {
+test('config.json com guarda e sem repos: repos null, sem aviso (§14 v0.4.0)', () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk-cfg-compat-'));
   try {
     fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ guarda: { teto7d: 70 } }));
@@ -625,6 +659,13 @@ test('agente de plugin, embutido sem modelo e nome hostil: desconhecido', () => 
   }
 });
 
+test('modelo desconhecido mantém o effort calculado: max de qualquer modelo é caro (G5, D1 emendado)', () => {
+  assert.deepEqual(perfil({ subagent_type: 'plugin:revisor' }, { env: { CLAUDE_EFFORT: 'max' } }), { modelo: 'desconhecido', effort: 'max', origem: 'desconhecido' });
+  assert.deepEqual(perfil({ subagent_type: 'general-purpose' }, { modeloSessao: undefined, env: { CLAUDE_EFFORT: 'max' } }), { modelo: 'desconhecido', effort: 'max', origem: 'desconhecido' });
+  assert.equal(despachoCaro(perfil({ subagent_type: 'Explore' }, { env: { CLAUDE_EFFORT: 'max' } })), true);
+  assert.deepEqual(perfil({ subagent_type: 'Explore' }), { modelo: 'desconhecido', effort: null, origem: 'desconhecido' });
+});
+
 test('despachoCaro: max em qualquer modelo, xhigh só no Fable', () => {
   assert.equal(despachoCaro({ modelo: 'outro', effort: 'max' }), true);
   assert.equal(despachoCaro({ modelo: 'fable', effort: 'xhigh' }), true);
@@ -664,7 +705,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { effortValido } from '../util.js';
 
-// Perfil de um despacho de subagente (spec v0.3.0 §4.3 e G5 do D1 emendado):
+// Perfil de um despacho de subagente (spec v0.4.0 §4.3 e G5 do D1 emendado):
 // o modelo, na ordem de resolução da documentação (C7): parâmetro `model`,
 // `model` do frontmatter do agente (inherit = seguir), CLAUDE_CODE_SUBAGENT_MODEL
 // e o modelo da sessão; e o effort, do frontmatter ou de CLAUDE_EFFORT, que os
@@ -735,12 +776,16 @@ export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env,
     const effort = effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
     if (ehTexto(ti.model) && ti.model !== 'inherit') return { modelo: classificar(ti.model), effort, origem: 'parametro' };
     if (fm !== null && ehTexto(fm.model) && fm.model !== 'inherit') return { modelo: classificar(fm.model), effort, origem: 'frontmatter' };
+    // Modelo desconhecido não apaga o effort conhecido: G5 vale para effort
+    // max de qualquer modelo (D1 emendado), inclusive de um que o hook não
+    // resolve (agente de plugin, embutido com padrão próprio).
+    const semModelo = { modelo: 'desconhecido', effort, origem: 'desconhecido' };
     const herda = fm !== null || (typeof nome === 'string' && HERDAM_SESSAO.has(nome));
-    if (!herda) return desconhecido;
+    if (!herda) return semModelo;
     const doAmbiente = env?.CLAUDE_CODE_SUBAGENT_MODEL;
     if (ehTexto(doAmbiente)) return { modelo: classificar(doAmbiente), effort, origem: 'ambiente' };
     if (ehTexto(modeloSessao)) return { modelo: classificar(modeloSessao), effort, origem: 'sessao' };
-    return desconhecido;
+    return semModelo;
   } catch {
     return desconhecido;
   }
@@ -890,7 +935,11 @@ test('travasValidas reconstrói só os campos conhecidos, sem protótipo herdado
   assert.equal(travasValidas(null, agora), null);
 });
 
-test('corrida: duas gravações seguidas com travas diferentes não perdem nenhuma (S21)', () => {
+// Não é um teste de corrida: gravarTravas lê, une e renomeia sem trava de
+// arquivo, e o desenho (S21) aceita perder uma gravação concorrente, porque a
+// condição continua valendo e a avaliação seguinte a grava de novo. Aqui só
+// se confere a união entre gravações sucessivas.
+test('gravações sucessivas com travas diferentes somam pela união (S21)', () => {
   const d = novo();
   gravarTravas(d, { five_hour: trava('G3', agoraS + 600) }, agora);
   gravarTravas(d, { seven_day: trava('G4', agoraS + 86_400) }, agora);
@@ -910,7 +959,7 @@ Expected: FAIL (módulos ausentes).
 import fs from 'node:fs';
 import { lerJson } from '../estado.js';
 
-// Leitura dos arquivos novos da guarda (spec v0.3.0 §14): lstat antes, então
+// Leitura dos arquivos novos da guarda (spec v0.4.0 §14): lstat antes, então
 // um link simbólico no lugar do arquivo é 'invalido' e nunca é seguido, e o
 // teto de bytes é conferido antes de abrir. lerJson confere de novo pelo
 // fstat do descritor. A troca entre o lstat e o open é o limite honesto de
@@ -936,7 +985,7 @@ import { gravarJsonAtomico } from '../estado.js';
 import { instante, numeroFinito } from '../base.js';
 import { lerSemLink } from './arquivo.js';
 
-// Trava da guarda (spec v0.3.0 §5.3 e §4.5). Um gatilho que dispara grava a
+// Trava da guarda (spec v0.4.0 §5.3 e §4.5). Um gatilho que dispara grava a
 // trava da janela dele; ela fica até uma liberação que a cubra ou até o reset
 // (resets_at no passado a derruba na leitura). Várias sessões gravam fundindo
 // a união, com renomeação atômica; uma gravação perdida numa corrida volta na
@@ -1159,7 +1208,7 @@ Expected: FAIL.
 ```js
 import { numeroFinito } from '../base.js';
 
-// Gatilhos da guarda (spec v0.3.0 §5.2, D1 emendado em 2026-09-29). Puro:
+// Gatilhos da guarda (spec v0.4.0 §5.2, D1 emendado em 2026-09-29). Puro:
 // sem E/S e sem relógio. Por janela, o teto vem antes da projeção (G3 antes de
 // G1, G4 antes de G2): o motivo exibido é o mais concreto. G5 (despacho caro)
 // é decidido por despacho na P1; o ritmo linear não trava mais (D1).
@@ -1362,7 +1411,7 @@ import { gravarJsonAtomico } from '../estado.js';
 import { idValido, instante, numeroFinito } from '../base.js';
 import { lerSemLink } from './arquivo.js';
 
-// Liberação da guarda (spec v0.3.0 §6, D4 = opção C em 2026-09-29): sem
+// Liberação da guarda (spec v0.4.0 §6, D4 = opção C em 2026-09-29): sem
 // código. Só o hook UserPromptExpansion de /claude-hadouken:liberar grava este
 // arquivo; o modelo não digita comandos na sessão principal, a P4 nega sessões
 // claude filhas com a guarda disparada e o hook recusa -p e SDK pelo
@@ -1637,7 +1686,7 @@ import { gravarJsonAtomico } from '../estado.js';
 import { idValido, instante, numeroFinito } from '../base.js';
 import { lerSemLink } from './arquivo.js';
 
-// Registros locais da guarda (spec v0.3.0 §4.3, §5.2, §6.5 e §14). Cada um
+// Registros locais da guarda (spec v0.4.0 §4.3, §5.2, §6.5 e §14). Cada um
 // num arquivo novo, com teto de bytes, lstat e reconstrução só dos campos
 // conhecidos. Ilegível é fail-open (lista vazia): são sinais e contagens, não
 // a trava; a trava é guarda.json. Nada daqui volta como texto ao Claude sem
@@ -1790,7 +1839,7 @@ export function gravarModeloSessao(dir, sessionId, modelo, agoraMs) {
   }
 }
 
-// Marca "esta sessão roda os hooks da v0.3.0" (spec §4.1 e §11): a barra diz
+// Marca "esta sessão roda os hooks da v0.4.0" (spec §4.1 e §11): a barra diz
 // "sem guarda nesta sessão" quando a marca falta. Um arquivo vazio por sessão,
 // nome em hex como em ativas/ (o NTFS não diferencia maiúsculas).
 export function marcarSessao(dir, sessionId) {
@@ -2019,7 +2068,7 @@ import { CHAVES_TRAVA, lerTravas, gravarTravas, unirTravas } from './travas.js';
 import { lerLiberacao, coberturaAtual } from './liberacao.js';
 import { despachosFableRecentes, ultimoLimiteFable, modeloDaSessao, anexarEvento } from './registros.js';
 
-// Avaliador central da guarda (spec v0.3.0 §4.1, §4.5 e §5.3). Síncrono, só
+// Avaliador central da guarda (spec v0.4.0 §4.1, §4.5 e §5.3). Síncrono, só
 // arquivos pequenos. Disparo coberto pela liberação ativa não é gravado: ao
 // fim dela, a avaliação seguinte trava de novo se a condição ainda valer.
 // guarda.json ilegível entra como a trava 'ilegivel' (fail-closed). Qualquer
@@ -2114,6 +2163,8 @@ git commit -m "feat: central guard evaluator" -- src/guarda/avaliar.js test/guar
 ---
 
 ### Task 11: Mensagens (§8, D1 e D4 emendados)
+
+> **Adendo E2/E7:** a Task 11b troca o `sem leitura oficial` fixo do segmento de uma sessão Fable pela semana do Fable lida do `uso-oficial.json` (`semana Fable 57%`). `sem leitura oficial` fica só para quando não há leitura válida. Implemente esta como está.
 
 Todos os textos da guarda moram aqui. Eles são modelos fixos, preenchidos só com números validados, horários de `horaLocal`/`quandoLocal` e rótulos do código. Os testes montam o esperado com as mesmas funções de horário, então valem em qualquer fuso.
 
@@ -2232,7 +2283,7 @@ Expected: FAIL.
 import { horaLocal, quandoLocal } from '../util.js';
 import { numeroFinito } from '../base.js';
 
-// Textos da guarda (spec v0.3.0 §8, com D1 e D4 emendados). Modelos fixos,
+// Textos da guarda (spec v0.4.0 §8, com D1 e D4 emendados). Modelos fixos,
 // preenchidos só com números validados aqui (Math.floor de porcentagem,
 // inteiros de configuração), horários de horaLocal/quandoLocal e rótulos
 // deste arquivo. Nada lido de arquivo, stdin, transcript ou frontmatter vira
@@ -2358,28 +2409,54 @@ git commit -m "feat: fixed guard message templates" -- src/guarda/mensagens.js t
 
 ---
 
-### Task 11b: Piso oficial do Fable em G6 e G7 (emenda E7)
+### Task 11b: Piso oficial do Fable em G6 e G7, e a semana do Fable na barra (emendas E2 e E7)
 
-A v0.3.0 passou a gravar a porcentagem oficial da semana do Fable em `uso-oficial.json` (painel, E2–E4), de graça. G6 e G7 ganham um piso por ela:
+A v0.3.0 passou a gravar a porcentagem oficial da semana do Fable em `uso-oficial.json` (painel, E2–E4), de graça. A §7 mudou (E2): o Fable tem leitura oficial e automática. G6 e G7 ganham um piso por ela, e a barra passa a mostrá-la:
 
 - **G6 também dispara pela leitura oficial:** Fable com 100% ou mais, numa leitura de até 15 min, trava o Fable até o reset que o `/usage` informou. O StopFailure (Task 15) continua valendo; o que vier primeiro trava.
-- **G7 aperta perto do limite:** com o Fable em `fable.tetoPct` ou mais (padrão **90**, PROPOSTA a confirmar com o Sr. Garioli), numa leitura de até 15 min, o teto de despachos vira 0 (todo despacho Fable pede liberação), até o reset do Fable.
+- **G7 aperta perto do limite:** com o Fable em `fable.tetoPct` ou mais (padrão **90**, confirmado pelo Sr. Garioli em 2026-09-30), numa leitura de até 15 min, o teto de despachos vira 0 (todo despacho Fable pede liberação), até o reset do Fable.
 - **Leitura velha (mais de 15 min), ausente ou ilegível:** o piso não se aplica, e G6 e G7 seguem só com os dados locais. Sem leitura não se inventa número (§5.5).
+- **Barra numa sessão Fable (§8.3 com E2 e E7):** leitura válida de até 15 min dá `semana Fable 57%`; leitura válida mais velha dá `semana Fable ≥ 57% (leitura de 40 min)` (a semana só sobe até o reset); sem leitura válida (ausente, fora do schema ou de antes do reset do Fable), `sem leitura oficial`.
 
 **Files:**
-- Create: `src/uso/ler-uso.js` (o `lerUso` sai de `painel.js` para cá, com `janelaGravada`, `estadoGravado`, `bloqueioGravado` e as constantes que só eles usam)
-- Modify: `src/uso/painel.js` (importa e reexporta `lerUso` e `ARQ_USO` de `ler-uso.js`, para o shim `painel.mjs` e a extensão continuarem iguais), `src/guarda/config.js`, `src/guarda/gatilhos.js`, `src/guarda/avaliar.js`, `src/guarda/mensagens.js`
+- Create: `src/uso/ler-uso.js` (o `lerUso` sai de `painel.js` para cá, com os ajudantes e as constantes dele; `ler-uso.js` exporta os que `painel.js` ainda usa, e `painel.js` os importa de volta, sem duplicar nada)
+- Modify: `src/uso/painel.js` (importa de `ler-uso.js` e reexporta `lerUso`, `ARQ_USO` e `BLOQUEIO_CUSTO_MS`, para o shim `painel.mjs`, a extensão e os testes continuarem iguais), `src/guarda/config.js`, `src/guarda/gatilhos.js`, `src/guarda/avaliar.js`, `src/guarda/mensagens.js`
 - Test: `test/guarda-config.test.js`, `test/guarda-gatilhos.test.js`, `test/guarda-avaliar.test.js`, `test/guarda-mensagens.test.js`; `test/uso-painel.test.js` e `test/shim.test.js` só conferem que nada mudou
 
 **Por que o arquivo novo:** a restrição global proíbe `child_process` em `src/guarda/**`, e `painel.js` importa `oficial.js`, que importa `node:child_process`. `ler-uso.js` só importa `node:path`, `../base.js` e `../estado.js`.
 
 **Interfaces:**
 - Consome: `lerUso(dir, agoraMs)` → `{ lidoEm: string | null, modelos: { fable?: { pct, resetsAtMs: number | null } }, ... } | null`.
-- Produz: `ConfigGuarda.fableTetoPct` (50–100, padrão 90; no JSON, `guarda.fable.tetoPct`); o parâmetro novo `usoFable: { pct: number, resetsAtMs: number | null, idadeMs: number } | null` de `avaliarGatilhos`; `dados` do G6 ganha `fonte: 'local' | 'oficial'`; `dados` do G7 ganha `pct` (número) quando o piso aperta o teto.
+- Produz:
+  - `ConfigGuarda.fableTetoPct` (50–100, padrão 90; no JSON, `guarda.fable.tetoPct`);
+  - em `gatilhos.js`: o parâmetro novo `usoFable: { pct: number, resetsAtMs: number | null, idadeMs: number } | null` de `avaliarGatilhos`; `dados` do G6 ganha `fonte: 'local' | 'oficial'`; `dados` do G7 ganha `pct` (número) quando o piso aperta o teto; as exportações `FRESCA_FABLE_MS` (15 min) e `contarNaJanela(despachos, horas, agoraMs)`, que devolve a lista ordenada dos despachos na janela;
+  - `Avaliacao.usoFable` (a mesma forma de `usoFable`, com qualquer idade, ou null): o frescor é decidido em `gatilhos.js` e na barra;
+  - `segmentoBarra` aceita `usoFable` no objeto de entrada.
 
-- [ ] **Step 1: Mover `lerUso`**
+- [ ] **Step 1: Mover `lerUso` para `src/uso/ler-uso.js`**
 
-Crie `src/uso/ler-uso.js` com `lerUso` e o que só ele usa, sem mudar uma linha da lógica. Em `painel.js`, troque as definições por `import { ARQ_USO, lerUso } from './ler-uso.js';` e mantenha `export { ARQ_USO, lerUso };`. Rode `node --test test/uso-painel.test.js test/shim.test.js`: tem de passar sem mudar teste.
+Mova de `painel.js` para `ler-uso.js`, sem mudar uma linha da lógica:
+- as funções `lerUso`, `janelaGravada`, `estadoGravado`, `bloqueioGravado`, `ehObjeto` e `naFaixaDoDate`;
+- as constantes `ARQ_USO`, `VERSAO`, `MAX_USO_BYTES`, `BLOQUEIO_CUSTO_MS`, `FOLGA_RELOGIO_MS`, `MAX_ISO`, `MOTIVOS_RODAR` e `MOTIVOS_GRAVADOS`, com os comentários delas.
+
+`ler-uso.js` importa `node:path`, `{ DATA_MAX_MS, instante, numeroFinito }` de `../base.js` e `{ lerJson }` de `../estado.js`. Ele exporta o que `painel.js` ainda usa: `ARQ_USO`, `VERSAO`, `BLOQUEIO_CUSTO_MS`, `MOTIVOS_RODAR`, `ehObjeto`, `naFaixaDoDate`, `janelaGravada` e `lerUso`. `estadoGravado`, `bloqueioGravado` e as outras constantes ficam internas.
+
+Em `painel.js`, apague as definições movidas e importe-as de volta:
+
+```js
+import {
+  ARQ_USO, BLOQUEIO_CUSTO_MS, ehObjeto, janelaGravada, lerUso, MOTIVOS_RODAR, naFaixaDoDate, VERSAO,
+} from './ler-uso.js';
+
+// Continuam públicos por painel.js (shim painel.mjs, extensão e testes).
+export { ARQ_USO, BLOQUEIO_CUSTO_MS, lerUso };
+```
+
+`normalizar` (`janelaGravada`, `ehObjeto` e `MOTIVOS_RODAR`), `gravarResultado` (`VERSAO`, `ARQ_USO` e `BLOQUEIO_CUSTO_MS`) e os outros usos de `naFaixaDoDate` seguem iguais, só com o símbolo vindo do import. Tire `DATA_MAX_MS` do import de `../base.js` em `painel.js`, porque só `naFaixaDoDate` o usava. Mantenha `instante` e `lerJson`, que `painel.js` ainda usa.
+
+Confira:
+- `grep -n "child_process\|oficial.js" src/uso/ler-uso.js` não acha nada;
+- `node --test test/uso-painel.test.js test/shim.test.js` passa sem mudar nenhum teste.
 
 - [ ] **Step 2: Testes que falham**
 
@@ -2395,10 +2472,17 @@ test('fable.tetoPct: padrão 90, faixa 50–100', () => {
 });
 ```
 
-Em `test/guarda-gatilhos.test.js` (use o `avaliar`, `agora`, `agoraS`, `H` e `MIN` do arquivo):
+O teste "padrões quando não há chave guarda" da Task 4 compara `PADRAO_GUARDA` com `deepEqual`: acrescente `fableTetoPct: 90` ao objeto esperado.
+
+Em `test/guarda-gatilhos.test.js`, acrescente `contarNaJanela` ao import de `../src/guarda/gatilhos.js`. Use o `avaliar`, `agora`, `agoraS`, `H` e `MIN` que o arquivo já define:
 
 ```js
 const fable = (pct, idadeMin = 1, resetEmH = 48) => ({ pct, resetsAtMs: agora + resetEmH * H, idadeMs: idadeMin * MIN });
+
+test('G6 local: os dados trazem fonte local', () => {
+  assert.deepEqual(avaliar({ limiteFable: { atMs: agora - H, resets_at: agoraS + 600 } }).fable,
+    { gatilho: 'G6', resets_at: agoraS + 600, dados: { atMs: agora - H, fonte: 'local' } });
+});
 
 test('G6 oficial: 100% numa leitura de até 15 min trava até o reset do Fable', () => {
   assert.equal(avaliar({ usoFable: fable(99.9) }).fable, null);
@@ -2427,28 +2511,68 @@ test('usoFable hostil é ignorado', () => {
     assert.equal(r['fable-despachos'], null);
   }
 });
-```
 
-Em `test/guarda-avaliar.test.js` (troque `novaPasta` pelo helper de pasta temporária do arquivo):
-
-```js
-test('uso-oficial.json com Fable em 100% trava o Fable (G6 oficial)', () => {
-  const d = novaPasta();
-  fs.writeFileSync(path.join(d, 'uso-oficial.json'), JSON.stringify({
-    versao: 1, lidoEm: new Date(agora - MIN).toISOString(), sessao: null, semana: null,
-    modelos: { fable: { pct: 100, resetsAtMs: agora + 48 * H } }, estado: { motivo: 'ok', em: new Date(agora - MIN).toISOString() }, bloqueado: null,
-  }));
-  const g = avaliarGuarda({ dir: d, agoraMs: agora, sessionId: 's1' });
-  assert.ok(g.motivos.some((m) => m.chave === 'fable' && m.gatilho === 'G6'), JSON.stringify(g.motivos));
+test('contarNaJanela: só a janela, em ordem, sem lixo', () => {
+  assert.deepEqual(contarNaJanela([agora - H, 'x', agora - 6 * H, agora - 2 * H, agora + H, Number.NaN], 5, agora), [agora - 2 * H, agora - H]);
+  assert.deepEqual(contarNaJanela('x', 5, agora), []);
 });
 ```
 
-Em `test/guarda-mensagens.test.js`, acrescente ao teste de `textoMotivo` (troque `mot` pelo helper real):
+Em `test/guarda-avaliar.test.js`, use o helper `novo()` e as constantes `H`, `agora` e `iso` do arquivo. O arquivo não tem constante de minuto, então defina `MIN` junto destes testes:
 
 ```js
-assert.equal(m.textoMotivo(mot('fable-despachos', 'G7', { n: 0, max: 0, horas: 5, pct: 92 }), agora), 'Fable em 92% da semana: todo despacho Fable pede liberação');
-assert.equal(m.textoMotivo(mot('fable', 'G6', { atMs: agora - H, fonte: 'oficial' }), agora), `limite do Fable atingido ${quandoLocal(agoraS - 3600, agora)}`);
+const MIN = 60_000;
+// uso-oficial.json no schema que lerUso valida (versão 1, S28).
+function gravarUsoOficial(d, pct, lidoHaMs = MIN) {
+  fs.writeFileSync(path.join(d, 'uso-oficial.json'), JSON.stringify({
+    versao: 1, lidoEm: iso(agora - lidoHaMs), sessao: null, semana: null,
+    modelos: { fable: { pct, resetsAtMs: agora + 48 * H } }, estado: { motivo: 'ok', em: iso(agora - lidoHaMs) }, bloqueado: null,
+  }));
+}
+
+test('uso-oficial.json com Fable em 100% trava o Fable (G6 oficial); a leitura vai na Avaliacao', () => {
+  const d = novo();
+  gravarUsoOficial(d, 100);
+  const g = avaliarGuarda({ dir: d, agoraMs: agora, sessionId: 's1' });
+  assert.ok(g.motivos.some((mo) => mo.trava === 'fable' && mo.gatilho === 'G6' && mo.dados?.fonte === 'oficial'), JSON.stringify(g.motivos));
+  assert.deepEqual(g.usoFable, { pct: 100, resetsAtMs: agora + 48 * H, idadeMs: MIN });
+});
+
+test('uso-oficial.json com mais de 15 min não trava, mas segue na Avaliacao para a barra', () => {
+  const d = novo();
+  gravarUsoOficial(d, 100, 16 * MIN);
+  const g = avaliarGuarda({ dir: d, agoraMs: agora, sessionId: 's1' });
+  assert.deepEqual(g.ativas, []);
+  assert.equal(g.usoFable.idadeMs, 16 * MIN);
+  assert.equal(avaliarGuarda({ dir: novo(), agoraMs: agora, sessionId: 's1' }).usoFable, null);
+});
 ```
+
+Em `test/guarda-mensagens.test.js`, acrescente ao teste "motivos por gatilho" (usa `mot`, `quandoLocal`, `agora`, `agoraS` e `H` do próprio arquivo):
+
+```js
+  assert.equal(m.textoMotivo(mot('fable-despachos', 'G7', { n: 0, max: 0, horas: 5, pct: 92 }), agora), 'Fable em 92% da semana: todo despacho Fable pede liberação');
+  assert.equal(m.textoMotivo(mot('fable', 'G6', { atMs: agora - H, fonte: 'oficial' }), agora), `limite do Fable atingido ${quandoLocal(agoraS - 3600, agora)}`);
+```
+
+e o teste novo:
+
+```js
+test('segmento da barra: semana do Fable pela leitura oficial (E2, E7)', () => {
+  const base = { marcada: true, status: 'armada', ativas: [], liberacao: null, origemConhecida: true, fableSessao: true, despachosFable: [agora - H], config: PADRAO_GUARDA };
+  const u = (pct, idadeMs, resetsAtMs = agora + 48 * H) => ({ pct, resetsAtMs, idadeMs });
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57.8, 60_000) }, agora), 'Fable 1/4 em 5h · semana Fable 57%');
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57, 15 * 60_000) }, agora), 'Fable 1/4 em 5h · semana Fable 57%');
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57, 60_000, null) }, agora), 'Fable 1/4 em 5h · semana Fable 57%');
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57, 40 * 60_000) }, agora), 'Fable 1/4 em 5h · semana Fable ≥ 57% (leitura de 40 min)');
+  assert.equal(m.segmentoBarra({ ...base, usoFable: u(57, 3 * H + 10) }, agora), 'Fable 1/4 em 5h · semana Fable ≥ 57% (leitura de 3 h)');
+  for (const hostil of [undefined, null, 'x', u(101, 0), u(Number.NaN, 0), u(57, -1), u(57, 60_000, agora - 1)]) {
+    assert.equal(m.segmentoBarra({ ...base, usoFable: hostil }, agora), 'Fable 1/4 em 5h · sem leitura oficial', JSON.stringify(hostil));
+  }
+});
+```
+
+O teste "segmento da barra" da Task 11 (sem `usoFable`, então `sem leitura oficial`) continua valendo sem mudança.
 
 - [ ] **Step 3: Rodar e ver falhar**
 
@@ -2457,14 +2581,17 @@ Expected: FAIL nos testes novos.
 
 - [ ] **Step 4: `config.js`**
 
-Em `PADRAO_GUARDA`, acrescente `fableTetoPct: 90`. Em `CAMPOS`, acrescente `['fableTetoPct', ['fable', 'tetoPct'], 'fable.tetoPct', 50, 100]`. Atualize o tipo `ConfigGuarda` no comentário.
+Em `PADRAO_GUARDA`, acrescente `fableTetoPct: 90`. Em `CAMPOS`, acrescente `['fableTetoPct', ['fable', 'tetoPct'], 'fable.tetoPct', 50, 100]`. Atualize o tipo `ConfigGuarda` no comentário e na linha de Interfaces da Task 4.
 
 - [ ] **Step 5: `gatilhos.js`**
+
+Acrescente, depois das constantes do arquivo:
 
 ```js
 // Emenda E7: leitura oficial do Fable (uso-oficial.json) com até 15 min.
 // Velha, ausente ou fora do schema: sem piso (§5.5, sem inventar número).
-const FRESCA_FABLE_MS = 15 * MIN;
+// Exportada: a barra (mensagens.segmentoBarra) usa o mesmo limite de frescor.
+export const FRESCA_FABLE_MS = 15 * MIN;
 
 function fableFresco(u) {
   if (u === null || typeof u !== 'object') return null;
@@ -2489,17 +2616,34 @@ function g6Oficial(u, l7, agoraMs) {
 }
 ```
 
-Em `g6`, acrescente `fonte: 'local'` aos `dados` (e ajuste o teste antigo de G6 da Task 7 que compara `dados` com `deepEqual`). Extraia o filtro atual de `g7` para `contarNaJanela(despachos, horas, agoraMs)`, que devolve a lista ordenada, e acrescente o parâmetro `piso` (`{ pct, resets_at } | null`):
+Em `g6`, o retorno passa a ser `{ gatilho: 'G6', resets_at: reset, dados: { atMs: limite.atMs, fonte: 'local' } }`. O teste novo "G6 local: os dados trazem fonte local" (Step 2) confere isso. Os testes de G6 da Task 7 só comparam `resets_at` e seguem iguais.
+
+Troque a `g7` da Task 7 por estas três funções. O filtro da janela e o cálculo do reset ficam num lugar só, e a barra usa a mesma contagem:
 
 ```js
+// Despachos Fable dentro da janela de G7, em ordem. Exportada: a contagem da
+// barra (mensagens.segmentoBarra) usa a mesma janela.
+export function contarNaJanela(despachos, horas, agoraMs) {
+  const janela = horas * H;
+  return (Array.isArray(despachos) ? despachos : [])
+    .filter((t) => numeroFinito(t) && t > agoraMs - janela && t <= agoraMs + 5 * MIN)
+    .sort((a, b) => a - b);
+}
+
+// A trava cai quando a contagem volta abaixo do teto: quando o despacho de
+// índice n − max sai da janela. Com max 0, não cai sozinha. Único lugar que
+// calcula esse reset.
+function fimDaContagem(r, max, horas) {
+  return max === 0 ? null : Math.ceil((r[r.length - max] + horas * H) / 1000);
+}
+
+// G7. Com o piso oficial (Fable em fable.tetoPct ou mais, numa leitura de até
+// 15 min), o teto vira 0 até o reset do Fable (E7).
 function g7(despachos, max, horas, agoraMs, piso = null) {
   const r = contarNaJanela(despachos, horas, agoraMs);
   if (piso !== null) return { gatilho: 'G7', resets_at: piso.resets_at, dados: { n: r.length, max: 0, horas, pct: piso.pct } };
   if (r.length < max) return null;
-  // A trava cai quando a contagem volta abaixo do teto: quando o despacho de
-  // índice n − max sai da janela. Com max 0, não cai sozinha.
-  const resets_at = max === 0 ? null : Math.ceil((r[r.length - max] + horas * H) / 1000);
-  return { gatilho: 'G7', resets_at, dados: { n: r.length, max, horas } };
+  return { gatilho: 'G7', resets_at: fimDaContagem(r, max, horas), dados: { n: r.length, max, horas } };
 }
 ```
 
@@ -2514,13 +2658,18 @@ Em `avaliarGatilhos`, acrescente `usoFable` à desestruturação e troque as dua
 
 - [ ] **Step 6: `avaliar.js`**
 
-Importe `lerUso` de `../uso/ler-uso.js` e passe `usoFable` a `avaliarGatilhos`:
+Importe `lerUso` de `../uso/ler-uso.js`. Leia a janela do Fable antes de `avaliarGatilhos` e passe `usoFable` para ele:
 
 ```js
     const usoFable = fableOficial(lerUso(dir, agoraMs), agoraMs);
+    const disparos = avaliarGatilhos({
+      leituras, previsao, config, agoraMs, despachosFable, limiteFable: ultimoLimiteFable(dir, agoraMs), usoFable,
+    });
 ```
 
-com
+Acrescente `usoFable` ao objeto devolvido (`return { status, ativas, motivos, cobertura, liberacao, config, leituras, despachosFable, modeloSessao, usoFable };`) e `usoFable: null` a `vazia`. No tipo `Avaliacao` da Task 10, acrescente `usoFable: { pct, resetsAtMs, idadeMs } | null` (a leitura oficial do Fable, de qualquer idade; o frescor é decidido em `gatilhos.js` e na barra).
+
+A função auxiliar, no mesmo arquivo:
 
 ```js
 // Emenda E7: a janela do Fable gravada pelo painel, com a idade da leitura.
@@ -2542,6 +2691,36 @@ No `case 'G7'` de `textoMotivo`:
           : `${inteiro(d.n)} despachos Fable em ${inteiro(d.horas)} h, teto ${inteiro(d.max)}`;
 ```
 
+Importe `{ FRESCA_FABLE_MS, contarNaJanela }` de `./gatilhos.js`. `gatilhos.js` é puro e só importa `../base.js`, então não há ciclo. Acrescente:
+
+```js
+// Semana do Fable na barra (§8.3 com as emendas E2 e E7): a §7 mudou, e o
+// Fable tem leitura oficial (uso-oficial.json, pelo /usage). Até 15 min, o
+// número; mais velha, "≥" com a idade (a semana só sobe até o reset); sem
+// leitura válida, ou lida antes do reset do Fable, "sem leitura oficial".
+function semanaFable(u, agoraMs) {
+  const SEM = 'sem leitura oficial';
+  if (u === null || typeof u !== 'object') return SEM;
+  if (!numeroFinito(u.pct) || u.pct < 0 || u.pct > 100 || !numeroFinito(u.idadeMs) || u.idadeMs < 0) return SEM;
+  if (u.resetsAtMs !== null && !(numeroFinito(u.resetsAtMs) && u.resetsAtMs > agoraMs)) return SEM;
+  if (u.idadeMs <= FRESCA_FABLE_MS) return `semana Fable ${pct(u.pct)}%`;
+  const idade = u.idadeMs < H ? `${Math.floor(u.idadeMs / 60_000)} min` : `${Math.floor(u.idadeMs / H)} h`;
+  return `semana Fable ≥ ${pct(u.pct)}% (leitura de ${idade})`;
+}
+```
+
+Em `segmentoBarra`, troque o bloco `if (o.fableSessao) { ... }` por:
+
+```js
+    if (o.fableSessao) {
+      const horas = o.config.fableDespachosHoras;
+      const n = contarNaJanela(o.despachosFable, horas, agoraMs).length;
+      partes.push(`Fable ${n}/${inteiro(o.config.fableDespachosMax)} em ${inteiro(horas)}h`, semanaFable(o.usoFable ?? null, agoraMs));
+    }
+```
+
+Na assinatura de `segmentoBarra` (Interfaces da Task 11), acrescente `usoFable`.
+
 - [ ] **Step 8: Rodar**
 
 Run: `node --test test/guarda-config.test.js test/guarda-gatilhos.test.js test/guarda-avaliar.test.js test/guarda-mensagens.test.js test/uso-painel.test.js test/shim.test.js`
@@ -2551,7 +2730,7 @@ Expected: PASS.
 
 ```bash
 git add -- src/uso/ler-uso.js src/uso/painel.js src/guarda/config.js src/guarda/gatilhos.js src/guarda/avaliar.js src/guarda/mensagens.js test/guarda-config.test.js test/guarda-gatilhos.test.js test/guarda-avaliar.test.js test/guarda-mensagens.test.js
-git commit -m "feat: official Fable floor for G6 and G7 (E7)" -- src/uso/ler-uso.js src/uso/painel.js src/guarda/config.js src/guarda/gatilhos.js src/guarda/avaliar.js src/guarda/mensagens.js test/guarda-config.test.js test/guarda-gatilhos.test.js test/guarda-avaliar.test.js test/guarda-mensagens.test.js
+git commit -m "feat: official Fable floor for G6 and G7, Fable week on the bar (E2, E7)" -- src/uso/ler-uso.js src/uso/painel.js src/guarda/config.js src/guarda/gatilhos.js src/guarda/avaliar.js src/guarda/mensagens.js test/guarda-config.test.js test/guarda-gatilhos.test.js test/guarda-avaliar.test.js test/guarda-mensagens.test.js
 ```
 
 ---
@@ -2584,7 +2763,7 @@ As Tasks 13 a 17 acrescentam testes e helpers a este arquivo. Todo `import` que 
 - [ ] **Step 1: Acrescentar `emitirJson` em `src/hooks/comum.js`** (logo depois de `emitirContexto`)
 
 ```js
-// Escreve uma saída de hook já montada: as decisões da guarda (spec v0.3.0
+// Escreve uma saída de hook já montada: as decisões da guarda (spec v0.4.0
 // §4.2: deny, continue:false, decision:block). Os textos vêm só de
 // src/guarda/mensagens.js; o JSON.stringify escapa todo controle C0.
 export function emitirJson(valor) {
@@ -2610,10 +2789,12 @@ import { PADRAO_GUARDA } from '../src/guarda/config.js';
 import { travasVazias } from '../src/guarda/travas.js';
 import { ARQ_DESPACHOS, lerEventos, registrarDespachoFable, gravarModeloSessao } from '../src/guarda/registros.js';
 
-// Hooks da guarda (spec v0.3.0 §4.2), cada um num processo filho como o
+// Hooks da guarda (spec v0.4.0 §4.2), cada um num processo filho como o
 // Claude Code os roda. Todo filho recebe HADOUKEN_HOME e CLAUDE_CONFIG_DIR
 // temporários; CLAUDE_EFFORT, CLAUDE_CODE_SUBAGENT_MODEL e
 // CLAUDE_CODE_ENTRYPOINT do processo de teste nunca vazam para o filho.
+// HADOUKEN_SEM_PAINEL=1, como em test/hooks.test.js: o SessionStart nunca
+// dispara `cli.js painel instalar` (instalação real da extensão) num teste.
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const scriptDe = (nome) => path.join(repo, 'src', 'hooks', nome);
@@ -2638,7 +2819,7 @@ function conferirHome(home) {
 function ambiente(home, extra = {}) {
   const env = {
     ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, CLAUDE_CONFIG_DIR: path.join(home, 'cfg'),
-    CLAUDE_EFFORT: undefined, CLAUDE_CODE_SUBAGENT_MODEL: undefined, CLAUDE_CODE_ENTRYPOINT: 'cli', ...extra,
+    HADOUKEN_SEM_PAINEL: '1', CLAUDE_EFFORT: undefined, CLAUDE_CODE_SUBAGENT_MODEL: undefined, CLAUDE_CODE_ENTRYPOINT: 'cli', ...extra,
   };
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
   conferirHome(env.HADOUKEN_HOME);
@@ -2826,7 +3007,7 @@ import { rodarHook, emitirJson } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva } from '../ativas.js';
 
-// Hook PreToolUse de Agent|Task|Workflow (spec v0.3.0 §4.2 P1, §4.3 e D1
+// Hook PreToolUse de Agent|Task|Workflow (spec v0.4.0 §4.2 P1, §4.3 e D1
 // emendado: G5 despacho caro). Nega o despacho novo quando:
 //   - há trava geral ativa (ilegível, 5h ou 7d), qualquer modelo;
 //   - há trava do Fable ativa e o despacho é Fable;
@@ -2959,13 +3140,18 @@ test('liberar 2h: grava a liberação, limpa as travas e confirma só com númer
   assert.ok(fs.existsSync(path.join(home, ARQ_GUARDA)));
   const antes = Date.now();
   const o = saida(rodar('liberar.js', expansao('s1', '2h'), home));
+  const depois = Date.now();
   assert.equal(o.decision, 'block');
   assert.match(o.reason, /^hadouken: liberado até .+ \(ou até 7d 96%\)\.$/);
   const lib = JSON.parse(fs.readFileSync(path.join(home, ARQ_LIBERACAO), 'utf8'));
   assert.deepEqual(lib.solta, ['five_hour', 'seven_day', 'fable-despachos', 'ilegivel']);
   assert.equal(lib.sessao, 's1');
   assert.ok(Math.abs(Date.parse(lib.ate) - (antes + 2 * H)) < 60_000);
-  assert.equal(o.reason, `hadouken: liberado até ${quandoLocal(Date.parse(lib.ate) / 1000, Date.now())} (ou até 7d 96%).`);
+  // O hook usa o próprio relógio, que fica entre `antes` e `depois`: o texto
+  // esperado é o de uma das duas pontas, nunca um terceiro Date.now() (que
+  // viraria o dia sozinho perto da meia-noite).
+  const esperado = (ref) => `hadouken: liberado até ${quandoLocal(Date.parse(lib.ate) / 1000, ref)} (ou até 7d 96%).`;
+  assert.ok([esperado(antes), esperado(depois)].includes(o.reason), o.reason);
   assert.equal(JSON.parse(fs.readFileSync(path.join(home, ARQ_GUARDA), 'utf8')).travas.seven_day, null);
   assert.deepEqual(eventos(home, 'liberacao').map((e) => e.detalhe), [lib.id]);
   semSaida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose' }), home, { CLAUDE_EFFORT: 'high' }));
@@ -3027,7 +3213,7 @@ import path from 'node:path';
 import { rodarHook, emitirJson } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 
-// Hook UserPromptExpansion de /claude-hadouken:liberar (spec v0.3.0 §6, D4 =
+// Hook UserPromptExpansion de /claude-hadouken:liberar (spec v0.4.0 §6, D4 =
 // opção C em 2026-09-29: sem código). Sempre bloqueia a expansão
 // (decision:block): o corpo da skill não chega ao Claude e o modelo não é
 // chamado (spike S2). Recusa quando CLAUDE_CODE_ENTRYPOINT indica -p ou SDK
@@ -3122,7 +3308,7 @@ Passam sem bloqueio os prompts que começam com `/claude-hadouken:` e os turnos 
 
 **Interfaces:**
 - Consome: `avaliarGuarda` (Task 10); `gravarLiberacao` (Task 8); `marcarSessao` e `anexarEvento` (Task 9); `p2Usuario` e `posLiberacao` (Task 11); `emitirJson` (Task 12).
-- Produz: `decidirPrompt({ dir, sessionId, prompt, agoraMs })`, que devolve `{ bloquear: string | null, linha: string | null }`.
+- Produz: `decidirPrompt({ dir, sessionId, prompt, agoraMs, avaliar? })`, que devolve `{ bloquear: string | null, linha: string | null }`. `avaliar` tem `avaliarGuarda` como padrão e só existe para o teste forçar um erro na avaliação.
 
 - [ ] **Step 1: Escrever os testes de unidade que falham** (`test/guarda-prompt.test.js`)
 
@@ -3184,7 +3370,18 @@ test('linha pós-liberação: uma vez, só na sessão que liberou', () => {
   assert.equal(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora }).linha, null);
 });
 
-test('erro na avaliação: não bloqueia e registra', () => {
+test('erro na avaliação: não bloqueia e registra o evento erro (§4.5)', () => {
+  // Sessão Fable com trava: sem o erro, o prompt seria bloqueado. O erro é
+  // forçado dentro da avaliação pelo parâmetro `avaliar` (só para teste):
+  // uma vez com status 'erro', outra lançando.
+  const d = novo();
+  travarG6(d);
+  gravarModeloSessao(d, 's1', 'claude-fable-5-1', agora);
+  const comErro = () => ({ status: 'erro' });
+  const quebra = () => { throw new Error('falha simulada'); };
+  assert.deepEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora, avaliar: comErro }), { bloquear: null, linha: null });
+  assert.deepEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'x', agoraMs: agora, avaliar: quebra }), { bloquear: null, linha: null });
+  assert.deepEqual(lerEventos(d, agora).filter((e) => e.tipo === 'erro').map((e) => e.detalhe), ['P2', 'P2']);
   assert.deepEqual(decidirPrompt({ dir: null, sessionId: 's1', prompt: 'x', agoraMs: agora }), { bloquear: null, linha: null });
 });
 ```
@@ -3202,7 +3399,7 @@ import { gravarLiberacao } from './liberacao.js';
 import { marcarSessao, anexarEvento } from './registros.js';
 import { p2Usuario, posLiberacao } from './mensagens.js';
 
-// Decisão do UserPromptSubmit (spec v0.3.0 §4.2 P2 e §6.1). Numa sessão cujo
+// Decisão do UserPromptSubmit (spec v0.4.0 §4.2 P2 e §6.1). Numa sessão cujo
 // modelo é Fable (modelos.json, senão o display_name do estado), com trava
 // ativa, o prompt digitado é bloqueado; o reason vai só ao usuário (C10).
 // Passam sem bloqueio:
@@ -3213,18 +3410,28 @@ import { p2Usuario, posLiberacao } from './mensagens.js';
 // Um prompt digitado pelo usuário começando com '<task-notification>' também
 // passa: é o usuário, e a P1 segue valendo para o que o turno despachar.
 // Linha pós-liberação: uma vez, na sessão que liberou (avisada: true).
-// Erro: nada bloqueia (fail-open visível, §4.5).
+// Erro (status 'erro' ou exceção): nada bloqueia e o evento 'erro' é
+// registrado (fail-open visível, §4.5). `avaliar` só existe para o teste
+// forçar o erro; o hook nunca o passa.
 
 const NADA = Object.freeze({ bloquear: null, linha: null });
 const ISENTOS = ['/claude-hadouken:', '<task-notification>'];
 
-export function decidirPrompt({ dir, sessionId, prompt, agoraMs } = {}) {
+function registrarErro(dir, agoraMs) {
+  try {
+    if (typeof dir === 'string') anexarEvento(dir, 'erro', 'P2', agoraMs);
+  } catch {
+    // O registro do erro nunca derruba o prompt.
+  }
+}
+
+export function decidirPrompt({ dir, sessionId, prompt, agoraMs, avaliar = avaliarGuarda } = {}) {
   try {
     if (typeof dir !== 'string') return { ...NADA };
     marcarSessao(dir, sessionId);
     const texto = typeof prompt === 'string' ? prompt.trimStart() : '';
     if (ISENTOS.some((p) => texto.startsWith(p))) return { ...NADA };
-    const g = avaliarGuarda({ dir, agoraMs, sessionId });
+    const g = avaliar({ dir, agoraMs, sessionId });
     if (g.status === 'erro') {
       anexarEvento(dir, 'erro', 'P2', agoraMs);
       return { ...NADA };
@@ -3241,6 +3448,7 @@ export function decidirPrompt({ dir, sessionId, prompt, agoraMs } = {}) {
     }
     return { ...NADA };
   } catch {
+    registrarErro(dir, agoraMs);
     return { ...NADA };
   }
 }
@@ -3262,7 +3470,7 @@ import { rodarHook, emitirContexto, emitirJson } from './comum.js';
 Logo depois de `renovarSessao(sessionId, agoraMs);`, acrescente:
 
 ```js
-  // Spec v0.3.0 §4.2 P2: a guarda decide antes dos alertas. Prompt
+  // Spec v0.4.0 §4.2 P2: a guarda decide antes dos alertas. Prompt
   // bloqueado não recebe linha nenhuma (o reason vai só ao usuário).
   const { decidirPrompt } = await import('../guarda/prompt.js');
   const p2 = decidirPrompt({ dir: dirDados(), sessionId, prompt: entrada.prompt, agoraMs });
@@ -3278,7 +3486,7 @@ E troque a última linha, `emitirContexto('UserPromptSubmit', linhas.join('\n'))
   emitirContexto('UserPromptSubmit', (p2.linha === null ? linhas : [...linhas, p2.linha]).join('\n'));
 ```
 
-No comentário do topo do arquivo, troque "Nunca bloqueia o prompt." por "Desde a v0.3.0, bloqueia o prompt digitado numa sessão Fable com a guarda disparada (P2, src/guarda/prompt.js)."
+No comentário do topo do arquivo, troque "Nunca bloqueia o prompt." por "Desde a v0.4.0, bloqueia o prompt digitado numa sessão Fable com a guarda disparada (P2, src/guarda/prompt.js)."
 
 - [ ] **Step 6: Escrever os testes ponta a ponta** (acrescentar em `test/guarda-hooks.test.js`)
 
@@ -3449,7 +3657,7 @@ import { rodarHook, emitirJson } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva } from '../ativas.js';
 
-// Hook PreModelSwitch (spec v0.3.0 §4.2 P3). Sem matcher em hooks.json: o
+// Hook PreModelSwitch (spec v0.4.0 §4.2 P3). Sem matcher em hooks.json: o
 // hook confere to_model por conta própria (C12: o matcher não cobre nome
 // desconhecido) e roda só em troca de modelo, que é rara. Com trava ativa,
 // nega a troca para o Fable com deny, nunca ask (um ask aceito no seletor
@@ -3487,7 +3695,7 @@ import { rodarHook } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva } from '../ativas.js';
 
-// Hook PostModelSwitch (spec v0.3.0 §4.3): grava o modelo da sessão em
+// Hook PostModelSwitch (spec v0.4.0 §4.3): grava o modelo da sessão em
 // modelos.json a cada troca, de qualquer origem (inclusive auto e resume).
 // Nome fora da regex vira o rótulo 'fable' ou 'outro' (normalizarModelo).
 // Não imprime nada.
@@ -3514,7 +3722,7 @@ import { rodarHook } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva } from '../ativas.js';
 
-// Hook StopFailure com matcher rate_limit (spec v0.3.0 §5.2 G6, C13). O texto
+// Hook StopFailure com matcher rate_limit (spec v0.4.0 §5.2 G6, C13). O texto
 // do erro só é classificado, nunca gravado nem repetido (S17): com "fable"
 // nele, o limite é do Fable e o G6 trava na avaliação seguinte; senão, é
 // registrado como geral. A saída do StopFailure é ignorada pelo Claude Code;
@@ -3543,7 +3751,7 @@ rodarHook(async (entrada) => {
 Depois de `const registro = registrarSessao(sessionId, agoraMs);`, acrescente:
 
 ```js
-  // Spec v0.3.0 §4.3 e §11: a marca "sessão com a guarda" e o modelo da
+  // Spec v0.4.0 §4.3 e §11: a marca "sessão com a guarda" e o modelo da
   // sessão (o campo model do SessionStart, quando vier).
   const reg = await import('../guarda/registros.js');
   reg.marcarSessao(dir, sessionId);
@@ -3551,7 +3759,7 @@ Depois de `const registro = registrarSessao(sessionId, agoraMs);`, acrescente:
   if (modelo !== null) reg.gravarModeloSessao(dir, sessionId, modelo, agoraMs);
 ```
 
-No comentário do topo, acrescente o item "4. grava a marca da guarda e o modelo da sessão (spec v0.3.0 §4.3)".
+No comentário do topo, acrescente o item "5. grava a marca da guarda e o modelo da sessão (spec v0.4.0 §4.3)". O item 4 já existe desde a v0.3.0 (o disparo do `cli.js painel instalar`, `dispararPainel`).
 
 - [ ] **Step 8: Rodar**
 
@@ -3604,6 +3812,7 @@ test('dentroDe: filho, a própria pasta, "..", irmão com prefixo, maiúsculas n
   assert.equal(dentroDe(dados, path.join(dados, 'nova', 'x.json')), true);
   assert.equal(dentroDe(dados, dados), true);
   assert.equal(dentroDe(dados, path.join(dados, 'x', '..', 'guarda.json')), true);
+  assert.equal(dentroDe(dados, path.join(dados, '..x.json')), true);
   assert.equal(dentroDe(dados, path.join(d, 'hadouken-outro', 'x')), false);
   assert.equal(dentroDe(dados, path.join(d, 'fora.txt')), false);
   if (process.platform === 'win32') assert.equal(dentroDe(dados, path.join(dados.toUpperCase(), 'guarda.json')), true);
@@ -3633,7 +3842,7 @@ Expected: FAIL.
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Apoio da P4 e da P5 (spec v0.3.0 §4.2, S13 e spike S9).
+// Apoio da P4 e da P5 (spec v0.4.0 §4.2, S13 e spike S9).
 
 // Caminho real: o ancestral existente mais longo passa por
 // realpathSync.native (desfaz links, '..' e o nome curto 8.3 do Windows) e o
@@ -3666,7 +3875,9 @@ export function dentroDe(pasta, alvo) {
   const b = caminhoReal(alvo);
   if (a === null || b === null) return false;
   const rel = path.relative(normal(a), normal(b));
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  // Fora é ".." ou "../algo"; um filho chamado "..x" continua dentro.
+  const sobe = rel === '..' || rel.startsWith(`..${path.sep}`);
+  return rel === '' || (!sobe && !path.isAbsolute(rel));
 }
 
 // O executável claude como palavra de comando: no começo, depois de um
@@ -3725,7 +3936,7 @@ import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva } from '../ativas.js';
 
 // Hook PreToolUse de Bash e PowerShell com `if: "Bash(claude *)"` e
-// `if: "PowerShell(claude *)"` (spec v0.3.0 §4.2 P4, spike S9). Com a guarda
+// `if: "PowerShell(claude *)"` (spec v0.4.0 §4.2 P4, spike S9). Com a guarda
 // disparada, nega abrir uma sessão claude filha: uma sessão -p não carrega a
 // trava desta conversa na cabeça e poderia despachar à vontade. O hook
 // confere o comando de novo (chamaClaude), para uma versão que ignore o `if`.
@@ -3765,11 +3976,11 @@ import { rodarHook, emitirJson } from './comum.js';
 import { dirDados } from '../base.js';
 
 // Hook PreToolUse de Write, Edit, MultiEdit e NotebookEdit, cada um com o seu
-// `if` na pasta de dados (spec v0.3.0 §4.2 P5, S13; spike S9: o `if` segue o
+// `if` na pasta de dados (spec v0.4.0 §4.2 P5, S13; spike S9: o `if` segue o
 // nome da ferramenta, então são quatro handlers). Nega sempre, disparada ou
 // não: as ferramentas de edição do Claude não têm motivo para gravar ali, e o
 // usuário edita o config.json no editor dele. Sem o gate de sessão ativa: a
-// proteção vale em toda sessão com os hooks da v0.3.0. O caminho real
+// proteção vale em toda sessão com os hooks da v0.4.0. O caminho real
 // (caminhoReal) desfaz '..', links e o nome 8.3; o `if` não casa o nome 8.3
 // nem um HADOUKEN_HOME fora de ~/.claude/hadouken (R1).
 
@@ -3807,7 +4018,7 @@ git commit -m "feat: P4 child claude sessions and P5 plugin files guards" -- src
 A statusline avalia a guarda e acrescenta o segmento de `segmentoBarra` no fim da barra. Ela também grava a trava na transição, como "quem avaliar primeiro" (§5.3). O segmento passa por `sanear`. A barra só da sessão da v0.3.0 (`modelo·effort │ ctx │ cache`, emenda E6) não muda: com a guarda armada numa sessão fora do Fable, o segmento é vazio e a barra fica idêntica. **Ajuste pós-v0.3.0:** os passos 3 e 4 abaixo já partem do `formatarBarra` e do `statusline.js` da v0.3.0.
 
 **Files:**
-- Modify: `src/formato.js`, `src/statusline.js`
+- Modify: `src/formato.js`, `src/statusline.js`, `bench/statusline-p95.mjs` (a sessão do bench ganha a marca e mede o caminho com a guarda)
 - Test: `test/formato.test.js` e `test/guarda-hooks.test.js` (acrescentar)
 
 **Interfaces:**
@@ -3852,13 +4063,22 @@ test('barra: sem marca diz "sem guarda nesta sessão"; marcada e disparada diz a
   assert.ok(fs.existsSync(path.join(home, ARQ_GUARDA)));
 });
 
-test('barra: sessão Fable mostra a contagem e "sem leitura oficial"; liberação sem evento aparece', () => {
+test('barra: sessão Fable mostra a contagem e a semana do Fable (E2, E7); liberação sem evento aparece', () => {
   const home = novoHome();
   registrar(home, 's1');
   rodar('prompt-submit.js', promptDe('s1', 'oi'), home);
   registrarDespachoFable(home, Date.now() - 60_000);
-  const r = rodarBarra(barraDe('s1', 40, { id: 'claude-fable-5-1', display_name: 'Fable 5.1' }), home);
+  const fable = { id: 'claude-fable-5-1', display_name: 'Fable 5.1' };
+  const r = rodarBarra(barraDe('s1', 40, fable), home);
   assert.ok(r.stdout.endsWith(' │ Fable 1/4 em 5h · sem leitura oficial'), r.stdout);
+  const lido = new Date(Date.now() - 60_000).toISOString();
+  fs.writeFileSync(path.join(home, 'uso-oficial.json'), JSON.stringify({
+    versao: 1, lidoEm: lido, sessao: null, semana: null,
+    modelos: { fable: { pct: 57, resetsAtMs: Date.now() + 48 * H } }, estado: { motivo: 'ok', em: lido }, bloqueado: null,
+  }));
+  const rOficial = rodarBarra(barraDe('s1', 40, fable), home);
+  assert.ok(rOficial.stdout.endsWith(' │ Fable 1/4 em 5h · semana Fable 57%'), rOficial.stdout);
+  fs.rmSync(path.join(home, 'uso-oficial.json'));
   const agora = Date.now();
   gravarLiberacao(home, montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: agora, usado7d: 40, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef01' }));
   const r2 = rodarBarra(barraDe('s1', 40), home);
@@ -3876,7 +4096,7 @@ Expected: FAIL nos testes novos.
 Em `formatarBarra` (v0.3.0: `const { entrada, cor } = opcoes ?? {};`), acrescente `guarda` à desestruturação: `const { entrada, cor, guarda } = opcoes ?? {};`. Antes de `return partes.join(SEPARADOR);`, acrescente:
 
 ```js
-    // Spec v0.3.0 §8.3: o segmento da guarda (mensagens.segmentoBarra), no
+    // Spec v0.4.0 §8.3: o segmento da guarda (mensagens.segmentoBarra), no
     // fim e só quando há algo a dizer. Texto do código, saneado mesmo assim (S3).
     const g = typeof guarda === 'string' && guarda.length > 0 ? sanear(guarda, GUARDA_MAX) : null;
     if (g) partes.push(g);
@@ -3932,7 +4152,7 @@ async function segmentoDaGuarda(dir, entrada, agoraMs) {
     return segmentoBarra({
       marcada: reg.sessaoMarcada(dir, entrada.session_id), status: g.status, ativas: g.ativas, liberacao: g.liberacao,
       origemConhecida: g.liberacao ? reg.temEventoLiberacao(dir, g.liberacao.id, agoraMs) : true,
-      fableSessao: /fable/i.test(nomeModelo), despachosFable: g.despachosFable, config: g.config,
+      fableSessao: /fable/i.test(nomeModelo), despachosFable: g.despachosFable, config: g.config, usoFable: g.usoFable,
     }, agoraMs);
   } catch {
     return '';
@@ -3947,11 +4167,33 @@ A guarda lê a janela de 7 dias do `estado.json` (Task 3), não da barra: a barr
 Run: `node --test test/formato.test.js test/statusline.test.js test/guarda-hooks.test.js`
 Expected: PASS. Se um teste antigo de `statusline.test.js` conferir a linha exata de uma sessão registrada, ele vai ganhar ` │ sem guarda nesta sessão`, porque o harness antigo não grava a marca. Nesse caso, faça o helper de registro desse arquivo gravar também a marca (`marcarSessao(home, id)`), para o teste antigo continuar descrevendo a barra de uma sessão v0.3 armada. Diga isso no relatório.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Bench da barra (`bench/statusline-p95.mjs`)**
+
+O `barraCerta` do bench compara a linha exata (`limpa !== LINHA_BARRA` lança). Sem a marca, a sessão medida ganharia ` │ sem guarda nesta sessão` e o bench quebraria. Com a marca, ele passa a medir o caminho novo inteiro: avaliação, trava e segmento.
+1. No bloco da fixture, depois de `registrarSessao(uuid(0), agora)`, marque a sessão medida:
+
+   ```js
+       // Spec v0.4.0 §4.1 e §11: a sessão medida roda os hooks da guarda, então
+       // a barra mede o caminho com a avaliação (e a trava gravada na transição).
+       const { marcarSessao } = await importar('guarda/registros.js');
+       if (!marcarSessao(home, uuid(0)).ok) throw new Error('fixture: guard mark failed');
+   ```
+
+2. Atualize `LINHA_BARRA`. O histórico da fixture projeta o 7d cerca de 18,6 h à frente, antes do reset em 3 dias, dentro do horizonte de 24 h. Então o G2 dispara na primeira rodada e a trava fica em `guarda.json`. A sessão é Opus, e o segmento é `guarda: 7d`:
+
+   ```js
+     const LINHA_BARRA = 'Opus 5.5·high │ ctx ▰▰▱▱▱▱▱▱ 31% │ cache ▰▰▰▰▰▰▰▱ 97% │ guarda: 7d';
+   ```
+
+   `barraCerta` continua exata. Se a primeira rodada imprimir outro segmento, pare e confira a fixture contra os gatilhos; não afrouxe a comparação.
+3. No comentário do topo, depois de "so every registered run must print exactly that line", acrescente: "Since the guard (v0.4.0) the measured session carries the guard mark, so the bar also evaluates the guard; the fixture's 7d forecast trips G2 and the line ends with the guard segment."
+4. Rode `node bench/statusline-p95.mjs 20`. Os cenários registrados têm de passar pelo `conferir`. Anote o p95 no relatório; a meta segue a da spec §9.1.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add -- src/formato.js src/statusline.js test/formato.test.js test/guarda-hooks.test.js test/statusline.test.js
-git commit -m "feat: guard segment on the status bar" -- src/formato.js src/statusline.js test/formato.test.js test/guarda-hooks.test.js test/statusline.test.js
+git add -- src/formato.js src/statusline.js bench/statusline-p95.mjs test/formato.test.js test/guarda-hooks.test.js test/statusline.test.js
+git commit -m "feat: guard segment on the status bar" -- src/formato.js src/statusline.js bench/statusline-p95.mjs test/formato.test.js test/guarda-hooks.test.js test/statusline.test.js
 ```
 
 ---
@@ -4094,7 +4336,7 @@ import { fileURLToPath } from 'node:url';
 import { registrarSessao } from '../src/ativas.js';
 import { avaliarGuarda } from '../src/guarda/avaliar.js';
 
-// Replay do incidente de 2026-09-28/29 (spec v0.3.0 §1.1 e §1.3, critério 1):
+// Replay do incidente de 2026-09-28/29 (spec v0.4.0 §1.1 e §1.3, critério 1):
 // uma sessão despacha revisores fable-xhigh em sequência, e o 7d sobe 3 pontos
 // por revisor. A guarda nega o primeiro (G5, despacho caro). Depois do
 // /claude-hadouken:liberar caro, passam 4 e o quinto é negado, porque a
@@ -4125,7 +4367,7 @@ function estado(home, u7) {
     seven_day: { used_percentage: u7, resets_at: Math.floor(agora / 1000) + 4 * 86_400, at }, sessoes: {}, historico: [] }));
 }
 function hook(home, nome, entrada) {
-  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_CONFIG_DIR: path.join(home, 'cfg'), CLAUDE_EFFORT: 'high', CLAUDE_CODE_ENTRYPOINT: 'cli' };
+  const env = { ...process.env, HADOUKEN_HOME: home, HADOUKEN_SEM_PAINEL: '1', CLAUDE_CONFIG_DIR: path.join(home, 'cfg'), CLAUDE_EFFORT: 'high', CLAUDE_CODE_ENTRYPOINT: 'cli' };
   delete env.CLAUDE_CODE_SUBAGENT_MODEL;
   const r = spawnSync(process.execPath, [path.join(repo, 'src', 'hooks', nome)], { input: JSON.stringify(entrada), env, encoding: 'utf8', timeout: 15_000 });
   assert.equal(r.status, 0, r.stderr);
@@ -4224,7 +4466,7 @@ Expected: PASS.
     },
 ```
 
-4. No comentário de cenários do topo, acrescente: "- guard (v0.3.0): P1 denying a fable-max dispatch (the fixture's 7d forecast trips G2), P3 denying a switch to Fable, P5 denying a write in the data folder."
+4. No comentário de cenários do topo, acrescente: "- guard (v0.4.0): P1 denying a fable-max dispatch (the fixture's 7d forecast trips G2), P3 denying a switch to Fable, P5 denying a write in the data folder."
 
 5. Rode o bench uma vez: `node bench/hooks-p95.mjs`. Rode também `node bench/statusline-p95.mjs`, porque a barra passou a avaliar a guarda. Cole a tabela no relatório. A meta é p95 ≤ 250 ms no Windows. Acima disso, **não otimize por conta própria**: relate.
 
@@ -4245,13 +4487,13 @@ Expected: PASS.
 - **S24, privacidade.** Os módulos da guarda não importam rede nem `child_process` (conferido por teste), e os arquivos novos guardam só números, horários, ids validados e rótulos.
 - **S25, créditos de uso depois do limite do Fable.** O G6 só sai com o escopo `fable` da liberação, que avisa que o Fable pode consumir créditos.
 
-Riscos residuais da guarda (v0.3.0):
+Riscos residuais da guarda (v0.4.0):
 
 - **R1, forja pelo shell, `npx`, `node .../cli.js` ou comando ofuscado:** escapam da P4 e da P5. A barra e os eventos tornam a forja visível; não a impedem.
 - **R2, timeout:** hook que estoura o tempo deixa passar.
 - **R3, sessões sem guarda:** abertas antes da atualização sem `/reload-plugins`, `--bare`, plugins desligados, outras máquinas, claude.ai e o app desktop. A barra diz "sem guarda nesta sessão" onde ela roda.
 - **R4:** retirado com a liberação sem código.
-- **R5, limite do Fable invisível:** nenhuma fonte oficial traz o limite semanal do Fable ao plugin. A guarda trava depois que ele é atingido (G6) e conta os despachos (G7).
+- **R5, limite do Fable pela leitura oficial (emendas E2 e E7):** desde a v0.3.0, o painel lê a semana do Fable pelo `/usage` oficial (`claude -p /usage`, sem modelo e sem tokens) e a grava em `uso-oficial.json`. A guarda usa essa leitura como piso quando ela tem até 15 min: 100% trava o Fable (G6), e `fable.tetoPct` (90%) zera o teto de despachos Fable (G7). Leitura velha, ausente ou fora do schema (S28) não conta; aí só valem o StopFailure (G6) e a contagem de despachos (G7). Sem sessão ativa ou com pouca RAM o painel não lê, e a leitura envelhece. A statusline segue sem campo por modelo.
 - **R6, subagente reaberto por `SendMessage`:** o hook não distingue a reabertura de um agente concluído.
 ```
 
@@ -4264,7 +4506,7 @@ Em `README.md`, acrescente ao Sumário, depois de "Os avisos que o Claude recebe
 ```markdown
 ## A guarda de consumo
 
-Desde a v0.3.0, o hadouken trava o gasto onde ele começa: no despacho de subagente, no uso do Fable e no despacho caro. A trava fica até **você** liberar com `/claude-hadouken:liberar`; o Claude não consegue se liberar sozinho.
+Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subagente, no uso do Fable e no despacho caro. A trava fica até **você** liberar com `/claude-hadouken:liberar`; o Claude não consegue se liberar sozinho.
 
 ### O que trava
 
@@ -4275,10 +4517,10 @@ Desde a v0.3.0, o hadouken trava o gasto onde ele começa: no despacho de subage
 | G3 | a janela de 5h em 90% ou mais, com o reset a pelo menos 15 min | o mesmo |
 | G4 | a semana em 85% ou mais | o mesmo |
 | G5 | despacho caro: effort `max` em qualquer modelo, ou Fable em `xhigh` ou `max` | aquele despacho |
-| G6 | o limite do Fable foi atingido | despacho Fable, a troca para o Fable e o prompt numa sessão Fable |
-| G7 | o quinto despacho Fable em 5 h | o mesmo |
+| G6 | o limite do Fable foi atingido (aviso de limite do Claude Code, ou a leitura oficial da semana do Fable em 100%, com até 15 min) | despacho Fable, a troca para o Fable e o prompt numa sessão Fable |
+| G7 | o quinto despacho Fable em 5 h, ou qualquer despacho Fable com a semana do Fable em 90% ou mais (leitura oficial com até 15 min) | o mesmo |
 
-Os números são ajustáveis na chave `guarda` do `config.json`. Afrouxar a configuração não solta uma trava que já disparou.
+Os números são ajustáveis na chave `guarda` do `config.json` (o 90% do Fable é `guarda.fable.tetoPct`). Afrouxar a configuração não solta uma trava que já disparou.
 
 ### Como liberar
 
@@ -4297,7 +4539,9 @@ Toda liberação acaba antes do prazo se a semana subir 10 pontos. Ela vale para
 - `guarda desligada`: `"ligada": false` no `config.json`.
 - `guarda sem leitura`: sem leitura de limite; só G5, G6 e G7 valem.
 - `sem guarda nesta sessão`: a sessão foi aberta antes da atualização.
-- `Fable 3/4 em 5h · sem leitura oficial`: numa sessão Fable, a contagem de despachos. O limite semanal do Fable não chega ao plugin, e a porcentagem de 7d da barra não é a do Fable.
+- `Fable 3/4 em 5h · semana Fable 57%`: numa sessão Fable, a contagem de despachos e a semana do Fable pela leitura oficial (o mesmo `/usage` do painel no VS Code), com até 15 min.
+- `semana Fable ≥ 57% (leitura de 40 min)`: a leitura oficial está mais velha que 15 min; o número é um piso, e a guarda não o usa.
+- `sem leitura oficial`: não há leitura válida do Fable (o painel ainda não leu, pausou por pouca RAM ou o arquivo está fora do schema), ou ela é de antes do reset do Fable.
 
 **Sessões abertas só ganham a guarda depois de `/reload-plugins` ou de reiniciar.**
 ```
@@ -4313,7 +4557,7 @@ Expected: PASS em tudo. Cole o resumo (`# pass`, `# fail`) no relatório.
 
 ```bash
 git add -- hooks/hooks.json test/guarda-ameacas.test.js test/guarda-replay.test.js bench/hooks-p95.mjs SECURITY.md README.md README.en.md
-git commit -m "feat: wire the v0.3.0 guard hooks, incident replay, threats, bench and docs" -- hooks/hooks.json test/guarda-ameacas.test.js test/guarda-replay.test.js bench/hooks-p95.mjs SECURITY.md README.md README.en.md
+git commit -m "feat: wire the v0.4.0 guard hooks, incident replay, threats, bench and docs" -- hooks/hooks.json test/guarda-ameacas.test.js test/guarda-replay.test.js bench/hooks-p95.mjs SECURITY.md README.md README.en.md
 ```
 
 ---
@@ -4335,11 +4579,11 @@ Quem faz esta tarefa é o controlador, sem implementador.
 
 - [ ] **Step 2: Linha do hadouken e liberação do portão**
 
-Leia a linha do hadouken. Com alerta de projeção, pare e pergunte ao Sr. Garioli. O próprio agente `fable-xhigh` é despacho caro (G5): a guarda instalada ainda é a v0.2.0, então não há trava, mas registre que, com a v0.3.0 em uso, o portão exige `/claude-hadouken:liberar caro` digitado por ele.
+Leia a linha do hadouken. Com alerta de projeção, pare e pergunte ao Sr. Garioli. O próprio agente `fable-xhigh` é despacho caro (G5): a versão instalada ainda é a v0.3.0, sem a guarda, então não há trava, mas registre que, com a v0.4.0 em uso, o portão exige `/claude-hadouken:liberar caro` digitado por ele.
 
 - [ ] **Step 3: Despachar um único revisor `fable-xhigh`** para o branch inteiro, com o brief:
 
-"Revisão de segurança da guarda do claude-hadouken v0.3.0 (branch inteiro contra `ab1e39c`). Spec: `docs/superpowers/specs/2026-09-29-guardiao-design.md`; valem as emendas do fim. Plano: `docs/superpowers/plans/2026-09-29-guardiao-parte1-guarda.md`. Procure, com arquivo e linha: (1) qualquer caminho em que o modelo se libere sozinho ou solte uma trava sem o usuário; (2) fail-open onde a spec pede fail-closed (guarda.json ilegível); (3) texto de arquivo, stdin, frontmatter ou argumento chegando ao Claude ou à barra; (4) leitura sem lstat ou sem teto, ou gravação não atômica, nos arquivos novos; (5) rede ou child_process nos módulos novos; (6) bloqueio que perde trabalho em andamento (task-notification, subagente em segundo plano); (7) desvios do D1 e do D4 emendados. Não rode testes; o controlador já rodou. Classifique cada achado como crítico, importante ou menor, e diga 'nenhum achado' se for o caso."
+"Revisão de segurança da guarda do claude-hadouken v0.4.0 (branch inteiro contra `8d1bff3`, a base do branch: v0.3.0 com a correção de CI). Spec: `docs/superpowers/specs/2026-09-29-guardiao-design.md`; valem as emendas do fim. Plano: `docs/superpowers/plans/2026-09-29-guardiao-parte1-guarda.md`. Procure, com arquivo e linha: (1) qualquer caminho em que o modelo se libere sozinho ou solte uma trava sem o usuário; (2) fail-open onde a spec pede fail-closed (guarda.json ilegível); (3) texto de arquivo, stdin, frontmatter ou argumento chegando ao Claude ou à barra; (4) leitura sem lstat ou sem teto, ou gravação não atômica, nos arquivos novos; (5) rede ou child_process nos módulos novos; (6) bloqueio que perde trabalho em andamento (task-notification, subagente em segundo plano); (7) desvios do D1 e do D4 emendados. Não rode testes; o controlador já rodou. Classifique cada achado como crítico, importante ou menor, e diga 'nenhum achado' se for o caso."
 
 - [ ] **Step 4:** Corrija os achados críticos e importantes com um implementador `opus-high` e uma re-revisão Sonnet escopada no diff da correção. Os menores vão ao Sr. Garioli numa lista, e ele decide. Nada de release sem o OK dele.
 

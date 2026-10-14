@@ -248,3 +248,13 @@ test('formatarBarra nunca lança', () => {
   const opcoesArmadas = { entrada, cor: false, get limites() { throw new Error('getter'); }, get sessoesAtivas() { throw new Error('getter'); } };
   assert.equal(formatarBarra(opcoesArmadas), LINHA);
 });
+
+// Spec v0.4.0 §8.3: o segmento da guarda vai no fim, saneado; vazio não muda a barra.
+test('segmento da guarda: vai no fim, saneado; vazio não muda a barra', () => {
+  const base = { entrada, limites: null, agoraMs: Date.now(), cor: false };
+  const sem = formatarBarra(base);
+  assert.equal(formatarBarra({ ...base, guarda: '' }), sem);
+  assert.equal(formatarBarra({ ...base, guarda: 'guarda: 7d' }), `${sem} │ guarda: 7d`);
+  const hostil = formatarBarra({ ...base, guarda: 'guarda\u001b]0;x\u0007 | `rm`' });
+  assert.ok(!/[\u001b\u0007`]/.test(hostil));
+});

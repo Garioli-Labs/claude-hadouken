@@ -1,4 +1,4 @@
-import { numeroFinito } from './base.js';
+import { DATA_MAX_MS, numeroFinito } from './base.js';
 
 // numeroFinito mora em base.js e sai também daqui: formato.js, alerta.js e
 // hooks/linha-estado.js já importam este arquivo, e cada import novo custa
@@ -69,6 +69,31 @@ export function diaHora(epochS) {
   if (!numeroFinito(epochS)) return SEM_VALOR;
   const d = new Date(epochS * 1000);
   return `${DIAS[d.getDay()]} ${horaLocal(epochS)}`;
+}
+
+// Início do dia local de um instante, em ms (a meia-noite pelo relógio da
+// máquina, sem Intl: sem-icu.test.js).
+const inicioDoDia = (ms) => {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+
+// Horário de 7d sem ambiguidade (spec v0.4.0 §10, item 7): "hoje 13:31",
+// "amanhã 13:31", "ontem 23:50" ou "qui 02/10 13:31". Nunca só o dia da
+// semana, que repete 7 dias à frente. A diferença de dias sai das meias-noites
+// locais, arredondada (o horário de verão muda um dia para 23 ou 25 h).
+// Entrada não finita vira —. Nunca lança.
+export function quandoLocal(epochS, agoraMs) {
+  if (!numeroFinito(epochS) || !numeroFinito(agoraMs)) return SEM_VALOR;
+  const ms = epochS * 1000;
+  if (!numeroFinito(ms) || Math.abs(ms) > DATA_MAX_MS || Math.abs(agoraMs) > DATA_MAX_MS) return SEM_VALOR;
+  const dias = Math.round((inicioDoDia(ms) - inicioDoDia(agoraMs)) / 86_400_000);
+  const hora = horaLocal(epochS);
+  if (dias === 0) return `hoje ${hora}`;
+  if (dias === 1) return `amanhã ${hora}`;
+  if (dias === -1) return `ontem ${hora}`;
+  const d = new Date(ms);
+  return `${DIAS[d.getDay()]} ${doisDigitos(d.getDate())}/${doisDigitos(d.getMonth() + 1)} ${hora}`;
 }
 
 // Números do /consumo em markdown (spec v0.2.0 §6.2): milhar separado por

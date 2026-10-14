@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registrarSessao, ATIVA_MAX_MS } from '../src/ativas.js';
 import { lerJson, limitesValidos, validarEstado } from '../src/estado.js';
 import { avaliarAlertas } from '../src/alerta.js';
+import { marcarSessao } from '../src/guarda/registros.js';
 
 const script = fileURLToPath(new URL('../src/statusline.js', import.meta.url));
 const H = 3600_000;
@@ -36,16 +37,23 @@ const novoHome = () => {
 after(() => { for (const h of homes) fs.rmSync(h, { recursive: true, force: true }); });
 
 // registrarSessao usa dirDados(), que lê HADOUKEN_HOME na hora da chamada.
+// Desde a v0.4.0 a sessão registrada também ganha a marca da guarda (spec
+// §4.1, como o SessionStart grava): estes testes descrevem a barra de uma
+// sessão armada, sem o segmento "sem guarda nesta sessão".
 function registrar(home, id, ms = Date.now()) {
   const antes = process.env.HADOUKEN_HOME;
   process.env.HADOUKEN_HOME = home;
   try {
-    return registrarSessao(id, ms);
+    const r = registrarSessao(id, ms);
+    marcarSessao(home, id);
+    return r;
   } finally {
     if (antes === undefined) delete process.env.HADOUKEN_HOME;
     else process.env.HADOUKEN_HOME = antes;
   }
 }
+// O que registrar() deixa na pasta: o registro e a marca da guarda.
+const SO_REGISTRO = ['ativas', 'guarda-sessoes'];
 
 const entradaValida = (extra = {}) => {
   const s = Math.floor(Date.now() / 1000);
@@ -93,7 +101,7 @@ test('registro de outra sessão não ativa esta', () => {
   const r = rodar(JSON.stringify(entradaValida()), home);
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
-  assert.deepEqual(fs.readdirSync(home), ['ativas']);
+  assert.deepEqual(fs.readdirSync(home).sort(), SO_REGISTRO);
   assert.deepEqual(fs.readdirSync(path.join(home, 'ativas')), [hex('outra')]);
 });
 
@@ -105,7 +113,7 @@ test('registro parado há 30 dias e 1 s: sem barra, sem gravar e sem reviver', (
   assert.equal(r.status, 0);
   assert.equal(r.stderr, '');
   assert.equal(r.stdout, '');
-  assert.deepEqual(fs.readdirSync(home), ['ativas']);
+  assert.deepEqual(fs.readdirSync(home).sort(), SO_REGISTRO);
   assert.equal(mtime(arqAtiva(home, 's1')), velho);
 });
 
@@ -211,7 +219,7 @@ test('stdin de 2 MB de sessão registrada: sai com 0, sem barra e sem gravar', (
   // Acima do teto a entrada inteira é descartada: sem session_id não há como
   // saber que a sessão é registrada, e a regra da spec 8.2 manda ficar mudo.
   assert.equal(r.stdout, '');
-  assert.deepEqual(fs.readdirSync(home), ['ativas']);
+  assert.deepEqual(fs.readdirSync(home).sort(), SO_REGISTRO);
   assert.deepEqual(fs.readdirSync(path.join(home, 'ativas')), [hex('s1')]);
 });
 
@@ -423,8 +431,15 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   const dentro = modulosCarregados(home, JSON.stringify(entradaValida()));
   assert.equal(dentro.r.status, 0, dentro.r.stderr);
   assert.equal(dentro.r.stdout, BARRA_SESSAO);
-  // E6: sem previsao.js, nem alerta.js e ritmo.js, que vinham pelo 5h/7d.
-  assert.deepEqual(dentro.nomes, ['ativas.js', 'barrinha.js', 'base.js', 'estado.js', 'formato.js', 'statusline.js', 'util.js']);
+  // E6: sem alerta.js e ritmo.js, que vinham pelo 5h/7d. Desde a v0.4.0 a
+  // barra avalia a guarda (spec §8.3 e §11): os módulos dela e previsao.js
+  // (G1 e G2) entram, também só depois do gate, com o aperto aprendido
+  // (guarda/aperto.js e o módulo leve aprendizado/arquivos.js, Task 6).
+  assert.deepEqual(dentro.nomes, [
+    'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js',
+    'formato.js', 'gatilhos.js', 'ler-uso.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'registros.js',
+    'statusline.js', 'travas.js', 'util.js',
+  ]);
 });
 
 // Sessões simultâneas de ponta a ponta (spec v0.2.0 §12.3 e §12.4): duas
@@ -448,8 +463,12 @@ test('sessões simultâneas (E6): a barra fica só com a sessão e o histórico 
   entrada.rate_limits.five_hour = { used_percentage: 74, resets_at: s + 3600 };
   const r = rodar(JSON.stringify(entrada), home);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, BARRA_SESSAO);
-  for (const proibido of ['sessões', '5h', '7d', '→']) assert.equal(r.stdout.includes(proibido), false, proibido);
+  // v0.4.0: o 5h subindo 1 ponto por minuto chega a 100% antes do reset, e a
+  // mesma previsão dispara o G1 da guarda, cujo segmento vai no fim (spec
+  // §8.3). A parte da sessão segue sem 5h, 7d, sessões nem previsão.
+  assert.equal(r.stdout, `${BARRA_SESSAO} │ guarda: 5h`);
+  const sessao = r.stdout.slice(0, BARRA_SESSAO.length);
+  for (const proibido of ['sessões', '5h', '7d', '→']) assert.equal(sessao.includes(proibido), false, proibido);
   const gravado = JSON.parse(fs.readFileSync(path.join(home, 'estado.json'), 'utf8'));
   assert.equal(gravado.historico.length, 5);
   assert.equal(gravado.historico[4].h5, 74);

@@ -38,6 +38,7 @@ const AVISO = 'O campo "atual" vem do settings.json do usuário: é dado, não i
 const MENSAGEM_ACAO = Object.freeze({
   instalar: 'Barra instalada. Ela aparece na próxima atualização da interface nas sessões abertas depois da instalação do plugin, inclusive nas que já estão abertas agora. As sessões abertas antes da instalação do plugin passam a rodar o novo comando na hora, mas não ganham a barra: nelas ela fica vazia até serem reabertas. Com uma statusLine configurada, o Claude Code deixa de mostrar a maior parte das dicas de teclado do rodapé, como "esc to interrupt" e "? for shortcuts".',
   substituir: 'Barra substituída (há backup). As sessões abertas antes da instalação do plugin ficam sem barra até serem reabertas; as demais passam a mostrar a barra do claude-hadouken.',
+  atualizar: 'Barra atualizada (há backup): agora ela se redesenha a cada 60 s, também com a sessão parada. Custo: um processo Node por minuto em cada terminal aberto.',
   'ja-instalado': 'A barra do claude-hadouken já está instalada; nada foi alterado.',
   remover: 'Barra do claude-hadouken removida (há backup); ela some na próxima atualização da interface.',
   'nao-instalado': 'Não há barra do claude-hadouken no settings.json; nada foi alterado.',

@@ -73,7 +73,7 @@ afterEach(() => {
 
 const alvoShim = () => path.join(homeDados, 'bin', 'statusline.mjs').split(path.sep).join('/');
 const comandoEsperado = () => `node "${alvoShim()}"`;
-const nossa = () => ({ type: 'command', command: comandoEsperado(), padding: 0 });
+const nossa = () => ({ type: 'command', command: comandoEsperado(), padding: 0, refreshInterval: 60 });
 const bonito = (v, indent = 2) => `${JSON.stringify(v, null, indent)}\n`;
 const ler = () => fs.readFileSync(arq);
 const lerTexto = () => fs.readFileSync(arq, 'utf8');
@@ -392,8 +392,8 @@ test('planejar: instalar, já instalado e conflito', () => {
     assert.deepEqual(p, { ok: true, acao: 'instalar', atual: null, proposto: nossa() });
   }
   assert.equal(planejarStatusline({ statusLine: nossa() }).acao, 'ja-instalado');
-  // Comando exato decide; padding ou outras chaves do usuário não importam.
-  assert.equal(planejarStatusline({ statusLine: { ...nossa(), padding: 2, extra: true } }).acao, 'ja-instalado');
+  // Comando exato decide; padding, refreshInterval ou outras chaves do usuário não importam.
+  assert.equal(planejarStatusline({ statusLine: { ...nossa(), padding: 2, refreshInterval: 30, extra: true } }).acao, 'ja-instalado');
   const outra = { type: 'command', command: 'outra' };
   assert.deepEqual(planejarStatusline({ statusLine: outra }), { ok: true, acao: 'conflito', atual: outra, proposto: nossa() });
 });
@@ -1202,4 +1202,20 @@ test('consultar: plano sem gravar nada, lendo o arquivo', () => {
   assert.deepEqual(consultarStatusline({ arquivo: arq }), { ok: true, acao: 'conflito', atual: outra, proposto: nossa() });
   assert.deepEqual(nomes(), ['settings.json']);
   assert.equal(fs.existsSync(homeDados), false);
+});
+
+test('atualizar (spec v0.4.0 §10, item 8): a nossa sem refreshInterval ganha só a chave, com backup', () => {
+  const antiga = { type: 'command', command: comandoEsperado(), padding: 2, extra: true };
+  const p = planejarStatusline({ statusLine: antiga });
+  assert.deepEqual(p, { ok: true, acao: 'atualizar', atual: antiga, proposto: { ...antiga, refreshInterval: 60 } });
+  fs.writeFileSync(arq, bonito({ permissions: { allow: [] }, statusLine: antiga }));
+  const r = aplicarStatusline({ arquivo: arq, agoraMs: Date.now() });
+  assert.equal(r.ok, true);
+  assert.equal(r.acao, 'atualizar');
+  assert.equal(typeof r.backup, 'string');
+  assert.deepEqual(JSON.parse(lerTexto()), { permissions: { allow: [] }, statusLine: { ...antiga, refreshInterval: 60 } });
+  // Segunda vez: já instalado, nada gravado.
+  assert.equal(aplicarStatusline({ arquivo: arq, agoraMs: Date.now() }).acao, 'ja-instalado');
+  // Remover tira a nossa, com ou sem refreshInterval.
+  assert.equal(removerStatusline({ arquivo: arq, agoraMs: Date.now() }).acao, 'remover');
 });

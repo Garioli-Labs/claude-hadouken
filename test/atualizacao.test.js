@@ -38,9 +38,11 @@ const novaPasta = (prefixo) => {
 // Ambiente dos filhos: HADOUKEN_HOME na pasta do teste e NO_COLOR ligado; um
 // valor undefined tira a variável. HADOUKEN_SEM_PAINEL=1: o SessionStart com
 // a raiz do repo não dispara a instalação do painel, que chamaria o `code` de
-// verdade pelo PATH de quem roda os testes.
+// verdade pelo PATH de quem roda os testes. CLAUDE_CONFIG_DIR numa pasta
+// temporária que não existe (Task 19b): a fotografia do SessionStart nunca lê
+// o settings de ~/.claude de verdade.
 function ambiente(home, extra = {}) {
-  const env = { ...process.env, HADOUKEN_HOME: home, NO_COLOR: '1', HADOUKEN_SEM_PAINEL: '1', ...extra };
+  const env = { ...process.env, HADOUKEN_HOME: home, NO_COLOR: '1', HADOUKEN_SEM_PAINEL: '1', CLAUDE_CONFIG_DIR: path.join(home, 'sem-config'), ...extra };
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
   return env;
 }

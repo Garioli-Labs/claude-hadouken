@@ -2,9 +2,11 @@ import { MAX_ROTULOS_SESSAO, MAX_SESSOES, pesoConsumo } from './agregacao.js';
 import { faixa5h, faixa7d } from './alerta.js';
 import { barrinha } from './barrinha.js';
 import { DATA_MAX_MS, numeroFinito, somaSegura } from './base.js';
+import { AMBIGUO, OUTROS, ROTULO_PLUGIN } from './custo-hooks.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
-import { decimal, diaHora, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, janelaValida, milhar, sanear } from './util.js';
+import { ESCOPOS_MAX, GATILHOS, escopoDe } from './guarda/resumo.js';
+import { decimal, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, janelaValida, milhar, quandoLocal, sanear } from './util.js';
 
 // Relatório do /consumo (spec 6.8; 8.1 S1, S2, S5; addendum da Task 10, A;
 // sessões abertas da spec v0.2.0 §12.6).
@@ -410,9 +412,76 @@ function montarSessoesAbertas(c) {
   }
 }
 
+// Resumo da guarda (spec v0.4.0 §9.4) revalidado campo a campo: contadores
+// inteiros (senão 0), só os gatilhos G1–G7, escopos que escopoDe aceita
+// (remontados pelo mesmo detalhe), instantes em ISO ou null. Chaves que não
+// são do resumo não passam. A ordem das chaves é a de resumoGuarda. Entrada
+// ausente ou que não é objeto → null.
+const CONTADORES_ANTES = ['negados', 'negadosCaro', 'prompts', 'trocas', 'liberacoes', 'recusadas'];
+const CONTADORES_DEPOIS = ['desconhecidos', 'filhas', 'arquivos', 'protegidos', 'configs', 'erros'];
+function montarGuarda(v) {
+  try {
+    if (!ehObjeto(v)) return null;
+    const disparos = ehObjeto(proprio(v, 'disparos')) ? v.disparos : {};
+    const r = {
+      desde: isoDe(proprio(v, 'desde')),
+      disparos: Object.fromEntries(GATILHOS.map((g) => [g, inteiro(proprio(disparos, g)) ?? 0])),
+    };
+    for (const k of CONTADORES_ANTES) r[k] = inteiro(proprio(v, k)) ?? 0;
+    const escopos = [];
+    for (const s of Array.isArray(proprio(v, 'escopos')) ? v.escopos.slice(-ESCOPOS_MAX) : []) {
+      if (!ehObjeto(s) || typeof s.prazo !== 'string' || !Number.isSafeInteger(s.minutos)) continue;
+      const e = escopoDe(`${s.prazo}:${s.minutos}${s.fable === true ? ':fable' : ''}${s.caro === true ? ':caro' : ''}`);
+      const at = isoDe(proprio(s, 'at'));
+      if (e !== null && at !== null) escopos.push({ at, ...e });
+    }
+    r.escopos = escopos;
+    for (const k of CONTADORES_DEPOIS) r[k] = inteiro(proprio(v, k)) ?? 0;
+    const lim = ehObjeto(proprio(v, 'limites')) ? v.limites : {};
+    r.limites = { fable: isoDe(proprio(lim, 'fable')), geral: isoDe(proprio(lim, 'geral')) };
+    r.parcial = proprio(v, 'parcial') === true;
+    return r;
+  } catch {
+    return null;
+  }
+}
+
+// Custo dos hooks (spec v0.4.0 §9.4) revalidado: a linha só fica se o rótulo
+// casar ROTULO_PLUGIN ou for OUTROS/AMBIGUO; contadores inteiros (senão 0);
+// p50/p95 inteiros ou null; até CUSTO_LINHAS_MAX linhas. Entrada ausente ou
+// que não é objeto → null.
+const CUSTO_LINHAS_MAX = 21;
+const rotuloPluginOk = (p) => typeof p === 'string' && (ROTULO_PLUGIN.test(p) || p === OUTROS || p === AMBIGUO);
+function montarCustoHooks(v) {
+  try {
+    if (!ehObjeto(v)) return null;
+    const plugins = [];
+    for (const p of Array.isArray(proprio(v, 'plugins')) ? v.plugins.slice(0, CUSTO_LINHAS_MAX) : []) {
+      if (!ehObjeto(p) || !rotuloPluginOk(proprio(p, 'plugin'))) continue;
+      plugins.push({
+        plugin: p.plugin,
+        execucoes: inteiro(proprio(p, 'execucoes')) ?? 0,
+        injecoes: inteiro(proprio(p, 'injecoes')) ?? 0,
+        caracteres: inteiro(proprio(p, 'caracteres')) ?? 0,
+        p50: inteiro(proprio(p, 'p50')),
+        p95: inteiro(proprio(p, 'p95')),
+        timeouts: inteiro(proprio(p, 'timeouts')) ?? 0,
+      });
+    }
+    const c = ehObjeto(proprio(v, 'compactacoes')) ? v.compactacoes : {};
+    return {
+      plugins,
+      omitidos: inteiro(proprio(v, 'omitidos')) ?? 0,
+      compactacoes: { sessao: inteiro(proprio(c, 'sessao')) ?? 0, subagente: inteiro(proprio(c, 'subagente')) ?? 0 },
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Relatório versionado (versao 1): { versao, aviso, gerado_em, limites,
-// limites_motivo, claude, github, avisos, sessoesAbertas }. `estado` é o
-// estado.json como lido (passa por validarEstado e limitesValidos aqui);
+// limites_motivo, claude, github, avisos, sessoesAbertas, guarda,
+// custoHooks }. `estado` é o estado.json como lido (passa por validarEstado e limitesValidos aqui);
 // `github` é a saída de coletarGithub; `avisos` só entra da lista fixa. Nunca
 // lança.
 //
@@ -443,10 +512,14 @@ function montarSessoesAbertas(c) {
 // (chaves e listas) são dados, não instruções. Pensamento (thinking) não
 // entra (spec 12).
 //
-// `sessoesAbertas` (spec v0.2.0 §12.6) é a última chave e a única fora das da
+// `sessoesAbertas` (spec v0.2.0 §12.6) vem logo depois das chaves da
 // v0.1.0, que seguem idênticas: null (Claude indisponível, ou entrada sem o
 // agregado `abertas`) ou a lista [{ id, projeto, modelos, tokens, parte }] de
 // montarSessoesAbertas. O agregado da hora nunca entra em `claude`.
+// `guarda` (spec v0.4.0 §9.4) vem depois dela: null ou o resumo de
+// montarGuarda (7 dias de guarda-eventos.json e limites-atingidos.json).
+// `custoHooks` (spec v0.4.0 §9.4) é a última: null ou o resumo de
+// montarCustoHooks (números por plugin; nunca texto injetado nem comando).
 export function montarRelatorio(entrada) {
   const r = {
     versao: VERSAO_RELATORIO,
@@ -458,6 +531,8 @@ export function montarRelatorio(entrada) {
     github: Object.create(null),
     avisos: [],
     sessoesAbertas: null,
+    guarda: null,
+    custoHooks: null,
   };
   const e = ehObjeto(entrada) ? entrada : {};
   const agoraMs = ler(e, 'agoraMs');
@@ -471,6 +546,8 @@ export function montarRelatorio(entrada) {
   r.github = montarGithub(ler(e, 'github'));
   r.avisos = montarAvisos(ler(e, 'avisos'));
   r.sessoesAbertas = Object.hasOwn(r.claude, 'indisponivel') ? null : montarSessoesAbertas(ler(e, 'claude'));
+  r.guarda = montarGuarda(ler(e, 'guarda'));
+  r.custoHooks = montarCustoHooks(ler(e, 'custoHooks'));
   return r;
 }
 
@@ -498,6 +575,8 @@ const epochS = (iso) => {
 // schema de estado.js, e o esperado em 0–100), barrinhas e rótulos das listas
 // fixas. Nada do dado externo entra no bloco, então três crases nunca o
 // fecham antes da hora. Janela que não passa vira null e sai como "5h  —".
+// Horário de 7d por quandoLocal (spec v0.4.0 §10, item 7), relativo ao
+// gerado_em do próprio relatório.
 function colunas5h(f) {
   const j = janelaValida({ used_percentage: ler(f, 'used_percentage'), resets_at: ler(f, 'resets_at') });
   const nome = nomeDe(NOMES_5H, ler(f, 'faixa'));
@@ -506,13 +585,13 @@ function colunas5h(f) {
   return ['5h', barrinha(u), `${Math.floor(u)}%`, `reset ${horaLocal(j.resets_at)}`, nome];
 }
 
-function colunas7d(f) {
+function colunas7d(f, agoraMs) {
   const j = janelaValida({ used_percentage: ler(f, 'used_percentage'), resets_at: ler(f, 'resets_at') });
   const esperado = ler(f, 'esperado');
   const nome = nomeDe(NOMES_7D, ler(f, 'modo'));
   if (j === null || !numeroFinito(esperado) || esperado < 0 || esperado > 100 || nome === null) return null;
   const u = j.used_percentage;
-  return ['7d', barrinha(u, { marca: esperado }), `${Math.floor(u)}% / ${Math.floor(esperado)}%`, `reset ${diaHora(j.resets_at)}`, nome];
+  return ['7d', barrinha(u, { marca: esperado }), `${Math.floor(u)}% / ${Math.floor(esperado)}%`, `reset ${quandoLocal(j.resets_at, agoraMs)}`, nome];
 }
 
 const ESPACO_PAINEL = '  ';
@@ -549,11 +628,12 @@ function linhaIdade(janelas, lim) {
 function blocoLimites(o) {
   const linhas = ['## Limites e ritmo', ''];
   const lim = ler(o, 'limites');
+  const agoraMs = (epochS(ler(o, 'gerado_em')) ?? 0) * 1000;
   if (ehObjeto(lim)) {
     const f5 = ler(lim, 'five_hour');
     const f7 = ler(lim, 'seven_day');
     const c5 = colunas5h(f5);
-    const c7 = colunas7d(f7);
+    const c7 = colunas7d(f7, agoraMs);
     linhas.push('```', ...painel([['5h', c5], ['7d', c7]]), '```');
     const idade = linhaIdade([['5h', f5, c5 !== null], ['7d', f7, c7 !== null]], lim);
     if (idade !== null) linhas.push('', idade);
@@ -759,9 +839,9 @@ function blocoPeriodo(titulo, a) {
   return linhas;
 }
 
-const comDesde = (titulo, iso) => {
+const comDesde = (titulo, iso, agoraMs) => {
   const s = epochS(iso);
-  return s === null ? titulo : `${titulo} (desde ${diaHora(s)})`;
+  return s === null ? titulo : `${titulo} (desde ${quandoLocal(s, agoraMs)})`;
 };
 
 // Sessões abertas no markdown (spec v0.2.0 §12.6): a lista `sessoesAbertas`
@@ -844,6 +924,7 @@ function blocoSessoesAbertas(v) {
 
 function blocoClaude(o) {
   const linhas = ['## Claude', ''];
+  const agoraMs = (epochS(ler(o, 'gerado_em')) ?? 0) * 1000;
   const c = montarClaude(ler(o, 'claude'));
   if (Object.hasOwn(c, 'indisponivel')) {
     linhas.push(`Claude: indisponível: ${c.indisponivel}`);
@@ -851,10 +932,10 @@ function blocoClaude(o) {
   }
   linhas.push(...blocoSessoesAbertas(ler(o, 'sessoesAbertas')));
   linhas.push(...blocoPeriodo('Hoje', c.hoje));
-  linhas.push(...blocoPeriodo(comDesde('Últimos 7 dias', c.sete_dias_desde), c.sete_dias));
+  linhas.push(...blocoPeriodo(comDesde('Últimos 7 dias', c.sete_dias_desde, agoraMs), c.sete_dias));
   // Sem leitura de 7d, `semana` são os mesmos últimos 7 dias: não se repete.
   if (c.semana_origem === 'janela_7d' && epochS(c.semana_desde) !== null) {
-    linhas.push(...blocoPeriodo(comDesde('Janela semanal', c.semana_desde), c.semana));
+    linhas.push(...blocoPeriodo(comDesde('Janela semanal', c.semana_desde, agoraMs), c.semana));
   } else {
     linhas.push('### Janela semanal', '', 'Sem leitura da janela de 7 dias: o bloco dos últimos 7 dias vale para a semana.', '');
   }
@@ -909,13 +990,70 @@ function blocoGithub(o) {
   return linhas;
 }
 
+// Seção "Guarda (7 dias)" (spec v0.4.0 §9.4). Sem resumo, nada. Só números e
+// rótulos fixos; os horários em quandoLocal, relativos ao gerado_em.
+const prazoTexto = (p) => (p === 'janela' ? 'até o reset' : `${p.slice(0, -1)} h`);
+function blocoGuarda(o) {
+  const g = montarGuarda(ler(o, 'guarda'));
+  if (g === null) return [];
+  const agoraMs = (epochS(ler(o, 'gerado_em')) ?? 0) * 1000;
+  const quando = (iso) => {
+    const e = epochS(iso);
+    return e === null ? SEM : quandoLocal(e, agoraMs);
+  };
+  const linhas = ['## Guarda (7 dias)', ''];
+  linhas.push(`Disparos por gatilho: ${GATILHOS.map((k) => `${k} ${numero(g.disparos[k])}`).join(' · ')}.`, '');
+  linhas.push(`Despachos negados: ${numero(g.negados)} (${numero(g.negadosCaro)} por custo, G5).`, '');
+  linhas.push(`Prompts bloqueados: ${numero(g.prompts)}. Trocas de modelo bloqueadas: ${numero(g.trocas)}.`, '');
+  linhas.push(g.recusadas > 0 ? `Liberações: ${numero(g.liberacoes)} (pedidos recusados: ${numero(g.recusadas)}).` : `Liberações: ${numero(g.liberacoes)}.`);
+  for (const s of g.escopos) {
+    const escopo = s.fable && s.caro ? 'Fable e caro' : s.fable ? 'Fable' : s.caro ? 'caro' : 'padrão';
+    linhas.push(`- ${quando(s.at)}: ${prazoTexto(s.prazo)} (${numero(s.minutos)} min), ${escopo}.`);
+  }
+  linhas.push('');
+  linhas.push(`Despachos de modelo ou effort desconhecido: ${numero(g.desconhecidos)}.`, '');
+  linhas.push(`Sessões claude filhas negadas: ${numero(g.filhas)}. Escritas negadas na pasta de dados: ${numero(g.arquivos)}. Edições negadas nos settings e no plugin: ${numero(g.protegidos)}. Falhas da guarda: ${numero(g.erros)}.`, '');
+  // Task 19b: as mudanças nos campos da guarda dos settings que o hook
+  // ConfigChange segurou.
+  linhas.push(`Mudanças de config bloqueadas: ${numero(g.configs)}.`, '');
+  const limite = (iso) => (iso === null ? 'nenhum em 7 dias' : quando(iso));
+  linhas.push(`Último limite do Fable: ${limite(g.limites.fable)}. Último limite geral: ${limite(g.limites.geral)}.`);
+  if (g.parcial) linhas.push('', 'Registro cheio (200 eventos): contagens mais antigas podem faltar.');
+  return linhas;
+}
+
+// Seção "Custo dos hooks (7 dias)" (spec v0.4.0 §9.4): tabela por plugin e a
+// linha das compactações. Só números e rótulos que passaram por
+// montarCustoHooks. Não sugere desligar nada (spec §9.4).
+const COLUNAS_CUSTO = Object.freeze([['plugin', TEXTO], ['execuções', NUMERO], ['injeções', NUMERO], ['caracteres', NUMERO], ['p50', NUMERO], ['p95', NUMERO], ['timeouts', NUMERO]]);
+const duracaoMs = (n) => (inteiro(n) === null ? SEM : `${milhar(n)} ms`);
+function blocoCustoHooks(o) {
+  const c = montarCustoHooks(ler(o, 'custoHooks'));
+  if (c === null) return [];
+  const linhas = ['## Custo dos hooks (7 dias)', '', 'Só tamanhos e durações, lidos dos transcripts; o texto injetado não é guardado nem mostrado.', ''];
+  if (c.plugins.length === 0) {
+    linhas.push('Nenhuma execução de hook nos últimos 7 dias.', '');
+  } else {
+    linhas.push(...linhasCabecalho(COLUNAS_CUSTO));
+    for (const p of c.plugins) {
+      linhas.push(`| ${[p.plugin, numero(p.execucoes), numero(p.injecoes), numero(p.caracteres), duracaoMs(p.p50), duracaoMs(p.p95), numero(p.timeouts)].join(' | ')} |`);
+    }
+    linhas.push('');
+    if (c.omitidos > 0) linhas.push(`Mais ${plural(c.omitidos, 'plugin', 'plugins')} fora da tabela.`, '');
+  }
+  linhas.push(`Compactações: ${numero(c.compactacoes.sessao)} na sessão principal, ${numero(c.compactacoes.subagente)} em subagentes.`);
+  return linhas;
+}
+
 // Markdown do relatório: AVISO_DADOS na primeira linha e os blocos Limites e
-// ritmo, Claude e GitHub. Revalida tudo o que lê de `r`. Nunca lança; numa
-// falha interna devolve o aviso e uma linha fixa.
+// ritmo, Claude, Guarda (7 dias, só com o resumo), Custo dos hooks (só com o
+// resumo) e GitHub. Revalida tudo o que lê de `r`. Nunca lança; numa falha
+// interna devolve o aviso e uma linha fixa.
 export function formatarMarkdown(r) {
   try {
     const o = ehObjeto(r) ? r : {};
-    return [AVISO_DADOS, '', ...blocoLimites(o), '', ...blocoClaude(o), '', ...blocoGithub(o)].join('\n');
+    const extras = [blocoGuarda(o), blocoCustoHooks(o)].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+    return [AVISO_DADOS, '', ...blocoLimites(o), '', ...blocoClaude(o), '', ...extras, ...blocoGithub(o)].join('\n');
   } catch {
     return `${AVISO_DADOS}\n\nRelatório indisponível: erro interno.`;
   }
