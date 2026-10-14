@@ -11,7 +11,6 @@
     { "name": "superpowers", "marketplace": "claude-plugins-official" },
     { "name": "mattpocock-skills", "marketplace": "mattpocock" },
     { "name": "poka-yoke", "marketplace": "poka-yoke" },
-    { "name": "clean-architecture", "marketplace": "clean-architecture-skills" },
     { "name": "fullstack-dev-skills", "marketplace": "fullstack-dev-skills" },
     { "name": "ui-ux-pro-max", "marketplace": "ui-ux-pro-max-skill" }
   ]

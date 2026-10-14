@@ -16,7 +16,9 @@ export const fontes = {
   'mattpocock-skills@mattpocock': { repo: 'mattpocock/skills', arquivo: '.claude-plugin/plugin.json' },
   'poka-yoke@poka-yoke': { repo: 'rainmanjam/poka-yoke', arquivo: 'plugins/poka-yoke/.claude-plugin/plugin.json' },
   // O plugin.json dele virou link simbólico no upstream (2026-10-14): a
-  // versão vem da entrada do marketplace.json, a que o Claude Code usa.
+  // versão vem da entrada do marketplace.json, a que o Claude Code usa. Saiu
+  // do kit (o link quebra a instalação no Windows) e do testado.json; a fonte
+  // fica para quando voltar.
   'clean-architecture@clean-architecture-skills': { repo: 'nathankim0/clean-architecture-skills', arquivo: '.claude-plugin/marketplace.json', entrada: 'clean-architecture' },
   'fullstack-dev-skills@fullstack-dev-skills': { repo: 'jeffallan/claude-skills', arquivo: '.claude-plugin/plugin.json' },
   'ui-ux-pro-max@ui-ux-pro-max-skill': { repo: 'nextlevelbuilder/ui-ux-pro-max-skill', arquivo: '.claude-plugin/plugin.json' },

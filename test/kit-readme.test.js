@@ -23,6 +23,8 @@ for (const arq of ['README.md', 'README.en.md']) {
       const i = t.indexOf(`claude plugin marketplace add ${REPO_DO[m]}`);
       assert.ok(i > 0 && i < install, m);
     }
+    const bloco = t.slice(t.lastIndexOf('```bash', install), install);
+    assert.equal(bloco.match(/claude plugin marketplace add /g).length, allow.length, 'nenhum marketplace add sobrando');
     assert.match(t, /claude plugin enable hadouken-rea@claude-hadouken/);
     assert.match(t, /rea-agents@6\.1\.0/);
   });

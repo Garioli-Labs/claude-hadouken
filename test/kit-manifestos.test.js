@@ -7,8 +7,11 @@ import { fileURLToPath } from 'node:url';
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ler = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
 
+// Sem o clean-architecture desde 2026-10-14: o plugin.json dele virou link
+// simbólico no upstream e, no Windows (git sem symlinks), a instalação falha
+// com JSON parse error e derruba o kit inteiro.
 const ALLOW = ['claude-plugins-official', 'mattpocock', 'poka-yoke',
-  'clean-architecture-skills', 'fullstack-dev-skills', 'ui-ux-pro-max-skill'];
+  'fullstack-dev-skills', 'ui-ux-pro-max-skill'];
 
 test('marketplace: três entradas, cada uma aponta para pasta com plugin.json de mesmo nome', () => {
   const m = ler('.claude-plugin/marketplace.json');
@@ -39,7 +42,6 @@ test('kit: dependências exatas e sem faixa de versão', () => {
     { name: 'superpowers', marketplace: 'claude-plugins-official' },
     { name: 'mattpocock-skills', marketplace: 'mattpocock' },
     { name: 'poka-yoke', marketplace: 'poka-yoke' },
-    { name: 'clean-architecture', marketplace: 'clean-architecture-skills' },
     { name: 'fullstack-dev-skills', marketplace: 'fullstack-dev-skills' },
     { name: 'ui-ux-pro-max', marketplace: 'ui-ux-pro-max-skill' },
   ]);
