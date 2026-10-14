@@ -3,6 +3,7 @@ import path from 'node:path';
 import { gravarJsonAtomico } from '../estado.js';
 import { fechar, idValido, instante, numeroFinito } from '../base.js';
 import { lerSemLink } from './arquivo.js';
+import { podar } from '../ativas.js';
 
 // Registros locais da guarda (spec v0.4.0 §4.3, §5.2, §6.5 e §14). Cada um
 // num arquivo novo, com teto de bytes, lstat e reconstrução só dos campos
@@ -247,11 +248,16 @@ export function marcarSessao(dir, sessionId) {
       // Outra sessão (ou outro hook desta) criou a marca entre o lstat e o open.
       return { ok: e?.code === 'EEXIST' && ehArquivo(arq) };
     }
+    let ok;
     try {
-      return { ok: fs.fstatSync(fd).isFile() };
+      ok = fs.fstatSync(fd).isFile();
     } finally {
       fechar(fd);
     }
+    // Marca nova: poda as paradas há mais de 30 dias (menor M2 do portão
+    // v0.4.0). Só aqui, uma vez por sessão, nunca a cada prompt.
+    if (ok) podar(pasta, Date.now());
+    return { ok };
   } catch {
     return { ok: false };
   }

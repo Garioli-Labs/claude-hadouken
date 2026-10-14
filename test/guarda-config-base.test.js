@@ -364,10 +364,20 @@ test('decisaoConfig: só as três origens; sem file_path, projeto e local bloque
   const agora = Date.now();
   fotografar(dados, 's1', [arq], agora);
   escrever(arq, { disableAllHooks: true });
-  for (const source of ['policy_settings', 'skills', undefined, null, 42, 'PROJECT_SETTINGS', '']) {
+  for (const source of ['policy_settings', 'skills']) {
     assert.equal(decisaoConfig(dados, 's1', source, arq, agora), null, String(source));
     assert.equal(decisaoConfig(dados, 's1', source, undefined, agora), null, String(source));
   }
+  // Menor M1 do portão v0.4.0: source ausente ou desconhecido não passa calado
+  // quando o arquivo é um settings — compara com a fotografia como as três.
+  for (const source of [undefined, null, 42, 'PROJECT_SETTINGS', '', 'outra_origem']) {
+    assert.equal(decisaoConfig(dados, 's1', source, arq, agora), 'disableAllHooks', String(source));
+    assert.equal(decisaoConfig(dados, 's1', source, undefined, agora), null, String(source));
+    assert.equal(decisaoConfig(dados, 's1', source, path.join(path.dirname(arq), 'SKILL.md'), agora), null, String(source));
+  }
+  const local = path.join(path.dirname(arq), 'settings.local.json');
+  escrever(local, { hooks: {} });
+  assert.equal(decisaoConfig(dados, 's1', undefined, local, agora), 'hooks');
   for (const source of ['user_settings', 'project_settings', 'local_settings']) assert.equal(decisaoConfig(dados, 's1', source, arq, agora), 'disableAllHooks', source);
   for (const fp of [undefined, null, 42, {}, ['a'], '', 'relativo/.claude/settings.json']) {
     assert.equal(decisaoConfig(dados, 's1', 'project_settings', fp, agora), 'sem-caminho', JSON.stringify(fp));

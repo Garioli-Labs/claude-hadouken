@@ -7,6 +7,7 @@ import { MODELO_VALIDO } from '../guarda/registros.js';
 import { TOLERANCIA_JANELA_S } from '../util.js';
 import { apagar, esperar, fechar, idValido, instante, numeroFinito, varrerTmpVelhos } from '../base.js';
 import { ITENS, TETO, caminhos, ligadoExiste, valorDoItem } from './arquivos.js';
+import { CHAVES_LIGAR } from './settings-env.js';
 import {
   aprendizadoVazio, CAMPOS_MODELO, CHAVE_MODELO, DURACAO_JANELA_MS, inicioSemana, JANELAS_MAX, LIMIARES, MODELOS_SEMANA_MAX, SEMANAS_MAX,
 } from './agregar.js';
@@ -324,6 +325,9 @@ export function lerCursor(dir, agoraMs) {
     const a = v.arquivo;
     if (ehObjeto(a) && typeof a.ino === 'string' && /^\d{1,40}$/.test(a.ino) && Number.isSafeInteger(a.pos) && a.pos >= 0) c.arquivo = { ino: a.ino, pos: a.pos };
     if (msValido(v.historicoAte, agoraMs)) c.historicoAte = v.historicoAte;
+    // No futuro (relógio que voltou): limitado a agora, nunca zerado — zerar
+    // reagregaria o histórico inteiro (menor M-2 do portão v0.4.0).
+    else if (numeroFinito(v.historicoAte) && v.historicoAte > agoraMs && numeroFinito(agoraMs)) c.historicoAte = agoraMs;
     if (ehObjeto(v.anuncio)) {
       if (typeof v.anuncio.dia === 'string' && DIA_ISO.test(v.anuncio.dia)) c.anuncio.dia = v.anuncio.dia;
       for (const k of ['ajustes', 'sugestoes']) if (inteiroEntre(v.anuncio[k], 0, 999_999)) c.anuncio[k] = v.anuncio[k];
@@ -387,7 +391,8 @@ export function lerLigado(dir) {
     if (v === null || !ehObjeto(v.chaves) || typeof v.criouEnv !== 'boolean') return null;
     const chaves = {};
     for (const [k, x] of Object.entries(v.chaves).slice(0, 20)) {
-      if (CHAVE_ENV.test(k) && typeof x === 'string' && VALOR_ENV.test(x)) chaves[k] = x;
+      // Só as chaves que o ligar grava (menor M3 do portão v0.4.0).
+      if (Object.hasOwn(CHAVES_LIGAR, k) && CHAVE_ENV.test(k) && typeof x === 'string' && VALOR_ENV.test(x)) chaves[k] = x;
     }
     return { chaves, criouEnv: v.criouEnv };
   } catch {

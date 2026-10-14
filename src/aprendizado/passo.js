@@ -114,6 +114,7 @@ export function rodarPasso({ dir, agoraMs, inicio = false } = {}) {
   try {
     const c = caminhos(dir);
     const ap = lerAprendizado(dir, agoraMs);
+    const apAntes = lerAprendizado(dir, agoraMs);
     const antes = lerCursor(dir, agoraMs);
     const cursor = { ...antes };
     // 1. Telemetria nova (R11: só eventos e active_time).
@@ -169,7 +170,14 @@ export function rodarPasso({ dir, agoraMs, inicio = false } = {}) {
       if (cursor.fora !== antes.fora) gravarCursor(dir, { ...antes, fora: cursor.fora });
       return { ok: false, motivo: 'erro' };
     }
-    gravarCursor(dir, cursor);
+    // Cursor sem gravar com os agregados já gravados (menor M-1 do portão
+    // v0.4.0): o passo seguinte releria e contaria duas vezes. Volta o
+    // aprendizado.json ao de antes (melhor esforço) e registra o erro.
+    if (!gravarCursor(dir, cursor).ok) {
+      gravarAprendizado(dir, apAntes);
+      anexarEventoApr(dir, 'erro', agoraMs);
+      return { ok: false, motivo: 'erro' };
+    }
     return { ok: true, novos, lidos: n.registros.length };
   } catch {
     anexarEventoApr(dir, 'erro', agoraMs);

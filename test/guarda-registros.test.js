@@ -157,6 +157,27 @@ test('marca da sessão: arquivo vazio em hex, idempotente', () => {
   assert.deepEqual(marcarSessao(d, '../x'), { ok: false });
 });
 
+// Menor M2 do portão v0.4.0: guarda-sessoes/ crescia sem poda. Ao criar uma
+// marca nova, as paradas há mais de 30 dias saem (a mesma poda de ativas/);
+// uma sessão ainda em uso refaz a sua no próximo prompt.
+test('marca nova poda as marcas com mais de 30 dias; nome alheio fica', () => {
+  const d = novo();
+  marcarSessao(d, 'velha');
+  marcarSessao(d, 'recente');
+  const pasta = path.join(d, DIR_MARCAS);
+  const s = (Date.now() - 31 * 24 * H) / 1000;
+  fs.utimesSync(path.join(pasta, Buffer.from('velha').toString('hex')), s, s);
+  fs.writeFileSync(path.join(pasta, 'nao-hex.txt'), '');
+  fs.utimesSync(path.join(pasta, 'nao-hex.txt'), s, s);
+  assert.deepEqual(marcarSessao(d, 'recente'), { ok: true });
+  assert.equal(sessaoMarcada(d, 'velha'), true, 'marca existente não poda');
+  assert.deepEqual(marcarSessao(d, 'nova'), { ok: true });
+  assert.equal(sessaoMarcada(d, 'velha'), false);
+  assert.equal(sessaoMarcada(d, 'recente'), true);
+  assert.equal(sessaoMarcada(d, 'nova'), true);
+  assert.ok(fs.existsSync(path.join(pasta, 'nao-hex.txt')));
+});
+
 // Um link no lugar de cada registro é ilegível: a leitura não o segue (o
 // alvo tem dado válido e mesmo assim nada volta).
 test('link simbólico no lugar de um registro lê como vazio', (t) => {

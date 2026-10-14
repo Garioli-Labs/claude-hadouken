@@ -234,6 +234,24 @@ test('§6 (revisão M2): com o aprendizado.json sem gravar, o ajuste-fora não r
   assert.equal(pedidos(d, AGORA), 1, 'o pedido conta uma vez, depois da falha');
 });
 
+test('menor M-1 do portão v0.4.0: cursor sem gravar volta o aprendizado e o pedido conta uma vez', (t) => {
+  const d = novoDir();
+  maduroComForaNaGuarda(d);
+  escreverTelemetria(d, [linhaPedido(AGORA - 1000)]);
+  const destino = path.resolve(caminhos(d).cursor);
+  const original = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (de, para) => {
+    if (path.resolve(String(para)) === destino) throw Object.assign(new Error('falha de disco simulada'), { code: 'EIO' });
+    return original(de, para);
+  });
+  assert.deepEqual(rodarPasso({ dir: d, agoraMs: AGORA }), { ok: false, motivo: 'erro' });
+  t.mock.restoreAll();
+  assert.ok(tiposDe(d, AGORA + 1000).includes('erro'));
+  assert.equal(pedidos(d, AGORA), 0, 'o aprendizado voltou ao de antes');
+  assert.equal(rodarPasso({ dir: d, agoraMs: AGORA + 60_000 }).ok, true);
+  assert.equal(pedidos(d, AGORA), 1, 'o pedido conta uma vez, depois da falha');
+});
+
 test('§4.6: o anúncio sai uma vez por dia e só com novidade, no texto da spec', () => {
   const d = novoDir();
   const ontem = new Date(AGORA - DIA).toISOString();

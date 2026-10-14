@@ -156,8 +156,8 @@ export function registrarSessao(sessionId, agoraMs) {
 // Remove registros parados há mais de ATIVA_MAX_MS, com os limites descritos
 // no topo. Só arquivo regular cujo nome é o hex de um id válido (o nome que
 // registrarSessao geraria); nada de pasta, link ou nome alheio. Melhor esforço:
-// nunca lança.
-function podar(dir, agoraMs) {
+// nunca lança. Exportada para as marcas de guarda-sessoes/ (mesmo formato).
+export function podar(dir, agoraMs) {
   let d = null;
   try {
     const nomes = [];

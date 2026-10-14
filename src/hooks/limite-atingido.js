@@ -4,7 +4,8 @@ import { sessaoAtiva } from '../ativas.js';
 
 // Hook StopFailure com matcher rate_limit (spec v0.4.0 §5.2 G6, C13). O texto
 // do erro só é classificado, nunca gravado nem repetido (S17): com "fable"
-// nele, o limite é do Fable e o G6 trava na avaliação seguinte; senão, é
+// no error_details (ou a frase "reached your Fable limit" na última resposta),
+// o limite é do Fable e o G6 trava na avaliação seguinte; senão, é
 // registrado como geral. A saída do StopFailure é ignorada pelo Claude Code;
 // o hook não imprime nada. O S4 (o texto exato na thread principal e em
 // subagente) fica para a parte 2. Exceção depois do gate: registra 'erro' e
@@ -22,8 +23,12 @@ rodarHook(async (entrada) => {
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   await falharAberto(dir, 'StopFailure', agoraMs, async () => {
     const reg = await import('../guarda/registros.js');
-    const texto = [entrada.error_details, entrada.last_assistant_message]
-      .filter((t) => typeof t === 'string').map((t) => t.slice(0, TEXTO_MAX)).join(' ');
-    reg.registrarLimite(dir, /\bfable\b/i.test(texto) ? 'fable' : 'geral', agoraMs);
+    // No error_details basta a palavra; na última resposta, só a frase do
+    // limite — uma resposta que cita o Fable num limite geral não trava o
+    // Fable (menor M-4 do portão v0.4.0).
+    const texto = (t) => (typeof t === 'string' ? t.slice(0, TEXTO_MAX) : '');
+    const fable = /\bfable\b/i.test(texto(entrada.error_details))
+      || /\breached your fable limit\b/i.test(texto(entrada.last_assistant_message));
+    reg.registrarLimite(dir, fable ? 'fable' : 'geral', agoraMs);
   });
 });
