@@ -6,7 +6,7 @@ import { lerLimitado } from '../estado.js';
 // Perfil de um despacho de subagente (spec v0.4.0 §4.3 e G5 do D1 emendado):
 // o modelo, na ordem de resolução da documentação (C7): parâmetro `model`,
 // `model` do frontmatter do agente (inherit = seguir), CLAUDE_CODE_SUBAGENT_MODEL
-// e o modelo da sessão; e o effort, do frontmatter ou de CLAUDE_EFFORT, que os
+// e o modelo da sessão; e o effort, do parâmetro, do frontmatter ou de CLAUDE_EFFORT, que os
 // hooks recebem em contexto de ferramenta. Nada daqui vira texto: só os rótulos
 // fixos do retorno.
 
@@ -79,8 +79,16 @@ export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env,
   try {
     const ti = toolInput !== null && typeof toolInput === 'object' ? toolInput : {};
     const nome = ti.subagent_type;
+    // fork roda no modelo e no effort da conversa: o CLI ignora model e effort
+    // do parâmetro para ele (schema do Agent, 2.1.300; portão v0.4.0, I2).
+    if (nome === 'fork') {
+      const effortSessao = effortValido(env?.CLAUDE_EFFORT);
+      if (ehTexto(modeloSessao)) return { modelo: classificar(modeloSessao), effort: effortSessao, origem: 'sessao' };
+      return { modelo: 'desconhecido', effort: effortSessao, origem: 'desconhecido' };
+    }
     const fm = frontmatterDoAgente(nome, cwd, dirCfg);
-    const effort = effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
+    // O parâmetro effort vence o frontmatter, como o model (portão v0.4.0, I1).
+    const effort = effortValido(ti.effort) ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
     if (ehTexto(ti.model) && ti.model !== 'inherit') return { modelo: classificar(ti.model), effort, origem: 'parametro' };
     if (fm !== null && ehTexto(fm.model) && fm.model !== 'inherit') return { modelo: classificar(fm.model), effort, origem: 'frontmatter' };
     // Modelo desconhecido não apaga o effort conhecido: G5 vale para effort

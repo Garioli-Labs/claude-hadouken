@@ -25,6 +25,25 @@ test('parâmetro model vence tudo', () => {
   assert.deepEqual(perfil({ subagent_type: 'opus-high', model: 'fable' }), { modelo: 'fable', effort: 'high', origem: 'parametro' });
 });
 
+test('parâmetro effort vence frontmatter e CLAUDE_EFFORT (portão v0.4.0, I1)', () => {
+  assert.deepEqual(perfil({ subagent_type: 'general-purpose', model: 'fable', effort: 'max' }, { env: { CLAUDE_EFFORT: 'high' } }),
+    { modelo: 'fable', effort: 'max', origem: 'parametro' });
+  assert.deepEqual(perfil({ subagent_type: 'opus-high', effort: 'xhigh' }), { modelo: 'outro', effort: 'xhigh', origem: 'frontmatter' });
+  assert.equal(despachoCaro(perfil({ subagent_type: 'general-purpose', model: 'fable', effort: 'max' })), true);
+  assert.equal(despachoCaro(perfil({ subagent_type: 'Explore', effort: 'max' })), true);
+  // Effort inválido no parâmetro não apaga o do frontmatter.
+  assert.equal(perfil({ subagent_type: 'opus-high', effort: 'turbo' }).effort, 'high');
+});
+
+test('fork roda no modelo e no effort da sessão; model e effort do parâmetro são ignorados (portão v0.4.0, I2)', () => {
+  const s = { modeloSessao: 'Fable 5.1', env: { CLAUDE_EFFORT: 'xhigh', CLAUDE_CODE_SUBAGENT_MODEL: 'sonnet' } };
+  assert.deepEqual(perfil({ subagent_type: 'fork', prompt: 'x' }, s), { modelo: 'fable', effort: 'xhigh', origem: 'sessao' });
+  assert.deepEqual(perfil({ subagent_type: 'fork', model: 'sonnet', effort: 'low' }, s), { modelo: 'fable', effort: 'xhigh', origem: 'sessao' });
+  assert.equal(despachoCaro(perfil({ subagent_type: 'fork' }, s)), true);
+  assert.deepEqual(perfil({ subagent_type: 'fork' }, { modeloSessao: undefined, env: { CLAUDE_EFFORT: 'max' } }),
+    { modelo: 'desconhecido', effort: 'max', origem: 'desconhecido' });
+});
+
 test('frontmatter do projeto vence o do usuário; o do usuário vale sem o do projeto', () => {
   assert.deepEqual(perfil({ subagent_type: 'fable-max' }), { modelo: 'outro', effort: 'low', origem: 'frontmatter' });
   assert.deepEqual(perfil({ subagent_type: 'fable-max' }, { cwd: path.join(tmp, 'outro') }), { modelo: 'fable', effort: 'max', origem: 'frontmatter' });
