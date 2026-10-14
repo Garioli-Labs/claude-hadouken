@@ -171,6 +171,31 @@ test('sessoesAtivas: at nos últimos 5 min, id inválido não conta, a atual sem
   assert.equal(sessoesAtivas(null, agora, 'z'), 1);
 });
 
+test('sessão parada sai da conta de ativas em 5 min mesmo com a barra rodando a cada 60 s (portão v0.4.0, I-1)', () => {
+  const transcript = path.join(dir, 'parada.jsonl');
+  fs.writeFileSync(transcript, '{}\n');
+  fs.utimesSync(transcript, new Date(agora - 30 * MIN), new Date(agora - 30 * MIN));
+  const e = (d7) => entrada(40, d7, { session_id: 'parada', transcript_path: transcript });
+  // Outra sessão gasta: os limites mudam a cada tick, então o stdin nunca é repetido.
+  for (let i = 0; i <= 10; i++) atualizarEstado(e(60 + i), agora + i * MIN);
+  const est = validarEstado(lerJson(arq()).valor, agora + 10 * MIN);
+  assert.equal(est.sessoes.parada.at, iso(agora + 10 * MIN), 'o at segue renovado (o Collector usa)');
+  assert.equal(sessoesAtivas(est, agora + 10 * MIN), 0);
+  // O transcript mudou: a sessão volta a contar.
+  fs.utimesSync(transcript, new Date(agora + 10.5 * MIN), new Date(agora + 10.5 * MIN));
+  atualizarEstado(e(80), agora + 11 * MIN);
+  assert.equal(sessoesAtivas(validarEstado(lerJson(arq()).valor, agora + 11 * MIN), agora + 11 * MIN), 1);
+});
+
+test('sem transcript legível, cada tick conta como trabalho (comportamento anterior)', () => {
+  for (let i = 0; i <= 10; i++) atualizarEstado(entrada(40, 60 + i, { session_id: 'sem' }), agora + i * MIN);
+  assert.equal(sessoesAtivas(validarEstado(lerJson(arq()).valor, agora + 10 * MIN), agora + 10 * MIN), 1);
+});
+
+test('estado.json de antes (sessão sem trabalho) conta pelo at', () => {
+  assert.equal(sessoesAtivas(validarEstado(bruto({ sessoes: { velha: { at: iso(agora - MIN) } } }), agora), agora), 1);
+});
+
 test('§12.7: sessões falsas em estado.json nunca passam de 50 e id inválido não conta', () => {
   const sessoes = { 'id inválido': { at: iso(agora) }, constructor: { at: iso(agora) } };
   for (let i = 0; i < 1000; i++) sessoes[`falsa${i}`] = { at: iso(agora - (i % 7) * 1000) };

@@ -371,8 +371,8 @@ test('sessões lidas do disco passam pelo mesmo validador', () => {
   atualizarEstado(entrada({ session_id: 'nova' }), agora);
   const e = lerEstado();
   assert.deepEqual(Object.keys(e.sessoes).sort(), ['boa', 'nova', 'turbo']);
-  assert.deepEqual(e.sessoes.turbo, { at: iso(agora - 1000), model: null, effort: null, cwd: null, context_pct: null, cache_hit: null });
-  assert.deepEqual(e.sessoes.boa, { at: iso(agora - 2000), model: 'Opus', effort: 'low', cwd: 'C:/p', context_pct: 12, cache_hit: 0.5 });
+  assert.deepEqual(e.sessoes.turbo, { at: iso(agora - 1000), trabalho: null, model: null, effort: null, cwd: null, context_pct: null, cache_hit: null });
+  assert.deepEqual(e.sessoes.boa, { at: iso(agora - 2000), trabalho: null, model: 'Opus', effort: 'low', cwd: 'C:/p', context_pct: 12, cache_hit: 0.5 });
   semPoluicao();
 });
 

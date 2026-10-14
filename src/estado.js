@@ -318,8 +318,10 @@ function sessaoValida(bruta, agoraMs) {
   if (!ehObjeto(bruta)) return null;
   const t = instante(bruta.at, agoraMs);
   if (t === null || agoraMs - t > SESSAO_MAX_MS) return null;
+  const tt = instante(bruta.trabalho, agoraMs);
   return {
     at: new Date(t).toISOString(),
+    trabalho: tt === null ? null : new Date(tt).toISOString(),
     model: sanear(bruta.model, MAX_MODEL),
     effort: effortValido(bruta.effort),
     cwd: sanear(bruta.cwd, MAX_CWD),
@@ -353,10 +355,24 @@ function juntarSessoes(lista, atual) {
   return sessoes;
 }
 
-function sessaoDaEntrada(e, agoraIso, agoraMs) {
+// `at` é o último tick da barra (o Collector o usa para saber se há outra
+// sessão aberta); `trabalho` é o último tick em que o transcript foi escrito,
+// o que conta para sessoesAtivas. A barra redesenha a cada refreshInterval
+// mesmo com o terminal parado: sem transcript novo desde o trabalho anterior,
+// ele fica (portão v0.4.0, I-1). Transcript ilegível ou ausente no stdin:
+// cada tick conta como trabalho, a regra de antes.
+function sessaoDaEntrada(e, agoraIso, agoraMs, anteriores) {
   if (!idValido(e.session_id)) return null;
+  const prev = ehObjeto(anteriores) && Object.hasOwn(anteriores, e.session_id) ? anteriores[e.session_id] : null;
+  const prevT = ehObjeto(prev) ? instante(prev.trabalho ?? prev.at, agoraMs) : null;
+  let trabalho = agoraIso;
+  if (prevT !== null) {
+    const m = mtimeTranscript(e.transcript_path);
+    if (numeroFinito(m) && m <= prevT) trabalho = new Date(prevT).toISOString();
+  }
   const s = sessaoValida({
     at: agoraIso,
+    trabalho,
     model: ehObjeto(e.model) ? e.model.display_name : undefined,
     effort: e.effort,
     cwd: e.cwd,
@@ -518,7 +534,7 @@ export function atualizarEstado(entrada, agoraMs) {
     // de agora); se nada entrou, o snapshot guardado fica inteiro, com seus at.
     if (entrou) Object.assign(estado, { at: atDoTopo([novas.five_hour, novas.seven_day], null), ...novas });
     else Object.assign(estado, { at: anterior.at, five_hour: anterior.five_hour, seven_day: anterior.seven_day });
-    estado.sessoes = juntarSessoes(Object.entries(anterior.sessoes), sessaoDaEntrada(e, agoraIso, agoraMs));
+    estado.sessoes = juntarSessoes(Object.entries(anterior.sessoes), sessaoDaEntrada(e, agoraIso, agoraMs, anterior.sessoes));
     estado.historico = historicoDepois(anterior, entraram, agoraMs, agoraIso);
     const r = gravarJsonAtomico(arq, estado);
     return r.ok ? { ok: true, estado } : { ok: false, motivo: r.motivo, estado };
@@ -527,8 +543,8 @@ export function atualizarEstado(entrada, agoraMs) {
   }
 }
 
-// Sessões ativas (spec §12.1): as de estado.sessoes com id válido e `at`
-// legível por instante (até 5 min no futuro) de no máximo ATIVA_RECENTE_MS,
+// Sessões ativas (spec §12.1): as de estado.sessoes com id válido e
+// `trabalho` (ou, no formato de antes, `at`) legível por instante (até 5 min no futuro) de no máximo ATIVA_RECENTE_MS,
 // mais `atual`, se for id válido e ainda não contado (a sessão que chama está
 // trabalhando agora, mesmo que a barra dela não tenha redesenhado nos últimos
 // minutos). Inteiro de 0 a MAX_SESSOES, o teto de estado.sessoes. Nunca lança.
@@ -540,7 +556,7 @@ export function sessoesAtivas(estado, agoraMs, atual) {
     let contouAtual = false;
     for (const [id, s] of Object.entries(sessoes)) {
       if (!idValido(id) || !ehObjeto(s)) continue;
-      const t = instante(s.at, agoraMs);
+      const t = instante(s.trabalho ?? s.at, agoraMs);
       if (t === null || agoraMs - t > ATIVA_RECENTE_MS) continue;
       n++;
       if (id === atual) contouAtual = true;
