@@ -1,4 +1,4 @@
-# v0.5.2: instalador de um comando e correções do Mac
+# v0.5.2: instalador de um comando, correções do Mac e atualização automática
 
 Data: 2026-10-15. Branch: `v0.5.2`.
 
@@ -67,24 +67,31 @@ Rodar de novo é o jeito de atualizar: o que já está certo é pulado.
      processo, para seguir sem abrir outro terminal.
    - `claude` presente mas abaixo de 2.1.251: roda `claude update` (dentro da
      mesma confirmação).
-4. **Marketplaces e plugins**, os mesmos comandos do README de hoje:
-   `claude plugin marketplace add` do Garioli-Labs/claude-hadouken (e
-   `update`), dos cinco marketplaces das dependências do kit, e
-   `claude plugin install` de claude-hadouken, hadouken-kit e hadouken-rea,
-   mais `claude plugin enable hadouken-rea@claude-hadouken`. Já instalado:
-   `claude plugin update` no lugar do install.
-5. **Acha a pasta do plugin** no cache do Claude Code
-   (`<CLAUDE_CONFIG_DIR ou ~/.claude>/plugins/cache/claude-hadouken/claude-hadouken/<versão>/`,
-   a maior versão N.N.N) e roda `node <pasta>/src/instalar-tudo.js` com as
-   opções.
-6. **`instalar-tudo.js`:**
-   - barra: o `instalar --aplicar` de hoje (`instalar-cli.js`); com outra
-     barra, pergunta "substituir?" com "não" como padrão (`--sim` responde
-     não; só `--substituir-barra` troca);
+4. **O plugin principal** (no script): `claude plugin marketplace add
+   Garioli-Labs/claude-hadouken` e `claude plugin marketplace update
+   claude-hadouken` (os dois tolerados quando falham: "já registrado"), depois
+   `claude plugin install claude-hadouken@claude-hadouken`, ou
+   `claude plugin update` quando `claude plugin list --json` já o lista.
+5. **Acha a pasta do plugin** pelo `installPath` da entrada
+   `claude-hadouken@claude-hadouken` em `claude plugin list --json` (lido com
+   o próprio Node) e roda `node <pasta>/src/instalar-tudo.js` com as opções e
+   com `HADOUKEN_CLAUDE` = caminho do `claude` achado pelo script. Sem a
+   entrada: para ("o plugin não instalou").
+6. **`instalar-tudo.js`** (Node, testado com a suíte):
+   - registra o marketplace oficial (`claude plugin marketplace add
+     anthropics/claude-plugins-official`, tolerado), instala ou atualiza
+     `hadouken-kit@claude-hadouken` e `hadouken-rea@claude-hadouken`, e liga
+     o REA (`claude plugin enable`); a verdade de cada passo é o `claude
+     plugin list --json` depois dele, nunca o texto de saída;
+   - REA: com Node fora de 22.19+, 24.11+ e 26+, roda `claude plugin disable
+     hadouken-rea@claude-hadouken` e marca como pulado, com o motivo;
+   - atualização automática: ver a seção abaixo;
+   - arquivos estáveis da barra e do painel (`sincronizarShims`, o mesmo do
+     início de sessão), para a barra funcionar já na primeira sessão;
+   - barra: o `aplicarStatusline` de hoje; com outra barra, pergunta
+     "substituir?" com "não" como padrão (`--sim` responde não; só
+     `--substituir-barra` troca);
    - item do VS Code: `instalarPainel` de hoje, já com o `acharCode` novo;
-   - REA: com Node abaixo de 22.19 (e fora de 24.11+ e 26+), roda
-     `claude plugin disable hadouken-rea@claude-hadouken` e marca como
-     pulado, com o motivo;
    - imprime o resumo.
 7. **Resumo**, uma linha por item: `✓ instalado`, `= já estava`,
    `– pulado (motivo)`, `✗ falhou (motivo; conserto)`, e no fim "Abra uma
@@ -108,6 +115,89 @@ sessão aberta, e o README já manda instalar pelo terminal.
 Não entra: criar o link `/usr/local/bin/code` no Mac (pediria `sudo` nos Macs
 com chip Apple e o `acharCode` novo dispensa); instalar o VS Code; publicar no
 npm.
+
+## Atualização automática
+
+Pedido do Sr. Garioli: "Garanta que o plugin sempre mantenha atualizados
+tudo o que faz parte dele (inclusive as skills) automaticamente." Decisões
+dele: "testado, mas automático"; os terceiros passam a ser listados no
+marketplace do Hadouken com `sha` fixo; o robô semanal faz merge e tag
+sozinho quando a suíte passa.
+
+Fatos do Claude Code (docs de plugins, conferidos em 2026-10-15):
+
+- Um marketplace de terceiros não se atualiza sozinho por padrão. Liga com
+  `autoUpdate: true` na entrada dele em `extraKnownMarketplaces` de um
+  settings (essa chave vence a de `known_marketplaces.json`). Com ela, depois
+  da primeira mensagem de uma sessão interativa, o Claude Code atualiza o
+  marketplace e os plugins dele; a versão nova vale na sessão seguinte.
+- A versão de um plugin é a do `plugin.json` dele; sem ela, a da entrada;
+  sem as duas, o commit (12 caracteres) de uma fonte `github` ou
+  `git-subdir`. Entrada `github`/`git-subdir` aceita `sha` (40 hex
+  minúsculos), que o Claude Code usa no checkout.
+- `DISABLE_AUTOUPDATER=1`, `DISABLE_UPDATES=1` ou
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` desligam a passada inteira.
+
+### As peças
+
+1. **`marketplace.json` do Hadouken lista os terceiros**, sem copiar nada:
+
+   | Entrada | Fonte |
+   |---|---|
+   | `mattpocock-skills` | `{"source":"github","repo":"mattpocock/skills","sha":"<40 hex>"}` |
+   | `poka-yoke` | `{"source":"git-subdir","url":"rainmanjam/poka-yoke","path":"plugins/poka-yoke","sha":"<40 hex>"}` |
+   | `fullstack-dev-skills` | `{"source":"github","repo":"jeffallan/claude-skills","sha":"<40 hex>"}` |
+   | `ui-ux-pro-max` | `{"source":"github","repo":"nextlevelbuilder/ui-ux-pro-max-skill","sha":"<40 hex>"}` |
+
+   Os `sha` iniciais são os que o Sr. Garioli já usa (as versões de
+   `kit/testado.json`). As dependências do `hadouken-kit` passam a ser só
+   nomes (`"mattpocock-skills"` etc., resolvidos no próprio marketplace),
+   menos o `superpowers`, que segue em `claude-plugins-official`;
+   `allowCrossMarketplaceDependenciesOn` fica só com
+   `claude-plugins-official`. `kit/testado.json` passa a usar as chaves
+   novas (`mattpocock-skills@claude-hadouken`...).
+2. **O instalador liga a atualização** (fora de sessão, sem esbarrar na
+   guarda): grava `extraKnownMarketplaces["claude-hadouken"]` com
+   `source {"source":"github","repo":"Garioli-Labs/claude-hadouken"}` e
+   `autoUpdate: true` no `settings.json` do usuário, com backup, pelo mesmo
+   gravador seguro da barra (`configuracao.js`), preservando o que já existe
+   na entrada. No mesmo arquivo, põe `false` em `enabledPlugins` para as
+   cópias antigas que estiverem `true` (`mattpocock-skills@mattpocock`,
+   `poka-yoke@poka-yoke`, `fullstack-dev-skills@fullstack-dev-skills`,
+   `ui-ux-pro-max@ui-ux-pro-max-skill`), para as skills não aparecerem em
+   dobro. Não desinstala nada: desfazer é pôr `true` de volta. Quem já tem o
+   Hadouken migra rodando o comando único uma vez.
+3. **O robô semanal** (`.github/workflows/kit-atualizar.yml`, no lugar do
+   `kit-versoes.yml`), segunda 09:17 UTC e sob demanda:
+   1. para cada terceiro, lê o commit do branch padrão e a versão do
+      `plugin.json` naquele commit; muda alguma coisa só quando a versão
+      sobe (commit novo com a mesma versão não chegaria ao usuário);
+   2. para o `rea-agents`, a versão `latest` do npm;
+   3. com algo novo, num branch `robo/kit-<data>`: troca os `sha` no
+      `marketplace.json`, a versão em `rea/lancar.mjs`, atualiza
+      `kit/testado.json`, sobe o patch do `hadouken-kit` (e do
+      `hadouken-rea`, se o REA mudou) em `plugin.json` e `marketplace.json`;
+   4. roda `node --test` no Node 20, 22 e 24 (ubuntu, windows e macos);
+   5. tudo verde: merge rápido na `main`, tag `kit-v<versão>` e release, pelo
+      `GITHUB_TOKEN` com `contents: write`; algum vermelho: issue com o
+      título `robô: <o que mudou>` (sem duplicar) e nada publicado;
+   6. versão principal nova de um terceiro também passa pelo teste; a
+      issue só aparece se falhar;
+   7. o robô só mexe nesses arquivos; o código do `claude-hadouken` nunca.
+4. **Ficam de fora:** o `superpowers` (o marketplace oficial já se atualiza
+   sozinho e fixa o commit), o próprio Claude Code, os outros marketplaces do
+   usuário, o `yu-ux-web-expert` (é do Sr. Garioli, sem fonte externa) e o
+   `graphify` empacotado, que depende do pacote `graphifyy==0.9.25` do pip:
+   versão nova dele continua só abrindo issue.
+
+### Riscos aceitos
+
+- O robô publica código de terceiros sem revisão humana. A trava é a suíte
+  (que confere o mapa do fluxo contra as skills de cada terceiro) e o `sha`
+  fixo: o que chega ao usuário é exatamente o commit testado. Vai para o
+  SECURITY.md.
+- Push na `main` pelo `GITHUB_TOKEN` não dispara outros workflows; por isso
+  o robô roda a suíte ele mesmo antes do merge.
 
 ## Falhas
 
@@ -138,11 +228,25 @@ npm.
   temporário, conferindo a ordem dos comandos, o `--sim` e a parada sem
   Node; o `install.ps1` com o mesmo teste, rodado só no win32 (CI do
   Windows).
+- atualização automática: `extraKnownMarketplaces` gravado com
+  `autoUpdate: true` e backup, preservando outras chaves da entrada e do
+  arquivo; segunda rodada não regrava; cópias antigas `true` viram `false`,
+  as ausentes não entram, as já `false` ficam; recusas do gravador
+  (settings inválido, link, somente leitura) viram `✗` com o motivo.
+- marketplace: cada terceiro com fonte `github`/`git-subdir` e `sha` de 40
+  hex; dependências do kit só por nome, menos o `superpowers`;
+  `allowCrossMarketplaceDependenciesOn` igual a `["claude-plugins-official"]`;
+  `kit/testado.json` com as chaves novas e as mesmas versões.
+- robô: as funções puras do script (decidir o que mudou a partir de
+  versões lidas, reescrever `marketplace.json`, `testado.json`,
+  `rea/lancar.mjs` e as versões, título da issue) com `node:test`, sem rede;
+  o workflow conferido por texto (permissões mínimas por job, ações fixadas
+  por sha, matriz de três sistemas e três Nodes antes do job de merge).
 - prova real: o `install.ps1 --sim` na máquina do Sr. Garioli com
   `CLAUDE_CONFIG_DIR` numa pasta vazia, sem tocar no `~/.claude` dele. O
   Mac fica com o irmão rodando o comando.
 
 ## Versões
 
-claude-hadouken 0.5.2 (`plugin.json`, `package.json`, `marketplace.json`).
-Kit e REA não mudam.
+claude-hadouken 0.5.2 (`plugin.json`, `package.json`, `marketplace.json`);
+hadouken-kit 1.1.0 (dependências novas). REA não muda.
