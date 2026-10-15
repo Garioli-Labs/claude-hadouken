@@ -47,6 +47,8 @@ as opções separadas por espaço serve ao `irm | iex`, que não passa argumento
 
 - `--sim`: responde sim a todas as perguntas (CI, testes, uso sem ninguém na
   frente). Não substitui uma barra de outro plugin.
+- `--com-aprendizado`: liga o aprendizado local (OpenTelemetry) sem
+  perguntar.
 - `--substituir-barra`: troca uma `statusLine` existente que não é a do
   claude-hadouken (com backup, como o `instalar --aplicar --substituir`).
 
@@ -92,6 +94,16 @@ Rodar de novo é o jeito de atualizar: o que já está certo é pulado.
      "substituir?" com "não" como padrão (`--sim` responde não; só
      `--substituir-barra` troca);
    - item do VS Code: `instalarPainel` de hoje, já com o `acharCode` novo;
+   - aprendizado (OpenTelemetry), decisão do Sr. Garioli: "Pergunta s/N,
+     padrão não". Já ligado: `= já estava`. Senão, mostra o custo (Collector
+     `otelcol-contrib` de ~367 MiB em disco, ~108 MiB de memória, um processo
+     por sessão, nada sai da máquina) e pergunta "Ligar o aprendizado? [s/N]";
+     `--sim` responde não, e só `--com-aprendizado` liga sem perguntar. Sim:
+     o mesmo `previa` + `ligar` de `src/aprendizado/ligar.js`, com o código
+     que a própria `previa` devolve (a confirmação do instalador faz o papel
+     do código de 8 caracteres, porque quem responde é a pessoa no terminal,
+     fora de sessão). Falha: `✗` com o motivo da lista do `ligar`; o resto da
+     instalação não muda;
    - imprime o resumo.
 7. **Resumo**, uma linha por item: `✓ instalado`, `= já estava`,
    `– pulado (motivo)`, `✗ falhou (motivo; conserto)`, e no fim "Abra uma
@@ -228,6 +240,10 @@ Fatos do Claude Code (docs de plugins, conferidos em 2026-10-15):
   temporário, conferindo a ordem dos comandos, o `--sim` e a parada sem
   Node; o `install.ps1` com o mesmo teste, rodado só no win32 (CI do
   Windows).
+- aprendizado: não perguntado com `--sim`; ligado com `--com-aprendizado`
+  ou com "s" (o `ligar` falso recebe o código da `previa`); "n" e sem tty
+  deixam desligado; já ligado é `= já estava`; falha do `ligar` vira `✗`
+  sem derrubar os outros itens.
 - atualização automática: `extraKnownMarketplaces` gravado com
   `autoUpdate: true` e backup, preservando outras chaves da entrada e do
   arquivo; segunda rodada não regrava; cópias antigas `true` viram `false`,
