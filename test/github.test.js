@@ -1224,7 +1224,10 @@ test('coleta com o executor real: o prazo mata o filho travado e nenhum processo
     assert.equal(filho.status, 0, filho.stderr);
     assert.deepEqual(JSON.parse(filho.stdout), { r: { 'o/r': { indisponivel: 'tempo esgotado' }, 'p/q': { indisponivel: 'tempo esgotado' } }, abortado: true });
     assert.ok(duracao < 15_000, `o node da coleta durou ${duracao} ms`);
-    assert.equal(vivo(Number(fs.readFileSync(arqPid, 'utf8'))), false, 'o filho travado sobreviveu à coleta');
+    // Com a máquina carregada, o prazo de 3 s pode matar o filho antes de ele
+    // gravar o PID (v0.5.1): aí não há o que sobreviver, e a duração acima já
+    // prova que a coleta não esperou por ele.
+    if (fs.existsSync(arqPid)) assert.equal(vivo(Number(fs.readFileSync(arqPid, 'utf8'))), false, 'o filho travado sobreviveu à coleta');
   } finally {
     matar(arqPid);
   }

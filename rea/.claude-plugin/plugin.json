@@ -1,7 +1,7 @@
 {
   "name": "hadouken-rea",
   "displayName": "Hadouken REA",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "REA (Reverse Engineer Anything) MCP server, pinned to rea-agents 6.1.0. Off by default: REA runs the programs it analyzes with your user's permissions. Needs Node 22.19+, 24.11+ or 26+.",
   "author": { "name": "Lucas Garioli", "url": "https://github.com/Garioli-Labs" },
   "homepage": "https://github.com/Garioli-Labs/claude-hadouken",

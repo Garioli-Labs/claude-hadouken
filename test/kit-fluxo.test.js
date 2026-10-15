@@ -9,23 +9,27 @@ import { fileURLToPath } from 'node:url';
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const FLUXO = path.join(repo, 'kit', 'hooks', 'fluxo.js');
 
-// As 22 skills que o plugin.json do mattpocock-skills 1.2.0 registra
-// (conferidas no cache em 2026-10-14). Pedido do Sr. Garioli: todas com o
-// seu momento, acionadas sozinhas.
+// As 27 skills que o plugin.json do mattpocock-skills 1.3.1 registra
+// (conferidas no repositório em 2026-10-14; o kit não fixa versão, e a 1.3.1
+// é a que se instala). Da 1.2.0 saíram resolving-merge-conflicts e
+// writing-great-skills; entraram implement-spec, pr, retro, wizard,
+// to-questionnaire, wait-what e writing-for-agents. Pedido do Sr. Garioli:
+// todas com o seu momento, acionadas sozinhas.
 const POCOCK = [
   'ask-matt', 'diagnosing-bugs', 'grill-with-docs', 'triage', 'improve-codebase-architecture',
-  'setup-matt-pocock-skills', 'tdd', 'to-spec', 'to-tickets', 'wayfinder', 'implement', 'prototype',
-  'research', 'domain-modeling', 'codebase-design', 'code-review', 'resolving-merge-conflicts',
-  'grill-me', 'grilling', 'handoff', 'teach', 'writing-great-skills',
+  'setup-matt-pocock-skills', 'tdd', 'to-spec', 'to-tickets', 'wayfinder', 'implement', 'implement-spec',
+  'prototype', 'research', 'domain-modeling', 'codebase-design', 'code-review', 'pr', 'retro', 'wizard',
+  'grill-me', 'grilling', 'handoff', 'teach', 'to-questionnaire', 'wait-what', 'writing-for-agents',
 ].map((s) => `mattpocock-skills:${s}`);
 
-// C1 da revisão final: estas 13 têm disable-model-invocation: true no
-// frontmatter (mattpocock-skills 1.2.0, conferido em 2026-10-14); o modelo
+// C1 da revisão final: estas 16 têm disable-model-invocation: true no
+// frontmatter (mattpocock-skills 1.3.1, conferido em 2026-10-14); o modelo
 // não as aciona, então o kit só as cita como /comando, para sugerir ao usuário.
-const SO_USUARIO = ['ask-matt', 'grill-with-docs', 'implement', 'improve-codebase-architecture',
-  'setup-matt-pocock-skills', 'to-spec', 'to-tickets', 'triage', 'wayfinder', 'grill-me', 'handoff',
-  'teach', 'writing-great-skills'].map((s) => `mattpocock-skills:${s}`);
-const CACHE_MATT = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'mattpocock', 'mattpocock-skills', '1.2.0');
+const SO_USUARIO = ['ask-matt', 'grill-with-docs', 'implement', 'implement-spec',
+  'improve-codebase-architecture', 'retro', 'setup-matt-pocock-skills', 'to-spec', 'to-tickets',
+  'triage', 'wayfinder', 'grill-me', 'handoff', 'teach', 'to-questionnaire', 'wait-what',
+].map((s) => `mattpocock-skills:${s}`);
+const CACHE_MATT = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'mattpocock', 'mattpocock-skills', '1.3.1');
 
 // Cita a skill no texto: as do usuário só com a barra; as outras só sem.
 function citacoes(texto) {
@@ -45,8 +49,17 @@ const EXISTENTES = new Set([
   'superpowers:executing-plans', 'superpowers:test-driven-development', 'superpowers:systematic-debugging',
   'superpowers:requesting-code-review', 'superpowers:writing-skills',
   ...POCOCK,
-  'poka-yoke:retro', 'hadouken-kit:yu-ux-web-expert', 'hadouken-kit:graphify', 'hadouken-kit:fluxo',
+  'poka-yoke:retro', 'poka-yoke:audit', 'poka-yoke:authz',
+  'hadouken-kit:yu-ux-web-expert', 'hadouken-kit:graphify', 'hadouken-kit:fluxo',
 ]);
+
+// v0.5.1: os nomes de superpowers e poka-yoke da lista existem no cache
+// instalado (nas versões do kit/testado.json), não só na lista acima.
+const CACHE = path.join(os.homedir(), '.claude', 'plugins', 'cache');
+const CACHE_DE = {
+  superpowers: path.join(CACHE, 'claude-plugins-official', 'superpowers', '6.4.1'),
+  'poka-yoke': path.join(CACHE, 'poka-yoke', 'poka-yoke', '0.2.0'),
+};
 
 function rodar(cwd, input = '') {
   return spawnSync(process.execPath, [FLUXO], { cwd, input, encoding: 'utf8', timeout: 5000 });
@@ -92,17 +105,43 @@ test('SKILL fluxo: todo plugin:skill citado existe', () => {
   const s = fs.readFileSync(path.join(repo, 'kit', 'skills', 'fluxo', 'SKILL.md'), 'utf8');
   const citados = [...s.matchAll(/`\/?([a-z0-9-]+:[a-z0-9-]+)`/g)].map((m) => m[1]);
   assert.ok(citados.length >= 15);
-  for (const c of citados) assert.ok(EXISTENTES.has(c) || c.startsWith('poka-yoke:'), c);
+  for (const c of citados) assert.ok(EXISTENTES.has(c), c);
 });
 
-test('SKILL fluxo: cada uma das 22 skills do Matt Pocock tem o seu momento na tabela', () => {
+for (const [plugin, pasta] of Object.entries(CACHE_DE)) {
+  test(`EXISTENTES: as ${plugin}:* existem no cache instalado`, { skip: !fs.existsSync(pasta) && `sem ${pasta}` }, () => {
+    const nomes = new Set(fs.readdirSync(pasta, { recursive: true })
+      .filter((f) => path.basename(f) === 'SKILL.md').map((f) => path.basename(path.dirname(f))));
+    const nossos = [...EXISTENTES].filter((e) => e.startsWith(`${plugin}:`));
+    assert.ok(nossos.length >= 3);
+    for (const e of nossos) assert.ok(nomes.has(e.slice(plugin.length + 1)), e);
+  });
+}
+
+test('SKILL fluxo: cada uma das 27 skills do Matt Pocock tem o seu momento na tabela', () => {
   const s = fs.readFileSync(path.join(repo, 'kit', 'skills', 'fluxo', 'SKILL.md'), 'utf8');
   for (const p of POCOCK) assert.ok(s.includes(`\`${p}\``) || s.includes(`\`/${p}\``), p);
+  // Nenhuma citação do Matt fora da lista registrada (as que saíram na 1.3.1).
+  for (const t of [s, contexto()]) {
+    for (const c of citacoes(t)) if (c.nome.startsWith('mattpocock-skills:')) assert.ok(POCOCK.includes(c.nome), c.nome);
+  }
   conferirBarras(s);
   assert.match(s, /sugira/);
 });
 
-test('SO_USUARIO bate com o frontmatter do mattpocock-skills instalado', { skip: !fs.existsSync(CACHE_MATT) && 'sem o cache 1.2.0' }, () => {
+// v0.5.1 (revisão): sem cache 1.3.1, o teste abaixo pula, inclusive no CI.
+// A lista registrada e o disable-model-invocation de cada skill ficam num
+// retrato do repositório mattpocock/skills (gerado do clone, 2026-10-14), e
+// a versão do retrato é a do testado.json: os dois andam juntos.
+test('POCOCK e SO_USUARIO batem com o retrato do mattpocock-skills testado', () => {
+  const r = JSON.parse(fs.readFileSync(path.join(repo, 'test', 'dados', 'mattpocock-skills.json'), 'utf8'));
+  const t = JSON.parse(fs.readFileSync(path.join(repo, 'kit', 'testado.json'), 'utf8'));
+  assert.equal(r.versao, t.dependencias['mattpocock-skills@mattpocock']);
+  assert.deepEqual(r.skills.map((s) => `mattpocock-skills:${s.nome}`).sort(), [...POCOCK].sort());
+  assert.deepEqual(r.skills.filter((s) => s.soUsuario).map((s) => `mattpocock-skills:${s.nome}`).sort(), [...SO_USUARIO].sort());
+});
+
+test('SO_USUARIO bate com o frontmatter do mattpocock-skills instalado', { skip: !fs.existsSync(CACHE_MATT) && 'sem o cache 1.3.1' }, () => {
   const arquivos = fs.readdirSync(path.join(CACHE_MATT, 'skills'), { recursive: true })
     .filter((f) => path.basename(f) === 'SKILL.md' && !String(f).startsWith('deprecated'));
   let conferidas = 0;
@@ -113,7 +152,7 @@ test('SO_USUARIO bate com o frontmatter do mattpocock-skills instalado', { skip:
     conferidas++;
     assert.equal(/^disable-model-invocation:\s*true\s*$/m.test(texto), SO_USUARIO.includes(nome), nome);
   }
-  assert.ok(conferidas >= 20, `${conferidas} conferidas`);
+  assert.equal(conferidas, POCOCK.length, `${conferidas} conferidas`);
 });
 
 test('o resumo do hook cita só nomes existentes e manda acionar sozinho', () => {
@@ -124,8 +163,9 @@ test('o resumo do hook cita só nomes existentes e manda acionar sozinho', () =>
   conferirBarras(t);
   // Os momentos do Matt Pocock que só ele cobre estão no resumo, não só na skill.
   for (const s of ['grilling', 'prototype', 'to-spec', 'to-tickets', 'wayfinder', 'handoff',
-    'resolving-merge-conflicts', 'code-review', 'codebase-design', 'improve-codebase-architecture',
-    'domain-modeling', 'research', 'triage', 'teach']) {
-    assert.ok(t.includes(`mattpocock-skills:${s}`), s);
+    'code-review', 'codebase-design', 'improve-codebase-architecture',
+    'domain-modeling', 'research', 'triage', 'teach', 'pr', 'wizard']) {
+    // Nome inteiro: "pr" não pode casar com "prototype" (revisão v0.5.1).
+    assert.ok(citacoes(t).some((c) => c.nome === `mattpocock-skills:${s}`), s);
   }
 });

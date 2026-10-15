@@ -577,21 +577,24 @@ test('consulta do processo: um tasklist que escreve no stderr não suja o stderr
   const prova = spawnSync(falso, ['/FI', 'PID eq 4242', '/FO', 'CSV', '/NH'], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
   assert.equal(prova.status, 1);
   assert.match(prova.stderr, /Cannot find module/);
-  // O "hook": o execFileSync de verdade, envolvido só para anotar o status de
+  // O "hook": o execFileSync de verdade, envolvido para anotar o status de
   // saída, prova que o falso rodou (status 1) com as opções do coletor.js.
+  // Só o timeout muda: os 5 s da consulta (CONSULTA_PRAZO_MS) não bastam para
+  // um node.exe de 80 MB subir com a suíte cheia, e o que este teste prova é o
+  // stdio, não o prazo (v0.5.1). O stdio passa como o coletor.js mandou.
   const modulo = pathToFileURL(path.join(aqui, '..', 'src', 'aprendizado', 'coletor.js')).href;
   const codigo = [
     "import cp from 'node:child_process';",
     "import { syncBuiltinESMExports } from 'node:module';",
     'const original = cp.execFileSync;',
     'let status = null;',
-    'cp.execFileSync = (...a) => { try { return original(...a); } catch (e) { status = e.status; throw e; } };',
+    'cp.execFileSync = (f, a, o) => { try { return original(f, a, { ...o, timeout: 60_000 }); } catch (e) { status = e.status; throw e; } };',
     'syncBuiltinESMExports();',
     `const { nomeDoProcesso } = await import(${JSON.stringify(modulo)});`,
     "const nome = nomeDoProcesso(4242, { plataforma: 'win32', systemRoot: process.argv[1] });",
     'process.stdout.write(JSON.stringify({ nome, status }));',
   ].join('\n');
-  const r = spawnSync(process.execPath, ['--input-type=module', '-e', codigo, raiz], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', codigo, raiz], { encoding: 'utf8', timeout: 90_000, windowsHide: true });
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(JSON.parse(r.stdout), { nome: null, status: 1 }, 'o tasklist falso rodou e saiu com 1');
   assert.equal(r.stderr, '', 'nada do tasklist no stderr do hook');

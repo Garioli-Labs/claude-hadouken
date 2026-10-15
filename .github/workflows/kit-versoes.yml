@@ -19,14 +19,19 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - run: node .github/scripts/kit-versoes.mjs
+      # Uma issue por versão publicada, aberta ou fechada: fechar a issue não a
+      # faz voltar na semana seguinte. O gh fica fora do if: com shell bash
+      # (-eo pipefail), um erro de rede ou de token derruba o passo.
       - name: Abrir issue por versão principal nova (sem duplicar)
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node -e 'for (const p of require("./principais.json")) console.log([p.chave, p.testada, p.publicada].join("\t"))' |
           while IFS=$'\t' read -r chave testada publicada; do
-            titulo="kit: ${chave} ${publicada} (testado com ${testada})"
-            if gh issue list --state open --search "in:title \"kit: ${chave} \"" --json number --jq 'length' | grep -qx 0; then
+            titulo="kit: ${chave} ${publicada}"
+            n=$(TITULO="$titulo" gh issue list --state all --limit 500 --json title --jq '[.[] | select(.title == $ENV.TITULO)] | length')
+            if [ "$n" = 0 ]; then
               gh issue create --title "$titulo" --body "Versão principal nova de \`${chave}\`: ${publicada}. O kit foi testado com ${testada}. Teste e atualize \`kit/testado.json\`."
             fi
           done
