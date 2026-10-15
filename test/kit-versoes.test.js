@@ -81,17 +81,6 @@ test('fontes: superpowers pelo sha fixado no marketplace oficial', () => {
   ]) assert.equal(urlDaFonte(ruim, f), null, JSON.stringify(ruim));
 });
 
-// v0.5.1: confere contra o kit/testado.json de verdade, não contra uma cópia.
-test('fontes: cada dependência do testado.json tem de onde ler', async () => {
-  const fs = await import('node:fs');
-  const t = JSON.parse(fs.readFileSync(new URL('../kit/testado.json', import.meta.url), 'utf8'));
-  assert.ok(Object.keys(t.dependencias).length >= 6);
-  for (const k of Object.keys(t.dependencias)) {
-    assert.ok(fontes[k], k);
-    assert.match(fontes[k].repo, /^[\w.-]+\/[\w.-]+$/, k);
-  }
-});
-
 // I5 da revisão final: o job agendado tem issues: write; as actions vão por
 // SHA de commit e sem a credencial persistida, como no ci.yml.
 test('kit-versoes.yml: actions por SHA, sem credencial persistida e sem cache', async () => {

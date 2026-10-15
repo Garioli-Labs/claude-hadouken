@@ -909,10 +909,6 @@ No terminal (fora de sessão, ou com `!` dentro dela):
 claude plugin marketplace add Garioli-Labs/claude-hadouken
 claude plugin marketplace update claude-hadouken
 claude plugin marketplace add anthropics/claude-plugins-official
-claude plugin marketplace add mattpocock/skills
-claude plugin marketplace add rainmanjam/poka-yoke
-claude plugin marketplace add jeffallan/claude-skills
-claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
 claude plugin install hadouken-kit@claude-hadouken
 ```
 

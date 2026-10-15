@@ -29,7 +29,13 @@ const SO_USUARIO = ['ask-matt', 'grill-with-docs', 'implement', 'implement-spec'
   'improve-codebase-architecture', 'retro', 'setup-matt-pocock-skills', 'to-spec', 'to-tickets',
   'triage', 'wayfinder', 'grill-me', 'handoff', 'teach', 'to-questionnaire', 'wait-what',
 ].map((s) => `mattpocock-skills:${s}`);
-const CACHE_MATT = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'mattpocock', 'mattpocock-skills', '1.3.1');
+// v0.5.2: depois do comando único, o cache dos terceiros fica sob o
+// marketplace claude-hadouken; antes, sob o de cada um. Vale o que existir.
+const primeiro = (...ps) => ps.find((p) => fs.existsSync(p)) ?? ps[0];
+const CACHE_MATT = primeiro(
+  path.join(os.homedir(), '.claude', 'plugins', 'cache', 'claude-hadouken', 'mattpocock-skills', '1.3.1'),
+  path.join(os.homedir(), '.claude', 'plugins', 'cache', 'mattpocock', 'mattpocock-skills', '1.3.1'),
+);
 
 // Cita a skill no texto: as do usuário só com a barra; as outras só sem.
 function citacoes(texto) {
@@ -58,7 +64,7 @@ const EXISTENTES = new Set([
 const CACHE = path.join(os.homedir(), '.claude', 'plugins', 'cache');
 const CACHE_DE = {
   superpowers: path.join(CACHE, 'claude-plugins-official', 'superpowers', '6.4.1'),
-  'poka-yoke': path.join(CACHE, 'poka-yoke', 'poka-yoke', '0.2.0'),
+  'poka-yoke': primeiro(path.join(CACHE, 'claude-hadouken', 'poka-yoke', '0.2.0'), path.join(CACHE, 'poka-yoke', 'poka-yoke', '0.2.0')),
 };
 
 function rodar(cwd, input = '') {
@@ -136,7 +142,7 @@ test('SKILL fluxo: cada uma das 27 skills do Matt Pocock tem o seu momento na ta
 test('POCOCK e SO_USUARIO batem com o retrato do mattpocock-skills testado', () => {
   const r = JSON.parse(fs.readFileSync(path.join(repo, 'test', 'dados', 'mattpocock-skills.json'), 'utf8'));
   const t = JSON.parse(fs.readFileSync(path.join(repo, 'kit', 'testado.json'), 'utf8'));
-  assert.equal(r.versao, t.dependencias['mattpocock-skills@mattpocock']);
+  assert.equal(r.versao, t.dependencias['mattpocock-skills@claude-hadouken']);
   assert.deepEqual(r.skills.map((s) => `mattpocock-skills:${s.nome}`).sort(), [...POCOCK].sort());
   assert.deepEqual(r.skills.filter((s) => s.soUsuario).map((s) => `mattpocock-skills:${s.nome}`).sort(), [...SO_USUARIO].sort());
 });
