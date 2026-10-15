@@ -207,6 +207,16 @@ export function marcarTentativa(opcoes) {
   }
 }
 
+// Regrava tentativa.json com o motivo da falha (v0.5.2), para o início de
+// sessão mostrar o conserto. Melhor esforço: nunca lança.
+function registrarFalha(dir, agoraMs, motivo) {
+  try {
+    gravarJsonAtomico(path.join(dir, DIR_PAINEL, ARQ_TENTATIVA), { em: new Date(agoraMs).toISOString(), motivo });
+  } catch {
+    /* fica a tentativa sem motivo */
+  }
+}
+
 // Texto UTF-8 de um arquivo regular do plugin, até MAX_FONTE_BYTES; senão null.
 function lerFonte(arquivo) {
   try {
@@ -269,6 +279,7 @@ function rodar(executar, exe, args, opcoes) {
 // { ok: true, motivo: 'ok' }. `achar`, `executar`, `plataforma`, `pathEnv` e
 // `existe` existem para os testes. Nunca rejeita.
 export async function instalarPainel(opcoes) {
+  let registrar = () => {};
   try {
     const {
       dir, raizPlugin, agoraMs = Date.now(), achar = acharCode, executar = executarPadrao,
@@ -277,32 +288,39 @@ export async function instalarPainel(opcoes) {
     if (!dirValido(dir)) return falha('sem-pasta');
     if (!agoraValido(agoraMs) || typeof achar !== 'function' || typeof executar !== 'function') return falha('argumentos');
     if (!marcarTentativa({ dir, agoraMs }).ok) return falha('escrita');
+    // Daqui em diante, toda falha fica em tentativa.json com o motivo.
+    registrar = (motivo) => registrarFalha(dir, agoraMs, motivo);
+    const falhou = (motivo) => {
+      registrar(motivo);
+      return falha(motivo);
+    };
     const versao = versaoDoPlugin(raizPlugin);
-    if (versao === null) return falha('plugin-invalido');
+    if (versao === null) return falhou('plugin-invalido');
     const packageJson = lerFonte(path.join(raizPlugin, 'vscode', 'package.json'));
     const extensionCjs = lerFonte(path.join(raizPlugin, 'vscode', 'extension.cjs'));
     const bytes = packageJson === null || extensionCjs === null ? null : montarVsix({ versao, packageJson, extensionCjs });
-    if (bytes === null) return falha('extensao-invalida');
+    if (bytes === null) return falhou('extensao-invalida');
     const pasta = path.join(dir, DIR_PAINEL);
     const vsix = path.join(pasta, `${ID_EXTENSAO}-${versao}.vsix`);
-    if (!gravarBytes(vsix, bytes)) return falha('escrita');
+    if (!gravarBytes(vsix, bytes)) return falhou('escrita');
     varrerTmpVelhos(pasta, (nome) => TMP_VSIX.test(nome));
     const code = achar({ pathEnv, plataforma, existe, casa, apps });
-    if (typeof code !== 'string' || code.length === 0) return falha('sem-vscode');
+    if (typeof code !== 'string' || code.length === 0) return falhou('sem-vscode');
     // O `code` segue a regra da plataforma pedida; o .vsix, a do processo, que
     // montou o caminho com path.join (as duas são a mesma fora dos testes).
     const caminhos = plataforma === 'win32' ? path.win32 : path.posix;
-    if (!caminhos.isAbsolute(code) || !caminhoSeguro(code, plataforma) || !caminhoSeguro(vsix)) return falha('caminho-inseguro');
+    if (!caminhos.isAbsolute(code) || !caminhoSeguro(code, plataforma) || !caminhoSeguro(vsix)) return falhou('caminho-inseguro');
     const r = plataforma === 'win32'
       ? await rodar(executar, caminhoCmd(systemRoot), ['/d', '/s', '/c', `""${code}" --install-extension "${vsix}" --force"`], {
         windowsVerbatimArguments: true, windowsHide: true, timeout: PRAZO_INSTALAR_MS, cwd: pasta,
       })
       : await rodar(executar, code, ['--install-extension', vsix, '--force'], { timeout: PRAZO_INSTALAR_MS, cwd: pasta });
-    if (r !== 'ok') return falha(r);
+    if (r !== 'ok') return falhou(r);
     apagarVsixAntigos(pasta, path.basename(vsix));
     const g = gravarJsonAtomico(path.join(pasta, ARQ_INSTALADO), { versao, em: new Date(agoraMs).toISOString() });
-    return g.ok ? { ok: true, motivo: 'ok' } : falha('escrita');
+    return g.ok ? { ok: true, motivo: 'ok' } : falhou('escrita');
   } catch {
+    registrar('erro');
     return falha('erro');
   }
 }

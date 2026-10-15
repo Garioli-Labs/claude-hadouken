@@ -14,7 +14,8 @@ import { registrarSessao } from '../ativas.js';
 // 2. sincroniza os shims estáveis de <dirDados>/bin/ com a versão do plugin
 //    em uso (CLAUDE_PLUGIN_ROOT);
 // 3. injeta uma linha com o consumo atual, mais uma linha fixa para cada
-//    passo anterior que falhou;
+//    passo anterior que falhou e, se a instalação do item do VS Code falhou
+//    (v0.5.2), uma com o motivo;
 // 4. depois da saída, com os shims em dia e sem HADOUKEN_SEM_PAINEL=1,
 //    dispara em segundo plano a instalação da extensão do painel no VS Code
 //    (dispararPainel). Nada deste passo entra no contexto (zero tokens), e o
@@ -137,6 +138,15 @@ rodarHook(async (entrada) => {
   const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs))];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
+  // v0.5.2: a instalação do item do VS Code falhou e a versão atual não está
+  // instalada: uma linha com o motivo e o conserto (rótulos fixos). Com
+  // HADOUKEN_SEM_PAINEL=1, nada. Um import que falha só tira a linha.
+  if (process.env.HADOUKEN_SEM_PAINEL !== '1') {
+    try {
+      const motivo = (await import('../painel/falha.js')).falhaPendente({ dir, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT });
+      if (motivo !== null) saida.push(linhas.linhaPainel(motivo));
+    } catch { /* sem a linha do painel nesta sessão */ }
+  }
   // Aprendizado (spec aprendizado §4.6, §11, R13): arquivos.js é leve;
   // passo.js só carrega com o aprendizado ligado. Um import que falha não
   // tira a linha de consumo: segue como desligado.

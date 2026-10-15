@@ -103,6 +103,17 @@ export function linhaSemRegistro(motivo) {
   return `claude-hadouken: sessão não registrada (${motivoFixo(motivo, MOTIVOS_REGISTRO)}); barra e alertas desligados nesta sessão.`;
 }
 
+// v0.5.2: a instalação do item do VS Code falhou e a versão atual não está
+// instalada (painel/falha.js). Motivos da lista de instalarPainel depois da
+// tentativa marcada; o conserto é fixo por motivo.
+export const MOTIVOS_PAINEL = new Set(['plugin-invalido', 'extensao-invalida', 'escrita', 'sem-vscode', 'caminho-inseguro', 'tempo', 'erro']);
+const CONSERTO_SEM_VSCODE = "no VS Code, rode Shell Command: Install 'code' command in PATH";
+const CONSERTO_PAINEL = 'rode node ~/.claude/hadouken/bin/cli.mjs painel instalar';
+export function linhaPainel(motivo) {
+  const m = motivoFixo(motivo, MOTIVOS_PAINEL);
+  return `claude-hadouken: item do VS Code não instalado (${m}); ${m === 'sem-vscode' ? CONSERTO_SEM_VSCODE : CONSERTO_PAINEL}. Sem VS Code, defina HADOUKEN_SEM_PAINEL=1.`;
+}
+
 // Custo de retomar uma sessão parada (spec v0.4.0 §10, item 11; C24; decisão
 // 8 do plano da parte 2): "hadouken: retomar reescreve ~182 k tokens de
 // cache.", ao usuário. Só com source 'resume', prompt_cache_likely_expired
