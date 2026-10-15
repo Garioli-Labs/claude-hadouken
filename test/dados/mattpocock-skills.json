@@ -1,0 +1,115 @@
+{
+  "fonte": "github.com/mattpocock/skills",
+  "commit": "49dd158d1076134a641b33efb035946536778336",
+  "versao": "1.3.1",
+  "skills": [
+    {
+      "nome": "ask-matt",
+      "soUsuario": true
+    },
+    {
+      "nome": "code-review",
+      "soUsuario": false
+    },
+    {
+      "nome": "codebase-design",
+      "soUsuario": false
+    },
+    {
+      "nome": "diagnosing-bugs",
+      "soUsuario": false
+    },
+    {
+      "nome": "domain-modeling",
+      "soUsuario": false
+    },
+    {
+      "nome": "grill-me",
+      "soUsuario": true
+    },
+    {
+      "nome": "grill-with-docs",
+      "soUsuario": true
+    },
+    {
+      "nome": "grilling",
+      "soUsuario": false
+    },
+    {
+      "nome": "handoff",
+      "soUsuario": true
+    },
+    {
+      "nome": "implement",
+      "soUsuario": true
+    },
+    {
+      "nome": "implement-spec",
+      "soUsuario": true
+    },
+    {
+      "nome": "improve-codebase-architecture",
+      "soUsuario": true
+    },
+    {
+      "nome": "pr",
+      "soUsuario": false
+    },
+    {
+      "nome": "prototype",
+      "soUsuario": false
+    },
+    {
+      "nome": "research",
+      "soUsuario": false
+    },
+    {
+      "nome": "retro",
+      "soUsuario": true
+    },
+    {
+      "nome": "setup-matt-pocock-skills",
+      "soUsuario": true
+    },
+    {
+      "nome": "tdd",
+      "soUsuario": false
+    },
+    {
+      "nome": "teach",
+      "soUsuario": true
+    },
+    {
+      "nome": "to-questionnaire",
+      "soUsuario": true
+    },
+    {
+      "nome": "to-spec",
+      "soUsuario": true
+    },
+    {
+      "nome": "to-tickets",
+      "soUsuario": true
+    },
+    {
+      "nome": "triage",
+      "soUsuario": true
+    },
+    {
+      "nome": "wait-what",
+      "soUsuario": true
+    },
+    {
+      "nome": "wayfinder",
+      "soUsuario": true
+    },
+    {
+      "nome": "wizard",
+      "soUsuario": false
+    },
+    {
+      "nome": "writing-for-agents",
+      "soUsuario": false
+    }
+  ]
+}

@@ -62,8 +62,11 @@ test('nodeServe: as faixas do engines do rea-agents 6.1.0', () => {
 
 // v0.5.1: o plugin pode estar sob uma junção ou link (pasta de perfil
 // movida, OneDrive) e num caminho com espaço. O lançador roda de verdade, com
-// um npx falso no PATH que imprime o cwd que recebeu.
-test('lançador roda por caminho com espaço e por junção, com o cwd na pasta do plugin', () => {
+// um npx falso no PATH que imprime o cwd que recebeu. Num Node fora da faixa
+// (o CI roda também o 20), o mesmo lançador sai com 1, diz por quê e não
+// chega ao npx: cada lado da matriz confere um caminho.
+const NODE_SERVE = nodeServe(process.versions.node);
+test(`lançador por caminho com espaço e por junção: ${NODE_SERVE ? 'cwd na pasta do plugin' : 'Node fora da faixa sai com 1'}`, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rea com espaco '));  // sem acento: o cmd.exe ecoa na página OEM
   try {
     const real = path.join(tmp, 'plugin real');
@@ -77,6 +80,12 @@ test('lançador roda por caminho com espaço e por junção, com o cwd na pasta 
     const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
     for (const pasta of [real, link]) {
       const r = spawnSync(process.execPath, [path.join(pasta, 'lancar.mjs')], { env, encoding: 'utf8', timeout: 15_000 });
+      if (!NODE_SERVE) {
+        assert.equal(r.status, 1, pasta);
+        assert.match(r.stderr, new RegExp(`pede Node .*este é o ${process.versions.node.replaceAll('.', '\\.')}`), pasta);
+        assert.doesNotMatch(r.stdout, /cwd=/, `${pasta}: o npx não podia rodar`);
+        continue;
+      }
       assert.equal(r.status, 0, `${pasta}: ${r.stderr}`);
       const cwd = /cwd=(.*)/.exec(r.stdout)?.[1]?.trim();
       assert.ok(cwd, `${pasta}: o npx falso não rodou (stdout: ${JSON.stringify(r.stdout)})`);

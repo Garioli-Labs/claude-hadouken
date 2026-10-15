@@ -50,7 +50,7 @@ Todas as skills que o `mattpocock-skills` registra, com o momento em que entram 
 | Um fato de documentação ou de API precisa de fonte primária antes de virar código | `mattpocock-skills:research` |
 | O usuário quer aprender um conceito, não só ver o trabalho feito | `/mattpocock-skills:teach` |
 | Uma decisão que só outra pessoa pode responder | `/mattpocock-skills:to-questionnaire` |
-| O usuário diz que a última mensagem não ficou clara | `/mattpocock-skills:wait-what` |
+| O usuário quer que a última resposta seja refeita (ele digita; se ele já disse que não entendeu, refaça a explicação direto, sem sugerir o comando) | `/mattpocock-skills:wait-what` |
 | Fim de uma sessão de código: o que mudar no ambiente do agente | `/mattpocock-skills:retro` (incidente: `poka-yoke:retro`) |
 | Escrever ou editar uma skill, o AGENTS.md ou o CLAUDE.md | `superpowers:writing-skills` para o processo de uma skill; `mattpocock-skills:writing-for-agents` como referência |
 | Dúvida sobre qual skill do Matt serve | `/mattpocock-skills:ask-matt` (para "qual skill agora" no geral, vale esta página) |

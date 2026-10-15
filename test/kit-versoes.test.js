@@ -33,6 +33,17 @@ test('compararVersoes: rebaixamento é anterior, em qualquer posição', () => {
   assert.equal(compararVersoes('1.2.0', '1.10.0'), 'menor');   // número, não texto
 });
 
+// v0.5.1 (revisão): pré-release publicada não vira issue. Antes, 7.0.0-beta.1
+// virava a issue "7.0.0", e a do 7.0.0 final nunca abria (mesmo título).
+test('compararVersoes e relatorio: pré-release fica só no resumo', () => {
+  assert.equal(compararVersoes('6.4.1', '7.0.0-beta.1'), 'pre-release');
+  assert.equal(compararVersoes('2.0.0', '2.0.0-beta'), 'pre-release');
+  assert.equal(compararVersoes('6.4.1', '7.0.0'), 'principal');
+  const r = relatorio({ dependencias: { 'a@m': '6.4.1' } }, { 'a@m': '7.0.0-beta.1' });
+  assert.deepEqual(r.principais, []);
+  assert.match(r.resumo, /a@m \| 6\.4\.1 \| 7\.0\.0 \| pré-release/);
+});
+
 // v0.5.1: a versão publicada vem de repositório de terceiro. Para a issue e o
 // resumo vai só o x.y.z lido; o resto do texto fica fora.
 test('relatorio: só o x.y.z da publicada chega à issue e ao resumo', () => {
@@ -100,6 +111,12 @@ test('kit-versoes.yml: não reabre a issue de uma versão já avisada', async ()
   const y = fs.readFileSync(new URL('../.github/workflows/kit-versoes.yml', import.meta.url), 'utf8');
   assert.match(y, /gh issue list --state all /);
   assert.doesNotMatch(y, /--state open/);
-  assert.match(y, /--search "in:title \\"\$\{titulo\}\\""/);
+  assert.doesNotMatch(y, /--search/);   // a busca do GitHub tokeniza "@" e ":"; o filtro exato basta
+  assert.match(y, /shell: bash/);       // -eo pipefail: falha do gh no meio do pipe derruba o passo
   assert.match(y, /select\(\.title == \$ENV\.TITULO\)/);
+  // Revisão v0.5.1: o gh fora do if, para um erro de rede ou token derrubar
+  // o job (dentro do if, o -e não age e o passo ficava verde sem issue).
+  assert.match(y, /n=\$\(TITULO="\$titulo" gh issue list --state all --limit \d+ /);
+  assert.match(y, /if \[ "\$n" = 0 \]; then/);
+  assert.doesNotMatch(y, /if [^\n]*gh issue list/);
 });

@@ -129,6 +129,18 @@ test('SKILL fluxo: cada uma das 27 skills do Matt Pocock tem o seu momento na ta
   assert.match(s, /sugira/);
 });
 
+// v0.5.1 (revisão): sem cache 1.3.1, o teste abaixo pula, inclusive no CI.
+// A lista registrada e o disable-model-invocation de cada skill ficam num
+// retrato do repositório mattpocock/skills (gerado do clone, 2026-10-14), e
+// a versão do retrato é a do testado.json: os dois andam juntos.
+test('POCOCK e SO_USUARIO batem com o retrato do mattpocock-skills testado', () => {
+  const r = JSON.parse(fs.readFileSync(path.join(repo, 'test', 'dados', 'mattpocock-skills.json'), 'utf8'));
+  const t = JSON.parse(fs.readFileSync(path.join(repo, 'kit', 'testado.json'), 'utf8'));
+  assert.equal(r.versao, t.dependencias['mattpocock-skills@mattpocock']);
+  assert.deepEqual(r.skills.map((s) => `mattpocock-skills:${s.nome}`).sort(), [...POCOCK].sort());
+  assert.deepEqual(r.skills.filter((s) => s.soUsuario).map((s) => `mattpocock-skills:${s.nome}`).sort(), [...SO_USUARIO].sort());
+});
+
 test('SO_USUARIO bate com o frontmatter do mattpocock-skills instalado', { skip: !fs.existsSync(CACHE_MATT) && 'sem o cache 1.3.1' }, () => {
   const arquivos = fs.readdirSync(path.join(CACHE_MATT, 'skills'), { recursive: true })
     .filter((f) => path.basename(f) === 'SKILL.md' && !String(f).startsWith('deprecated'));
@@ -153,6 +165,7 @@ test('o resumo do hook cita só nomes existentes e manda acionar sozinho', () =>
   for (const s of ['grilling', 'prototype', 'to-spec', 'to-tickets', 'wayfinder', 'handoff',
     'code-review', 'codebase-design', 'improve-codebase-architecture',
     'domain-modeling', 'research', 'triage', 'teach', 'pr', 'wizard']) {
-    assert.ok(t.includes(`mattpocock-skills:${s}`), s);
+    // Nome inteiro: "pr" não pode casar com "prototype" (revisão v0.5.1).
+    assert.ok(citacoes(t).some((c) => c.nome === `mattpocock-skills:${s}`), s);
   }
 });

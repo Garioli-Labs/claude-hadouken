@@ -33,9 +33,14 @@ export function xyz(v) {
   return SEMVER.exec(typeof v === 'string' ? v : '')?.[0] ?? null;
 }
 
+// Pré-release publicada (7.0.0-beta.1) não é versão nova: fica no resumo,
+// sem issue, para a do 7.0.0 final abrir quando sair.
+const PRE = /^\d+\.\d+\.\d+-/;
+
 export function compararVersoes(testada, publicada) {
   const a = SEMVER.exec(testada ?? ''); const b = SEMVER.exec(publicada ?? '');
   if (!a || !b) return 'invalida';
+  if (PRE.test(publicada)) return 'pre-release';
   for (const i of [1, 2, 3]) {
     if (Number(b[i]) === Number(a[i])) continue;
     if (Number(b[i]) < Number(a[i])) return 'anterior';
@@ -52,10 +57,11 @@ export function relatorio(testado, publicadas) {
     ...Object.entries(testado.npm ?? {}).map(([k, v]) => [`npm:${k}`, v]),
   ];
   for (const [chave, testada] of pares) {
-    const publicada = xyz(publicadas[chave]);
-    const c = compararVersoes(testada, publicada);
+    const bruta = typeof publicadas[chave] === 'string' ? publicadas[chave] : null;
+    const publicada = xyz(bruta);
+    const c = compararVersoes(testada, bruta);
     if (c === 'principal') principais.push({ chave, testada, publicada });
-    const nota = c === 'invalida' ? 'não consegui ler' : c;
+    const nota = { invalida: 'não consegui ler', 'pre-release': 'pré-release' }[c] ?? c;
     linhas.push(`| ${chave} | ${testada} | ${publicada ?? '—'} | ${nota} |`);
   }
   return { principais, resumo: linhas.join('\n') };
