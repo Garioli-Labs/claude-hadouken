@@ -47,6 +47,8 @@ as opções separadas por espaço serve ao `irm | iex`, que não passa argumento
 
 - `--sim`: responde sim a todas as perguntas (CI, testes, uso sem ninguém na
   frente). Não substitui uma barra de outro plugin.
+- `--sem-extras`: não instala os extras (Python, graphify, ferramentas da
+  yu-ux, `gh`).
 - `--com-aprendizado`: liga o aprendizado local (OpenTelemetry) sem
   perguntar.
 - `--substituir-barra`: troca uma `statusLine` existente que não é a do
@@ -127,6 +129,41 @@ sessão aberta, e o README já manda instalar pelo terminal.
 Não entra: criar o link `/usr/local/bin/code` no Mac (pediria `sudo` nos Macs
 com chip Apple e o `acharCode` novo dispensa); instalar o VS Code; publicar no
 npm.
+
+## Tudo o que o Hadouken usa
+
+Pedido do Sr. Garioli: "Verifica o que mais precisa pro hadouken funcionar e
+coloca tbm." Levantado no README, no kit e no REA em 2026-10-15:
+
+| O quê | Para quê | Grupo | Como o instalador resolve |
+|---|---|---|---|
+| `git` | o Claude Code clona os marketplaces do GitHub; no Windows, o Git for Windows traz também o Git Bash que o Claude Code usa | obrigatório | `winget install --id Git.Git -e`; `brew install git` |
+| Node ≥ 20 | todos os hooks, a barra e o painel | obrigatório | `winget install --id OpenJS.NodeJS.LTS -e`; `brew install node` (a LTS de hoje já passa dos 22.19 do REA) |
+| Claude Code ≥ 2.1.251 | a guarda | obrigatório | instalador oficial; abaixo da mínima, `claude update` |
+| Python 3 com pip | os scripts da `yu-ux-web-expert` e o `graphify` | extra | `winget install --id Python.Python.3.12 -e`; `brew install python` |
+| `graphifyy==0.9.25` (pip) | a skill `graphify` do kit | extra | `<python> -m pip install --user graphifyy==0.9.25` |
+| Playwright, Chromium, axe-core e lighthouse | as medições da `yu-ux-web-expert` | extra | roda o `setup.sh` da própria skill (com `bash`; no Windows, o do Git) |
+| `gh` com login | a seção do GitHub no relatório | extra | `winget install --id GitHub.cli -e`; `brew install gh`; o login (`gh auth login`) é interativo e fica como próximo passo no resumo |
+| VS Code com o `code` | o item dos limites | fora | não instala o VS Code; com ele instalado, o plugin acha o `code` sozinho |
+| `tar` | a extração do Collector do aprendizado | já vem | Windows 10 1803+, macOS e Linux já trazem |
+| Plano Pro ou Max | os limites de 5 h e 7 dias | fora | conta, não programa; o resumo só lembra |
+
+- Os **obrigatórios** entram na primeira pergunta s/N (a de antes).
+- Os **extras** vêm numa segunda pergunta, com a lista e o tamanho
+  aproximado (Chromium uns 150 MiB, Python uns 100 MiB): "Instalar também os
+  extras? [S/n]", com **sim** como padrão, porque o pedido é ter tudo
+  funcionando; `--sim` também instala; `--sem-extras` pula. Sem tty e sem
+  `--sim`: não instala.
+- Os extras de gerenciador de pacotes (Python, `gh`) ficam no script, como
+  os obrigatórios; o `pip` do graphify e o `setup.sh` da yu-ux ficam no
+  `instalar-tudo.js`, depois do kit instalado (o `setup.sh` instala dentro
+  da pasta do kit).
+- Cada extra que falha vira `✗` no resumo, com o comando para tentar de
+  novo, e não para nada.
+- Sem winget (Windows) ou brew (Mac): os obrigatórios param, como antes; os
+  extras viram `– pulado (sem winget/brew)`. No Linux, os extras de pacote
+  ficam como próximo passo no resumo (cada distribuição tem o seu
+  gerenciador), e os de pip e `setup.sh` rodam se houver Python.
 
 ## Atualização automática
 
