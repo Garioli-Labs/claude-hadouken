@@ -26,7 +26,13 @@ const novoTmp = (prefixo = 'hdk painel ç ') => {
   pastas.push(d);
   return d;
 };
-after(() => { for (const d of pastas) fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
+// Limpeza só do temporário: com a suíte cheia, o Windows às vezes segura a
+// pasta por mais que as 20 tentativas, e isso não é falha de nenhum teste (v0.5.1).
+after(() => {
+  for (const d of pastas) {
+    try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch (e) { if (e.code !== 'EPERM' && e.code !== 'EBUSY') throw e; }
+  }
+});
 
 const lerJsonArq = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const arqPainel = (dir, nome) => path.join(dir, DIR_PAINEL, nome);
