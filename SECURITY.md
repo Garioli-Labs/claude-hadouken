@@ -11,7 +11,7 @@ Só a versão mais recente, a última release publicada, recebe correções de s
 | Última release | sim |
 | Qualquer versão anterior | não |
 
-A v0.5.0 precisa do Claude Code 2.1.251 ou mais novo. Em CLI anterior à 2.1.251 o plugin não funciona: nenhum hook carrega e, sem o registro do SessionStart, a barra também fica vazia. No spike S11 da parte 2, a 2.1.250 recusou os eventos `PreModelSwitch` e `PostModelSwitch` do `hooks.json` e registrou zero hooks do plugin. Ficam de fora a guarda (P1 a P5), a linha de consumo do início de sessão, os avisos e a barra. A mínima é 2.1.251; a 2.1.250 falhou, e a 2.1.251 não foi testada isoladamente.
+A v0.5.1 precisa do Claude Code 2.1.251 ou mais novo. Em CLI anterior à 2.1.251 o plugin não funciona: nenhum hook carrega e, sem o registro do SessionStart, a barra também fica vazia. No spike S11 da parte 2, a 2.1.250 recusou os eventos `PreModelSwitch` e `PostModelSwitch` do `hooks.json` e registrou zero hooks do plugin. Ficam de fora a guarda (P1 a P5), a linha de consumo do início de sessão, os avisos e a barra. A mínima é 2.1.251; a 2.1.250 falhou, e a 2.1.251 não foi testada isoladamente.
 
 ## Como relatar uma vulnerabilidade
 
@@ -189,7 +189,7 @@ Only the latest version, the most recent published release, receives security fi
 | Latest release | yes |
 | Any earlier version | no |
 
-v0.5.0 needs Claude Code 2.1.251 or newer. On a CLI earlier than 2.1.251 the plugin does not work: no hook loads and, without the SessionStart registration, the status bar stays empty too. In spike S11 of part 2, 2.1.250 rejected the `PreModelSwitch` and `PostModelSwitch` events in `hooks.json` and registered zero hooks from the plugin. The guard (P1 to P5), the usage line at session start, the notices and the status bar are all missing. The minimum is 2.1.251; 2.1.250 failed, and 2.1.251 was not tested on its own.
+v0.5.1 needs Claude Code 2.1.251 or newer. On a CLI earlier than 2.1.251 the plugin does not work: no hook loads and, without the SessionStart registration, the status bar stays empty too. In spike S11 of part 2, 2.1.250 rejected the `PreModelSwitch` and `PostModelSwitch` events in `hooks.json` and registered zero hooks from the plugin. The guard (P1 to P5), the usage line at session start, the notices and the status bar are all missing. The minimum is 2.1.251; 2.1.250 failed, and 2.1.251 was not tested on its own.
 
 ## Reporting a vulnerability
 

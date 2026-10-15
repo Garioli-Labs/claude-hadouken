@@ -36,7 +36,7 @@ test('marketplace: allowlist exata e toda dependência com marketplace está nel
 test('kit: dependências exatas e sem faixa de versão', () => {
   const kit = ler('kit/.claude-plugin/plugin.json');
   assert.equal(kit.name, 'hadouken-kit');
-  assert.equal(kit.version, '1.0.0');
+  assert.equal(kit.version, '1.0.1');
   assert.deepEqual(kit.dependencies, [
     'claude-hadouken',
     { name: 'superpowers', marketplace: 'claude-plugins-official' },
@@ -46,6 +46,13 @@ test('kit: dependências exatas e sem faixa de versão', () => {
     { name: 'ui-ux-pro-max', marketplace: 'ui-ux-pro-max-skill' },
   ]);
   for (const d of kit.dependencies) if (typeof d === 'object') assert.equal(d.version, undefined, d.name);
+});
+
+// v0.5.1: o kit leva código próprio (MIT) e a cópia do graphify 0.9.25
+// (Apache-2.0, com o LICENSE dela); o rótulo diz os dois.
+test('kit: licença MIT AND Apache-2.0, como o conteúdo', () => {
+  assert.equal(ler('kit/.claude-plugin/plugin.json').license, 'MIT AND Apache-2.0');
+  assert.match(fs.readFileSync(path.join(repo, 'kit', 'skills', 'graphify', 'LICENSE'), 'utf8'), /Apache License/);
 });
 
 test('kit: o REA não é dependência do kit (dependência sobe sempre ligada)', () => {
@@ -66,7 +73,7 @@ test('testado.json: uma versão para cada dependência, e nenhuma sobrando', () 
 test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node', () => {
   const r = ler('rea/.claude-plugin/plugin.json');
   assert.equal(r.name, 'hadouken-rea');
-  assert.equal(r.version, '1.0.0');
+  assert.equal(r.version, '1.0.1');
   assert.equal(r.defaultEnabled, false);
   assert.equal(r.license, 'MIT');
   assert.match(r.description, /permiss/i);
@@ -75,6 +82,7 @@ test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node',
     command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/lancar.mjs'] } } });
 });
 
-test('claude-hadouken: plugin.json em 0.5.0', () => {
-  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.0');
+test('claude-hadouken: plugin.json e package.json em 0.5.1', () => {
+  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.1');
+  assert.equal(ler('package.json').version, '0.5.1');
 });

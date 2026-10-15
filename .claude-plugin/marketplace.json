@@ -3,8 +3,8 @@
   "owner": { "name": "Garioli Labs" },
   "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official", "mattpocock", "poka-yoke", "fullstack-dev-skills", "ui-ux-pro-max-skill"],
   "plugins": [
-    { "name": "claude-hadouken", "source": "./", "description": "Usage-aware pacing for Claude Code.", "version": "0.5.0" },
-    { "name": "hadouken-kit", "source": "./kit", "description": "The daily skill set (superpowers, Matt Pocock, poka-yoke, fullstack, UI/UX) plus a map of which skill to use at each step.", "version": "1.0.0" },
-    { "name": "hadouken-rea", "source": "./rea", "description": "REA reverse-engineering MCP server. Off by default; it runs analyzed programs with your permissions.", "version": "1.0.0" }
+    { "name": "claude-hadouken", "source": "./", "description": "Usage-aware pacing for Claude Code.", "version": "0.5.1" },
+    { "name": "hadouken-kit", "source": "./kit", "description": "The daily skill set (superpowers, Matt Pocock, poka-yoke, fullstack, UI/UX) plus a map of which skill to use at each step.", "version": "1.0.1" },
+    { "name": "hadouken-rea", "source": "./rea", "description": "REA reverse-engineering MCP server. Off by default; it runs analyzed programs with your permissions.", "version": "1.0.1" }
   ]
 }
