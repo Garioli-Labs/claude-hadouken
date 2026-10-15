@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import { comandoRea, VERSAO_REA } from '../rea/lancar.mjs';
+import os from 'node:os';
+import path from 'node:path';
+import { comandoRea, nodeServe, VERSAO_REA } from '../rea/lancar.mjs';
 
 const PASTA = '/plugins/hadouken-rea/1.0.0';
 
@@ -47,4 +50,37 @@ test('cwd na pasta do plugin, nunca o do projeto; Windows sem npx do cwd', () =>
   assert.equal(comandoRea('linux', {}, PASTA).env.NoDefaultCurrentDirectoryInExePath, undefined);
   const texto = fs.readFileSync(new URL('../rea/lancar.mjs', import.meta.url), 'utf8');
   assert.match(texto, /spawn\(comando, args, \{[^}]*cwd[^}]*env/);
+});
+
+// v0.5.1: o rea-agents 6.1.0 pede Node ^22.19.0 || ^24.11.0 || >=26.0.0
+// (engines no npm). Fora disso, o lançador diz o motivo em vez de deixar o npx
+// falhar sem explicação.
+test('nodeServe: as faixas do engines do rea-agents 6.1.0', () => {
+  for (const v of ['22.19.0', '22.20.1', '24.11.0', '24.18.0', '26.0.0', '27.1.0']) assert.equal(nodeServe(v), true, v);
+  for (const v of ['20.18.0', '22.18.9', '23.9.0', '24.10.0', '25.2.0', 'x']) assert.equal(nodeServe(v), false, v);
+});
+
+// v0.5.1: o plugin pode estar sob uma junção ou link (pasta de perfil
+// movida, OneDrive) e num caminho com espaço. O lançador roda de verdade, com
+// um npx falso no PATH que imprime o cwd que recebeu.
+test('lançador roda por caminho com espaço e por junção, com o cwd na pasta do plugin', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rea com espaco '));  // sem acento: o cmd.exe ecoa na página OEM
+  try {
+    const real = path.join(tmp, 'plugin real');
+    const link = path.join(tmp, 'plugin link');
+    const bin = path.join(tmp, 'bin falso');
+    fs.mkdirSync(real); fs.mkdirSync(bin);
+    fs.copyFileSync(new URL('../rea/lancar.mjs', import.meta.url), path.join(real, 'lancar.mjs'));
+    fs.symlinkSync(real, link, process.platform === 'win32' ? 'junction' : 'dir');
+    if (process.platform === 'win32') fs.writeFileSync(path.join(bin, 'npx.cmd'), '@echo cwd=%CD%\r\n');
+    else { fs.writeFileSync(path.join(bin, 'npx'), '#!/bin/sh\necho "cwd=$(pwd -P)"\n'); fs.chmodSync(path.join(bin, 'npx'), 0o755); }
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+    for (const pasta of [real, link]) {
+      const r = spawnSync(process.execPath, [path.join(pasta, 'lancar.mjs')], { env, encoding: 'utf8', timeout: 15_000 });
+      assert.equal(r.status, 0, `${pasta}: ${r.stderr}`);
+      const cwd = /cwd=(.*)/.exec(r.stdout)?.[1]?.trim();
+      assert.ok(cwd, `${pasta}: o npx falso não rodou (stdout: ${JSON.stringify(r.stdout)})`);
+      assert.equal(fs.realpathSync(cwd), fs.realpathSync(real), pasta);
+    }
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });

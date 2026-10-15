@@ -39,6 +39,10 @@ test('yu-ux: ATTRIBUTIONS.md, setup.sh e manifestos do vendor, sem node_modules 
   assert.equal(fs.readdirSync(path.join(y, 'references')).filter((n) => n.endsWith('.md')).length, 12);
 });
 
+// Conferido em 2026-10-14 (v0.5.1) com o kit 1.0.0 instalado: ao carregar a
+// skill, o Claude Code troca ${CLAUDE_PLUGIN_ROOT} pelo caminho do cache, com
+// barras normais e o espaço preservado ("C:/Users/Lucas Garioli/.claude/
+// plugins/cache/claude-hadouken/hadouken-kit/1.0.0/skills/yu-ux-web-expert/").
 test('yu-ux: o SKILL.md diz onde a skill mora dentro do plugin', () => {
   const s = fs.readFileSync(path.join(kit, 'yu-ux-web-expert', 'SKILL.md'), 'utf8');
   assert.match(s, /^---\nname: yu-ux-web-expert\n/);
