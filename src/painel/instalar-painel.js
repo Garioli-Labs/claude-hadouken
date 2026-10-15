@@ -2,6 +2,7 @@ import { isUtf8 } from 'node:buffer';
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   absolutoCompleto, apagar, DATA_MAX_MS, esperar, instante, numeroFinito, RENOMEAR_ESPERA_MS, RENOMEAR_TENTATIVAS,
@@ -91,24 +92,50 @@ const existePadrao = (p) => {
 };
 const executarPadrao = (exe, args, opcoes, cb) => execFile(exe, args, opcoes, cb);
 
+const casaPadrao = () => {
+  try {
+    return os.homedir();
+  } catch {
+    return null;
+  }
+};
+
+// v0.5.2: no macOS o VS Code não põe o `code` no PATH por padrão (é preciso
+// rodar "Shell Command: Install 'code' command in PATH"). Sem ele no PATH, o
+// CLI de dentro do .app, em /Applications e em ~/Applications. Casa que não é
+// caminho absoluto POSIX sem NUL fica de fora.
+export function appsDoMac(casa) {
+  const fim = ['Visual Studio Code.app', 'Contents', 'Resources', 'app', 'bin', 'code'];
+  const lista = [path.posix.join('/Applications', ...fim)];
+  if (typeof casa === 'string' && casa.startsWith('/') && !casa.includes('\0')) lista.push(path.posix.join(casa, 'Applications', ...fim));
+  return lista;
+}
+
 // Caminho do CLI do VS Code: code.cmd no win32, code fora dele, no primeiro
 // diretório do PATH em que `existe` o confirma. Só entram diretórios que são
 // caminho absoluto completo pela regra do processo (absolutoCompleto, de
 // base.js); vazio, ".", relativo, "C:rel" e "\raiz" ficam de fora, e um par de
-// aspas em volta da entrada sai no win32, como o próprio Windows faz. Devolve
-// o caminho ou null. Nunca lança.
-export function acharCode({ pathEnv = process.env.PATH, plataforma = process.platform, existe = existePadrao } = {}) {
+// aspas em volta da entrada sai no win32, como o próprio Windows faz. No
+// darwin, sem nada no PATH, tenta `apps` (padrão: appsDoMac(casa)), só
+// caminhos absolutos. Devolve o caminho ou null. Nunca lança.
+export function acharCode({ pathEnv = process.env.PATH, plataforma = process.platform, existe = existePadrao, casa = casaPadrao(), apps } = {}) {
   try {
-    if (typeof pathEnv !== 'string' || typeof existe !== 'function') return null;
+    if (typeof existe !== 'function') return null;
     const win = plataforma === 'win32';
     const nome = win ? 'code.cmd' : 'code';
     const caminhos = win ? path.win32 : path.posix;
-    for (const cru of pathEnv.split(win ? ';' : ':')) {
-      let dir = cru;
-      if (win && dir.length >= 2 && dir.startsWith('"') && dir.endsWith('"')) dir = dir.slice(1, -1);
-      if (dir === '' || dir.includes('\0') || !absolutoCompleto(dir)) continue;
-      const candidato = caminhos.join(dir, nome);
-      if (existe(candidato) === true) return candidato;
+    if (typeof pathEnv === 'string') {
+      for (const cru of pathEnv.split(win ? ';' : ':')) {
+        let dir = cru;
+        if (win && dir.length >= 2 && dir.startsWith('"') && dir.endsWith('"')) dir = dir.slice(1, -1);
+        if (dir === '' || dir.includes('\0') || !absolutoCompleto(dir)) continue;
+        const candidato = caminhos.join(dir, nome);
+        if (existe(candidato) === true) return candidato;
+      }
+    }
+    if (plataforma !== 'darwin') return null;
+    for (const candidato of Array.isArray(apps) ? apps : appsDoMac(casa)) {
+      if (typeof candidato === 'string' && candidato.startsWith('/') && !candidato.includes('\0') && existe(candidato) === true) return candidato;
     }
     return null;
   } catch {
@@ -245,7 +272,7 @@ export async function instalarPainel(opcoes) {
   try {
     const {
       dir, raizPlugin, agoraMs = Date.now(), achar = acharCode, executar = executarPadrao,
-      plataforma = process.platform, pathEnv = process.env.PATH, existe, systemRoot = process.env.SystemRoot,
+      plataforma = process.platform, pathEnv = process.env.PATH, existe, systemRoot = process.env.SystemRoot, casa, apps,
     } = ehObjeto(opcoes) ? opcoes : {};
     if (!dirValido(dir)) return falha('sem-pasta');
     if (!agoraValido(agoraMs) || typeof achar !== 'function' || typeof executar !== 'function') return falha('argumentos');
@@ -260,7 +287,7 @@ export async function instalarPainel(opcoes) {
     const vsix = path.join(pasta, `${ID_EXTENSAO}-${versao}.vsix`);
     if (!gravarBytes(vsix, bytes)) return falha('escrita');
     varrerTmpVelhos(pasta, (nome) => TMP_VSIX.test(nome));
-    const code = achar({ pathEnv, plataforma, existe });
+    const code = achar({ pathEnv, plataforma, existe, casa, apps });
     if (typeof code !== 'string' || code.length === 0) return falha('sem-vscode');
     // O `code` segue a regra da plataforma pedida; o .vsix, a do processo, que
     // montou o caminho com path.join (as duas são a mesma fora dos testes).

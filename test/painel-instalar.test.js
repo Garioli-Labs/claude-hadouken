@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  acharCode, ARQ_INSTALADO, ARQ_TENTATIVA, caminhoSeguro, DIR_PAINEL, instalarPainel, marcarTentativa, precisaInstalar,
+  acharCode, appsDoMac, ARQ_INSTALADO, ARQ_TENTATIVA, caminhoSeguro, DIR_PAINEL, instalarPainel, marcarTentativa, precisaInstalar,
   PRAZO_INSTALAR_MS, TENTATIVA_MS, versaoDoPlugin,
 } from '../src/painel/instalar-painel.js';
 import { montarVsix } from '../src/painel/vsix.js';
@@ -20,6 +20,10 @@ import { painel, rodarCli, USO } from '../src/comandos.js';
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const WIN = process.platform === 'win32';
 const H = 3_600_000;
+// Num Mac com o VS Code em /Applications, o acharCode de verdade o acha
+// mesmo com o PATH vazio: os testes de processo filho que esperam
+// 'sem-vscode' pulam ali.
+const MAC_COM_VSCODE = process.platform === 'darwin' && acharCode({ pathEnv: '' }) !== null;
 const pastas = [];
 const novoTmp = (prefixo = 'hdk painel ç ') => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), prefixo));
@@ -97,13 +101,65 @@ test('acharCode: code.cmd no win32 e code fora dele, só em diretório absoluto 
   const cwdAntes = process.cwd();
   try {
     process.chdir(com);
-    assert.equal(acharCode({ pathEnv: '.', plataforma: process.platform }), null);
+    assert.equal(acharCode({ pathEnv: '.', plataforma: process.platform, apps: [] }), null);
   } finally {
     process.chdir(cwdAntes);
   }
   // undefined é o mesmo que não passar (o PATH do processo, logo abaixo).
-  for (const pathEnv of ['', null, 42]) assert.equal(acharCode({ pathEnv, plataforma: process.platform }), null, String(pathEnv));
+  for (const pathEnv of ['', null, 42]) assert.equal(acharCode({ pathEnv, plataforma: process.platform, apps: [] }), null, String(pathEnv));
   assert.equal(acharCode(), acharCode({}), 'sem opções: PATH e plataforma do processo, sem lançar');
+});
+
+// v0.5.2: no macOS o VS Code não põe o `code` no PATH. Sem ele no PATH, o
+// acharCode tenta o CLI dentro do .app, em /Applications e em ~/Applications.
+const APP_FIM = 'Visual Studio Code.app/Contents/Resources/app/bin/code';
+const CASA_MAC = '/Users/Fulano de Tal';
+// absolutoCompleto segue a regra do processo: no Windows, /usr/bin não é
+// diretório do PATH válido.
+const PATH_POSIX = WIN && 'PATH POSIX só fora do Windows';
+
+test('acharCode darwin: sem code no PATH, acha o .app em /Applications', () => {
+  const vistos = [];
+  const alvo = `/Applications/${APP_FIM}`;
+  const r = acharCode({ pathEnv: '/usr/bin:/bin', plataforma: 'darwin', casa: CASA_MAC, existe: (p) => { vistos.push(p); return p === alvo; } });
+  assert.equal(r, alvo);
+  if (!WIN) assert.deepEqual(vistos, ['/usr/bin/code', '/bin/code', alvo]);
+  else assert.deepEqual(vistos, [alvo]);
+});
+
+test('acharCode darwin: acha o .app em ~/Applications quando não há em /Applications', () => {
+  const alvo = `${CASA_MAC}/Applications/${APP_FIM}`;
+  assert.equal(acharCode({ pathEnv: '/usr/bin', plataforma: 'darwin', casa: CASA_MAC, existe: (p) => p === alvo }), alvo);
+});
+
+test('acharCode darwin: o PATH vence os dois .app, e sem nenhum devolve null', { skip: PATH_POSIX }, () => {
+  const doPath = '/usr/local/bin/code';
+  assert.equal(acharCode({ pathEnv: '/usr/local/bin', plataforma: 'darwin', casa: CASA_MAC, existe: () => true }), doPath);
+  assert.equal(acharCode({ pathEnv: '/usr/bin', plataforma: 'darwin', casa: CASA_MAC, existe: () => false }), null);
+  // PATH ausente no Mac ainda tenta os .app.
+  assert.equal(acharCode({ pathEnv: undefined, plataforma: 'darwin', casa: CASA_MAC, existe: (p) => p === `/Applications/${APP_FIM}` }), `/Applications/${APP_FIM}`);
+});
+
+test('acharCode win32 e linux: nunca olham /Applications', () => {
+  const existe = (p) => p.includes('Applications');
+  assert.equal(acharCode({ pathEnv: 'C:\\x', plataforma: 'win32', casa: 'C:\\Users\\Fulano', existe }), null);
+  assert.equal(acharCode({ pathEnv: '/usr/bin', plataforma: 'linux', casa: '/home/fulano', existe }), null);
+});
+
+test('appsDoMac: casa inválida fica de fora, e os dois caminhos passam no caminhoSeguro', () => {
+  assert.deepEqual(appsDoMac(CASA_MAC), [`/Applications/${APP_FIM}`, `${CASA_MAC}/Applications/${APP_FIM}`]);
+  for (const ruim of [null, 'relativo', '/a\0b', 42]) assert.deepEqual(appsDoMac(ruim), [`/Applications/${APP_FIM}`], String(ruim));
+  for (const p of appsDoMac(CASA_MAC)) assert.equal(caminhoSeguro(p, 'darwin'), true, p);
+});
+
+test('instalarPainel repassa casa e apps ao achar', async () => {
+  const pedidos = [];
+  await instalarPainel({
+    dir: novoTmp(), raizPlugin: raizFalsa(), agoraMs: Date.now(), plataforma: 'darwin', pathEnv: '/usr/bin', casa: CASA_MAC, apps: ['/x/code'],
+    achar: (o) => { pedidos.push(o); return null; }, executar: () => assert.fail('não roda sem code'),
+  });
+  assert.equal(pedidos[0].casa, CASA_MAC);
+  assert.deepEqual(pedidos[0].apps, ['/x/code']);
 });
 
 // ------------------------------------------------------------ precisaInstalar
@@ -345,7 +401,7 @@ function ambienteIsolado(home, extra = {}) {
   return env;
 }
 
-test('filho: cli.js painel instalar sem code no PATH monta o .vsix na pasta de dados e sai 1 com sem-vscode', () => {
+test('filho: cli.js painel instalar sem code no PATH monta o .vsix na pasta de dados e sai 1 com sem-vscode', { skip: MAC_COM_VSCODE && 'VS Code em /Applications' }, () => {
   const home = novoTmp('hdk casa ç ');
   const r = spawnSync(process.execPath, [path.join(repo, 'src', 'cli.js'), 'painel', 'instalar'], {
     env: ambienteIsolado(home), cwd: home, encoding: 'utf8', timeout: 30_000, windowsHide: true,
@@ -389,7 +445,7 @@ async function esperarArquivo(arq, ms) {
 // dispara `cli.js painel instalar` destacado (que, sem code no PATH, só monta o
 // .vsix e grava a tentativa); com HADOUKEN_SEM_PAINEL=1, nada. Em nenhum dos
 // dois entra linha nova no contexto (zero tokens).
-test('SessionStart: dispara o instalador em segundo plano; com HADOUKEN_SEM_PAINEL=1 não dispara nada', async () => {
+test('SessionStart: dispara o instalador em segundo plano; com HADOUKEN_SEM_PAINEL=1 não dispara nada', { skip: MAC_COM_VSCODE && 'VS Code em /Applications' }, async () => {
   const versao = versaoDoPlugin(repo);
   const ligado = novoTmp('hdk casa ç ');
   const desligado = novoTmp('hdk casa ç ');
