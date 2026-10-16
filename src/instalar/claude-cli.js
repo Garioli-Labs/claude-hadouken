@@ -119,7 +119,9 @@ export async function passoKit(rodar) {
 }
 
 // O REA: instala ou atualiza; liga com Node aceito pelo rea-agents
-// (nodeServe), desliga e marca pulado com Node fora da faixa.
+// (nodeServe) só na primeira instalação; já instalado e desligado, foi o
+// usuário quem desligou, e fica desligado (revisão final, Important 9). Com
+// Node fora da faixa, desliga e marca pulado.
 export async function passoRea(rodar, versaoNode) {
   const nome = 'hadouken-rea';
   const p = await passoPlugin(rodar, ID_REA, nome);
@@ -127,6 +129,8 @@ export async function passoRea(rodar, versaoNode) {
   const quer = nodeServe(versaoNode);
   const pulado = item.pulado(nome, `Node ${versao(versaoNode)}; o REA pede 22.19+, 24.11+ ou 26+`);
   if (p.entrada.enabled === quer) return quer ? p.item : pulado;
+  if (quer && p.item.estado === 'igual') return { ...item.igual(nome), detalhe: 'desligado por você' };
+  if (quer && !p.item.detalhe.startsWith('instalado')) return item.ok(nome, `${p.item.detalhe}; continua desligado por você`);
   await rodar(['plugin', quer ? 'enable' : 'disable', ID_REA]);
   const e = (await listarPlugins(rodar))?.get(ID_REA);
   if (!e || e.enabled !== quer) return item.falhou(nome, quer ? 'não ligou' : 'não desligou', `rode claude plugin ${quer ? 'enable' : 'disable'} ${ID_REA}`);

@@ -161,6 +161,15 @@ test('DEPENDENCIAS_KIT casa com o plugin.json do kit', () => {
   assert.deepEqual(DEPENDENCIAS_KIT, kit.dependencies.map((d) => (typeof d === 'string' ? `${d}@claude-hadouken` : `${d.name}@${d.marketplace}`)));
 });
 
+test('passoRea: REA já instalado e desligado pelo usuário continua desligado, mesmo com Node aceito', async () => {
+  const estado = { plugins: [{ id: ID_REA, version: '1.0.1', scope: 'user', enabled: false, installPath: '/r/hadouken-rea' }], log: [], raiz: '/r' };
+  const r = await passoRea(rodarFalso(estado), '24.11.0');
+  assert.deepEqual(r, { nome: 'hadouken-rea', estado: 'igual', detalhe: 'desligado por você' });
+  assert.ok(!estado.log.includes(`plugin enable ${ID_REA}`), 'não religa');
+  assert.equal(estado.plugins[0].enabled, false);
+  assert.match(formatarResumo([r]), /^= hadouken-rea: desligado por você$/m);
+});
+
 test('passoRea: Node aceito instala e liga; Node 20 deixa desligado (e desliga se estava ligado)', async () => {
   const bom = { plugins: [], log: [], raiz: '/r' };
   assert.deepEqual(await passoRea(rodarFalso(bom), '24.11.0'), item.ok('hadouken-rea', 'instalado (1.0.1), ligado'));

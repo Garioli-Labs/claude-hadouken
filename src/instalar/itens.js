@@ -9,7 +9,7 @@ export const item = Object.freeze({
 
 export function formatarResumo(itens) {
   const linhas = itens.map((i) => {
-    if (i.estado === 'igual') return `= ${i.nome}: já estava`;
+    if (i.estado === 'igual') return `= ${i.nome}: ${i.detalhe}`;
     if (i.estado === 'pulado') return `– ${i.nome}: pulado (${i.detalhe})`;
     if (i.estado === 'falhou') return `✗ ${i.nome}: falhou (${i.detalhe}${i.conserto ? `; ${i.conserto}` : ''})`;
     return `✓ ${i.nome}: ${i.detalhe}`;
