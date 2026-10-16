@@ -7,5 +7,6 @@
     "fullstack-dev-skills@claude-hadouken": "0.4.16",
     "ui-ux-pro-max@claude-hadouken": "2.13.0"
   },
-  "npm": { "rea-agents": "6.1.0" }
+  "npm": { "rea-agents": "6.1.0" },
+  "pip": { "graphifyy": "0.9.25" }
 }

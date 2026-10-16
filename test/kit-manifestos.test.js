@@ -94,6 +94,7 @@ test('testado.json: uma versão para cada dependência, chaves novas e as mesmas
     'ui-ux-pro-max@claude-hadouken': '2.13.0',
   });
   assert.equal(t.npm['rea-agents'], '6.1.0');
+  assert.deepEqual(t.pip, { graphifyy: '0.9.25' });
 });
 
 test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node', () => {

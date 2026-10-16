@@ -1,0 +1,150 @@
+name: kit-atualizar
+
+# Robô semanal do hadouken-kit (spec v0.5.2): sobe os sha dos terceiros e a
+# versão do rea-agents num ramo, roda a suíte em 3 sistemas x 3 Nodes e, tudo
+# verde, publica na main com tag e release. Algum vermelho: issue, nada
+# publicado. Push pelo GITHUB_TOKEN não dispara outros workflows, por isso a
+# suíte roda aqui. ${{ }} nunca dentro de run: o texto vai por env.
+on:
+  schedule:
+    - cron: '17 9 * * 1'   # segunda, 09:17 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: kit-atualizar
+  cancel-in-progress: false
+
+jobs:
+  preparar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      mudou: ${{ steps.robo.outputs.mudou }}
+      titulo: ${{ steps.robo.outputs.titulo }}
+      versao_kit: ${{ steps.robo.outputs.versao_kit }}
+      ramo: ${{ steps.robo.outputs.ramo }}
+      aviso: ${{ steps.robo.outputs.aviso }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - id: robo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/kit-atualizar.mjs
+      - name: Empurrar o ramo do robô
+        if: steps.robo.outputs.mudou == 'sim'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RAMO: ${{ steps.robo.outputs.ramo }}
+          TITULO: ${{ steps.robo.outputs.titulo }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$RAMO"
+          git add .claude-plugin/marketplace.json kit/.claude-plugin/plugin.json kit/testado.json rea/.claude-plugin/plugin.json rea/lancar.mjs
+          git commit -q -m "$TITULO"
+          git push --force -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$RAMO"
+
+  testar:
+    needs: preparar
+    if: needs.preparar.outputs.mudou == 'sim'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preparar.outputs.ramo }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: node --test
+
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [preparar, testar]
+    if: needs.preparar.outputs.mudou == 'sim' && needs.testar.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Merge rápido na main, tag e release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RAMO: ${{ needs.preparar.outputs.ramo }}
+          VERSAO: ${{ needs.preparar.outputs.versao_kit }}
+          TITULO: ${{ needs.preparar.outputs.titulo }}
+        run: |
+          ORIGEM="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch -q origin "refs/heads/$RAMO"
+          # A main não andou desde o ramo: senão, nada é publicado.
+          git merge-base --is-ancestor HEAD FETCH_HEAD
+          git push -q "$ORIGEM" "FETCH_HEAD:refs/heads/main"
+          git tag "kit-v$VERSAO" FETCH_HEAD
+          git push -q "$ORIGEM" "refs/tags/kit-v$VERSAO"
+          gh release create "kit-v$VERSAO" --verify-tag --title "hadouken-kit $VERSAO" --notes "$TITULO"
+          git push -q "$ORIGEM" --delete "$RAMO"
+
+  avisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [preparar, testar, publicar]
+    if: always() && needs.preparar.outputs.mudou == 'sim' && (needs.testar.result == 'failure' || needs.publicar.result == 'failure')
+    permissions:
+      issues: write
+    steps:
+      - name: Abrir issue (sem duplicar uma aberta)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TITULO: ${{ needs.preparar.outputs.titulo }}
+          RAMO: ${{ needs.preparar.outputs.ramo }}
+        run: |
+          n=$(gh issue list --state open --limit 500 --json title --jq '[.[] | select(.title == $ENV.TITULO)] | length')
+          if [ "$n" = 0 ]; then
+            gh issue create --title "$TITULO" --body "O robô preparou o ramo \`$RAMO\`, mas a suíte ou a publicação falhou, e nada foi publicado. Execução: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
+
+  avisar-pip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: preparar
+    if: needs.preparar.outputs.aviso != ''
+    permissions:
+      issues: write
+    steps:
+      - name: Abrir issue do graphifyy (uma por versão, aberta ou fechada)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          AVISO: ${{ needs.preparar.outputs.aviso }}
+        run: |
+          n=$(gh issue list --state all --limit 500 --json title --jq '[.[] | select(.title == $ENV.AVISO)] | length')
+          if [ "$n" = 0 ]; then
+            gh issue create --title "$AVISO" --body "Versão nova do graphifyy no pip. O kit e o instalador fixam a testada em \`kit/testado.json\` e em \`src/instalar-tudo.js\` (GRAPHIFY). Teste e atualize os dois."
+          fi
