@@ -161,17 +161,55 @@ A sugestão roda no hook `UserPromptSubmit`, que já existe (`src/hooks/prompt-s
   A mesma tabela sai também na saída em JSON.
 - **O aprendizado só sugere,** como as sugestões de hoje (`src/aprendizado/ajustar.js`, a parte das sugestões). Exemplo: "hadouken:mecanico teve 25% de retrabalho em 7 dias; subir para Sonnet?". O usuário aplica pelo `/hadouken:aprender` ou na janela. **O roteamento nunca muda sozinho.**
 
-## 9. Ordem de execução
+## 9. Otimizações de consumo
+
+Aprovadas pelo Sr. Garioli em 2026-10-16 ("pode incluir todas as otimizações"). Valem duas regras gerais:
+- **Nenhum hook novo por chamada de ferramenta.** As análises da sessão rodam no `UserPromptSubmit` que já existe, sobre o trecho do transcript desde o prompt anterior. As análises da semana rodam no relatório e na janela.
+- **Sem custo de modelo.** As análises são feitas pelo próprio hook.
+
+As sugestões que vão ao modelo (`additionalContext`) dividem com a §7 o limite de **uma linha a cada 30 minutos por sessão**. Quando há mais de uma sugestão na fila, vai a de maior economia estimada.
+
+Cada uma das cinco tem a sua chave em `roteamento.otimizacoes`, todas ligadas por padrão e todas na aba Roteamento da janela:
+
+```json
+{ "roteamento": { "otimizacoes": { "leiturasRepetidas": true, "saidaGrande": true, "mcpOciosos": true, "contextoFixo": true, "compactar": true } } }
+```
+
+- **O1. Arquivo lido inteiro várias vezes.**
+  - **Quando:** na mesma sessão, o mesmo arquivo foi lido sem `offset`/`limit` 3 vezes ou mais, e tem mais de 300 linhas.
+  - **Sugestão:** "ler só o trecho (offset/limit) ou usar Grep".
+  - **No relatório:** os 5 arquivos mais relidos da semana, com uma estimativa dos tokens.
+- **O2. Comando com saída enorme.**
+  - **Quando:** um resultado de Bash ou PowerShell passou de 30 KB.
+  - **Sugestão:** "filtrar (grep, head, tail) ou mandar a saída para um arquivo e ler o fim".
+  - **No relatório:** os comandos com as maiores saídas da semana, só o nome do executável e nunca os argumentos.
+- **O3. Servidores MCP parados.**
+  - **Como mede:** junta os servidores ligados (settings e `.mcp.json` lidos pelo `config-base` de hoje) com as chamadas `mcp__<servidor>__*` nos transcripts dos últimos 7 dias.
+  - **Onde aparece:** no relatório e na janela, a lista dos ligados sem nenhuma chamada na semana, com a sugestão "desligar se não usa".
+  - **Custo no contexto:** não é estimado quando as ferramentas do servidor são carregadas sob demanda, porque aí ele não pesa; nesse caso, a lista diz "carregado sob demanda". Também não é estimado quando não dá para saber.
+  - **Desligar:** o hadouken nunca desliga um servidor sozinho.
+- **O4. Contexto fixo caro.**
+  - **Como mede:** pelo `usage` da primeira resposta de cada sessão (`input_tokens` + `cache_creation_input_tokens` + `cache_read_input_tokens`), menos o tamanho do primeiro prompt. A semana mostra a mediana.
+  - **Quem mais pesa:** é uma **estimativa marcada como tal**, pelo tamanho do texto que cada skill, plugin, agente e `CLAUDE.md` acrescenta (caracteres ÷ 4). Saem os 5 maiores.
+  - **Onde aparece:** só no relatório e na janela, nunca durante o trabalho.
+- **O5. Contexto inflado com cache caindo.**
+  - **Quando:** o contexto da sessão está na faixa amarela ou vermelha da barra (`barra.ctx`, configurável na outra spec), e há um destes sinais:
+    - o acerto de cache das últimas 5 respostas caiu abaixo da faixa amarela de cache;
+    - a última pausa passou de 5 minutos, o TTL do cache curto.
+  - **Sugestão:** "/compact agora, ou uma sessão nova com um resumo". Na barra aparece a marca `⇣ compact`.
+
+## 10. Ordem de execução
 
 1. Os agentes em `agents/` e a validação deles pelo `claude plugin validate`.
 2. A skill `hadouken:roteamento` e a regra curta no SessionStart.
 3. N1, N2 e A1 a A3 na guarda, a chave `roteamento` e a liberação.
 4. A sugestão para a sessão principal e a marca na barra.
 5. A medição, a tabela no relatório e as sugestões do aprendizado.
+6. As otimizações O1 a O5 (§9): primeiro as da sessão (O1, O2 e O5) no `UserPromptSubmit`, depois as da semana (O3 e O4) no relatório e na janela.
 
 A aba Roteamento da janela entra junto da janela, na outra spec.
 
-## 10. Testes
+## 11. Testes
 
 - **Agentes:**
   - o frontmatter de cada um tem o `model`, o `effort` e as `tools` da tabela;
@@ -199,11 +237,20 @@ A aba Roteamento da janela entra junto da janela, na outra spec.
   - a semelhança de descrições;
   - a tabela no relatório e no JSON;
   - a sugestão do aprendizado e nenhuma mudança automática.
+- **Otimizações:**
+  - O1 com 3 leituras inteiras de um arquivo de 300+ linhas, e sem sugestão com `offset`/`limit` ou com um arquivo pequeno;
+  - O2 no limite de 30 KB, sem os argumentos do comando no relatório;
+  - O3 com servidor ligado e sem uso, com servidor usado, e com servidor sob demanda sem estimativa;
+  - O4 a partir do `usage` da primeira resposta, com a estimativa por item marcada como estimativa;
+  - O5 com contexto amarelo e cache caindo, e com uma pausa acima de 5 minutos;
+  - a fila dividindo o limite de 30 minutos com a §7;
+  - cada chave de `roteamento.otimizacoes` desligando a sua;
+  - o `UserPromptSubmit` continua dentro do tempo de hoje.
 - **Suíte inteira verde.**
 
-## 11. Fora desta spec
+## 12. Fora desta spec
 
 - Trocar o modelo ou o effort da sessão principal sozinho: o Claude Code não permite isso a um hook, e a decisão é do usuário.
 - Classificar a tarefa pelo texto do prompt para **negar**: só aviso.
-- As otimizações gerais de consumo que não são roteamento: ficam para uma lista a apresentar ao Sr. Garioli antes do plano.
+- Desligar sozinho um MCP, uma skill ou um plugin: o hadouken só sugere.
 - A revisão de segurança, estabilidade, compatibilidade, RAM, hardware e peso do plugin: v0.5.4.
