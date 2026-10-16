@@ -66,11 +66,13 @@ export function instalarFalso(pasta) {
   return alvo;
 }
 
+// Só age como programa com FALSO_ESTADO: o `node --test` sem argumentos roda
+// todo .mjs de test/, este também, e aí ele não faz nada.
 let principal = false;
 try {
   principal = Boolean(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(ARQUIVO);
 } catch { /* importado */ }
-if (principal) {
+if (principal && process.env.FALSO_ESTADO) {
   if (process.env.FALSO_COMER_STDIN === '1') {
     try { fs.readFileSync(0); } catch { /* sem entrada */ }
   }
