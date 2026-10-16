@@ -117,3 +117,43 @@ export function despachoCaro(perfil) {
     return false;
   }
 }
+
+// Spec roteamento §6: a família do modelo (o G5 só precisa de fable/outro) e
+// os agentes do plugin, que o Claude Code nomeia `hadouken:<x>` e moram em
+// <raiz do plugin>/agents/<x>.md. Só o prefixo hadouken: é resolvido aqui;
+// outro plugin fica desconhecido, como no perfil da guarda.
+const NOME_ROTEAMENTO = /^[A-Za-z0-9_:-]{1,80}$/;
+const DO_PLUGIN = /^hadouken:([a-z][a-z-]{0,40})$/;
+export function familiaDoModelo(nome) {
+  if (typeof nome !== 'string') return 'desconhecido';
+  for (const f of ['haiku', 'sonnet', 'opus', 'fable']) if (nome.toLowerCase().includes(f)) return f;
+  return 'desconhecido';
+}
+
+function frontmatterRoteamento(nome, cwd, dirCfg, raizPlugin) {
+  const m = DO_PLUGIN.exec(nome);
+  if (m) return typeof raizPlugin === 'string' && path.isAbsolute(raizPlugin) ? lerFrontmatter(path.join(raizPlugin, 'agents', `${m[1]}.md`)) : null;
+  return frontmatterDoAgente(nome, cwd, dirCfg);
+}
+
+export function perfilRoteamento({ toolInput, cwd, dirConfigClaude: dirCfg, env, modeloSessao, raizPlugin } = {}) {
+  const vazio = { agente: null, familia: 'desconhecido', effort: null, origem: 'desconhecido', doArquivo: null };
+  try {
+    const ti = toolInput !== null && typeof toolInput === 'object' ? toolInput : {};
+    const agente = typeof ti.subagent_type === 'string' && NOME_ROTEAMENTO.test(ti.subagent_type) && !ti.subagent_type.includes('..') ? ti.subagent_type : null;
+    if (agente === null) return vazio;
+    const fm = frontmatterRoteamento(agente, cwd, dirCfg, raizPlugin);
+    const doArquivo = fm === null ? null : { model: fm.model, effort: fm.effort };
+    const effort = effortValido(ti.effort) ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
+    const r = (familia, origem) => ({ agente, familia, effort, origem, doArquivo });
+    if (agente === 'fork') return r(familiaDoModelo(modeloSessao), ehTexto(modeloSessao) ? 'sessao' : 'desconhecido');
+    if (ehTexto(ti.model) && ti.model !== 'inherit') return r(familiaDoModelo(ti.model), 'parametro');
+    if (fm !== null && ehTexto(fm.model) && fm.model !== 'inherit') return r(familiaDoModelo(fm.model), 'frontmatter');
+    const herda = fm !== null || HERDAM_SESSAO.has(agente);
+    if (!herda) return r('desconhecido', 'desconhecido');
+    if (ehTexto(env?.CLAUDE_CODE_SUBAGENT_MODEL)) return r(familiaDoModelo(env.CLAUDE_CODE_SUBAGENT_MODEL), 'ambiente');
+    return r(familiaDoModelo(modeloSessao), ehTexto(modeloSessao) ? 'sessao' : 'desconhecido');
+  } catch {
+    return vazio;
+  }
+}
