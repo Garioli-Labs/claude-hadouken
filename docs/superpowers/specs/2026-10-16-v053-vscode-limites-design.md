@@ -6,6 +6,8 @@ A v0.5.3 tem duas specs. Esta cobre tudo o que o usuário vê e configura. A out
 
 Emenda de 2026-10-16: a janela ganha a aba Roteamento (§4.1), aprovada no desenho da spec de roteamento.
 
+Emenda 2 de 2026-10-16: o pedido do Sr. Garioli foi "As aparências do hadouken podem ser algo bem '8 bits/vintage'". A logo, os segmentos e a janela passam a ter o estilo 8 bits descrito na §4.5.
+
 ## 1. O que o Sr. Garioli pediu
 
 Tudo o que está entre aspas abaixo são palavras dele.
@@ -175,6 +177,21 @@ Não há animação de entrada em cada elemento nem brilho permanente. Com movim
   - a ordem de tabulação segue a ordem visual.
 - **Alto contraste:** com o corpo em `vscode-high-contrast` ou `vscode-high-contrast-light`, a janela deixa o tema próprio e usa as variáveis `--vscode-*`.
 - **O que não construir agora:** busca nos campos, importar e exportar config, gráficos de histórico.
+
+### 4.5 Estilo 8 bits / vintage (emenda 2)
+
+- **Paleta:** continua a mesma, com a paleta do hadouken.
+- **Ícones da barra** (logo e segmentos):
+  - em pixel art numa grade de 16×16, feitos só de quadrados, sem curvas nem antisserrilhado;
+  - a bola de energia vira um sprite;
+  - os segmentos de energia viram blocos, como a barra de vida de um jogo de luta.
+- **Animação:** em degraus (`steps()`), sem suavização, como um sprite trocando de quadro.
+- **Janela:**
+  - bordas em degraus (pixel), sombras duras sem desfoque e os feixes de energia em blocos;
+  - na bola do cabeçalho, `image-rendering: pixelated`.
+- **Fonte pixel só nos títulos, nos botões e nos números grandes.** A fonte é a "Press Start 2P" (licença OFL), embutida na extensão (`janela/pixel.woff2`) e nunca carregada da internet. O corpo, os rótulos e as mensagens de erro ficam na fonte do VS Code (`--vscode-font-family`), porque uma fonte pixel em texto corrido e pequeno atrapalha a leitura (regra de legibilidade da skill yu-ux-web-expert).
+- **Opcional e leve:** um efeito de linhas de varredura (CRT) só no cabeçalho, com no máximo 6% de opacidade. Ele some com movimento reduzido e com alto contraste.
+- **As regras da §4.3 não mudam:** contraste de 4,5:1, foco visível e movimento reduzido valem do mesmo jeito.
 
 ### 4.4 Segurança da janela
 
