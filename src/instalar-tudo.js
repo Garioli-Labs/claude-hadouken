@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
+import { ReadStream as TtyReadStream } from 'node:tty';
 import { fileURLToPath } from 'node:url';
 import { dirDados } from './base.js';
 import { aplicarStatusline, arquivoSettings } from './configuracao.js';
@@ -56,27 +57,36 @@ export function respostaSim(texto, padrao) {
 }
 
 // Pergunta no terminal. No POSIX lê do /dev/tty (no `curl | bash` a entrada
-// é o script); no Windows, da entrada do console. Sem tty: false.
-async function perguntarTty(texto, padrao) {
-  let entrada = null;
-  try {
-    if (process.platform === 'win32') {
-      if (!process.stdin.isTTY) return false;
-      entrada = process.stdin;
-    } else {
-      entrada = fs.createReadStream('/dev/tty', { fd: fs.openSync('/dev/tty', 'r') });
-    }
-    const rl = readline.createInterface({ input: entrada, output: process.stdout, terminal: false });
+// é o script) por um tty.ReadStream: um fs.ReadStream deixaria uma leitura
+// pendente que segura o processo e engole a resposta seguinte. No Windows,
+// da entrada do console, que nunca é destruída (a pergunta seguinte lê dela).
+// O prompt vai para o stderr: no install.ps1 o stdout do node passa pelo
+// Out-Host, que só mostra linha inteira. Sem tty: false.
+export function criarPerguntar({ plataforma = process.platform, stdin = process.stdin, saida = process.stderr } = {}) {
+  return async (texto, padrao) => {
+    let tty = null;
     try {
-      return respostaSim(await rl.question(texto), padrao);
+      let entrada;
+      if (plataforma === 'win32') {
+        if (!stdin.isTTY) return false;
+        entrada = stdin;
+      } else {
+        tty = new TtyReadStream(fs.openSync('/dev/tty', 'r'));
+        entrada = tty;
+      }
+      const rl = readline.createInterface({ input: entrada, output: saida, terminal: false });
+      try {
+        return respostaSim(await rl.question(texto), padrao);
+      } finally {
+        rl.close();
+        if (tty === null) entrada.pause();
+      }
+    } catch {
+      return false;
     } finally {
-      rl.close();
-      entrada.destroy();
+      try { tty?.destroy(); } catch { /* já fechada */ }
     }
-  } catch {
-    try { entrada?.destroy(); } catch { /* já fechada */ }
-    return false;
-  }
+  };
 }
 
 function pastaConfig(ambiente) {
@@ -243,7 +253,7 @@ async function passoYuUx({ bash, kitPath, spawnar, plataforma }) {
 export async function instalarTudo(o) {
   const {
     opcoes, rodar, versaoNode = process.versions.node, agoraMs = Date.now(), raizPlugin = RAIZ, ambiente = process.env,
-    perguntar = perguntarTty, plataforma = process.platform, escrever = (t) => process.stdout.write(t), deps = {},
+    perguntar = criarPerguntar(), plataforma = process.platform, escrever = (t) => process.stdout.write(t), deps = {},
   } = o;
   const {
     instalar = instalarPainel, sincronizar = sincronizarShims, aplicar = aplicarStatusline, ligarAuto = ligarAtualizacao,
