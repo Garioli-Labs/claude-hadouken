@@ -37,6 +37,8 @@ export const TIPOS_EVENTO = Object.freeze([
   // detalhe é o primeiro campo que mudou, 'ilegivel', 'sem-caminho' ou
   // 'sem-sessao' (settings do projeto sem session_id válido, fix round 2).
   'config-bloqueada',
+  // 'guarda-ligada': /hadouken:liberar off | on; o detalhe é 'off' ou 'on'.
+  'guarda-ligada',
   // Spec roteamento §6: N1/N2 negaram ou A1–A3 avisaram; o detalhe é a regra.
   'roteamento-negado', 'roteamento-aviso',
 ]);

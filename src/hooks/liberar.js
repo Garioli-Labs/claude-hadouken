@@ -53,7 +53,7 @@ const NAO_GRAVADO_RESERVA = 'hadouken: nada liberado. A liberação não pôde s
 // só limparTravas e anexarEvento, que nunca lançam. Assim uma exceção nunca
 // deixa liberação gravada junto com a resposta "nada liberado".
 async function decidir(entrada, dir, sessionId, agoraMs, msg) {
-  const [{ lerConfigGuarda }, est, trv, lib, reg] = await Promise.all([
+  const [{ lerConfigGuarda, gravarGuardaLigada }, est, trv, lib, reg] = await Promise.all([
     import('../guarda/config.js'),
     import('../estado.js'),
     import('../guarda/travas.js'),
@@ -72,6 +72,15 @@ async function decidir(entrada, dir, sessionId, agoraMs, msg) {
     return msg.RECUSADO_ORIGEM;
   }
   reg.marcarSessao(dir, sessionId);
+  // off | on: liga ou desliga a guarda inteira (guarda.ligada), depois dos
+  // mesmos portões da liberação.
+  const chave = typeof entrada.command_args === 'string' ? entrada.command_args.trim().toLowerCase() : '';
+  if (chave === 'off' || chave === 'on') {
+    const ligada = chave === 'on';
+    if (!gravarGuardaLigada(dir, ligada).ok) return msg.GUARDA_NAO_ALTERADA;
+    reg.anexarEvento(dir, 'guarda-ligada', chave, agoraMs);
+    return ligada ? msg.GUARDA_LIGADA : msg.GUARDA_DESLIGADA;
+  }
   const { config } = lerConfigGuarda(dir);
   const pedido = lib.lerPedido(typeof entrada.command_args === 'string' ? entrada.command_args : '', config);
   if (!pedido.ok) {

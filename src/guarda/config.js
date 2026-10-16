@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { lerJson } from '../estado.js';
+import { lerJson, gravarJsonAtomico } from '../estado.js';
 import { lerAperto, aplicarAperto } from './aperto.js';
 
 // Tetos da guarda (spec v0.4.0 §5.4, D1 emendado em 2026-09-29): a chave
@@ -106,6 +106,27 @@ export function lerConfigGuardaBase(dir) {
     return guardaDaConfig(lido.valor);
   } catch {
     return { config: { ...PADRAO_GUARDA }, avisos: ['config.json ilegível: guarda com os padrões'] };
+  }
+}
+
+// /hadouken:liberar off | on: grava guarda.ligada no <dir>/config.json e
+// preserva o resto (repos, tetos). Arquivo ausente: cria. Presente mas
+// ilegível ou fora do formato: não grava nada ({ ok: false }), para não
+// apagar o que o usuário escreveu. Nunca lança.
+export function gravarGuardaLigada(dir, ligada) {
+  try {
+    if (typeof dir !== 'string' || typeof ligada !== 'boolean') return { ok: false };
+    const arquivo = path.join(dir, ARQ_CONFIG);
+    let valor = {};
+    const lido = lerJson(arquivo, CONFIG_MAX_BYTES);
+    if (lido.ok) valor = lido.valor;
+    else if (lido.motivo !== 'ausente' || existe(arquivo)) return { ok: false };
+    if (!ehObjeto(valor)) return { ok: false };
+    const g = proprio(valor, 'guarda');
+    if (g !== undefined && !ehObjeto(g)) return { ok: false };
+    return gravarJsonAtomico(arquivo, { ...valor, guarda: { ...(g ?? {}), ligada } });
+  } catch {
+    return { ok: false };
   }
 }
 
