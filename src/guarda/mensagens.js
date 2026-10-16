@@ -124,6 +124,10 @@ export const RECUSADO_ENTRYPOINT = 'hadouken: nada liberado. A liberação só v
 // (command_source ou expansion_type fora da lista fechada de liberar.js).
 export const RECUSADO_ORIGEM = 'hadouken: nada liberado. A liberação só vale digitada pelo usuário na conversa; tarefa agendada, /loop e ferramenta não liberam.';
 export const NAO_GRAVADO = 'hadouken: nada liberado. A liberação não pôde ser gravada.';
+// /hadouken:liberar off | on: a chave guarda.ligada do config.json.
+export const GUARDA_DESLIGADA = 'hadouken: guarda de consumo desligada. Nada mais trava por consumo até você digitar /hadouken:liberar on.';
+export const GUARDA_LIGADA = 'hadouken: guarda de consumo ligada de novo.';
+export const GUARDA_NAO_ALTERADA = 'hadouken: nada mudou. O config.json do hadouken não pôde ser lido ou gravado; corrija o arquivo e tente de novo.';
 
 // Semana do Fable na barra (§8.3 com as emendas E2 e E7): a §7 mudou, e o
 // Fable tem leitura oficial (uso-oficial.json, pelo /usage). Até 15 min, o
