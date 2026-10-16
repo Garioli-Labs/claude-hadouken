@@ -15,12 +15,23 @@ const ler = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
 // v0.5.2: os terceiros do kit são entradas deste marketplace, com sha fixo;
 // só o superpowers continua no marketplace oficial.
 const ALLOW = ['claude-plugins-official'];
+// Issue #2: com `source: 'github'` (repo curto) ou git-subdir com url curta,
+// o Claude Code tenta SSH (git@github.com:) antes; num Mac sem a host key do
+// github.com, a instalação falha. Por isso a URL HTTPS completa.
 const TERCEIROS = {
-  'mattpocock-skills': { source: 'github', repo: 'mattpocock/skills', sha: '49dd158d1076134a641b33efb035946536778336' },
-  'poka-yoke': { source: 'git-subdir', url: 'rainmanjam/poka-yoke', path: 'plugins/poka-yoke', sha: '726a575e3d48d07d908abfcbb192cae09671fff2' },
-  'fullstack-dev-skills': { source: 'github', repo: 'jeffallan/claude-skills', sha: '882ef55e377dbf9a4dbe496bb41ac6ccd0e555cf' },
-  'ui-ux-pro-max': { source: 'github', repo: 'nextlevelbuilder/ui-ux-pro-max-skill', sha: 'e353a508767c6d39f0e7698b084dbfc8699fffd3' },
+  'mattpocock-skills': { source: 'url', url: 'https://github.com/mattpocock/skills.git', sha: '49dd158d1076134a641b33efb035946536778336' },
+  'poka-yoke': { source: 'git-subdir', url: 'https://github.com/rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke', sha: '726a575e3d48d07d908abfcbb192cae09671fff2' },
+  'fullstack-dev-skills': { source: 'url', url: 'https://github.com/jeffallan/claude-skills.git', sha: '882ef55e377dbf9a4dbe496bb41ac6ccd0e555cf' },
+  'ui-ux-pro-max': { source: 'url', url: 'https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git', sha: 'e353a508767c6d39f0e7698b084dbfc8699fffd3' },
 };
+
+test('issue #2: nenhum terceiro faz o Claude Code tentar SSH (só URL https://github.com/…/.git)', () => {
+  const m = ler('.claude-plugin/marketplace.json');
+  for (const p of m.plugins.filter((x) => typeof x.source !== 'string')) {
+    assert.ok(p.source.source === 'url' || p.source.source === 'git-subdir', `${p.name}: fonte ${p.source.source}`);
+    assert.match(p.source.url, /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\.git$/, p.name);
+  }
+});
 
 test('marketplace: as três locais apontam para pasta com plugin.json de mesmo nome e versão', () => {
   const m = ler('.claude-plugin/marketplace.json');
@@ -33,7 +44,7 @@ test('marketplace: as três locais apontam para pasta com plugin.json de mesmo n
   }
 });
 
-test('marketplace: cada terceiro com fonte github/git-subdir, sha de 40 hex e sem versão própria', () => {
+test('marketplace: cada terceiro com fonte url/git-subdir, sha de 40 hex e sem versão própria', () => {
   const m = ler('.claude-plugin/marketplace.json');
   const terceiros = m.plugins.filter((p) => typeof p.source !== 'string');
   assert.deepEqual(terceiros.map((p) => p.name).sort(), Object.keys(TERCEIROS).sort());
