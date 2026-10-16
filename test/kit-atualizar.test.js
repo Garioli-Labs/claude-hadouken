@@ -25,7 +25,8 @@ test('TERCEIROS bate com as entradas do marketplace', () => {
   for (const [nome, t] of Object.entries(TERCEIROS)) {
     const s = m.plugins.find((p) => p.name === nome)?.source;
     assert.ok(s, nome);
-    assert.equal(s.source === 'github' ? s.repo : s.url, t.repo, nome);
+    // Issue #2: a fonte é a URL HTTPS completa do mesmo repo.
+    assert.equal(s.url, `https://github.com/${t.repo}.git`, nome);
     assert.equal(t.manifesto, s.path ? `${s.path}/.claude-plugin/plugin.json` : '.claude-plugin/plugin.json', nome);
     assert.ok(Object.hasOwn(testado.dependencias, `${nome}@claude-hadouken`), nome);
   }
