@@ -71,6 +71,14 @@ New-Item -ItemType Directory -Force -Path graphify-out | Out-Null
 $GRAPHIFY_PYTHON = $null
 
 function Find-GraphifyPython {
+    # 0. claude-hadouken installer: its own venv in the Hadouken data folder
+    $hk = if ($env:HADOUKEN_HOME) { $env:HADOUKEN_HOME } else { Join-Path $HOME ".claude/hadouken" }
+    foreach ($py in @((Join-Path $hk "venv/Scripts/python.exe"), (Join-Path $hk "venv/bin/python"))) {
+        if (Test-Path $py) {
+            & $py -c "import graphify" 2>$null
+            if ($LASTEXITCODE -eq 0) { return $py }
+        }
+    }
     # 1. uv tool install — 'uv tool dir' is authoritative, respects UV_TOOL_DIR automatically
     if (Get-Command uv -ErrorAction SilentlyContinue) {
         $uvDir = (uv tool dir 2>$null).Trim()
@@ -104,7 +112,7 @@ function Find-GraphifyPython {
     return $null
 }
 
-# Try to find the right Python (uv → pipx → active env)
+# Try to find the right Python (Hadouken venv → uv → pipx → active env)
 $GRAPHIFY_PYTHON = Find-GraphifyPython
 
 # Not found — install then re-detect
@@ -674,8 +682,13 @@ Before running any subcommand below (`--update`, `--cluster-only`, `query`, `pat
 
 ```bash
 if [ ! -f graphify-out/.graphify_python ]; then
+    HK="${HADOUKEN_HOME:-$HOME/.claude/hadouken}"
     GRAPHIFY_BIN=$(which graphify 2>/dev/null)
-    if [ -n "$GRAPHIFY_BIN" ]; then
+    if [ -x "$HK/venv/bin/python" ]; then
+        PYTHON="$HK/venv/bin/python"
+    elif [ -f "$HK/venv/Scripts/python.exe" ]; then
+        PYTHON="$HK/venv/Scripts/python.exe"
+    elif [ -n "$GRAPHIFY_BIN" ]; then
         PYTHON=$(head -1 "$GRAPHIFY_BIN" | tr -d '#!')
         case "$PYTHON" in *[!a-zA-Z0-9/_.@-]*) PYTHON="python3" ;; esac
     else

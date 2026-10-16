@@ -182,10 +182,21 @@ async function passoAprendizado({ dir, settings, opcoes, perguntar, escrever, ag
   return r.ok ? item.ok(nome, 'ligado') : item.falhou(nome, r.motivo, CONSERTO_APRENDER);
 }
 
-function rodarSimples(executar, exe, args, prazoMs) {
+// O python e o bash dos extras rodam com o cwd na casa do usuário, nunca na
+// pasta de onde se rodou o instalador: o Python põe o cwd no sys.path, e uma
+// pasta pip/ plantada ali rodaria no lugar do pip (revisão final, Important 6).
+const casaPadrao = () => {
+  try {
+    return os.homedir();
+  } catch {
+    return undefined;
+  }
+};
+
+function rodarSimples(executar, exe, args, prazoMs, cwd) {
   return new Promise((resolve) => {
     try {
-      executar(exe, args, { windowsHide: true, timeout: prazoMs, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (erro, stdout) => {
+      executar(exe, args, { windowsHide: true, timeout: prazoMs, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', cwd }, (erro, stdout) => {
         resolve({ ok: !erro, motivo: !erro ? 'ok' : erro.killed === true ? 'tempo' : 'erro', saida: typeof stdout === 'string' ? stdout : '' });
       });
     } catch {
@@ -194,10 +205,10 @@ function rodarSimples(executar, exe, args, prazoMs) {
   });
 }
 
-function rodarVisivel(spawnar, exe, args, prazoMs) {
+function rodarVisivel(spawnar, exe, args, prazoMs, cwd) {
   return new Promise((resolve) => {
     try {
-      const filho = spawnar(exe, args, { stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true });
+      const filho = spawnar(exe, args, { stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true, cwd });
       const prazo = setTimeout(() => {
         try { filho.kill(); } catch { /* já saiu */ }
         resolve('tempo');
@@ -212,12 +223,12 @@ function rodarVisivel(spawnar, exe, args, prazoMs) {
 
 // Python 3: o que o script achou (HADOUKEN_PYTHON, absoluto) ou python3 /
 // python do PATH; vale o primeiro cujo --version diz "Python 3.x".
-async function acharPython({ ambiente, plataforma, executar }) {
+async function acharPython({ ambiente, plataforma, executar, cwd }) {
   const candidatos = [];
   if (typeof ambiente.HADOUKEN_PYTHON === 'string' && path.isAbsolute(ambiente.HADOUKEN_PYTHON)) candidatos.push(ambiente.HADOUKEN_PYTHON);
   candidatos.push(...(plataforma === 'win32' ? ['python'] : ['python3', 'python']));
   for (const c of candidatos) {
-    const r = await rodarSimples(executar, c, ['--version'], 30_000);
+    const r = await rodarSimples(executar, c, ['--version'], 30_000, cwd);
     if (r.ok && /^Python 3\.\d+/.test(r.saida.trim())) return c;
   }
   return null;
@@ -237,16 +248,32 @@ function acharBash({ ambiente, plataforma, existe }) {
   return lista.find((p) => typeof p === 'string' && path.win32.isAbsolute(p) && existe(p)) ?? null;
 }
 
-async function passoGraphify({ python, executar }) {
+// graphify num venv próprio, <pasta de dados>/venv (revisão final,
+// Important 5): o pip --user falha nos Python marcados como gerenciados pelo
+// sistema (PEP 668) e mistura versões com o resto do usuário. A skill do kit
+// procura esse venv primeiro. Python < 3.10 e Python sem o módulo venv
+// (Debian/Ubuntu sem python3-venv) são pulados, com o conserto.
+async function passoGraphify({ python, executar, dir, plataforma, cwd }) {
   const nome = 'graphify';
   if (python === null) return item.pulado(nome, 'sem Python 3');
-  const mostra = await rodarSimples(executar, python, ['-m', 'pip', 'show', 'graphifyy'], 60_000);
+  if (dir === null) return item.falhou(nome, 'sem-pasta', DE_NOVO);
+  const caminhos = plataforma === 'win32' ? path.win32 : path.posix;
+  const venv = caminhos.join(dir, 'venv');
+  const vpy = plataforma === 'win32' ? caminhos.join(venv, 'Scripts', 'python.exe') : caminhos.join(venv, 'bin', 'python');
+  const mostra = await rodarSimples(executar, vpy, ['-m', 'pip', 'show', 'graphifyy'], 60_000, cwd);
   if (mostra.ok && /^Version: 0\.9\.25$/m.test(mostra.saida)) return item.igual(nome);
-  const r = await rodarSimples(executar, python, ['-m', 'pip', 'install', '--user', GRAPHIFY], 900_000);
-  return r.ok ? item.ok(nome, 'instalado (graphifyy 0.9.25)') : item.falhou(nome, r.motivo, `rode ${python} -m pip install --user ${GRAPHIFY} (ou pipx install ${GRAPHIFY})`);
+  if (!mostra.ok) {
+    const v = /^Python 3\.(\d+)/.exec((await rodarSimples(executar, python, ['--version'], 30_000, cwd)).saida.trim());
+    if (v === null || Number(v[1]) < 10) return item.pulado(nome, 'precisa de Python 3.10+');
+    if (!(await rodarSimples(executar, python, ['-c', 'import venv, ensurepip'], 30_000, cwd)).ok) return item.pulado(nome, 'falta o python3-venv: sudo apt install python3-venv');
+    const criado = await rodarSimples(executar, python, ['-m', 'venv', venv], 300_000, cwd);
+    if (!criado.ok) return item.falhou(nome, criado.motivo, `rode ${python} -m venv "${venv}"`);
+  }
+  const r = await rodarSimples(executar, vpy, ['-m', 'pip', 'install', GRAPHIFY], 900_000, cwd);
+  return r.ok ? item.ok(nome, 'instalado (graphifyy 0.9.25)') : item.falhou(nome, r.motivo, `rode "${vpy}" -m pip install ${GRAPHIFY}`);
 }
 
-async function passoYuUx({ bash, kitPath, spawnar, plataforma }) {
+async function passoYuUx({ bash, kitPath, spawnar, plataforma, cwd }) {
   const nome = 'ferramentas da yu-ux';
   if (bash === null) return item.pulado(nome, plataforma === 'win32' ? 'sem o bash do Git' : 'sem bash');
   if (typeof kitPath !== 'string') return item.pulado(nome, 'hadouken-kit não instalado');
@@ -254,7 +281,7 @@ async function passoYuUx({ bash, kitPath, spawnar, plataforma }) {
   if (!fs.existsSync(setup)) return item.falhou(nome, 'sem setup.sh', DE_NOVO);
   // O setup.sh usa dirname no próprio caminho: no Git Bash, só com barras normais.
   const alvo = plataforma === 'win32' ? setup.replaceAll('\\', '/') : setup;
-  const r = await rodarVisivel(spawnar, bash, [alvo], 1_800_000);
+  const r = await rodarVisivel(spawnar, bash, [alvo], 1_800_000, cwd);
   return r === 'ok' ? item.ok(nome, 'conferidas') : item.falhou(nome, r, `rode bash "${alvo}"`);
 }
 
@@ -265,7 +292,7 @@ export async function instalarTudo(o) {
   } = o;
   const {
     instalar = instalarPainel, sincronizar = sincronizarShims, aplicar = aplicarStatusline, ligarAuto = ligarAtualizacao,
-    aprendizado = null, executar = execFile, spawnar = spawn, existe = (p) => fs.existsSync(p),
+    aprendizado = null, executar = execFile, spawnar = spawn, existe = (p) => fs.existsSync(p), casa = casaPadrao(),
   } = deps;
   const itens = [];
   const dir = dirDados();
@@ -288,10 +315,10 @@ export async function instalarTudo(o) {
   await passo(itens, 'item do VS Code', () => passoPainel({ dir, raizPlugin, agoraMs, ambiente, instalar }));
   await passo(itens, 'aprendizado', () => passoAprendizado({ dir, settings, opcoes, perguntar, escrever, agoraMs: agoraMs + 2, ambiente, aprendizado }));
   if (!opcoes.semExtras) {
-    const python = deps.python !== undefined ? deps.python : await acharPython({ ambiente, plataforma, executar });
-    await passo(itens, 'graphify', () => passoGraphify({ python, executar }));
+    const python = deps.python !== undefined ? deps.python : await acharPython({ ambiente, plataforma, executar, cwd: casa });
+    await passo(itens, 'graphify', () => passoGraphify({ python, executar, dir, plataforma, cwd: casa }));
     const bash = deps.bash !== undefined ? deps.bash : acharBash({ ambiente, plataforma, existe });
-    await passo(itens, 'ferramentas da yu-ux', () => passoYuUx({ bash, kitPath, spawnar, plataforma }));
+    await passo(itens, 'ferramentas da yu-ux', () => passoYuUx({ bash, kitPath, spawnar, plataforma, cwd: casa }));
   }
   return itens;
 }

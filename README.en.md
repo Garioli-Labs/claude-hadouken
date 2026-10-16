@@ -950,7 +950,7 @@ On Windows, in PowerShell:
 irm https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.ps1 | iex
 ```
 
-It checks Node (20+), git and Claude Code (2.1.251+); if any is missing, it lists them and asks once before installing (Node and git through winget or brew, Claude Code through the official installer). Then it installs `claude-hadouken`, `hadouken-kit` and `hadouken-rea` (on if Node is 22.19+, 24.11+ or 26+), sets the bar, installs the VS Code item, turns on automatic updates and, if you accept, the extras (Python, `graphify`, the `yu-ux-web-expert` tools and `gh`). Local learning only turns on if you answer "s". At the end, a one-line summary per item; running it again updates and skips what is already right.
+It checks Node (20+), git and Claude Code (2.1.251+); if any is missing, it lists them and asks once before installing (Node and git through winget or brew, Claude Code through the official installer). Then it installs `claude-hadouken`, `hadouken-kit` and `hadouken-rea` (on if Node is 22.19+, 24.11+ or 26+), sets the bar, installs the VS Code item, turns on automatic updates and, if you accept, the extras (Python, `graphify` in its own venv at `~/.claude/hadouken/venv`, with Python 3.10+, the `yu-ux-web-expert` tools and `gh`). Local learning only turns on if you answer "s". At the end, a one-line summary per item; running it again updates and skips what is already right.
 
 Options (in bash, `| bash -s -- <options>`; in PowerShell, `$env:HADOUKEN_INSTALAR = '<options>'` before `irm`):
 

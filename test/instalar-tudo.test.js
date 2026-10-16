@@ -225,14 +225,21 @@ test('aprendizado: s liga; n e sem tty deixam desligado; já ligado é igual; fa
 
 // ------------------------------------------------------------ extras
 
-function executarPip(mostra) {
+// Python falso: --version, o teste do venv, a criação do venv e o pip do
+// venv. Registra [exe, ...args] e o cwd de cada chamada.
+function executarPy({ versao = '3.12.1', semVenv = false, jaTem = false } = {}) {
   const chamadas = [];
+  const cwds = [];
+  const erro = () => Object.assign(new Error('x'), { code: 1 });
   const executar = (exe, args, o, cb) => {
     chamadas.push([exe, ...args]);
-    if (args.includes('show')) return mostra ? cb(null, 'Name: graphifyy\nVersion: 0.9.25\n') : cb(Object.assign(new Error('x'), { code: 1 }), '');
+    cwds.push(o?.cwd);
+    if (args[0] === '--version') return cb(null, `Python ${versao}\n`);
+    if (args[0] === '-c') return semVenv ? cb(erro(), '') : cb(null, '');
+    if (args.includes('show')) return jaTem ? cb(null, 'Name: graphifyy\nVersion: 0.9.25\n') : cb(erro(), '');
     return cb(null, '');
   };
-  return { chamadas, executar };
+  return { chamadas, cwds, executar };
 }
 function spawnarFalso(codigo = 0) {
   const chamadas = [];
@@ -246,25 +253,40 @@ function spawnarFalso(codigo = 0) {
   return { chamadas, spawnar };
 }
 
-test('extras: graphify instala, ou é igual com a versão certa, ou pulado sem Python; yu-ux roda o setup.sh do kit', async () => {
+test('extras: graphify num venv da pasta de dados; yu-ux roda o setup.sh do kit; os dois com o cwd na casa', async () => {
   const c = cenario();
   const setup = path.join(c.casa, 'hadouken-kit', 'skills', 'yu-ux-web-expert', 'scripts', 'setup.sh');
   fs.mkdirSync(path.dirname(setup), { recursive: true });
   fs.writeFileSync(setup, '#!/usr/bin/env bash\n');
-  const pip = executarPip(false);
+  const py = executarPy();
   const sp = spawnarFalso();
-  const itens = await rodarTudo(c, { argv: ['--sim'], deps: { python: '/usr/bin/python3', bash: '/bin/bash', executar: pip.executar, spawnar: sp.spawnar } });
+  const itens = await rodarTudo(c, { argv: ['--sim'], deps: { python: '/usr/bin/python3', bash: '/bin/bash', executar: py.executar, spawnar: sp.spawnar } });
   assert.deepEqual(itens.slice(-2), [
     { nome: 'graphify', estado: 'ok', detalhe: 'instalado (graphifyy 0.9.25)' },
     { nome: 'ferramentas da yu-ux', estado: 'ok', detalhe: 'conferidas' },
   ]);
-  assert.deepEqual(pip.chamadas, [['/usr/bin/python3', '-m', 'pip', 'show', 'graphifyy'], ['/usr/bin/python3', '-m', 'pip', 'install', '--user', 'graphifyy==0.9.25']]);
+  const venv = path.join(c.casa, 'hadouken', 'venv');
+  const vpy = process.platform === 'win32' ? path.join(venv, 'Scripts', 'python.exe') : path.join(venv, 'bin', 'python');
+  assert.deepEqual(py.chamadas, [
+    [vpy, '-m', 'pip', 'show', 'graphifyy'],
+    ['/usr/bin/python3', '--version'],
+    ['/usr/bin/python3', '-c', 'import venv, ensurepip'],
+    ['/usr/bin/python3', '-m', 'venv', venv],
+    [vpy, '-m', 'pip', 'install', 'graphifyy==0.9.25'],
+  ]);
+  assert.ok(py.chamadas.every((ch) => !ch.includes('--user')), 'nada de pip --user');
+  assert.deepEqual(new Set(py.cwds), new Set([os.homedir()]), 'o cwd do python é a casa, nunca a pasta de onde se roda');
   assert.equal(sp.chamadas[0].exe, '/bin/bash');
+  assert.equal(sp.chamadas[0].o.cwd, os.homedir());
   assert.deepEqual(sp.chamadas[0].args, [process.platform === 'win32' ? setup.replaceAll('\\', '/') : setup]);
-  const igual = await rodarTudo(cenario(), { argv: ['--sim'], deps: { python: '/usr/bin/python3', bash: null, executar: executarPip(true).executar } });
-  assert.deepEqual(estados(igual).slice(-2), [['graphify', 'igual'], ['ferramentas da yu-ux', 'pulado']]);
-  const semPython = await rodarTudo(cenario(), { argv: ['--sim'], deps: { python: null, bash: null } });
-  assert.deepEqual(semPython.at(-2), { nome: 'graphify', estado: 'pulado', detalhe: 'sem Python 3' });
+});
+
+test('extras: graphify já no venv é =; Python < 3.10 e sem venv são pulados; sem Python é pulado', async () => {
+  const graf = async (opcoesPy, python = '/usr/bin/python3') => (await rodarTudo(cenario(), { argv: ['--sim'], deps: { python, bash: null, executar: executarPy(opcoesPy).executar } })).at(-2);
+  assert.equal((await graf({ jaTem: true })).estado, 'igual');
+  assert.deepEqual(await graf({ versao: '3.9.18' }), { nome: 'graphify', estado: 'pulado', detalhe: 'precisa de Python 3.10+' });
+  assert.deepEqual(await graf({ semVenv: true }), { nome: 'graphify', estado: 'pulado', detalhe: 'falta o python3-venv: sudo apt install python3-venv' });
+  assert.deepEqual(await graf({}, null), { nome: 'graphify', estado: 'pulado', detalhe: 'sem Python 3' });
   const sem = await rodarTudo(cenario(), { argv: ['--sim', '--sem-extras'], deps: { python: '/x', bash: '/x' } });
   assert.equal(sem.length, 7);
 });
@@ -302,4 +324,10 @@ test('src/instalar e instalar-tudo.js não têm rede', () => {
   const REDE = /node:(?:http2?|https|net|dns|tls|dgram)\b|\bfetch\s*\(|\bWebSocket\b/;
   const arquivos = [path.join(repo, 'src', 'instalar-tudo.js'), ...fs.readdirSync(path.join(repo, 'src', 'instalar')).map((n) => path.join(repo, 'src', 'instalar', n))];
   for (const a of arquivos) assert.doesNotMatch(fs.readFileSync(a, 'utf8'), REDE, a);
+});
+
+test('a skill do graphify do kit procura primeiro o venv do instalador', () => {
+  const skill = fs.readFileSync(path.join(repo, 'kit', 'skills', 'graphify', 'SKILL.md'), 'utf8');
+  for (const trecho of ['HADOUKEN_HOME', 'venv/Scripts/python.exe', 'venv/bin/python']) assert.ok(skill.includes(trecho), trecho);
+  assert.ok(skill.indexOf('venv/bin/python') < skill.indexOf('uv tool dir'), 'o venv vem antes do uv');
 });

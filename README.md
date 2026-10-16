@@ -940,7 +940,7 @@ No Windows, no PowerShell:
 irm https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.ps1 | iex
 ```
 
-Ele confere o Node (20+), o git e o Claude Code (2.1.251+); se faltar algum, mostra a lista e pergunta uma vez antes de instalar (Node e git pelo winget ou pelo brew, o Claude Code pelo instalador oficial). Depois instala o `claude-hadouken`, o `hadouken-kit` e o `hadouken-rea` (ligado se o Node for 22.19+, 24.11+ ou 26+), põe a barra, instala o item do VS Code, liga a atualização automática e, se você aceitar, os extras (Python, `graphify`, as ferramentas da `yu-ux-web-expert` e o `gh`). O aprendizado local só liga se você responder "s". No fim, um resumo de uma linha por item; rodar de novo atualiza e pula o que já está certo.
+Ele confere o Node (20+), o git e o Claude Code (2.1.251+); se faltar algum, mostra a lista e pergunta uma vez antes de instalar (Node e git pelo winget ou pelo brew, o Claude Code pelo instalador oficial). Depois instala o `claude-hadouken`, o `hadouken-kit` e o `hadouken-rea` (ligado se o Node for 22.19+, 24.11+ ou 26+), põe a barra, instala o item do VS Code, liga a atualização automática e, se você aceitar, os extras (Python, o `graphify` num venv próprio em `~/.claude/hadouken/venv`, com Python 3.10+, as ferramentas da `yu-ux-web-expert` e o `gh`). O aprendizado local só liga se você responder "s". No fim, um resumo de uma linha por item; rodar de novo atualiza e pula o que já está certo.
 
 Opções (no bash, `| bash -s -- <opções>`; no PowerShell, `$env:HADOUKEN_INSTALAR = '<opções>'` antes do `irm`):
 
