@@ -166,6 +166,11 @@ rodarHook(async (entrada) => {
   // as do aprendizado (R13).
   const retomada = linhas.linhaRetomada(entrada);
   const aoUsuario = [retomada, ...aprendizado].filter((x) => typeof x === 'string' && x.length > 0);
+  // Spec roteamento §2: a regra curta vai sempre, por último; um import que
+  // falha só a tira.
+  try {
+    saida.push(...(await import('../roteamento/regra.js')).LINHAS_REGRA);
+  } catch { /* sem a regra nesta sessão */ }
   if (aoUsuario.length === 0) emitirContexto('SessionStart', saida.join('\n'));
   else emitirJson({ systemMessage: aoUsuario.join('\n'), hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: saida.join('\n') } });
   if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await dispararPainel(dir, agoraMs);

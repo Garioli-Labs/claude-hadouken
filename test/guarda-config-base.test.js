@@ -12,6 +12,7 @@ import {
 } from '../src/guarda/config-base.js';
 import { lerEventos } from '../src/guarda/registros.js';
 import * as msg from '../src/guarda/mensagens.js';
+import { comRegra } from './regra-roteamento.js';
 
 // Task 19b (spike S13 (a) da Task 2 da parte 2): o hook ConfigChange segura,
 // na sessão em curso, a mudança de disableAllHooks, enabledPlugins ou hooks
@@ -442,7 +443,7 @@ function rodar(c, script, entrada, argsNode = []) {
     input: typeof entrada === 'string' ? entrada : JSON.stringify(entrada), env: ambiente(c), encoding: 'utf8', timeout: 15_000,
   });
 }
-const SAIDA_INICIO = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'Consumo ainda sem leitura nesta máquina.' } };
+const SAIDA_INICIO = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: comRegra('Consumo ainda sem leitura nesta máquina.') } };
 function inicio(c, { id = 's1', cwd = c.projeto, source = 'startup', argsNode } = {}) {
   const r = rodar(c, 'session-start.js', { session_id: id, hook_event_name: 'SessionStart', source, cwd, model: 'claude-opus-5' }, argsNode);
   // A saída do SessionStart não muda com a fotografia.

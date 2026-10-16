@@ -57,6 +57,8 @@ const EXISTENTES = new Set([
   ...POCOCK,
   'poka-yoke:retro', 'poka-yoke:audit', 'poka-yoke:authz',
   'hadouken-kit:yu-ux-web-expert', 'hadouken-kit:graphify', 'hadouken-kit:fluxo',
+  // v0.5.3 (spec roteamento §2): skill do plugin principal, no repo.
+  'hadouken:roteamento',
 ]);
 
 // v0.5.1: os nomes de superpowers e poka-yoke da lista existem no cache

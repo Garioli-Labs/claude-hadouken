@@ -57,6 +57,7 @@ Todas as skills que o `mattpocock-skills` registra, com o momento em que entram 
 
 ## Duas regras a mais
 
+- Modelo, effort e agente ou direto: carregue `hadouken:roteamento` antes de despachar.
 - Antes de etapa cara (revisor Fable, muitos subagentes, `Workflow`), leia a linha de consumo do hadouken. Com alerta de projeção, pergunte ao usuário antes.
 - Acionar sozinho não passa por cima do usuário: uma skill que publica (tracker, issue, PR) ou que gasta muito mostra o que vai fazer e pede a confirmação antes.
 

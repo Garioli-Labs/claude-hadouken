@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registrarSessao, ATIVA_MAX_MS } from '../src/ativas.js';
 import { marcarSessao } from '../src/guarda/registros.js';
+import { REGRA, semRegra } from './regra-roteamento.js';
 
 // Os três hooks do plugin (spec 6.5, 8.1 e 8.2), cada um num processo filho
 // como o Claude Code os roda: JSON no stdin, contexto em JSON no stdout,
@@ -104,6 +105,12 @@ function contexto(r, evento) {
   assert.equal(typeof texto, 'string');
   assert.ok(texto.length > 0 && !controleProibido(texto), JSON.stringify(texto));
   assert.ok(!texto.startsWith('\n') && !texto.endsWith('\n') && !texto.includes('\n\n'));
+  // v0.5.3: o SessionStart termina com a regra do roteamento (conferida no
+  // teste próprio abaixo); os demais comparam o resto.
+  if (evento === 'SessionStart') {
+    assert.ok(texto.endsWith(`\n${REGRA}`), 'SessionStart sem a regra do roteamento');
+    return semRegra(texto);
+  }
   return texto;
 }
 
@@ -827,7 +834,7 @@ test('session-start resume com cache expirado: a linha de retomada vai ao usuár
   assert.deepEqual(Object.keys(out).sort(), ['hookSpecificOutput', 'systemMessage']);
   assert.equal(out.systemMessage, 'hadouken: retomar reescreve ~182 k tokens de cache.');
   assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
-  assert.match(out.hookSpecificOutput.additionalContext, LINHA_ESTADO);
+  assert.match(semRegra(out.hookSpecificOutput.additionalContext), LINHA_ESTADO);
   // Sem os campos: a saída de antes, só o contexto.
   assert.match(contexto(rodar('session-start.js', inicio('s1', 'resume'), home), 'SessionStart'), LINHA_ESTADO);
 });

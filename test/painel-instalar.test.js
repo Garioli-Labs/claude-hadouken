@@ -13,6 +13,7 @@ import { montarVsix } from '../src/painel/vsix.js';
 import { falhaPendente } from '../src/painel/falha.js';
 import { linhaPainel, MOTIVOS_PAINEL } from '../src/hooks/linha-estado.js';
 import { painel, rodarCli, USO } from '../src/comandos.js';
+import { semRegra } from './regra-roteamento.js';
 
 // Instalador do painel no VS Code (spec E4 e E8/S27, Task 4). Nenhum teste
 // roda o `code` de verdade: instalarPainel recebe `achar` e `executar`
@@ -486,7 +487,8 @@ function sessionStart(env) {
 const contextoDe = (r) => {
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
-  return JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  // v0.5.3: sem a regra do roteamento, que fecha todo SessionStart.
+  return semRegra(JSON.parse(r.stdout).hookSpecificOutput.additionalContext);
 };
 
 async function esperarArquivo(arq, ms) {
