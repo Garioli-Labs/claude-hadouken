@@ -69,7 +69,10 @@ const INVISIVEL = /[\p{C}\p{Zl}\p{Zp}]/u;
 const semCores = (s) => s.replace(/\x1b\[(?:3[123]|0)m/g, '');
 // E6 (emenda 2026-09-29): a barra do terminal fica só com a sessão. Sem
 // context_window nem prompt_cache no stdin, ctx e cache viram "—".
-const BARRA_SESSAO = 'Opus 5.5 │ ctx — │ cache —';
+// v0.5.3: no canto direito, a versão do plugin.json ao lado do script.
+const VERSAO = JSON.parse(fs.readFileSync(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version;
+const FIM_VERSAO = ` │ hadouken ${VERSAO}`;
+const BARRA_SESSAO = `Opus 5.5 │ ctx — │ cache —${FIM_VERSAO}`;
 
 test('sessão registrada imprime a barra só da sessão e grava 5h/7d em estado.json (E6)', () => {
   const home = novoHome();
@@ -146,7 +149,7 @@ test('cores: só os códigos fixos, e nenhuma com NO_COLOR', () => {
   const home = novoHome();
   registrar(home, 's1');
   const stdin = JSON.stringify(entradaValida({ effort: { level: 'high' }, context_window: { used_percentage: 31 }, prompt_cache: { hit_ratio: 0.9749 } }));
-  const COLORIDA = 'Opus 5.5·high │ \x1b[32mctx ▰▰▱▱▱▱▱▱ 31%\x1b[0m │ \x1b[32mcache ▰▰▰▰▰▰▰▱ 97%\x1b[0m';
+  const COLORIDA = 'Opus 5.5·high │ \x1b[32mctx ▰▰▱▱▱▱▱▱ 31%\x1b[0m │ \x1b[32mcache ▰▰▰▰▰▰▰▱ 97%\x1b[0m' + FIM_VERSAO;
   const colorida = rodar(stdin, home, { NO_COLOR: undefined });
   assert.equal(colorida.status, 0);
   assert.equal(colorida.stdout, COLORIDA);
@@ -160,7 +163,7 @@ test('cores: só os códigos fixos, e nenhuma com NO_COLOR', () => {
   assert.equal(sem.status, 0);
   assert.equal(sem.stderr, '');
   // E6: a linha completa da sessão, sem 5h, 7d nem marca.
-  assert.equal(sem.stdout, 'Opus 5.5·high │ ctx ▰▰▱▱▱▱▱▱ 31% │ cache ▰▰▰▰▰▰▰▱ 97%');
+  assert.equal(sem.stdout, 'Opus 5.5·high │ ctx ▰▰▱▱▱▱▱▱ 31% │ cache ▰▰▰▰▰▰▰▱ 97%' + FIM_VERSAO);
   assert.ok(!sem.stdout.includes('\x1b'));
 });
 
@@ -466,8 +469,9 @@ test('sessões simultâneas (E6): a barra fica só com a sessão e o histórico 
   // v0.4.0: o 5h subindo 1 ponto por minuto chega a 100% antes do reset, e a
   // mesma previsão dispara o G1 da guarda, cujo segmento vai no fim (spec
   // §8.3). A parte da sessão segue sem 5h, 7d, sessões nem previsão.
-  assert.equal(r.stdout, `${BARRA_SESSAO} │ guarda: 5h`);
-  const sessao = r.stdout.slice(0, BARRA_SESSAO.length);
+  const SO_SESSAO = BARRA_SESSAO.slice(0, -FIM_VERSAO.length);
+  assert.equal(r.stdout, `${SO_SESSAO} │ guarda: 5h${FIM_VERSAO}`);
+  const sessao = r.stdout.slice(0, SO_SESSAO.length);
   for (const proibido of ['sessões', '5h', '7d', '→']) assert.equal(sessao.includes(proibido), false, proibido);
   const gravado = JSON.parse(fs.readFileSync(path.join(home, 'estado.json'), 'utf8'));
   assert.equal(gravado.historico.length, 5);

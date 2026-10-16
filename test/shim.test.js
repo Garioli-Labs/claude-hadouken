@@ -11,6 +11,7 @@ import { sincronizarShims } from '../src/shim.js';
 import { registrarSessao } from '../src/ativas.js';
 import { dirDados } from '../src/base.js';
 import { marcarSessao } from '../src/guarda/registros.js';
+import { semVersao } from './versao-barra.js';
 
 // Shims estáveis (spec 8.1, S6): <dirDados>/bin/statusline.mjs e cli.mjs, uma
 // linha cada, `await import("<file URL do alvo>").catch(...)`, e painel.mjs
@@ -475,8 +476,9 @@ test('shim executa a statusline de verdade para sessão registrada (caminho com 
   }));
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
-  // E6: a barra fica só com a sessão.
-  assert.equal(r.stdout, '— │ ctx — │ cache —');
+  // E6: a barra fica só com a sessão; v0.5.3: a versão no canto direito.
+  assert.equal(semVersao(r.stdout), '— │ ctx — │ cache —');
+  assert.notEqual(semVersao(r.stdout), r.stdout);
 });
 
 // E4: a extensão do VS Code carrega <dirDados>/bin/painel.mjs por import()

@@ -8,6 +8,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { regexOu, sanear, _reservas as reservasUtil } from '../src/util.js';
 import { jsonSeguro, _reservas as reservasComandos } from '../src/comandos.js';
 import { _reservas as reservasInstalar } from '../src/instalar-cli.js';
+import { semVersao } from './versao-barra.js';
+import { semRegra } from './regra-roteamento.js';
 
 // Node compilado sem ICU (https://nodejs.org/api/intl.html, coluna none): o
 // V8 recusa todo escape de propriedade \p{...} e \P{...}. Numa regex literal
@@ -359,7 +361,7 @@ test('sem ICU: os três hooks e a barra carregam, saem com código 0 e sem stder
   const ctx = JSON.parse(inicio.stdout).hookSpecificOutput;
   assert.equal(ctx.hookEventName, 'SessionStart');
   // Sem estado.json ainda: a linha fixa de "sem leitura".
-  assert.match(ctx.additionalContext, /^Consumo ainda sem leitura nesta máquina\.$/);
+  assert.match(semRegra(ctx.additionalContext), /^Consumo ainda sem leitura nesta máquina\.$/);
   const s = Math.floor(Date.now() / 1000);
   const barra = rodar('statusline.js', {
     session_id: 's1',
@@ -368,7 +370,7 @@ test('sem ICU: os três hooks e a barra carregam, saem com código 0 e sem stder
   });
   ok(barra, 'statusline');
   // E6: a barra fica só com a sessão.
-  assert.equal(barra.stdout, 'Opus 5.5 │ ctx — │ cache —');
+  assert.equal(semVersao(barra.stdout), 'Opus 5.5 │ ctx — │ cache —');
   const prompt = rodar('hooks/prompt-submit.js', { session_id: 's1', hook_event_name: 'UserPromptSubmit', cwd: raiz, prompt: 'oi' });
   ok(prompt, 'prompt-submit');
   if (prompt.stdout !== '') assert.equal(JSON.parse(prompt.stdout).hookSpecificOutput.hookEventName, 'UserPromptSubmit');

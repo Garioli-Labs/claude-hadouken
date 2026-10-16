@@ -22,6 +22,7 @@ const MAX_MODELO = 40;
 const SEM_VALOR = '—';
 const SEPARADOR = ' │ ';
 const GUARDA_MAX = 120;
+const VERSAO = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 const noIntervalo = (n, min, max) => numeroFinito(n) && n >= min && n <= max;
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const pinta = (texto, cor, ligado) => (ligado ? `${COR[cor]}${texto}${COR.fim}` : texto);
@@ -54,7 +55,7 @@ function indicador(rotulo, valor, resto) {
 // saneado; vazio não muda nada.
 export function formatarBarra(opcoes) {
   try {
-    const { entrada, cor, guarda } = opcoes ?? {};
+    const { entrada, cor, guarda, versao } = opcoes ?? {};
     const e = ehObjeto(entrada) ? entrada : {};
     const ligado = cor === true;
 
@@ -85,6 +86,10 @@ export function formatarBarra(opcoes) {
     // fim e só quando há algo a dizer. Texto do código, saneado mesmo assim (S3).
     const g = typeof guarda === 'string' && guarda.length > 0 ? sanear(guarda, GUARDA_MAX) : null;
     if (g) partes.push(g);
+
+    // v0.5.3: a versão do hadouken desta sessão, fixa no canto direito (o
+    // último segmento). Só no formato N.N.N; qualquer outra coisa some.
+    if (typeof versao === 'string' && VERSAO.test(versao)) partes.push(`hadouken ${versao}`);
 
     return partes.join(SEPARADOR);
   } catch {

@@ -258,3 +258,13 @@ test('segmento da guarda: vai no fim, saneado; vazio não muda a barra', () => {
   const hostil = formatarBarra({ ...base, guarda: 'guarda\u001b]0;x\u0007 | `rm`' });
   assert.ok(!/[\u001b\u0007`]/.test(hostil));
 });
+
+// v0.5.3 (pedido do Sr. Garioli): a versão do hadouken desta sessão fica fixa
+// no canto direito, depois até da guarda; versão fora de N.N.N não aparece.
+test('versão do hadouken: último segmento, sempre; inválida some', () => {
+  assert.equal(formatarBarra({ entrada, cor: false, versao: '0.5.3' }), `${LINHA} │ hadouken 0.5.3`);
+  assert.equal(formatarBarra({ entrada, cor: false, guarda: 'guarda: 7d', versao: '0.5.3' }), `${LINHA} │ guarda: 7d │ hadouken 0.5.3`);
+  for (const v of [undefined, null, 53, '', '0.5', '0.5.3\u001b[31m', '1.2.3 │ x']) {
+    assert.equal(formatarBarra({ entrada, cor: false, versao: v }), LINHA);
+  }
+});

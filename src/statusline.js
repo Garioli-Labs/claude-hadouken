@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { lerStdin, dirDados } from './base.js';
 import { sessaoAtiva, renovarSessao } from './ativas.js';
 
@@ -65,7 +66,7 @@ async function principal() {
   // Só depois do gate: sessão vencida ou desconhecida nunca é revivida. Grava
   // no máximo uma vez por hora (RENOVAR_APOS_MS), não a cada redesenho.
   renovarSessao(entrada.session_id, agoraMs);
-  const [{ atualizarEstado }, { formatarBarra }] = await Promise.all([
+  const [{ atualizarEstado, lerJson }, { formatarBarra }] = await Promise.all([
     import('./estado.js'),
     import('./formato.js'),
   ]);
@@ -79,7 +80,11 @@ async function principal() {
   const guarda = await segmentoDaGuarda(dirDados(), entrada, agoraMs);
   // no-color.org: NO_COLOR presente e não vazio desliga as cores.
   const cor = !process.env.NO_COLOR;
-  process.stdout.write(formatarBarra({ entrada, cor, guarda }));
+  // v0.5.3: a versão do hadouken que roda esta barra, do plugin.json ao lado
+  // deste script; formatarBarra valida o formato e a põe no canto direito.
+  const plugin = lerJson(fileURLToPath(new URL('../.claude-plugin/plugin.json', import.meta.url)), 64 * 1024);
+  const versao = plugin.ok && plugin.valor !== null && typeof plugin.valor === 'object' ? plugin.valor.version : undefined;
+  process.stdout.write(formatarBarra({ entrada, cor, guarda, versao }));
 }
 
 principal().catch(() => {}).finally(() => { process.exitCode = 0; });

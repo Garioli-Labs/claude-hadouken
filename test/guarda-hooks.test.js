@@ -15,6 +15,7 @@ import { ARQ_DESPACHOS, ARQ_LIMITES, lerEventos, registrarDespachoFable, gravarM
 import { P4_LIBERAR_TEXTO, AGENDA_LIBERAR_TEXTO } from '../src/guarda/mensagens.js';
 import * as mensagens from '../src/guarda/mensagens.js';
 import { dentroDeSubagente } from '../src/hooks/comum.js';
+import { semVersao } from './versao-barra.js';
 
 // Hooks da guarda (spec v0.4.0 §4.2), cada um num processo filho como o
 // Claude Code os roda. Todo filho recebe HADOUKEN_HOME e CLAUDE_CONFIG_DIR
@@ -915,7 +916,8 @@ test('P5: edição na pasta de dados é negada sempre, inclusive com .. e maiús
 // Segmento da guarda na barra (spec v0.4.0 §8.3 e §11): a statusline num
 // processo filho, como o Claude Code a roda.
 function rodarBarra(entrada, home) {
-  return spawnSync(process.execPath, [path.join(repo, 'src', 'statusline.js')], { input: JSON.stringify(entrada), env: ambiente(home), encoding: 'utf8', timeout: 15_000 });
+  const r = spawnSync(process.execPath, [path.join(repo, 'src', 'statusline.js')], { input: JSON.stringify(entrada), env: ambiente(home), encoding: 'utf8', timeout: 15_000 });
+  return { ...r, stdout: semVersao(r.stdout) };
 }
 const barraDe = (id, u7, modelo = { id: 'claude-opus-5-5', display_name: 'Opus 5.5' }) => {
   const s = Math.floor(Date.now() / 1000);

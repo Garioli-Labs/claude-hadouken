@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { semVersao } from './versao-barra.js';
 
 // Atualização do plugin com sessões abertas (spec v0.2.0 §10; ordem 1 do Sr.
 // Garioli, 2026-09-26). A statusLine do Claude Code chama o shim estável
@@ -87,7 +88,7 @@ function barra(home, id) {
   });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
-  return r.stdout;
+  return semVersao(r.stdout);
 }
 
 // Tudo o que há na pasta de dados: caminho, tamanho, mtime e hash de cada
