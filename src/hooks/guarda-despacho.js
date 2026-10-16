@@ -67,6 +67,30 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
     reg.anexarEvento(dir, 'negado', 'G5', agoraMs);
     return;
   }
+  // Spec roteamento §6: depois das travas e do G5 (foco 2), N1/N2 negam e
+  // A1–A3 avisam. Workflow não tem agente: fica de fora. A negação não para o
+  // turno: o modelo relança com o agente barato. emitirJson roda no máximo
+  // uma vez: depois do aviso, o resto só grava registros.
+  if (entrada.tool_name !== 'Workflow') {
+    const [{ lerConfigRoteamento }, { avaliarRoteamento }, rot] = await Promise.all([
+      import('../roteamento/config.js'), import('../roteamento/regras.js'), import('../roteamento/registro.js'),
+    ]);
+    const ti = entrada.tool_input !== null && typeof entrada.tool_input === 'object' ? entrada.tool_input : {};
+    const pr = desp.perfilRoteamento({ toolInput: ti, cwd: entrada.cwd, dirConfigClaude: desp.dirConfigClaude(process.env, casa()), env: process.env, modeloSessao: g.modeloSessao, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT });
+    const prompt = typeof ti.prompt === 'string' ? ti.prompt : '';
+    const { config } = lerConfigRoteamento(dir);
+    const d = avaliarRoteamento({ perfil: pr, descricao: ti.description, prompt, recentes: rot.despachosRecentes(dir, sessionId, agoraMs), config, liberado: g.cobertura.ativa === true, agoraMs });
+    if (pr.agente !== null) rot.registrarDespacho(dir, { sessao: sessionId, agente: pr.agente, familia: pr.familia, effort: pr.effort, regra: d.regra, decisao: d.decisao, em: agoraMs, tamPrompt: Math.min(prompt.length, 1e6), palavras: rot.hashesDePalavras(ti.description) });
+    if (d.decisao === 'negar') {
+      negar(noSubagente ? msg.N_SUBAGENTE : (d.regra === 'N1' ? msg.N1_CLAUDE : msg.N2_CLAUDE), null);
+      reg.anexarEvento(dir, 'roteamento-negado', d.regra, agoraMs);
+      return;
+    }
+    if (d.decisao === 'avisar') {
+      emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: msg[`${d.regra}_CLAUDE`] } });
+      reg.anexarEvento(dir, 'roteamento-aviso', d.regra, agoraMs);
+    }
+  }
   if (perfil.modelo === 'fable') reg.registrarDespachoFable(dir, agoraMs);
   if (perfil.modelo === 'desconhecido') reg.anexarEvento(dir, 'desconhecido', 'modelo', agoraMs);
   else if (perfil.effort === null) reg.anexarEvento(dir, 'desconhecido', 'effort', agoraMs);

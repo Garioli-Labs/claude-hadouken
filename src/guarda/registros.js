@@ -37,6 +37,8 @@ export const TIPOS_EVENTO = Object.freeze([
   // detalhe é o primeiro campo que mudou, 'ilegivel', 'sem-caminho' ou
   // 'sem-sessao' (settings do projeto sem session_id válido, fix round 2).
   'config-bloqueada',
+  // Spec roteamento §6: N1/N2 negaram ou A1–A3 avisaram; o detalhe é a regra.
+  'roteamento-negado', 'roteamento-aviso',
 ]);
 const DETALHE_MAX = 40;
 const DETALHE = new RegExp(`^[A-Za-z0-9:._-]{0,${DETALHE_MAX}}$`);

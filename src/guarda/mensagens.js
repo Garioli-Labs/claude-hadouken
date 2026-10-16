@@ -72,6 +72,14 @@ export const p2Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: 
 export const p3Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Troca para o Fable bloqueada; libere com /hadouken:liberar${sufixoLiberar(ativas)}.`;
 export const P4_TEXTO = 'hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.';
 export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuário edita.';
+
+// Spec roteamento §6: textos fixos; nada do despacho entra aqui.
+export const N1_CLAUDE = 'hadouken: busca não usa Opus/Fable nem effort alto. Relance com hadouken:busca (ou Explore sem model/effort). Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
+export const N2_CLAUDE = 'hadouken: este agente existe para ser barato. Use hadouken:executor ou hadouken:revisor se a tarefa pede mais. Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
+export const N_SUBAGENTE = 'hadouken: despacho negado pelo roteamento (modelo ou effort caro para esta tarefa). Relance com o agente barato indicado ou termine sem ele e relate.';
+export const A1_CLAUDE = 'hadouken (aviso): despacho em Fable ou effort max fora de hadouken:revisor-critico. Fable só vale para segurança, autenticação, dinheiro e arquitetura; no resto use hadouken:revisor ou hadouken:executor.';
+export const A2_CLAUDE = 'hadouken (aviso): parece busca em Opus/Fable. hadouken:busca (Haiku) faz isso mais barato.';
+export const A3_CLAUDE = 'hadouken (aviso): muitos despachos curtos em 10 min. Faça direto ou junte num agente só.';
 // P5 estendida (Task 0 da parte 2): os settings do usuário e o próprio
 // plugin, negados sempre; nos settings de projeto, só a edição que mexe nos
 // hooks ou nos plugins. O texto nunca ecoa o pedido: o Claude mostra o trecho

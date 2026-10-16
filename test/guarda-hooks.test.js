@@ -194,7 +194,9 @@ test('G5: effort não identificável deixa passar e registra o evento', () => {
   const home = novoHome();
   registrar(home, 's1');
   gravarEstado(home);
-  semSaida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose', model: 'fable' }), home));
+  // v0.5.3: passa, com o aviso A1 do roteamento (Fable fora do revisor-crítico).
+  const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose', model: 'fable' }), home));
+  assert.equal(o.hookSpecificOutput.additionalContext, mensagens.A1_CLAUDE);
   assert.equal(eventos(home, 'desconhecido').length, 1);
 });
 
@@ -214,7 +216,9 @@ test('P1: sessão Fable herda o modelo no general-purpose', () => {
   registrar(home, 's1');
   gravarEstado(home);
   gravarModeloSessao(home, 's1', 'claude-fable-5-1', Date.now());
-  semSaida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose' }), home, { CLAUDE_EFFORT: 'high' }));
+  // v0.5.3: passa, com o aviso A1 do roteamento, e conta como despacho Fable.
+  const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose' }), home, { CLAUDE_EFFORT: 'high' }));
+  assert.equal(o.hookSpecificOutput.additionalContext, mensagens.A1_CLAUDE);
   assert.equal(JSON.parse(fs.readFileSync(path.join(home, ARQ_DESPACHOS), 'utf8')).at.length, 1);
 });
 
@@ -1088,4 +1092,62 @@ test('liberar grava também o escopo e o prazo (liberacao-escopo), sem mudar o e
   registrar(outro, 's1');
   saida(rodar('liberar.js', expansao('s1', `2h ${INSTRUCAO}`), outro));
   assert.equal(eventos(outro, 'liberacao-escopo').length, 0);
+});
+
+// Spec roteamento §6: depois das travas e do G5, N1/N2 negam sem parar o
+// turno (o modelo relança barato) e A1–A3 avisam por additionalContext.
+const sessaoArmada = () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home);
+  return home;
+};
+const aviso = (o) => {
+  assert.equal(Object.hasOwn(o.hookSpecificOutput, 'permissionDecision'), false);
+  return o.hookSpecificOutput.additionalContext;
+};
+
+test('roteamento N1: Explore com Fable é negado com o texto fixo, sem eco da descrição', () => {
+  const home = sessaoArmada();
+  const r = rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'Explore', model: 'fable', description: INSTRUCAO, prompt: 'x' }), home);
+  const o = saida(r);
+  assert.equal(o.hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(o.hookSpecificOutput.permissionDecisionReason, mensagens.N1_CLAUDE);
+  assert.equal(Object.hasOwn(o, 'continue'), false);
+  assert.ok(!r.stdout.includes('Ignore previous'));
+  assert.deepEqual(eventos(home, 'roteamento-negado').map((e) => e.detalhe), ['N1']);
+  // Dentro de subagente, o texto do subagente.
+  const s = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'Explore', model: 'fable' }, { agent_id: 'a1', agent_type: 'general-purpose' }), home));
+  assert.equal(s.hookSpecificOutput.permissionDecisionReason, mensagens.N_SUBAGENTE);
+});
+
+test('roteamento: G5 vem antes (Explore effort max é G5, não N1) — foco 2', () => {
+  const home = sessaoArmada();
+  const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'Explore', effort: 'max' }), home));
+  assert.match(o.hookSpecificOutput.permissionDecisionReason, /despacho caro/);
+  assert.notEqual(o.hookSpecificOutput.permissionDecisionReason, mensagens.N1_CLAUDE);
+  assert.equal(eventos(home, 'roteamento-negado').length, 0);
+});
+
+test('roteamento A1: general-purpose numa sessão Fable passa com additionalContext A1', () => {
+  const home = sessaoArmada();
+  gravarModeloSessao(home, 's1', 'claude-fable-5-1', Date.now());
+  const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose' }), home, { CLAUDE_EFFORT: 'high' }));
+  assert.equal(aviso(o), mensagens.A1_CLAUDE);
+  assert.deepEqual(eventos(home, 'roteamento-aviso').map((e) => e.detalhe), ['A1']);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'roteamento.json'), 'utf8')).despachos.length, 1);
+});
+
+test('roteamento: liberação ativa solta N1 (o A1 ainda avisa)', () => {
+  const home = sessaoArmada();
+  gravarLiberacao(home, montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: Date.now(), usado7d: 40, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef09' }));
+  const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'Explore', model: 'fable' }), home));
+  assert.equal(aviso(o), mensagens.A1_CLAUDE);
+});
+
+test('roteamento: config negarN1=false solta N1; Explore com Opus passa calado', () => {
+  const home = sessaoArmada();
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ roteamento: { negarN1: false } }));
+  semSaida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'Explore', model: 'opus' }), home));
+  assert.equal(eventos(home, 'roteamento-negado').length, 0);
 });
