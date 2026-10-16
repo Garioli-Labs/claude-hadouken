@@ -121,6 +121,20 @@ test('outra barra: --sim não troca; --substituir-barra troca; a pergunta decide
   }
 });
 
+test('kit antigo: as dependências novas chegam; cópia antiga sem a nova pronta fica ligada e a atualização é ✗', async () => {
+  const antigas = { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': true, 'fullstack-dev-skills@fullstack-dev-skills': true, 'ui-ux-pro-max@ui-ux-pro-max-skill': true };
+  const c = cenario({ enabledPlugins: antigas });
+  c.estado.plugins.push({ id: ID_KIT, version: '1.0.1', scope: 'user', enabled: true, installPath: `${c.casa}/hadouken-kit` });
+  c.estado.semDeps = ['poka-yoke@claude-hadouken'];
+  const itens = await rodarTudo(c);
+  assert.equal(itens.find((i) => i.nome === 'hadouken-kit').detalhe, 'faltam dependências: poka-yoke');
+  assert.deepEqual(itens.find((i) => i.nome === 'atualização automática'), {
+    nome: 'atualização automática', estado: 'falhou', detalhe: 'ligada; 3 cópia(s) antiga(s) desligada(s); poka-yoke antigo continua ligado: falta o novo', conserto: `rode claude plugin install ${ID_KIT}`,
+  });
+  assert.deepEqual(JSON.parse(fs.readFileSync(c.arq, 'utf8')).enabledPlugins, { ...antigas, 'mattpocock-skills@mattpocock': false, 'fullstack-dev-skills@fullstack-dev-skills': false, 'ui-ux-pro-max@ui-ux-pro-max-skill': false });
+  assert.ok(c.estado.plugins.some((x) => x.id === 'mattpocock-skills@claude-hadouken'), 'o install depois do update trouxe as novas');
+});
+
 test('REA com Node 20 fica desligado e pulado', async () => {
   const c = cenario();
   const itens = await rodarTudo(c, { versaoNode: '20.19.0' });

@@ -32,7 +32,7 @@ test('constantes: a fonte do marketplace e as quatro cópias antigas', () => {
 
 test('settings ausente: cria com a entrada do marketplace e autoUpdate', () => {
   const arq = path.join(novoTmp(), 'settings.json');
-  assert.deepEqual(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA }), { ok: true, acao: 'gravado', desligadas: [], backup: null });
+  assert.deepEqual(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA }), { ok: true, acao: 'gravado', desligadas: [], mantidas: [], backup: null });
   assert.deepEqual(lerArq(arq), { extraKnownMarketplaces: { 'claude-hadouken': { source: NOSSA, autoUpdate: true } } });
 });
 
@@ -59,7 +59,7 @@ test('segunda rodada: não regrava nem cria backup', () => {
   assert.equal(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA }).acao, 'gravado');
   const bytes = fs.readFileSync(arq);
   const bk = backups(arq);
-  assert.deepEqual(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA + 1000 }), { ok: true, acao: 'ja-estava', desligadas: [], backup: null });
+  assert.deepEqual(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA + 1000 }), { ok: true, acao: 'ja-estava', desligadas: [], mantidas: [], backup: null });
   assert.deepEqual(fs.readFileSync(arq), bytes);
   assert.deepEqual(backups(arq), bk);
 });
@@ -70,10 +70,23 @@ test('cópias antigas: true vira false; ausente não entra; false fica; outros p
     extraKnownMarketplaces: { 'claude-hadouken': { source: NOSSA, autoUpdate: true } },
     enabledPlugins: { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': false, 'outro@x': true },
   }));
-  const r = ligarAtualizacao({ arquivo: arq, agoraMs: AGORA });
+  const r = ligarAtualizacao({ arquivo: arq, agoraMs: AGORA, prontas: ['mattpocock-skills@claude-hadouken'] });
   assert.equal(r.acao, 'gravado', 'a entrada já estava, mas havia cópia antiga ligada');
   assert.deepEqual(r.desligadas, ['mattpocock-skills@mattpocock']);
   assert.deepEqual(lerArq(arq).enabledPlugins, { 'mattpocock-skills@mattpocock': false, 'poka-yoke@poka-yoke': false, 'outro@x': true });
+});
+
+test('cópia antiga cuja nova não está pronta fica ligada e volta em mantidas', () => {
+  const arq = path.join(novoTmp(), 'settings.json');
+  fs.writeFileSync(arq, JSON.stringify({
+    extraKnownMarketplaces: { 'claude-hadouken': { source: NOSSA, autoUpdate: true } },
+    enabledPlugins: { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': true },
+  }));
+  const r = ligarAtualizacao({ arquivo: arq, agoraMs: AGORA, prontas: ['poka-yoke@claude-hadouken'] });
+  assert.deepEqual([r.desligadas, r.mantidas], [['poka-yoke@poka-yoke'], ['mattpocock-skills@mattpocock']]);
+  assert.deepEqual(lerArq(arq).enabledPlugins, { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': false });
+  const sem = ligarAtualizacao({ arquivo: arq, agoraMs: AGORA + 1000 });
+  assert.deepEqual([sem.acao, sem.desligadas, sem.mantidas], ['ja-estava', [], ['mattpocock-skills@mattpocock']], 'sem prontas, nada é desligado');
 });
 
 test('entrada de outra fonte (ex.: directory de quem desenvolve) não é tocada', () => {

@@ -17,6 +17,11 @@ import { item } from './itens.js';
 export const ID_PRINCIPAL = 'claude-hadouken@claude-hadouken';
 export const ID_KIT = 'hadouken-kit@claude-hadouken';
 export const ID_REA = 'hadouken-rea@claude-hadouken';
+// As dependências do kit/.claude-plugin/plugin.json, como ids da lista.
+export const DEPENDENCIAS_KIT = Object.freeze([
+  'claude-hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
+  'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
+]);
 export const PRAZO_CLAUDE_MS = 600_000;
 const PRAZO_LISTA_MS = 60_000;
 const ARG = /^[A-Za-z0-9@._:/=-]+$/;
@@ -85,11 +90,32 @@ export async function passoPlugin(rodar, id, nome) {
   if (antes === null) return { item: item.falhou(nome, 'claude plugin list falhou', 'rode claude plugin list'), entrada: null };
   const tinha = antes.get(id);
   await rodar(['plugin', tinha ? 'update' : 'install', id]);
-  const e = (await listarPlugins(rodar))?.get(id) ?? null;
-  if (e === null) return { item: item.falhou(nome, 'não instalou', `rode claude plugin install ${id}`), entrada: null };
-  if (!tinha) return { item: item.ok(nome, `instalado (${versao(e.version)})`), entrada: e };
-  if (tinha.version === e.version) return { item: item.igual(nome), entrada: e };
-  return { item: item.ok(nome, `atualizado (${versao(tinha.version)} → ${versao(e.version)})`), entrada: e };
+  const lista = await listarPlugins(rodar);
+  const e = lista?.get(id) ?? null;
+  if (e === null) return { item: item.falhou(nome, 'não instalou', `rode claude plugin install ${id}`), entrada: null, lista };
+  if (!tinha) return { item: item.ok(nome, `instalado (${versao(e.version)})`), entrada: e, lista };
+  if (tinha.version === e.version) return { item: item.igual(nome), entrada: e, lista };
+  return { item: item.ok(nome, `atualizado (${versao(tinha.version)} → ${versao(e.version)})`), entrada: e, lista };
+}
+
+// O kit e as dependências dele. O `plugin update` só troca a versão do kit e
+// não instala uma dependência nova (revisão final da v0.5.2, Critical 2): se
+// falta alguma, roda o `plugin install` do kit, que as traz, e confere de
+// novo. Devolve também a lista final, que diz quais cópias novas estão
+// prontas para a atualização automática.
+export async function passoKit(rodar) {
+  const nome = 'hadouken-kit';
+  const p = await passoPlugin(rodar, ID_KIT, nome);
+  if (p.entrada === null) return p;
+  const faltam = (l) => DEPENDENCIAS_KIT.filter((d) => !l?.has(d));
+  let lista = p.lista;
+  if (faltam(lista).length > 0) {
+    await rodar(['plugin', 'install', ID_KIT]);
+    lista = await listarPlugins(rodar);
+  }
+  const ainda = faltam(lista);
+  if (ainda.length === 0) return { ...p, lista };
+  return { item: item.falhou(nome, `faltam dependências: ${ainda.map((d) => d.split('@')[0]).join(', ')}`, `rode claude plugin install ${ID_KIT}`), entrada: p.entrada, lista };
 }
 
 // O REA: instala ou atualiza; liga com Node aceito pelo rea-agents

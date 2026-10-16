@@ -7,12 +7,24 @@ import { fileURLToPath } from 'node:url';
 // (pelo invólucro de instalarFalso), lê e regrava o estado no arquivo de
 // FALSO_ESTADO. Com FALSO_COMER_STDIN=1, lê a entrada inteira antes, como um
 // comando que comeria o resto de um `curl | bash`.
+// Dependências do kit: o `install` do kit traz as que faltam (menos as de
+// estado.semDeps, que nunca instalam); o `update` só troca a versão do kit,
+// como o de verdade (revisão final da v0.5.2, Critical 2).
 
 export const CATALOGO = Object.freeze({
   'claude-hadouken@claude-hadouken': '0.5.2',
   'hadouken-kit@claude-hadouken': '1.1.0',
   'hadouken-rea@claude-hadouken': '1.0.1',
+  'superpowers@claude-plugins-official': '6.4.1',
+  'mattpocock-skills@claude-hadouken': '1.0.0',
+  'poka-yoke@claude-hadouken': '1.0.0',
+  'fullstack-dev-skills@claude-hadouken': '1.0.0',
+  'ui-ux-pro-max@claude-hadouken': '1.0.0',
 });
+export const DEPS_KIT = Object.freeze([
+  'claude-hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
+  'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
+]);
 const ARQUIVO = fileURLToPath(import.meta.url);
 
 export function responder(estado, args) {
@@ -31,7 +43,11 @@ export function responder(estado, args) {
   const p = estado.plugins.find((x) => x.id === c);
   if (b === 'install') {
     if (!Object.hasOwn(CATALOGO, c)) return nada(1);
-    if (!p) estado.plugins.push({ id: c, version: CATALOGO[c], scope: 'user', enabled: !c.startsWith('hadouken-rea@'), installPath: `${estado.raiz}/${c.split('@')[0]}` });
+    const novo = (id) => estado.plugins.push({ id, version: CATALOGO[id], scope: 'user', enabled: !id.startsWith('hadouken-rea@'), installPath: `${estado.raiz}/${id.split('@')[0]}` });
+    if (!p) novo(c);
+    if (c === 'hadouken-kit@claude-hadouken') {
+      for (const d of DEPS_KIT) if (!(estado.semDeps ?? []).includes(d) && !estado.plugins.some((x) => x.id === d)) novo(d);
+    }
     return nada(0);
   }
   if (b === 'update') {

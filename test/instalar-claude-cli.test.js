@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { criarClaude, ID_KIT, ID_PRINCIPAL, ID_REA, listarPlugins, passoPlugin, passoRea } from '../src/instalar/claude-cli.js';
+import { criarClaude, DEPENDENCIAS_KIT, ID_KIT, ID_PRINCIPAL, ID_REA, listarPlugins, passoKit, passoPlugin, passoRea } from '../src/instalar/claude-cli.js';
 import { codigoDeSaida, formatarResumo, item } from '../src/instalar/itens.js';
 import { instalarFalso, rodarFalso } from './dados/instalador/claude-falso.mjs';
 
@@ -132,6 +132,33 @@ test('passoPlugin: novo instala; mesma versão é igual; versão nova é atualiz
   assert.equal(r.item.conserto, `rode claude plugin install ${ID_PRINCIPAL}`);
   const semLista = await passoPlugin(async () => ({ ok: false, motivo: 'erro', saida: '' }), ID_KIT, 'hadouken-kit');
   assert.deepEqual(semLista.item, item.falhou('hadouken-kit', 'claude plugin list falhou', 'rode claude plugin list'));
+});
+
+test('passoKit: o update do kit é seguido do install, que traz as dependências novas', async () => {
+  const kitVelho = { id: ID_KIT, version: '1.0.1', scope: 'user', enabled: true, installPath: '/r/hadouken-kit' };
+  const principal = { id: ID_PRINCIPAL, version: '0.5.2', scope: 'user', enabled: true, installPath: '/r/claude-hadouken' };
+  const estado = { plugins: [kitVelho, principal], log: [], raiz: '/r' };
+  const r = await passoKit(rodarFalso(estado));
+  assert.deepEqual(r.item, item.ok('hadouken-kit', 'atualizado (1.0.1 → 1.1.0)'));
+  assert.ok(estado.log.indexOf(`plugin install ${ID_KIT}`) > estado.log.indexOf(`plugin update ${ID_KIT}`));
+  for (const d of DEPENDENCIAS_KIT) assert.equal(r.lista.get(d)?.enabled, true, d);
+});
+
+test('passoKit: dependência que não instala é ✗ com o nome dela; segunda rodada completa é =', async () => {
+  const estado = { plugins: [], log: [], raiz: '/r', semDeps: ['poka-yoke@claude-hadouken'] };
+  const r = await passoKit(rodarFalso(estado));
+  assert.deepEqual(r.item, item.falhou('hadouken-kit', 'faltam dependências: poka-yoke', `rode claude plugin install ${ID_KIT}`));
+  assert.equal(r.entrada.installPath, '/r/hadouken-kit', 'o kit em si instalou');
+  const bom = { plugins: [], log: [], raiz: '/r' };
+  await passoKit(rodarFalso(bom));
+  const n = bom.log.length;
+  assert.deepEqual((await passoKit(rodarFalso(bom))).item, item.igual('hadouken-kit'));
+  assert.ok(!bom.log.slice(n).includes(`plugin install ${ID_KIT}`), 'nada falta: sem install a mais');
+});
+
+test('DEPENDENCIAS_KIT casa com o plugin.json do kit', () => {
+  const kit = JSON.parse(fs.readFileSync(new URL('../kit/.claude-plugin/plugin.json', import.meta.url), 'utf8'));
+  assert.deepEqual(DEPENDENCIAS_KIT, kit.dependencies.map((d) => (typeof d === 'string' ? `${d}@claude-hadouken` : `${d.name}@${d.marketplace}`)));
 });
 
 test('passoRea: Node aceito instala e liga; Node 20 deixa desligado (e desliga se estava ligado)', async () => {

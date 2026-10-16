@@ -11,7 +11,7 @@ import { lerJson } from './estado.js';
 import { instalarPainel, versaoDoPlugin } from './painel/instalar-painel.js';
 import { sincronizarShims } from './shim.js';
 import { ligarAtualizacao, marketplaceConhecido } from './instalar/atualizacao-auto.js';
-import { criarClaude, ID_KIT, passoPlugin, passoRea } from './instalar/claude-cli.js';
+import { criarClaude, ID_KIT, passoKit, passoRea } from './instalar/claude-cli.js';
 import { codigoDeSaida, formatarResumo, item } from './instalar/itens.js';
 
 // Instalador de um comando, passos 6 e 7 (spec v0.5.2). O install.sh ou o
@@ -107,15 +107,23 @@ async function passo(itens, nome, f) {
   }
 }
 
-function passoAtualizacao({ settings, configDir, agoraMs, ligar }) {
+// As cópias antigas dos terceiros só são desligadas quando a nova está
+// pronta (prontas: ids instalados e ligados, da lista do passo do kit); a
+// que fica ligada por falta da nova faz o item sair com ✗.
+function passoAtualizacao({ settings, configDir, agoraMs, ligar, prontas }) {
   const nome = 'atualização automática';
   const outra = item.pulado(nome, 'marketplace claude-hadouken de outra fonte');
   if (!settings.ok) return item.falhou(nome, settings.motivo, DE_NOVO);
   if (configDir !== null && marketplaceConhecido(path.join(configDir, 'plugins', 'known_marketplaces.json')) === 'outra') return outra;
-  const r = ligar({ arquivo: settings.arquivo, agoraMs });
+  const r = ligar({ arquivo: settings.arquivo, agoraMs, prontas });
   if (r.ok) {
-    if (r.acao === 'ja-estava') return item.igual(nome);
-    return item.ok(nome, r.desligadas.length > 0 ? `ligada; ${r.desligadas.length} cópia(s) antiga(s) desligada(s)` : 'ligada');
+    const mantidas = r.mantidas ?? [];
+    if (r.acao === 'ja-estava' && mantidas.length === 0) return item.igual(nome);
+    const feito = r.desligadas.length > 0 ? `ligada; ${r.desligadas.length} cópia(s) antiga(s) desligada(s)` : 'ligada';
+    if (mantidas.length === 0) return item.ok(nome, feito);
+    const nomes = mantidas.map((k) => k.split('@')[0]).join(', ');
+    const resto = mantidas.length === 1 ? 'antigo continua ligado: falta o novo' : 'antigos continuam ligados: faltam os novos';
+    return item.falhou(nome, `${feito}; ${nomes} ${resto}`, `rode claude plugin install ${ID_KIT}`);
   }
   return r.motivo === 'outra-fonte' ? outra : item.falhou(nome, r.motivo, DE_NOVO);
 }
@@ -266,13 +274,15 @@ export async function instalarTudo(o) {
   // registrado é falha esperada: a lista depois do install é a verdade.
   await rodar(['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official']);
   let kitPath = null;
+  let prontas = [];
   await passo(itens, 'hadouken-kit', async () => {
-    const p = await passoPlugin(rodar, ID_KIT, 'hadouken-kit');
+    const p = await passoKit(rodar);
     kitPath = p.entrada?.installPath ?? null;
+    prontas = p.lista ? [...p.lista].filter(([, e]) => e.enabled).map(([id]) => id) : [];
     return p.item;
   });
   await passo(itens, 'hadouken-rea', () => passoRea(rodar, versaoNode));
-  await passo(itens, 'atualização automática', () => passoAtualizacao({ settings, configDir: pastaConfig(ambiente), agoraMs, ligar: ligarAuto }));
+  await passo(itens, 'atualização automática', () => passoAtualizacao({ settings, configDir: pastaConfig(ambiente), agoraMs, ligar: ligarAuto, prontas }));
   await passo(itens, 'arquivos da barra', () => passoShims({ raizPlugin, sincronizar }));
   await passo(itens, 'barra', () => passoBarra({ settings, opcoes, perguntar, agoraMs: agoraMs + 1, aplicar }));
   await passo(itens, 'item do VS Code', () => passoPainel({ dir, raizPlugin, agoraMs, ambiente, instalar }));
