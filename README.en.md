@@ -12,6 +12,9 @@
 [![CI](https://github.com/Garioli-Labs/claude-hadouken/actions/workflows/ci.yml/badge.svg)](https://github.com/Garioli-Labs/claude-hadouken/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/Garioli-Labs/claude-hadouken)](LICENSE)
 
+> [!IMPORTANT]
+> **Updated to v0.5.2 and the bar is gone, or you saw `claude-hadouken not found`?** The plugin was renamed from `claude-hadouken` to `hadouken` and has to be installed once under the new name. In a terminal, run `claude plugin install hadouken@claude-hadouken` and open a new session. Running the [one command](#one-command) again also fixes it. Details in [Updating](#updating).
+
 **Your Claude Code usage on screen, with a pace reference, and Claude aware of it too.**
 
 `hadouken` is a Claude Code plugin that measures your real usage and shows it where you work:

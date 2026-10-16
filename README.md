@@ -12,6 +12,9 @@
 [![CI](https://github.com/Garioli-Labs/claude-hadouken/actions/workflows/ci.yml/badge.svg)](https://github.com/Garioli-Labs/claude-hadouken/actions/workflows/ci.yml)
 [![Licença: MIT](https://img.shields.io/github/license/Garioli-Labs/claude-hadouken)](LICENSE)
 
+> [!IMPORTANT]
+> **Atualizou para a v0.5.2 e a barra sumiu, ou apareceu `claude-hadouken not found`?** O plugin mudou de nome, de `claude-hadouken` para `hadouken`, e precisa ser instalado uma vez com o nome novo. No terminal, rode `claude plugin install hadouken@claude-hadouken` e abra uma sessão nova. Rodar o [comando único](#um-comando) de novo também resolve. Detalhes em [Atualizar](#atualizar).
+
 **Seu consumo do Claude Code na tela, com referência de ritmo, e o Claude sabendo disso também.**
 
 `hadouken` é um plugin do Claude Code que mede o consumo real e o mostra onde você trabalha:
