@@ -53,6 +53,7 @@ This is **v0.5.1** of the plugin's first subproject, the **Usage reader** (*Leit
 - [Local learning (optional)](#local-learning-optional)
 - [hadouken-kit and hadouken-rea (optional)](#hadouken-kit-and-hadouken-rea-optional)
 - [Installation](#installation)
+  - [One command](#one-command)
 - [Configuration](#configuration)
 - [Where the data lives](#where-the-data-lives)
 - [Privacy and security](#privacy-and-security)
@@ -262,7 +263,7 @@ This sentence is not the projection in the notices to Claude. The projection use
 
 ### Install, turn off and remove
 
-- **Automatic install.** When a session starts on a plugin version that is not yet installed in VS Code, the session start builds the extension (a `.vsix`, in `<data folder>/painel/`) and runs `code --install-extension <vsix> --force` in the background. It needs the `code` command on `PATH` (on Windows, `code.cmd`). One attempt per hour, whether it works or not, and none of it goes into Claude's context.
+- **Automatic install.** When a session starts on a plugin version that is not yet installed in VS Code, the session start builds the extension (a `.vsix`, in `<data folder>/painel/`) and runs `code --install-extension <vsix> --force` in the background. It needs the `code` command on `PATH` (on Windows, `code.cmd`; on a Mac, the one in `Visual Studio Code.app` in `/Applications` or `~/Applications` also works). If the install fails, the next session start gives the reason in one line, with the fix. One attempt per hour, whether it works or not, and none of it goes into Claude's context.
 - **Manual install:** `node "$HOME/.claude/hadouken/bin/cli.mjs" painel instalar`.
 - If the item does not show up in a VS Code window that was already open, reload it (the `Developer: Reload Window` command). Until a Claude Code session has started with the plugin on this machine, the item says `Hadouken: abra uma sessão do Claude Code` (open a Claude Code session).
 - **Remove (the way to turn it off now):** run `code --uninstall-extension gariolilabs.claude-hadouken-painel` and reload every open VS Code window (`Developer: Reload Window`): the item keeps running in them until the reload. Also set `HADOUKEN_SEM_PAINEL=1` in Claude Code's environment; without it, a session start installs the extension again, on the next plugin version.
@@ -911,7 +912,7 @@ It also warns, once a day per kind, when the Collector does not start, does not 
 
 ## hadouken-kit and hadouken-rea (optional)
 
-The `claude-hadouken` marketplace carries two more plugins, separate from usage and the guard. **hadouken-kit** installs the daily skill set in one go: `claude-hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills` (`mattpocock`), `poka-yoke` (`poka-yoke`), `fullstack-dev-skills` (`fullstack-dev-skills`) and `ui-ux-pro-max` (`ui-ux-pro-max-skill`). It also brings the `hadouken-kit:fluxo` skill, which says which one to use at each step, and copies of `yu-ux-web-expert` and `graphify`. If you only want usage and the guard, install only `claude-hadouken`.
+The `claude-hadouken` marketplace carries two more plugins, separate from usage and the guard. **hadouken-kit** installs the daily skill set in one go: `claude-hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` and `ui-ux-pro-max` (these four as entries in the `claude-hadouken` marketplace itself, with a pinned commit). It also brings the `hadouken-kit:fluxo` skill, which says which one to use at each step, and copies of `yu-ux-web-expert` and `graphify`. If you only want usage and the guard, install only `claude-hadouken`.
 
 In the terminal (outside a session, or with `!` inside one):
 
@@ -925,22 +926,49 @@ claude plugin install hadouken-kit@claude-hadouken
 - **Why the `marketplace add` lines first.** The first one registers the hadouken marketplace (if you already have v0.4.0 it says "already" and moves on; `update` brings the kit's entry). Claude Code only installs a dependency from a marketplace that is already registered. Without it, the kit installs with the warning `dependency "<name>" was not installed (no marketplace you have added lists it)` and does not load.
 - **Outside a session.** Installing or enabling a plugin inside an open session is held by the guard's `ConfigChange` hook. Run the commands in the terminal and open a new session.
 - **Skills at the right moment.** Each session, the kit puts a 5-line summary in context (about 400 tokens, no model call) with the moment of each skill: `superpowers` runs the process and the Matt Pocock skills come in at their moments (stress-testing a plan, prototype, spec, tickets, handoff, branch review, PR body, steps only you can do, module design, domain, research, triage, teaching). Claude fires on its own the ones the author lets the model invoke; the other 16 (`to-spec`, `to-tickets`, `handoff`, `triage`, `teach` and more) have `disable-model-invocation`, and at their moment Claude suggests you type the command (`/mattpocock-skills:handoff`, for example). The full table, with all 27 Matt skills (mattpocock-skills 1.3.1), is in `/hadouken-kit:fluxo`.
-- **Already had `mattpocock-skills`?** The map follows 1.3.1 (27 skills). If you installed it before, you stay on the cached version until you update; in 1.2.0, `pr` and `wizard` do not exist and Claude cannot find them. In the terminal: `claude plugin marketplace update mattpocock` and `claude plugin update mattpocock-skills@mattpocock`, then open a new session.
+- **Already had `mattpocock-skills`?** The map follows 1.3.1 (27 skills). If you installed it before, you stay on the cached version until you update; in 1.2.0, `pr` and `wizard` do not exist and Claude cannot find them. Since v0.5.2, the kit brings the copy from the `claude-hadouken` marketplace; run the one command (which turns off the old copy, `mattpocock-skills@mattpocock`) or, in the terminal, `claude plugin marketplace update claude-hadouken` and `claude plugin update mattpocock-skills@claude-hadouken`, then open a new session.
 - **clean-architecture is out of the kit.** Since 2026-10-14 its `plugin.json` is a symbolic link. On Windows, git checks the link out as text and the install fails with `JSON parse error: Unexpected token '.'`; as a dependency, it would take the whole kit down. On Linux and macOS, install it separately: `claude plugin marketplace add nathankim0/clean-architecture-skills` and `claude plugin install clean-architecture@clean-architecture-skills`.
 - **yu-ux-web-expert.** The first time, its `setup.sh` installs `axe-core` and `lighthouse` (from the kit's `package-lock.json`) in the plugin folder, `playwright` in the user's Python and Chromium in Playwright's cache; `axe-core` and `lighthouse` are installed again after each kit update, because the folder changes with the version. The kit's copy does not grant Bash, Write, Edit or WebFetch without asking (`allowed-tools: Read Grep Glob`): it reads third-party pages, and every command goes through your permission.
 - **REA, off by default.** To turn it on: `claude plugin install hadouken-rea@claude-hadouken` and `claude plugin enable hadouken-rea@claude-hadouken`. It opens `npx -y rea-agents@6.1.0 mcp` (exact version; on Windows through `cmd.exe /d /c`) with its working directory in the plugin folder, never the open project (a repository's `node_modules` or `.npmrc` does not come in); give the REA absolute paths. It needs Node 22.19+, 24.11+ or 26+, and **runs the programs it analyzes with your user's permissions**. The first time, `npx` downloads the package (about 20 to 30 s) and `/mcp` may report a timeout; once the package is cached, it connects in seconds (reconnect from `/mcp` or open a new session).
-- **Versions.** A weekly GitHub Actions workflow compares published versions with the tested ones (`kit/testado.json`) and opens an issue when a dependency ships a new major version. The kit only talks to the network when the yu-ux `setup.sh` runs (npm, pip, Playwright) and, once enabled, when the REA's first `npx` runs.
+- **Versions and automatic updates.** The kit's third parties (`mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` and `ui-ux-pro-max`) are entries in the hadouken marketplace with a pinned commit (`sha`); `superpowers` stays in the official marketplace. The one-command installer turns on `autoUpdate` for the hadouken marketplace (in your `settings.json`, with a backup) and turns off the old copies of the third parties, which came from each one's own marketplace, so skills do not show up twice (nothing is uninstalled; to undo, set `true` back in `enabledPlugins`). Every Monday, a GitHub Actions robot checks the published versions: a new version of a third party or of `rea-agents` goes to a branch, the suite runs on Linux, Windows and macOS with Node 20, 22 and 24 and, all green, the robot publishes by itself (tag `kit-v<version>`); any red becomes an issue and nothing is published. A new `graphifyy` (pip) version only opens an issue. The kit only touches the network when yu-ux's `setup.sh` runs (npm, pip, Playwright) and the REA, when on, on the first `npx`.
 
 ---
 
 ## Installation
+
+### One command
+
+In the terminal (outside Claude Code), on a new machine or to update:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.sh | bash
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.ps1 | iex
+```
+
+It checks Node (20+), git and Claude Code (2.1.251+); if any is missing, it lists them and asks once before installing (Node and git through winget or brew, Claude Code through the official installer). Then it installs `claude-hadouken`, `hadouken-kit` and `hadouken-rea` (on if Node is 22.19+, 24.11+ or 26+), sets the bar, installs the VS Code item, turns on automatic updates and, if you accept, the extras (Python, `graphify`, the `yu-ux-web-expert` tools and `gh`). Local learning only turns on if you answer "s". At the end, a one-line summary per item; running it again updates and skips what is already right.
+
+Options (in bash, `| bash -s -- <options>`; in PowerShell, `$env:HADOUKEN_INSTALAR = '<options>'` before `irm`):
+
+| Option | Does |
+|---|---|
+| `--sim` | answers yes to the questions; does not replace another plugin's bar and does not turn on learning |
+| `--substituir-barra` | replaces a `statusLine` that is not claude-hadouken's (with a backup) |
+| `--sem-extras` | skips the extras |
+| `--com-aprendizado` | turns on local learning without asking |
+
+The steps below are the manual path, with the same result.
 
 ### Requirements
 
 - **Claude Code 2.1.251 or newer.** The guard needs it. On earlier versions, the model switch (P3) and the release through `/claude-hadouken:liberar` do not exist, and the plugin does not work: no hook loads and, without the SessionStart registration, the status bar stays empty too. On 2.1.250, Claude Code rejects the model-switch events in `hooks.json` and registers none of the plugin's hooks. That leaves no guard, no session-start usage line, no notices, no P1 to P5 and no status bar. The minimum is 2.1.251; 2.1.250 failed, and 2.1.251 was not tested on its own.
 - **Node.js 20 or newer**, on your `PATH`.
 - **A Pro or Max plan** to see limits: Claude Code only hands the 5 h and 7-day limits to the status line on those accounts (or behind a gateway with a spend limit), and only after the session's first API response. Without that, the plugin works, but the limits have no reading in the panel, the notices and the report.
-- Optional, for the panel: **VS Code** with the `code` command on `PATH` (on Windows, `code.cmd`), and the `claude` executable in `~/.local/bin` or on `PATH` (on Windows, `claude.exe`), to read Fable.
+- Optional, for the panel: **VS Code**. The plugin finds `code` on `PATH` (on Windows, `code.cmd`) and, on a Mac, also inside `Visual Studio Code.app` in `/Applications` or `~/Applications`, without "Shell Command: Install 'code' command in PATH". For the Fable reading, the `claude` executable in `~/.local/bin` or on `PATH` (on Windows, `claude.exe`).
 - Optional: [`gh`](https://cli.github.com/), logged in, for the GitHub section.
 - Optional: `git`, to find the repo from `origin` when there is no `config.json`.
 
@@ -990,7 +1018,7 @@ The bar appears on the next interface refresh. Two things to know before you con
 - With a `statusLine` configured, Claude Code stops showing most footer keyboard hints, such as `esc to interrupt` and `? for shortcuts`.
 - Sessions opened before the plugin was installed start running the new command right away, but do not get the bar: in them it stays empty until the session is reopened. If you replaced an existing bar, those sessions have no bar until reopened.
 
-**4. The VS Code panel installs itself.** With the `code` command on `PATH`, the session start installs the panel extension in the background, without asking anything and without spending tokens. In a VS Code window that was already open, the item may only show up after you reload it (`Developer: Reload Window`). To skip the install, or to remove it, see [Install, turn off and remove](#install-turn-off-and-remove).
+**4. The VS Code panel installs itself.** With VS Code installed (the `code` command on `PATH`, or on a Mac the app in `/Applications`), the session start installs the panel extension in the background, without asking anything and without spending tokens. In a VS Code window that was already open, the item may only show up after you reload it (`Developer: Reload Window`). To skip the install, or to remove it, see [Install, turn off and remove](#install-turn-off-and-remove).
 
 ### What `/claude-hadouken:instalar` changes, and how to undo it
 
@@ -1005,7 +1033,7 @@ The bar appears on the next interface refresh. Two things to know before you con
 
 ### Updating
 
-Third-party marketplaces do not auto-update by default. To update, use **Update now** on the **Installed** tab of `/plugin`, or in the terminal:
+If you installed with the one command, automatic updates are on: Claude Code updates the hadouken marketplace and plugins after the first message of a session, and the new version applies in the next session (`DISABLE_AUTOUPDATER=1` turns it off). To update now, run the one command again, use **Update now** in the **Installed** tab of `/plugin`, or, in the terminal:
 
 ```bash
 claude plugin marketplace update claude-hadouken
@@ -1174,7 +1202,7 @@ Why the report is fast the second time: the transcript index is incremental and 
 - **The notices' projection is a straight line.** It projects the pace of the last minutes (20 on the 5-hour window, 3 hours on the 7-day one) as if it stayed the same: a pause or a burst changes the projection on the next reading. It needs at least 3 readings covering 6 minutes, so it does not come out right at the start of a window or with the bar idle. The panel's forecast uses a different calculation, the average pace of the whole window, and so reacts slowly to a burst.
 - **One account at a time.** Readings are not separated per account: with two accounts under the same OS user, the panel, the notices and the report use the most recent reading from either, and the panel's `/usage` reads the account `claude` is logged into. The projection's history is a single one too; since the two accounts have different resets, switching between them restarts the history on every switch, and the projection disappears until it gathers points again.
 - **Fable depends on the `/usage` text.** The panel reads the English lines of `/usage` (`Current session`, `Current week (all models)`, `Current week (Fable)`) with fixed rules. If a Claude Code version changes that text, Fable shows `—` or the tooltip shows `Última leitura falhou (formato).` (last reading failed: format); 5 h and the week keep coming from the status line.
-- **The panel needs `code` and `claude`.** Without the `code` command on `PATH`, the extension does not install itself. Without `claude` in `~/.local/bin` or on `PATH` (on Windows, only `claude.exe`, never `.cmd`), Fable has no reading and the tooltip says `claude não encontrado em ~/.local/bin nem no PATH.` (claude not found).
+- **The panel needs `code` and `claude`.** Without the `code` command on `PATH` (on a Mac, without the app in `/Applications` or `~/Applications`), the extension does not install itself, and the session start says so in one line. Without `claude` in `~/.local/bin` or on `PATH` (on Windows, only `claude.exe`, never `.cmd`), Fable has no reading and the tooltip says `claude não encontrado em ~/.local/bin nem no PATH.` (claude not found).
 - **Worktrees** of the same project show up as separate projects (the project is the folder name).
 - **The plugin does not switch model or effort.** The official documentation does not allow switching models mid-session from outside, and switching mid-session wastes the cache. The plugin measures and notifies; the decision is yours.
 
@@ -1250,7 +1278,7 @@ In four steps: remove the bar (`node "$HOME/.claude/hadouken/bin/cli.mjs" instal
 The plugin was updated and the old version left the disk. The next session repoints the scripts to the version in use.
 
 **Does it work on Windows? And in VS Code's terminal?**
-Yes. The bar is a command that Claude Code runs wherever it is open, including VS Code's integrated terminal. The panel is a VS Code extension; on Windows, it needs `code.cmd` on `PATH` to install itself and `claude.exe` to read Fable. CI runs the tests on Linux, Windows and macOS, with Node 20 and 24, and paths with spaces and accents are covered by tests.
+Yes. The bar is a command that Claude Code runs wherever it is open, including VS Code's integrated terminal. The panel is a VS Code extension; on Windows, it needs `code.cmd` on `PATH` to install itself and `claude.exe` to read Fable. CI runs the tests on Linux, Windows and macOS, with Node 20 and 24 (the kit robot, with 20, 22 and 24), and paths with spaces and accents are covered by tests.
 
 **I have several sessions open in VS Code. Does the plugin take all of them into account?**
 Yes, in two ways. The 5-hour, week and Fable percentages already belong to the whole account, adding up every session (in VS Code, another terminal or another machine), and the panel shows them once, with the forecast and the projection coming from them. The panel tooltip also shows how many plugin sessions are active right now (`Sessões ativas: 3`), and the projection notice takes that number to Claude, which can reduce parallelism. The plugin does not tell VS Code sessions apart from other terminals: it counts every Claude Code session on this machine that started after installation. See [Projection and several sessions](#projection-and-several-sessions).

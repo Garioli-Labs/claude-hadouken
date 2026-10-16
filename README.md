@@ -53,6 +53,7 @@ Esta é a **v0.5.1** do primeiro subprojeto do plugin, o **Leitor de consumo**. 
 - [Aprendizado local (opcional)](#aprendizado-local-opcional)
 - [hadouken-kit e hadouken-rea (opcionais)](#hadouken-kit-e-hadouken-rea-opcionais)
 - [Instalação](#instalação)
+  - [Um comando](#um-comando)
 - [Configuração](#configuração)
 - [Onde ficam os dados](#onde-ficam-os-dados)
 - [Privacidade e segurança](#privacidade-e-segurança)
@@ -258,7 +259,7 @@ Essa frase não é a projeção dos avisos ao Claude. A projeção usa o ritmo d
 
 ### Instalar, desligar e remover
 
-- **Instalação sozinha.** Quando uma sessão começa com uma versão do plugin que ainda não está instalada no VS Code, o início de sessão monta a extensão (um `.vsix`, em `<pasta de dados>/painel/`) e roda, em segundo plano, `code --install-extension <vsix> --force`. Precisa do comando `code` no `PATH` (no Windows, `code.cmd`). É uma tentativa por hora, dê certo ou não, e nada disso entra no contexto do Claude.
+- **Instalação sozinha.** Quando uma sessão começa com uma versão do plugin que ainda não está instalada no VS Code, o início de sessão monta a extensão (um `.vsix`, em `<pasta de dados>/painel/`) e roda, em segundo plano, `code --install-extension <vsix> --force`. Precisa do comando `code` no `PATH` (no Windows, `code.cmd`; no Mac, o do `Visual Studio Code.app` em `/Applications` ou `~/Applications` também serve). Se a instalação falhar, o início de sessão seguinte diz o motivo numa linha, com o conserto. É uma tentativa por hora, dê certo ou não, e nada disso entra no contexto do Claude.
 - **Instalação à mão:** `node "$HOME/.claude/hadouken/bin/cli.mjs" painel instalar`.
 - Se o item não aparecer numa janela do VS Code que já estava aberta, recarregue-a (comando `Developer: Reload Window`). Enquanto nenhuma sessão do Claude Code tiver aberto com o plugin nesta máquina, o item diz `Hadouken: abra uma sessão do Claude Code`.
 - **Remover (o jeito de desligar agora):** rode `code --uninstall-extension gariolilabs.claude-hadouken-painel` e recarregue cada janela aberta do VS Code (`Developer: Reload Window`): o item continua rodando nelas até a recarga. Defina também `HADOUKEN_SEM_PAINEL=1` no ambiente do Claude Code; sem ela, um início de sessão instala a extensão de novo, na próxima versão do plugin.
@@ -901,7 +902,7 @@ Também avisa, uma vez por dia por tipo, quando o Collector não sobe, não para
 
 ## hadouken-kit e hadouken-rea (opcionais)
 
-O marketplace `claude-hadouken` traz mais dois plugins, separados do consumo e da guarda. O **hadouken-kit** instala de uma vez o conjunto de skills do dia a dia: `claude-hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills` (`mattpocock`), `poka-yoke` (`poka-yoke`), `fullstack-dev-skills` (`fullstack-dev-skills`) e `ui-ux-pro-max` (`ui-ux-pro-max-skill`). Leva também a skill `hadouken-kit:fluxo`, que diz qual usar em cada etapa, e cópias da `yu-ux-web-expert` e da `graphify`. Quem quer só o consumo e a guarda instala só o `claude-hadouken`.
+O marketplace `claude-hadouken` traz mais dois plugins, separados do consumo e da guarda. O **hadouken-kit** instala de uma vez o conjunto de skills do dia a dia: `claude-hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` e `ui-ux-pro-max` (estes quatro como entradas do próprio marketplace `claude-hadouken`, com o commit fixado). Leva também a skill `hadouken-kit:fluxo`, que diz qual usar em cada etapa, e cópias da `yu-ux-web-expert` e da `graphify`. Quem quer só o consumo e a guarda instala só o `claude-hadouken`.
 
 No terminal (fora de sessão, ou com `!` dentro dela):
 
@@ -915,22 +916,49 @@ claude plugin install hadouken-kit@claude-hadouken
 - **Por que os `marketplace add` antes.** O primeiro registra o marketplace do hadouken (quem já tem a v0.4.0 vê "already" e segue; o `update` traz a entrada do kit). O Claude Code só instala uma dependência de um marketplace já registrado. Sem ele, o kit instala com o aviso `dependency "<nome>" was not installed (no marketplace you have added lists it)` e não carrega.
 - **Fora de sessão.** Instalar ou ligar plugin dentro de uma sessão aberta é segurado pelo hook `ConfigChange` da guarda. Rode os comandos no terminal e abra uma sessão nova.
 - **As skills na hora certa.** A cada sessão, o kit põe no contexto um resumo de 5 linhas (uns 400 tokens, nenhuma chamada de modelo) com o momento de cada skill: o `superpowers` cuida do processo e as do Matt Pocock entram nos momentos delas (pôr um plano à prova, protótipo, spec, tickets, handoff, revisão do branch, corpo de PR, passos que só você pode fazer, desenho de módulo, domínio, pesquisa, triagem, ensino). O Claude aciona sozinho as que o autor deixa o modelo acionar; as outras 16 (`to-spec`, `to-tickets`, `handoff`, `triage`, `teach` e mais) têm `disable-model-invocation`, e no momento delas o Claude sugere que você digite o comando (`/mattpocock-skills:handoff`, por exemplo). A tabela completa, com as 27 skills do Matt (mattpocock-skills 1.3.1), está em `/hadouken-kit:fluxo`.
-- **Já tinha o `mattpocock-skills`?** O mapa segue a 1.3.1 (27 skills). Quem o instalou antes continua na versão do cache até atualizar; na 1.2.0, `pr` e `wizard` não existem e o Claude não as acha. No terminal: `claude plugin marketplace update mattpocock` e `claude plugin update mattpocock-skills@mattpocock`, e abra uma sessão nova.
+- **Já tinha o `mattpocock-skills`?** O mapa segue a 1.3.1 (27 skills). Quem o instalou antes continua na versão do cache até atualizar; na 1.2.0, `pr` e `wizard` não existem e o Claude não as acha. Desde a v0.5.2, o kit traz a cópia do marketplace `claude-hadouken`; rode o comando único (que desliga a cópia antiga, `mattpocock-skills@mattpocock`) ou, no terminal, `claude plugin marketplace update claude-hadouken` e `claude plugin update mattpocock-skills@claude-hadouken`, e abra uma sessão nova.
 - **clean-architecture fora do kit.** Desde 2026-10-14 o `plugin.json` dele é um link simbólico. No Windows, o git clona o link como texto e a instalação falha com `JSON parse error: Unexpected token '.'`; como dependência, derrubaria o kit inteiro. No Linux e no macOS ele instala à parte: `claude plugin marketplace add nathankim0/clean-architecture-skills` e `claude plugin install clean-architecture@clean-architecture-skills`.
 - **yu-ux-web-expert.** Na primeira vez, o `setup.sh` dela instala `axe-core` e `lighthouse` (pelo `package-lock.json` do kit) na pasta do plugin, o `playwright` no Python do usuário e o Chromium no cache do Playwright; o `axe-core` e o `lighthouse` voltam a ser instalados depois de cada atualização do kit, porque a pasta muda de versão. A cópia do kit não libera Bash, Write, Edit nem WebFetch sem pergunta (`allowed-tools: Read Grep Glob`): ela lê páginas de terceiros, e cada comando passa pela sua permissão.
 - **REA, desligado por padrão.** Para ligar: `claude plugin install hadouken-rea@claude-hadouken` e `claude plugin enable hadouken-rea@claude-hadouken`. Ele abre `npx -y rea-agents@6.1.0 mcp` (versão exata; no Windows, pelo `cmd.exe /d /c`) com o cwd na pasta do plugin, nunca no projeto aberto (um `node_modules` ou `.npmrc` do repositório não entra); passe caminhos absolutos ao REA. Precisa de Node 22.19+, 24.11+ ou 26+ e **executa os programas analisados com as permissões do seu usuário**. Na primeira vez, o `npx` baixa o pacote (uns 20 a 30 s) e o `/mcp` pode acusar tempo esgotado; com o pacote no cache, conecta em segundos (reconecte pelo `/mcp` ou abra uma sessão nova).
-- **Versões.** Um workflow semanal do GitHub Actions compara as versões publicadas com as testadas (`kit/testado.json`) e abre uma issue quando uma dependência lança versão principal nova. O kit só fala com a rede quando o `setup.sh` da yu-ux roda (npm, pip, Playwright) e o REA, quando ligado, no primeiro `npx`.
+- **Versões e atualização automática.** Os terceiros do kit (`mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` e `ui-ux-pro-max`) são entradas do marketplace do Hadouken com o commit fixado (`sha`); o `superpowers` segue no marketplace oficial. O instalador de um comando liga `autoUpdate` no marketplace do Hadouken (no seu `settings.json`, com backup) e desliga as cópias antigas dos terceiros, que vinham dos marketplaces de cada um, para as skills não aparecerem em dobro (nada é desinstalado; desfazer é pôr `true` de volta em `enabledPlugins`). Toda segunda, um robô no GitHub Actions confere as versões publicadas: versão nova de um terceiro ou do `rea-agents` vai para um ramo, a suíte roda em Linux, Windows e macOS com Node 20, 22 e 24 e, tudo verde, o robô publica sozinho (tag `kit-v<versão>`); algum vermelho vira issue e nada é publicado. Versão nova do `graphifyy` (pip) só abre issue. O kit só fala com a rede quando o `setup.sh` da yu-ux roda (npm, pip, Playwright) e o REA, quando ligado, no primeiro `npx`.
 
 ---
 
 ## Instalação
+
+### Um comando
+
+No terminal (fora do Claude Code), num PC novo ou para atualizar:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.sh | bash
+```
+
+No Windows, no PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.ps1 | iex
+```
+
+Ele confere o Node (20+), o git e o Claude Code (2.1.251+); se faltar algum, mostra a lista e pergunta uma vez antes de instalar (Node e git pelo winget ou pelo brew, o Claude Code pelo instalador oficial). Depois instala o `claude-hadouken`, o `hadouken-kit` e o `hadouken-rea` (ligado se o Node for 22.19+, 24.11+ ou 26+), põe a barra, instala o item do VS Code, liga a atualização automática e, se você aceitar, os extras (Python, `graphify`, as ferramentas da `yu-ux-web-expert` e o `gh`). O aprendizado local só liga se você responder "s". No fim, um resumo de uma linha por item; rodar de novo atualiza e pula o que já está certo.
+
+Opções (no bash, `| bash -s -- <opções>`; no PowerShell, `$env:HADOUKEN_INSTALAR = '<opções>'` antes do `irm`):
+
+| Opção | Faz |
+|---|---|
+| `--sim` | responde sim às perguntas; não troca uma barra de outro plugin e não liga o aprendizado |
+| `--substituir-barra` | troca uma `statusLine` que não é a do claude-hadouken (com backup) |
+| `--sem-extras` | não instala os extras |
+| `--com-aprendizado` | liga o aprendizado local sem perguntar |
+
+O passo a passo abaixo é o caminho manual, com os mesmos resultados.
 
 ### Requisitos
 
 - **Claude Code 2.1.251 ou mais novo.** A guarda precisa dele. Em versões anteriores, a troca de modelo (P3) e a liberação pelo `/claude-hadouken:liberar` não existem, e o plugin não funciona: nenhum hook carrega e, sem o registro do SessionStart, a barra também fica vazia. Na 2.1.250, o Claude Code recusa os eventos de troca de modelo do `hooks.json` e não registra nenhum hook do plugin. Ficam sem a guarda, sem a linha de consumo do início de sessão, sem os avisos, sem a P1 a P5 e sem a barra. A mínima é 2.1.251; a 2.1.250 falhou, e a 2.1.251 não foi testada isoladamente.
 - **Node.js 20 ou mais novo**, no `PATH`.
 - **Plano Pro ou Max** para ver os limites: o Claude Code só entrega os limites de 5 h e 7 dias à statusline nessas contas (ou atrás de um gateway com limite de gasto), e só depois da primeira resposta da API na sessão. Sem isso, o plugin funciona, mas os limites ficam sem leitura no painel, nos avisos e no relatório.
-- Opcional, para o painel: **VS Code** com o comando `code` no `PATH` (no Windows, `code.cmd`), e o executável `claude` em `~/.local/bin` ou no `PATH` (no Windows, `claude.exe`), para a leitura do Fable.
+- Opcional, para o painel: **VS Code**. O plugin acha o `code` no `PATH` (no Windows, `code.cmd`) e, no Mac, também dentro do `Visual Studio Code.app` em `/Applications` ou `~/Applications`, sem precisar do "Shell Command: Install 'code' command in PATH". Para a leitura do Fable, o executável `claude` em `~/.local/bin` ou no `PATH` (no Windows, `claude.exe`).
 - Opcional: [`gh`](https://cli.github.com/) com login feito, para a seção do GitHub.
 - Opcional: `git`, para descobrir o repo pelo `origin` quando não há `config.json`.
 
@@ -980,7 +1008,7 @@ A barra aparece na próxima atualização da interface. Duas coisas para saber a
 - Com uma `statusLine` configurada, o Claude Code deixa de mostrar a maior parte das dicas de teclado do rodapé, como `esc to interrupt` e `? for shortcuts`.
 - Sessões abertas antes da instalação do plugin passam a rodar o novo comando na hora, mas não ganham a barra: nela ela fica vazia até a sessão ser reaberta. Se você substituiu uma barra que já existia, essas sessões ficam sem barra até serem reabertas.
 
-**4. O painel no VS Code se instala sozinho.** Com o comando `code` no `PATH`, o início de sessão instala a extensão do painel em segundo plano, sem pedir nada e sem gastar tokens. Numa janela do VS Code que já estava aberta, o item pode só aparecer depois de recarregá-la (`Developer: Reload Window`). Para não instalar, ou para remover, veja [Instalar, desligar e remover](#instalar-desligar-e-remover).
+**4. O painel no VS Code se instala sozinho.** Com o VS Code instalado (o comando `code` no `PATH`, ou no Mac o app em `/Applications`), o início de sessão instala a extensão do painel em segundo plano, sem pedir nada e sem gastar tokens. Numa janela do VS Code que já estava aberta, o item pode só aparecer depois de recarregá-la (`Developer: Reload Window`). Para não instalar, ou para remover, veja [Instalar, desligar e remover](#instalar-desligar-e-remover).
 
 ### O que o `/claude-hadouken:instalar` muda, e como desfazer
 
@@ -995,7 +1023,7 @@ A barra aparece na próxima atualização da interface. Duas coisas para saber a
 
 ### Atualizar
 
-Marketplaces de terceiros não se atualizam sozinhos por padrão. Para atualizar, use **Update now** na aba **Installed** do `/plugin`, ou no terminal:
+Quem instalou pelo comando único tem a atualização automática ligada: o Claude Code atualiza o marketplace e os plugins do Hadouken depois da primeira mensagem de uma sessão, e a versão nova vale na sessão seguinte (`DISABLE_AUTOUPDATER=1` desliga). Para atualizar na hora, rode o comando único de novo, use **Update now** na aba **Installed** do `/plugin`, ou, no terminal:
 
 ```bash
 claude plugin marketplace update claude-hadouken
@@ -1164,7 +1192,7 @@ Por que o relatório é rápido na segunda vez: o índice dos transcripts é inc
 - **A projeção dos avisos é uma reta.** Ela projeta o ritmo dos últimos minutos (20 na janela de 5 horas, 3 horas na de 7 dias) como se ele continuasse igual: uma pausa ou uma rajada muda a projeção na leitura seguinte. Ela precisa de pelo menos 3 leituras cobrindo 6 minutos, então não sai logo no começo de uma janela nem com a barra parada. A previsão do painel usa outra conta, o ritmo médio da janela inteira, e por isso reage devagar a uma rajada.
 - **Uma conta por vez.** As leituras não são separadas por conta: com duas contas no mesmo usuário do sistema, o painel, os avisos e o relatório usam a leitura mais recente, de qualquer uma, e o `/usage` do painel lê a conta em que o `claude` está logado. O histórico da projeção também é um só; como as duas contas têm resets diferentes, alternar entre elas recomeça o histórico a cada troca, e a projeção some até juntar pontos de novo.
 - **O Fable depende do texto do `/usage`.** O painel lê as linhas em inglês do `/usage` (`Current session`, `Current week (all models)`, `Current week (Fable)`) com regras fixas. Se uma versão do Claude Code mudar esse texto, o Fable fica em `—` ou a dica mostra `Última leitura falhou (formato).`; 5 h e semana continuam vindo da statusline.
-- **O painel precisa do `code` e do `claude`.** Sem o comando `code` no `PATH`, a extensão não se instala sozinha. Sem o `claude` em `~/.local/bin` ou no `PATH` (no Windows, só `claude.exe`, nunca `.cmd`), o Fable fica sem leitura e a dica diz `claude não encontrado em ~/.local/bin nem no PATH.`
+- **O painel precisa do `code` e do `claude`.** Sem o comando `code` no `PATH` (no Mac, sem o app em `/Applications` ou `~/Applications`), a extensão não se instala sozinha, e o início de sessão diz isso numa linha. Sem o `claude` em `~/.local/bin` ou no `PATH` (no Windows, só `claude.exe`, nunca `.cmd`), o Fable fica sem leitura e a dica diz `claude não encontrado em ~/.local/bin nem no PATH.`
 - **Worktrees** do mesmo projeto aparecem como projetos distintos (o projeto é o nome da pasta).
 - **O plugin não troca modelo nem effort.** A documentação oficial não permite trocar de modelo no meio de uma sessão por fora, e trocar no meio desperdiça o cache. O plugin mede e avisa; a decisão é sua.
 
@@ -1240,7 +1268,7 @@ Em quatro passos: tire a barra (`node "$HOME/.claude/hadouken/bin/cli.mjs" insta
 O plugin foi atualizado e a versão antiga saiu do disco. A próxima sessão reaponta os scripts para a versão em uso.
 
 **Funciona no Windows? E no terminal do VS Code?**
-Sim. A barra é um comando que o Claude Code roda onde quer que ele esteja aberto, inclusive no terminal integrado do VS Code. O painel é uma extensão do VS Code; no Windows, ela precisa do `code.cmd` no `PATH` para se instalar e do `claude.exe` para ler o Fable. A CI roda os testes em Linux, Windows e macOS, com Node 20 e 24, e caminhos com espaços e acentos são cobertos por teste.
+Sim. A barra é um comando que o Claude Code roda onde quer que ele esteja aberto, inclusive no terminal integrado do VS Code. O painel é uma extensão do VS Code; no Windows, ela precisa do `code.cmd` no `PATH` para se instalar e do `claude.exe` para ler o Fable. A CI roda os testes em Linux, Windows e macOS, com Node 20 e 24 (o robô do kit, com 20, 22 e 24), e caminhos com espaços e acentos são cobertos por teste.
 
 **Tenho várias sessões abertas no VS Code. O plugin considera todas?**
 Sim, de dois jeitos. As porcentagens de 5 h, semana e Fable já são da conta inteira, somando todas as sessões (do VS Code, de outro terminal ou de outra máquina), e o painel as mostra uma vez só, com a previsão e a projeção saindo delas. A dica do painel também mostra quantas sessões do plugin estão ativas agora (`Sessões ativas: 3`), e o aviso de projeção leva esse número ao Claude, que pode reduzir o paralelismo. O plugin não distingue sessões do VS Code das de outro terminal: conta todas as sessões do Claude Code desta máquina que começaram depois da instalação. Veja [Projeção e várias sessões](#projeção-e-várias-sessões).
