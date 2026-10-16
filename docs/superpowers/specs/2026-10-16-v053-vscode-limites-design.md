@@ -4,6 +4,8 @@ Data: 2026-10-16. Status: desenho aprovado em conversa, parte por parte. Esta sp
 
 A v0.5.3 tem duas specs. Esta cobre tudo o que o usuário vê e configura. A outra, que ainda vai passar por brainstorming, cobre o roteamento de modelo, effort e agente e as otimizações de consumo. A v0.5.4 fica só com as verificações de segurança, estabilidade e compatibilidade.
 
+Emenda de 2026-10-16: a janela ganha a aba Roteamento (§4.1), aprovada no desenho da spec de roteamento.
+
 ## 1. O que o Sr. Garioli pediu
 
 Tudo o que está entre aspas abaixo são palavras dele.
@@ -135,6 +137,7 @@ Um webview (`vscode.window.createWebviewPanel`) aberto em `ViewColumn.Beside`. E
    - **Alertas:** projeção de 5 h (dois limites, em minutos) e projeção de 7 dias (horas).
    - **Aprendizado:** ligado ou desligado, e a lista dos apertos atuais, com o item e o valor.
    - **Painel:** avisar de versão nova e animar a logo.
+   - **Roteamento:** as chaves de `roteamento` (negar N1, negar N2, avisos e sugerir troca de modelo/effort da sessão), definidas em `2026-10-16-v053-roteamento-design.md` §6.3, mais um resumo da tabela Roteamento dos últimos 7 dias.
 
    Embaixo ficam **Voltar ao padrão** (da aba) e **Salvar**.
 
