@@ -17,7 +17,7 @@ const REAL = (() => {
   try { return path.join(os.homedir(), '.claude', 'settings.json'); } catch { return null; }
 })();
 const LINK_PASTA = process.platform === 'win32' ? 'junction' : 'dir';
-const FRASE_CONFLITO = 'As sessões abertas antes da instalação do plugin ficarão sem barra até serem reabertas; as demais passam a mostrar a do claude-hadouken; a barra atual será substituída (há backup).';
+const FRASE_CONFLITO = 'As sessões abertas antes da instalação do plugin ficarão sem barra até serem reabertas; as demais passam a mostrar a do hadouken; a barra atual será substituída (há backup).';
 const AVISO_CONFIG = 'Se você usa CLAUDE_CONFIG_DIR e esse caminho não está na sua pasta de configuração, responda não: o Claude Code pode tirar essa variável do ambiente dos comandos que roda pelo Bash.';
 const FRASE_HOME = 'A barra vai apontar para <pastaDados> porque a variável de ambiente HADOUKEN_HOME está definida nesta sessão; isso fica gravado e vale para todos os projetos, mesmo depois que a variável sair do ambiente. Se não foi você quem definiu HADOUKEN_HOME, responda não.';
 const FRASE_LINK = 'A chave manual aponta para <pastaDados> porque a variável de ambiente HADOUKEN_HOME está definida nesta sessão; se você a acrescentar, isso fica gravado e vale para todos os projetos, mesmo depois que a variável sair do ambiente. Se não foi você quem definiu HADOUKEN_HOME, não a acrescente.';
@@ -636,7 +636,7 @@ test('skill instalar: as três perguntas citam o arquivo alvo; as de gravar barr
   // está no arquivo e só ganha refreshInterval.
   for (const q of perguntas.slice(0, 2)) assert.ok(q.includes(AVISO_CONFIG), q);
   assert.ok(perguntas[1].startsWith(FRASE_CONFLITO), perguntas[1]);
-  assert.ok(perguntas[2].startsWith('A barra do claude-hadouken já está em <arquivo>, sem atualização periódica.'), perguntas[2]);
+  assert.ok(perguntas[2].startsWith('A barra do hadouken já está em <arquivo>, sem atualização periódica.'), perguntas[2]);
   // O modelo troca o marcador pelo caminho que a CLI devolveu.
   assert.ok(texto.includes('troque `<arquivo>` pelo valor exato do campo `arquivo`'));
   assert.ok(!texto.includes('em `~/.claude/settings.json`. Só'), 'o alvo não é mais fixo em ~/.claude');

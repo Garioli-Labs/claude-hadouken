@@ -2,6 +2,7 @@ import { isUtf8 } from 'node:buffer';
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   absolutoCompleto, apagar, DATA_MAX_MS, esperar, instante, numeroFinito, RENOMEAR_ESPERA_MS, RENOMEAR_TENTATIVAS,
@@ -91,24 +92,50 @@ const existePadrao = (p) => {
 };
 const executarPadrao = (exe, args, opcoes, cb) => execFile(exe, args, opcoes, cb);
 
+const casaPadrao = () => {
+  try {
+    return os.homedir();
+  } catch {
+    return null;
+  }
+};
+
+// v0.5.2: no macOS o VS Code não põe o `code` no PATH por padrão (é preciso
+// rodar "Shell Command: Install 'code' command in PATH"). Sem ele no PATH, o
+// CLI de dentro do .app, em /Applications e em ~/Applications. Casa que não é
+// caminho absoluto POSIX sem NUL fica de fora.
+export function appsDoMac(casa) {
+  const fim = ['Visual Studio Code.app', 'Contents', 'Resources', 'app', 'bin', 'code'];
+  const lista = [path.posix.join('/Applications', ...fim)];
+  if (typeof casa === 'string' && casa.startsWith('/') && !casa.includes('\0')) lista.push(path.posix.join(casa, 'Applications', ...fim));
+  return lista;
+}
+
 // Caminho do CLI do VS Code: code.cmd no win32, code fora dele, no primeiro
 // diretório do PATH em que `existe` o confirma. Só entram diretórios que são
 // caminho absoluto completo pela regra do processo (absolutoCompleto, de
 // base.js); vazio, ".", relativo, "C:rel" e "\raiz" ficam de fora, e um par de
-// aspas em volta da entrada sai no win32, como o próprio Windows faz. Devolve
-// o caminho ou null. Nunca lança.
-export function acharCode({ pathEnv = process.env.PATH, plataforma = process.platform, existe = existePadrao } = {}) {
+// aspas em volta da entrada sai no win32, como o próprio Windows faz. No
+// darwin, sem nada no PATH, tenta `apps` (padrão: appsDoMac(casa)), só
+// caminhos absolutos. Devolve o caminho ou null. Nunca lança.
+export function acharCode({ pathEnv = process.env.PATH, plataforma = process.platform, existe = existePadrao, casa = casaPadrao(), apps } = {}) {
   try {
-    if (typeof pathEnv !== 'string' || typeof existe !== 'function') return null;
+    if (typeof existe !== 'function') return null;
     const win = plataforma === 'win32';
     const nome = win ? 'code.cmd' : 'code';
     const caminhos = win ? path.win32 : path.posix;
-    for (const cru of pathEnv.split(win ? ';' : ':')) {
-      let dir = cru;
-      if (win && dir.length >= 2 && dir.startsWith('"') && dir.endsWith('"')) dir = dir.slice(1, -1);
-      if (dir === '' || dir.includes('\0') || !absolutoCompleto(dir)) continue;
-      const candidato = caminhos.join(dir, nome);
-      if (existe(candidato) === true) return candidato;
+    if (typeof pathEnv === 'string') {
+      for (const cru of pathEnv.split(win ? ';' : ':')) {
+        let dir = cru;
+        if (win && dir.length >= 2 && dir.startsWith('"') && dir.endsWith('"')) dir = dir.slice(1, -1);
+        if (dir === '' || dir.includes('\0') || !absolutoCompleto(dir)) continue;
+        const candidato = caminhos.join(dir, nome);
+        if (existe(candidato) === true) return candidato;
+      }
+    }
+    if (plataforma !== 'darwin') return null;
+    for (const candidato of Array.isArray(apps) ? apps : appsDoMac(casa)) {
+      if (typeof candidato === 'string' && candidato.startsWith('/') && !candidato.includes('\0') && existe(candidato) === true) return candidato;
     }
     return null;
   } catch {
@@ -180,6 +207,16 @@ export function marcarTentativa(opcoes) {
   }
 }
 
+// Regrava tentativa.json com o motivo da falha (v0.5.2), para o início de
+// sessão mostrar o conserto. Melhor esforço: nunca lança.
+function registrarFalha(dir, agoraMs, motivo) {
+  try {
+    gravarJsonAtomico(path.join(dir, DIR_PAINEL, ARQ_TENTATIVA), { em: new Date(agoraMs).toISOString(), motivo });
+  } catch {
+    /* fica a tentativa sem motivo */
+  }
+}
+
 // Texto UTF-8 de um arquivo regular do plugin, até MAX_FONTE_BYTES; senão null.
 function lerFonte(arquivo) {
   try {
@@ -242,40 +279,48 @@ function rodar(executar, exe, args, opcoes) {
 // { ok: true, motivo: 'ok' }. `achar`, `executar`, `plataforma`, `pathEnv` e
 // `existe` existem para os testes. Nunca rejeita.
 export async function instalarPainel(opcoes) {
+  let registrar = () => {};
   try {
     const {
       dir, raizPlugin, agoraMs = Date.now(), achar = acharCode, executar = executarPadrao,
-      plataforma = process.platform, pathEnv = process.env.PATH, existe, systemRoot = process.env.SystemRoot,
+      plataforma = process.platform, pathEnv = process.env.PATH, existe, systemRoot = process.env.SystemRoot, casa, apps,
     } = ehObjeto(opcoes) ? opcoes : {};
     if (!dirValido(dir)) return falha('sem-pasta');
     if (!agoraValido(agoraMs) || typeof achar !== 'function' || typeof executar !== 'function') return falha('argumentos');
     if (!marcarTentativa({ dir, agoraMs }).ok) return falha('escrita');
+    // Daqui em diante, toda falha fica em tentativa.json com o motivo.
+    registrar = (motivo) => registrarFalha(dir, agoraMs, motivo);
+    const falhou = (motivo) => {
+      registrar(motivo);
+      return falha(motivo);
+    };
     const versao = versaoDoPlugin(raizPlugin);
-    if (versao === null) return falha('plugin-invalido');
+    if (versao === null) return falhou('plugin-invalido');
     const packageJson = lerFonte(path.join(raizPlugin, 'vscode', 'package.json'));
     const extensionCjs = lerFonte(path.join(raizPlugin, 'vscode', 'extension.cjs'));
     const bytes = packageJson === null || extensionCjs === null ? null : montarVsix({ versao, packageJson, extensionCjs });
-    if (bytes === null) return falha('extensao-invalida');
+    if (bytes === null) return falhou('extensao-invalida');
     const pasta = path.join(dir, DIR_PAINEL);
     const vsix = path.join(pasta, `${ID_EXTENSAO}-${versao}.vsix`);
-    if (!gravarBytes(vsix, bytes)) return falha('escrita');
+    if (!gravarBytes(vsix, bytes)) return falhou('escrita');
     varrerTmpVelhos(pasta, (nome) => TMP_VSIX.test(nome));
-    const code = achar({ pathEnv, plataforma, existe });
-    if (typeof code !== 'string' || code.length === 0) return falha('sem-vscode');
+    const code = achar({ pathEnv, plataforma, existe, casa, apps });
+    if (typeof code !== 'string' || code.length === 0) return falhou('sem-vscode');
     // O `code` segue a regra da plataforma pedida; o .vsix, a do processo, que
     // montou o caminho com path.join (as duas são a mesma fora dos testes).
     const caminhos = plataforma === 'win32' ? path.win32 : path.posix;
-    if (!caminhos.isAbsolute(code) || !caminhoSeguro(code, plataforma) || !caminhoSeguro(vsix)) return falha('caminho-inseguro');
+    if (!caminhos.isAbsolute(code) || !caminhoSeguro(code, plataforma) || !caminhoSeguro(vsix)) return falhou('caminho-inseguro');
     const r = plataforma === 'win32'
       ? await rodar(executar, caminhoCmd(systemRoot), ['/d', '/s', '/c', `""${code}" --install-extension "${vsix}" --force"`], {
         windowsVerbatimArguments: true, windowsHide: true, timeout: PRAZO_INSTALAR_MS, cwd: pasta,
       })
       : await rodar(executar, code, ['--install-extension', vsix, '--force'], { timeout: PRAZO_INSTALAR_MS, cwd: pasta });
-    if (r !== 'ok') return falha(r);
+    if (r !== 'ok') return falhou(r);
     apagarVsixAntigos(pasta, path.basename(vsix));
     const g = gravarJsonAtomico(path.join(pasta, ARQ_INSTALADO), { versao, em: new Date(agoraMs).toISOString() });
-    return g.ok ? { ok: true, motivo: 'ok' } : falha('escrita');
+    return g.ok ? { ok: true, motivo: 'ok' } : falhou('escrita');
   } catch {
+    registrar('erro');
     return falha('erro');
   }
 }

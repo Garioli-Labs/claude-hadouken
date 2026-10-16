@@ -106,7 +106,7 @@ test('P5: settings do usuário, em ~/.claude e no CLAUDE_CONFIG_DIR, são negado
   assert.deepEqual(detalhes(c), Array(casos.length).fill('P5:settings'));
 });
 
-test('P5: a raiz do plugin e o claude-hadouken dentro de plugins/ são negados sempre', () => {
+test('P5: a raiz do plugin e o hadouken dentro de plugins/ são negados sempre', () => {
   const c = cenario();
   const cache = path.join(c.casa, '.claude', 'plugins', 'cache', 'x', 'claude-hadouken', '0.4.0', 'src', 'guarda', 'caminho.js');
   const casos = [

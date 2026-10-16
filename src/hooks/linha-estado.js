@@ -94,13 +94,24 @@ export function linhaEstado(leituras, agoraMs, ultima = null) {
 
 // Linha fixa quando sincronizarShims falha (adendo B da Task 7).
 export function linhaShimIndisponivel(motivo) {
-  return `claude-hadouken: barra indisponível (${motivoFixo(motivo, MOTIVOS_SHIM)})`;
+  return `hadouken: barra indisponível (${motivoFixo(motivo, MOTIVOS_SHIM)})`;
 }
 
 // Linha fixa quando registrarSessao falha com id válido: a sessão fica sem
 // barra e sem alertas (spec 8.2), e isso aparece em vez de ficar calado.
 export function linhaSemRegistro(motivo) {
-  return `claude-hadouken: sessão não registrada (${motivoFixo(motivo, MOTIVOS_REGISTRO)}); barra e alertas desligados nesta sessão.`;
+  return `hadouken: sessão não registrada (${motivoFixo(motivo, MOTIVOS_REGISTRO)}); barra e alertas desligados nesta sessão.`;
+}
+
+// v0.5.2: a instalação do item do VS Code falhou e a versão atual não está
+// instalada (painel/falha.js). Motivos da lista de instalarPainel depois da
+// tentativa marcada; o conserto é fixo por motivo.
+export const MOTIVOS_PAINEL = new Set(['plugin-invalido', 'extensao-invalida', 'escrita', 'sem-vscode', 'caminho-inseguro', 'tempo', 'erro']);
+const CONSERTO_SEM_VSCODE = "no VS Code, rode Shell Command: Install 'code' command in PATH";
+const CONSERTO_PAINEL = 'rode node ~/.claude/hadouken/bin/cli.mjs painel instalar';
+export function linhaPainel(motivo) {
+  const m = motivoFixo(motivo, MOTIVOS_PAINEL);
+  return `hadouken: item do VS Code não instalado (${m}); ${m === 'sem-vscode' ? CONSERTO_SEM_VSCODE : CONSERTO_PAINEL}. Sem VS Code, defina HADOUKEN_SEM_PAINEL=1.`;
 }
 
 // Custo de retomar uma sessão parada (spec v0.4.0 §10, item 11; C24; decisão

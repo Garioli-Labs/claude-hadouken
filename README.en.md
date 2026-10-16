@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-# claude-hadouken
+# hadouken
 
 **English** · [Português](README.md)
 
@@ -14,7 +14,7 @@
 
 **Your Claude Code usage on screen, with a pace reference, and Claude aware of it too.**
 
-`claude-hadouken` is a Claude Code plugin that measures your real usage and shows it where you work:
+`hadouken` is a Claude Code plugin that measures your real usage and shows it where you work:
 
 - your account's limits, the **5-hour session**, the **week** and the **Fable week**, with the same numbers as the claude.ai Usage tab;
 - each session's **context** and prompt **cache hit rate**;
@@ -23,7 +23,7 @@
 
 It all shows up in a status bar at the bottom of Claude Code, in a VS Code status bar item, in an on-demand report, and in short notices that Claude itself receives when it is time to shift gears.
 
-This is **v0.5.1** of the plugin's first subproject, the **Usage reader** (*Leitor de consumo*). It brings two optional plugins in the same marketplace: **hadouken-kit**, which installs and pins the workflow skills (superpowers, Matt Pocock's and others) and tells Claude the moment for each one, and **hadouken-rea**, the reverse engineering MCP server (see [hadouken-kit and hadouken-rea](#hadouken-kit-and-hadouken-rea-optional)). v0.4.0 brought the **usage guard**: instead of only warning, hadouken holds subagent dispatch, Fable use and the expensive dispatch when usage goes past the point, until you release it (see [The usage guard](#the-usage-guard)). `/claude-hadouken:consumo` gains the "Guarda (7 dias)" and "Custo dos hooks (7 dias)" sections, and the notices to Claude now give the age of a stale reading, the reset in minutes and the week's pace. The Claude Code status bar shows only what belongs to the session: model, effort, context and cache. The account limits, which are the same in every session, show up once, in a VS Code status bar item, with Fable read from the official `/usage` without spending tokens and the forecast worded like claude.ai. Zero dependencies, Node.js only.
+This is **v0.5.1** of the plugin's first subproject, the **Usage reader** (*Leitor de consumo*). It brings two optional plugins in the same marketplace: **hadouken-kit**, which installs and pins the workflow skills (superpowers, Matt Pocock's and others) and tells Claude the moment for each one, and **hadouken-rea**, the reverse engineering MCP server (see [hadouken-kit and hadouken-rea](#hadouken-kit-and-hadouken-rea-optional)). v0.4.0 brought the **usage guard**: instead of only warning, hadouken holds subagent dispatch, Fable use and the expensive dispatch when usage goes past the point, until you release it (see [The usage guard](#the-usage-guard)). `/hadouken:consumo` gains the "Guarda (7 dias)" and "Custo dos hooks (7 dias)" sections, and the notices to Claude now give the age of a stale reading, the reset in minutes and the week's pace. The Claude Code status bar shows only what belongs to the session: model, effort, context and cache. The account limits, which are the same in every session, show up once, in a VS Code status bar item, with Fable read from the official `/usage` without spending tokens and the forecast worded like claude.ai. Zero dependencies, Node.js only.
 
 > [!NOTE]
 > The plugin's interface (status bar, panel, notices and report) is in Brazilian Portuguese. This README quotes it verbatim and explains each part in English.
@@ -45,7 +45,7 @@ This is **v0.5.1** of the plugin's first subproject, the **Usage reader** (*Leit
   - [7-day window: the expected pace and the modes](#7-day-window-the-expected-pace-and-the-modes)
   - [Projection and several sessions](#projection-and-several-sessions)
 - [The usage guard](#the-usage-guard)
-- [The `/claude-hadouken:consumo` report](#the-claude-hadoukenconsumo-report)
+- [The `/hadouken:consumo` report](#the-hadoukenconsumo-report)
   - [Open sessions in the last hour](#open-sessions-in-the-last-hour)
   - [Column glossary](#column-glossary)
   - [1 h and 5 min cache: what TTL means](#1-h-and-5-min-cache-what-ttl-means)
@@ -53,6 +53,7 @@ This is **v0.5.1** of the plugin's first subproject, the **Usage reader** (*Leit
 - [Local learning (optional)](#local-learning-optional)
 - [hadouken-kit and hadouken-rea (optional)](#hadouken-kit-and-hadouken-rea-optional)
 - [Installation](#installation)
+  - [One command](#one-command)
 - [Configuration](#configuration)
 - [Where the data lives](#where-the-data-lives)
 - [Privacy and security](#privacy-and-security)
@@ -85,14 +86,14 @@ The plugin does four things:
 
 1. **A status bar**, always at the bottom of Claude Code. In one line, in numbers and little bars, it tells you this session's model and effort, how much of the context is in use and how much of what goes to the model comes from the cache.
 
-   ![claude-hadouken status bar: Opus 5.5·high; context at 37% and cache hit rate at 92%, each with its own bar, both green](docs/imagens/barra-calma.svg)
+   ![hadouken status bar: Opus 5.5·high; context at 37% and cache hit rate at 92%, each with its own bar, both green](docs/imagens/barra-calma.svg)
 
 2. **A VS Code status bar item** with the account limits: the 5-hour session, the week and the Fable week, with the numbers from the claude.ai Usage tab. Hover it to see when each window resets and the forecast, worded like claude.ai.
 
-   ![claude-hadouken item in the VS Code status bar, hovered: 5h 42% · sem 59% · Fable 71%. The tooltip shows, per window, the percentage, the reset and the forecast: 5-hour session at 42%, resets at 15:30 and, at this pace, runs out around 14:04; week for all models at 59%, does not run out before Monday's 22:00 reset; Fable week at 71%, runs out Monday morning. Then 2 active sessions, the age of the official reading (12 s) and the source: Claude Code status line and claude /usage, no tokens](docs/imagens/painel.svg)
+   ![hadouken item in the VS Code status bar, hovered: 5h 42% · sem 59% · Fable 71%. The tooltip shows, per window, the percentage, the reset and the forecast: 5-hour session at 42%, resets at 15:30 and, at this pace, runs out around 14:04; week for all models at 59%, does not run out before Monday's 22:00 reset; Fable week at 71%, runs out Monday morning. Then 2 active sessions, the age of the official reading (12 s) and the source: Claude Code status line and claude /usage, no tokens](docs/imagens/painel.svg)
 
 3. **Short notices for Claude.** When a window changes band (for example, the 5-hour one goes past 80 %), or when the current pace takes it to 100 % before the reset, Claude receives one line in its context and adjusts how it works.
-4. **An on-demand report**, `/claude-hadouken:consumo`: where the tokens went (by project, model, subagents and session, plus the weight of each session open in the last hour) and the GitHub Actions minutes.
+4. **An on-demand report**, `/hadouken:consumo`: where the tokens went (by project, model, subagents and session, plus the weight of each session open in the last hour) and the GitHub Actions minutes.
 
 > [!TIP]
 > Every image and example in this README is the real output of the plugin's code, run on **synthetic data** (projects `meu-projeto` and `outro-projeto`, made-up sessions). The examples' clock is frozen on a **Saturday at 12:00**; the account's week started the previous Monday at 22:00. The images are rebuilt with `node docs/imagens/gerar.mjs`.
@@ -262,7 +263,7 @@ This sentence is not the projection in the notices to Claude. The projection use
 
 ### Install, turn off and remove
 
-- **Automatic install.** When a session starts on a plugin version that is not yet installed in VS Code, the session start builds the extension (a `.vsix`, in `<data folder>/painel/`) and runs `code --install-extension <vsix> --force` in the background. It needs the `code` command on `PATH` (on Windows, `code.cmd`). One attempt per hour, whether it works or not, and none of it goes into Claude's context.
+- **Automatic install.** When a session starts on a plugin version that is not yet installed in VS Code, the session start builds the extension (a `.vsix`, in `<data folder>/painel/`) and runs `code --install-extension <vsix> --force` in the background. It needs the `code` command on `PATH` (on Windows, `code.cmd`; on a Mac, the one in `Visual Studio Code.app` in `/Applications` or `~/Applications` also works). If the install fails, the next session start gives the reason in one line, with the fix. One attempt per hour, whether it works or not, and none of it goes into Claude's context.
 - **Manual install:** `node "$HOME/.claude/hadouken/bin/cli.mjs" painel instalar`.
 - If the item does not show up in a VS Code window that was already open, reload it (the `Developer: Reload Window` command). Until a Claude Code session has started with the plugin on this machine, the item says `Hadouken: abra uma sessão do Claude Code` (open a Claude Code session).
 - **Remove (the way to turn it off now):** run `code --uninstall-extension gariolilabs.claude-hadouken-painel` and reload every open VS Code window (`Developer: Reload Window`): the item keeps running in them until the reload. Also set `HADOUKEN_SEM_PAINEL=1` in Claude Code's environment; without it, a session start installs the extension again, on the next plugin version.
@@ -276,7 +277,7 @@ This sentence is not the projection in the notices to Claude. The projection use
 
 The bar and the panel are for you. The notices are for Claude.
 
-When a window changes band, the plugin puts **one short line in Claude's context**, before it reads your next prompt. The line does not show up as a chat message: you follow usage through the VS Code panel and `/claude-hadouken:consumo`, and Claude takes the state into account (and may mention it). At the start of every session, it also receives the current usage in one line. And when, at the current pace, a window is going to hit 100 % before its reset, it gets a projection notice.
+When a window changes band, the plugin puts **one short line in Claude's context**, before it reads your next prompt. The line does not show up as a chat message: you follow usage through the VS Code panel and `/hadouken:consumo`, and Claude takes the state into account (and may mention it). At the start of every session, it also receives the current usage in one line. And when, at the current pace, a window is going to hit 100 % before its reset, it gets a projection notice.
 
 ![Lines Claude receives: usage at session start (5h 42% resetting at 15:30, 7d 59% resetting Monday 28/09 at 22:00 and, at this pace, it does not run out before the reset) and one notice per band change: 5h at 74%, reset in 210 min: attention; 5h at 83%, reset in 210 min: serialise; 7d 78% against 65% expected: economy mode, with a pace of 1.5 points per hour, a sustainable pace of 0.4 points per hour and, at this pace, the end tomorrow at 02:40. Then, with 3 active sessions, the projection notice: 5h hits 100% at 12:50, before the 15:30 reset, with the sentence about asking the user before changing a plan they decided. Last, 5h at 91%: wrap up the current task, reset at 15:30 and, if the return is scheduled, set it for 15:32. A prompt in the same band produces no line.](docs/imagens/avisos.svg)
 
@@ -406,7 +407,7 @@ In the session-start line, the ending comes from the week's [forecast sentence](
 
 In the economy mode line, when the pace does not use up the week before the reset, the ending is `nesse ritmo não acaba antes do reset` (at this pace it does not run out before the reset). The pace does not show when the week is a floor.
 
-At session start, if something goes wrong with the plugin itself, Claude gets one more fixed line, for example `claude-hadouken: sessão não registrada (...); barra e alertas desligados nesta sessão.` (session not registered; bar and alerts off in this session) or `claude-hadouken: barra indisponível (...)` (bar unavailable).
+At session start, if something goes wrong with the plugin itself, Claude gets one more fixed line, for example `hadouken: sessão não registrada (...); barra e alertas desligados nesta sessão.` (session not registered; bar and alerts off in this session) or `hadouken: barra indisponível (...)` (bar unavailable).
 
 Every line is built only from validated numbers and fixed phrases in the code; no text read from a file goes into it. Notices never block the prompt: if anything fails in a hook, it exits silently (code 0) and Claude carries on normally. The guard is a separate thing: while it is tripped, it can block a typed prompt in a Fable session (see [The usage guard](#the-usage-guard)).
 
@@ -414,7 +415,7 @@ Every line is built only from validated numbers and fixed phrases in the code; n
 
 ## The usage guard
 
-Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch, at Fable use and at the expensive dispatch. The lock stays until **you** release it with `/claude-hadouken:liberar`, or until the reset of the window that tripped it. A release only counts when you type it in the conversation: a child `claude` session, a scheduled task, a `/loop` or a routine does not release. Claude does not release itself without forging hadouken's files or tampering with the plugin itself; the guard is a brake against carelessness, not a barrier against a model set on getting around it (see R1 in [SECURITY.md](SECURITY.md)).
+Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch, at Fable use and at the expensive dispatch. The lock stays until **you** release it with `/hadouken:liberar`, or until the reset of the window that tripped it. A release only counts when you type it in the conversation: a child `claude` session, a scheduled task, a `/loop` or a routine does not release. Claude does not release itself without forging hadouken's files or tampering with the plugin itself; the guard is a brake against carelessness, not a barrier against a model set on getting around it (see R1 in [SECURITY.md](SECURITY.md)).
 
 ### What locks
 
@@ -431,11 +432,11 @@ Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch,
 | P5 | always, even with the guard off | editing hadouken's data folder (`~/.claude/hadouken`) with Write, Edit, MultiEdit or NotebookEdit |
 | P5 (settings and plugin) | always, even with the guard off | editing with those tools the user's `settings.json` and `settings.local.json` (in `~/.claude` and in `CLAUDE_CONFIG_DIR`) and the plugin itself (its root and `claude-hadouken` under `plugins/`); in project settings, only an edit that changes the value of `disableAllHooks`, `enabledPlugins` or `hooks` (P5 applies it to the current file and compares) or that adds or removes one of those words or `claude-hadouken` and, in a file that already has one of them, a Write or the replacement of a short stretch (under 40 characters). Above 1 MiB, an edit that names `settings` or `hadouken` is denied without being read; one that names neither passes (SECURITY.md, R2). If the change is needed, you apply it by hand |
 | P5 (config) | always, in a registered session, even with the guard off | a change to `disableAllHooks`, `enabledPlugins` or `hooks` in the user's `settings.json` or in the project's `.claude/settings.json` and `.claude/settings.local.json`, wherever it comes from (the regular P5 covers the edit tools first; Bash, PowerShell, you or another program land here). It is held only for the current session: the file on disk stays changed, and the next session reads it. Measured live only on the project settings; the user and local settings are covered by the code, with no live measurement |
-| release | always, even with the guard off | a child `claude` session with `/claude-hadouken:liberar` in its text; a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger, and MCP schedulers with `cron`, `schedule`, `trigger` or `task` in the name) with `/claude-hadouken:liberar` or, since local learning, `/claude-hadouken:aprender` in its text |
+| release | always, even with the guard off | a child `claude` session with `/hadouken:liberar` in its text; a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger, and MCP schedulers with `cron`, `schedule`, `trigger` or `task` in the name) with `/hadouken:liberar` or, since local learning, `/hadouken:aprender` in its text |
 
 The numbers can be tuned under the `guarda` key of `config.json` (the Fable 90% is `guarda.fable.tetoPct`). Loosening the configuration does not lift a lock that has already tripped.
 
-When the official Fable reset cannot be read, a G7 lock has no set end: it stays until `/claude-hadouken:liberar fable`.
+When the official Fable reset cannot be read, a G7 lock has no set end: it stays until `/hadouken:liberar fable`.
 
 **The config P5 (`ConfigChange` hook).** At the first start of each session, hadouken takes a photo of the three fields (`disableAllHooks`, `enabledPlugins` and `hooks`) of those three files: hashes only, in `config-base.json`. When Claude Code reports that one of them changed, the hook compares the file with its own session's photo and, if one of the three fields changed, holds the change for this session; other fields (`model`, `permissions` and the rest) pass. Claude receives:
 
@@ -456,9 +457,9 @@ hadouken: bloqueado: uma mudança em disableAllHooks, enabledPlugins ou hooks no
 
 ### How to release
 
-- `/claude-hadouken:liberar`: releases for 2 h.
-- `/claude-hadouken:liberar 8h`: from 1 to 24 h.
-- `/claude-hadouken:liberar janela`: until the reset of the window that locked, at most 24 h.
+- `/hadouken:liberar`: releases for 2 h.
+- `/hadouken:liberar 8h`: from 1 to 24 h.
+- `/hadouken:liberar janela`: until the reset of the window that locked, at most 24 h.
 - Add `fable` to lift the Fable limit as well. After the limit, Fable may consume usage credits.
 - Add `caro` to lift the expensive dispatch, for example before the final review of a block.
 
@@ -481,11 +482,11 @@ Every release ends early if the week rises 10 points. It applies to every sessio
 
 ---
 
-## The `/claude-hadouken:consumo` report
+## The `/hadouken:consumo` report
 
-The bar and the panel answer "how am I doing right now". The report answers "where did the usage go". Run `/claude-hadouken:consumo`, or just ask Claude something like "how is my usage?".
+The bar and the panel answer "how am I doing right now". The report answers "where did the usage go". Run `/hadouken:consumo`, or just ask Claude something like "how is my usage?".
 
-![Excerpt of the /claude-hadouken:consumo report: the limits and pace panel with one bar per window, the two sessions with responses in the last hour (share of the hour's total, project, models and tokens), today's tables by project, model·effort and origin, with the share-of-total column as a bar, responses, input, cache created 1 h and 5 min, cache read, output and cache hit rate, and the GitHub section with runs, conclusions, minutes per OS and cache](docs/imagens/relatorio.svg)
+![Excerpt of the /hadouken:consumo report: the limits and pace panel with one bar per window, the two sessions with responses in the last hour (share of the hour's total, project, models and tokens), today's tables by project, model·effort and origin, with the share-of-total column as a bar, responses, input, cache created 1 h and 5 min, cache read, output and cache hit rate, and the GitHub section with runs, conclusions, minutes per OS and cache](docs/imagens/relatorio.svg)
 
 It comes in up to five blocks, always in this order:
 
@@ -660,7 +661,7 @@ Mudanças de config bloqueadas: 3.
 | **Disparos por gatilho** (trips per trigger) | How many times each trigger, G1 to G7, tripped. |
 | **Despachos negados** (dispatches denied) | Subagent dispatches denied by P1; in brackets, those denied for cost (G5). |
 | **Prompts bloqueados**, **Trocas de modelo bloqueadas** (prompts blocked, model switches blocked) | Prompts stopped in a Fable session (P2) and switches to Fable stopped (P3). |
-| **Liberações** (releases) | Releases given by `/claude-hadouken:liberar` and, in brackets, refused requests (from a `-p` session, from a schedule, from a child `claude` session, or with an argument outside the grammar). Below, one line per release, with its duration and scope (up to 20). |
+| **Liberações** (releases) | Releases given by `/hadouken:liberar` and, in brackets, refused requests (from a `-p` session, from a schedule, from a child `claude` session, or with an argument outside the grammar). Below, one line per release, with its duration and scope (up to 20). |
 | **Despachos de modelo ou effort desconhecido** (dispatches with an unknown model or effort) | Dispatches whose model or effort the guard could not tell (see R1 and plugin agents in [SECURITY.md](SECURITY.md)). |
 | **Sessões claude filhas negadas** (child claude sessions denied) | Child `claude` sessions denied by P4. |
 | **Escritas negadas na pasta de dados** (writes denied in the data folder) | Edits P5 denied in hadouken's data folder. |
@@ -682,7 +683,7 @@ Só tamanhos e durações, lidos dos transcripts; o texto injetado não é guard
 
 | plugin | execuções | injeções | caracteres | p50 | p95 | timeouts |
 |---|---:|---:|---:|---:|---:|---:|
-| claude-hadouken | 120 | 118 | 9 400 | 110 ms | 180 ms | 0 |
+| hadouken | 120 | 118 | 9 400 | 110 ms | 180 ms | 0 |
 | (outros) | 3 | 0 | 0 | — | — | 1 |
 
 Compactações: 3 na sessão principal, 1 em subagentes.
@@ -804,7 +805,7 @@ The full output, with all three periods, is in [`docs/imagens/relatorio-exemplo.
 
 ### JSON output
 
-`/claude-hadouken:consumo --json` returns the same content as stable, versioned JSON (`"versao": 1`), meant for other tools (and the next subprojects) to consume. Top-level keys: `versao`, `aviso`, `gerado_em`, `limites`, `limites_motivo`, `claude`, `github`, `avisos`, since v0.2.0, `sessoesAbertas` and, since v0.4.0, `guarda` and `custoHooks`. The limits block of the same example:
+`/hadouken:consumo --json` returns the same content as stable, versioned JSON (`"versao": 1`), meant for other tools (and the next subprojects) to consume. Top-level keys: `versao`, `aviso`, `gerado_em`, `limites`, `limites_motivo`, `claude`, `github`, `avisos`, since v0.2.0, `sessoesAbertas` and, since v0.4.0, `guarda` and `custoHooks`. The limits block of the same example:
 
 ```json
 {
@@ -851,8 +852,8 @@ Off by default. When on, hadouken learns on this machine only, spending no token
 
 ### Turning it on, in two steps
 
-1. `/claude-hadouken:aprender ligar` shows the plan and changes nothing: the Collector version, the GitHub download address, the maximum size, the folder (`~/.claude/hadouken/otel/`), the keys that go into the `env` of `settings.json`, and an 8-character code.
-2. `/claude-hadouken:aprender ligar <code>` does it: downloads the Collector once, checks the SHA-256 pinned in the code (on a mismatch the file is deleted and nothing changes), extracts it with the system `tar`, writes the configuration and only then adds the keys to the `env` of `settings.json`, with a backup. If `settings.json` changed between the two steps, the code does not match and nothing happens.
+1. `/hadouken:aprender ligar` shows the plan and changes nothing: the Collector version, the GitHub download address, the maximum size, the folder (`~/.claude/hadouken/otel/`), the keys that go into the `env` of `settings.json`, and an 8-character code.
+2. `/hadouken:aprender ligar <code>` does it: downloads the Collector once, checks the SHA-256 pinned in the code (on a mismatch the file is deleted and nothing changes), extracts it with the system `tar`, writes the configuration and only then adds the keys to the `env` of `settings.json`, with a backup. If `settings.json` changed between the two steps, the code does not match and nothing happens.
 
 `ligar` refuses if `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_DETAILS` or `OTEL_LOG_RAW_API_BODIES` is on (in the `env` of `settings.json` or in the environment, with the name in any letter case, as Windows reads it), or if another OTLP endpoint is already configured. Telemetry starts with the next session. The command is a hook that runs before the model: it spends no tokens, and a `claude -p` or SDK session (a script) is refused; a scheduled task, a `/loop` or a routine carrying the command in its text is denied before it is created. If another session is in the middle of a `ligar`, a `desligar` or the learning step, the answer is that learning is busy, and `settings.json` does not change.
 
@@ -885,7 +886,7 @@ Learned bands only change the colour of the VS Code panel; the notices Claude re
 
 | Command | What it does |
 |---|---|
-| `/claude-hadouken:aprender` or `… status` | The state, the adjustments in force, the suggestions and the latest events. |
+| `/hadouken:aprender` or `… status` | The state, the adjustments in force, the suggestions and the latest events. |
 | `… ligar`, `… ligar <code>` | The preview and the run, above. |
 | `… desligar`, `… desligar <code>` | Also in two steps: the preview shows the keys that leave the `env` and what will be deleted, with an 8-character code; with the code, it stops the Collector and removes from `env` only the keys with the value `ligar` wrote. If `settings.json` changed between the two steps, nothing happens. The data stays; `desligar dados` deletes the learned data (the binary stays), and `desligar tudo` also deletes the `otel/` folder, binary included, each with its own code (`desligar dados <code>`, `desligar tudo <code>`). |
 | `… desfazer`, `… desfazer aN` | Reverts the last adjustment (or `aN`) and locks the item for 7 days. |
@@ -894,7 +895,7 @@ Learned bands only change the colour of the VS Code panel; the notices Claude re
 At the start of a session, at most once a day and only when there is something new, a line like this shows up for you only, outside Claude's context (the plugin's messages are in Portuguese):
 
 ```
-Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /claude-hadouken:aprender status).
+Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /hadouken:aprender status).
 ```
 
 It also warns, once a day per kind, when the Collector does not start, does not stop or has not received telemetry yet.
@@ -911,7 +912,7 @@ It also warns, once a day per kind, when the Collector does not start, does not 
 
 ## hadouken-kit and hadouken-rea (optional)
 
-The `claude-hadouken` marketplace carries two more plugins, separate from usage and the guard. **hadouken-kit** installs the daily skill set in one go: `claude-hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills` (`mattpocock`), `poka-yoke` (`poka-yoke`), `fullstack-dev-skills` (`fullstack-dev-skills`) and `ui-ux-pro-max` (`ui-ux-pro-max-skill`). It also brings the `hadouken-kit:fluxo` skill, which says which one to use at each step, and copies of `yu-ux-web-expert` and `graphify`. If you only want usage and the guard, install only `claude-hadouken`.
+The `claude-hadouken` marketplace carries two more plugins, separate from usage and the guard. **hadouken-kit** installs the daily skill set in one go: `hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` and `ui-ux-pro-max` (these four as entries in the `claude-hadouken` marketplace itself, with a pinned commit). It also brings the `hadouken-kit:fluxo` skill, which says which one to use at each step, and copies of `yu-ux-web-expert` and `graphify`. If you only want usage and the guard, install only `hadouken`.
 
 In the terminal (outside a session, or with `!` inside one):
 
@@ -919,32 +920,55 @@ In the terminal (outside a session, or with `!` inside one):
 claude plugin marketplace add Garioli-Labs/claude-hadouken
 claude plugin marketplace update claude-hadouken
 claude plugin marketplace add anthropics/claude-plugins-official
-claude plugin marketplace add mattpocock/skills
-claude plugin marketplace add rainmanjam/poka-yoke
-claude plugin marketplace add jeffallan/claude-skills
-claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
 claude plugin install hadouken-kit@claude-hadouken
 ```
 
 - **Why the `marketplace add` lines first.** The first one registers the hadouken marketplace (if you already have v0.4.0 it says "already" and moves on; `update` brings the kit's entry). Claude Code only installs a dependency from a marketplace that is already registered. Without it, the kit installs with the warning `dependency "<name>" was not installed (no marketplace you have added lists it)` and does not load.
 - **Outside a session.** Installing or enabling a plugin inside an open session is held by the guard's `ConfigChange` hook. Run the commands in the terminal and open a new session.
 - **Skills at the right moment.** Each session, the kit puts a 5-line summary in context (about 400 tokens, no model call) with the moment of each skill: `superpowers` runs the process and the Matt Pocock skills come in at their moments (stress-testing a plan, prototype, spec, tickets, handoff, branch review, PR body, steps only you can do, module design, domain, research, triage, teaching). Claude fires on its own the ones the author lets the model invoke; the other 16 (`to-spec`, `to-tickets`, `handoff`, `triage`, `teach` and more) have `disable-model-invocation`, and at their moment Claude suggests you type the command (`/mattpocock-skills:handoff`, for example). The full table, with all 27 Matt skills (mattpocock-skills 1.3.1), is in `/hadouken-kit:fluxo`.
-- **Already had `mattpocock-skills`?** The map follows 1.3.1 (27 skills). If you installed it before, you stay on the cached version until you update; in 1.2.0, `pr` and `wizard` do not exist and Claude cannot find them. In the terminal: `claude plugin marketplace update mattpocock` and `claude plugin update mattpocock-skills@mattpocock`, then open a new session.
+- **Already had `mattpocock-skills`?** The map follows 1.3.1 (27 skills). If you installed it before, you stay on the cached version until you update; in 1.2.0, `pr` and `wizard` do not exist and Claude cannot find them. Since v0.5.2, the kit brings the copy from the `claude-hadouken` marketplace; run the one command (which turns off the old copy, `mattpocock-skills@mattpocock`) or, in the terminal, `claude plugin marketplace update claude-hadouken` and `claude plugin update mattpocock-skills@claude-hadouken`, then open a new session.
 - **clean-architecture is out of the kit.** Since 2026-10-14 its `plugin.json` is a symbolic link. On Windows, git checks the link out as text and the install fails with `JSON parse error: Unexpected token '.'`; as a dependency, it would take the whole kit down. On Linux and macOS, install it separately: `claude plugin marketplace add nathankim0/clean-architecture-skills` and `claude plugin install clean-architecture@clean-architecture-skills`.
 - **yu-ux-web-expert.** The first time, its `setup.sh` installs `axe-core` and `lighthouse` (from the kit's `package-lock.json`) in the plugin folder, `playwright` in the user's Python and Chromium in Playwright's cache; `axe-core` and `lighthouse` are installed again after each kit update, because the folder changes with the version. The kit's copy does not grant Bash, Write, Edit or WebFetch without asking (`allowed-tools: Read Grep Glob`): it reads third-party pages, and every command goes through your permission.
-- **REA, off by default.** To turn it on: `claude plugin install hadouken-rea@claude-hadouken` and `claude plugin enable hadouken-rea@claude-hadouken`. It opens `npx -y rea-agents@6.1.0 mcp` (exact version; on Windows through `cmd.exe /d /c`) with its working directory in the plugin folder, never the open project (a repository's `node_modules` or `.npmrc` does not come in); give the REA absolute paths. It needs Node 22.19+, 24.11+ or 26+, and **runs the programs it analyzes with your user's permissions**. The first time, `npx` downloads the package (about 20 to 30 s) and `/mcp` may report a timeout; once the package is cached, it connects in seconds (reconnect from `/mcp` or open a new session).
-- **Versions.** A weekly GitHub Actions workflow compares published versions with the tested ones (`kit/testado.json`) and opens an issue when a dependency ships a new major version. The kit only talks to the network when the yu-ux `setup.sh` runs (npm, pip, Playwright) and, once enabled, when the REA's first `npx` runs.
+- **REA, off by default when installed by hand.** The one-command installer turns it on only on the first install, if Node fits; if you turn it off, it stays off. To turn it on by hand: `claude plugin install hadouken-rea@claude-hadouken` and `claude plugin enable hadouken-rea@claude-hadouken`. It opens `npx -y rea-agents@6.1.0 mcp` (exact version; on Windows through `cmd.exe /d /c`) with its working directory in the plugin folder, never the open project (a repository's `node_modules` or `.npmrc` does not come in); give the REA absolute paths. It needs Node 22.19+, 24.11+ or 26+, and **runs the programs it analyzes with your user's permissions**. The first time, `npx` downloads the package (about 20 to 30 s) and `/mcp` may report a timeout; once the package is cached, it connects in seconds (reconnect from `/mcp` or open a new session).
+- **Versions and automatic updates.** The kit's third parties (`mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` and `ui-ux-pro-max`) are entries in the hadouken marketplace with a pinned commit (`sha`); `superpowers` stays in the official marketplace. The one-command installer turns on `autoUpdate` for the hadouken marketplace (in your `settings.json`, with a backup) and turns off the old copies of the third parties, which came from each one's own marketplace, so skills do not show up twice (nothing is uninstalled; to undo, set `true` back in `enabledPlugins`). Every Monday, a GitHub Actions robot checks the published versions: a new version of a third party or of `rea-agents` goes to a branch, the suite runs on Linux, Windows and macOS with Node 20, 22 and 24 and, all green, the robot publishes by itself (tag `kit-v<version>`); any red becomes an issue and nothing is published. A new `graphifyy` (pip) version only opens an issue. The kit only touches the network when yu-ux's `setup.sh` runs (npm, pip, Playwright) and the REA, when on, on the first `npx`.
 
 ---
 
 ## Installation
 
+### One command
+
+In the terminal (outside Claude Code), on a new machine or to update:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.sh | bash
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.ps1 | iex
+```
+
+It checks Node (20+), git and Claude Code (2.1.251+); if any is missing, it lists them and asks once before installing (Node and git through winget or brew, Claude Code through the official installer). Then it installs `hadouken`, `hadouken-kit` and `hadouken-rea` (on at the first install if Node is 22.19+, 24.11+ or 26+; if you turn it off, running it again does not turn it back on), sets the bar, installs the VS Code item, turns on automatic updates and, if you accept, the extras (Python, `graphify` in its own venv at `~/.claude/hadouken/venv`, with Python 3.10+, the `yu-ux-web-expert` tools and `gh`). Local learning only turns on if you answer "s". At the end, a one-line summary per item; running it again updates and skips what is already right.
+
+Options (in bash, `| bash -s -- <options>`; in PowerShell, `$env:HADOUKEN_INSTALAR = '<options>'` before `irm`):
+
+| Option | Does |
+|---|---|
+| `--sim` | answers yes to the questions; does not replace another plugin's bar and does not turn on learning |
+| `--substituir-barra` | replaces a `statusLine` that is not hadouken's (with a backup) |
+| `--sem-extras` | skips the extras |
+| `--com-aprendizado` | turns on local learning without asking |
+
+The steps below are the manual path, with the same result.
+
 ### Requirements
 
-- **Claude Code 2.1.251 or newer.** The guard needs it. On earlier versions, the model switch (P3) and the release through `/claude-hadouken:liberar` do not exist, and the plugin does not work: no hook loads and, without the SessionStart registration, the status bar stays empty too. On 2.1.250, Claude Code rejects the model-switch events in `hooks.json` and registers none of the plugin's hooks. That leaves no guard, no session-start usage line, no notices, no P1 to P5 and no status bar. The minimum is 2.1.251; 2.1.250 failed, and 2.1.251 was not tested on its own.
+- **Claude Code 2.1.251 or newer.** The guard needs it. On earlier versions, the model switch (P3) and the release through `/hadouken:liberar` do not exist, and the plugin does not work: no hook loads and, without the SessionStart registration, the status bar stays empty too. On 2.1.250, Claude Code rejects the model-switch events in `hooks.json` and registers none of the plugin's hooks. That leaves no guard, no session-start usage line, no notices, no P1 to P5 and no status bar. The minimum is 2.1.251; 2.1.250 failed, and 2.1.251 was not tested on its own.
 - **Node.js 20 or newer**, on your `PATH`.
 - **A Pro or Max plan** to see limits: Claude Code only hands the 5 h and 7-day limits to the status line on those accounts (or behind a gateway with a spend limit), and only after the session's first API response. Without that, the plugin works, but the limits have no reading in the panel, the notices and the report.
-- Optional, for the panel: **VS Code** with the `code` command on `PATH` (on Windows, `code.cmd`), and the `claude` executable in `~/.local/bin` or on `PATH` (on Windows, `claude.exe`), to read Fable.
+- Optional, for the panel: **VS Code**. The plugin finds `code` on `PATH` (on Windows, `code.cmd`) and, on a Mac, also inside `Visual Studio Code.app` in `/Applications` or `~/Applications`, without "Shell Command: Install 'code' command in PATH". For the Fable reading, the `claude` executable in `~/.local/bin` or on `PATH` (on Windows, `claude.exe`).
 - Optional: [`gh`](https://cli.github.com/), logged in, for the GitHub section.
 - Optional: `git`, to find the repo from `origin` when there is no `config.json`.
 
@@ -954,7 +978,7 @@ claude plugin install hadouken-kit@claude-hadouken
 
 ```text
 /plugin marketplace add Garioli-Labs/claude-hadouken
-/plugin install claude-hadouken@claude-hadouken
+/plugin install hadouken@claude-hadouken
 ```
 
 `/plugin install` opens the panel with the plugin's details; choose **Install for you (user scope)** to have it in every project.
@@ -963,7 +987,7 @@ Prefer the terminal? The equivalent commands install without opening any session
 
 ```bash
 claude plugin marketplace add Garioli-Labs/claude-hadouken
-claude plugin install claude-hadouken@claude-hadouken
+claude plugin install hadouken@claude-hadouken
 ```
 
 **2. Start a new session.**
@@ -976,7 +1000,7 @@ claude plugin install claude-hadouken@claude-hadouken
 **3. In the new session, install the status bar:**
 
 ```text
-/claude-hadouken:instalar
+/hadouken:instalar
 ```
 
 The bar can only be set in your user `settings.json` (a plugin cannot do that on its own), which is why this command exists. It:
@@ -994,9 +1018,9 @@ The bar appears on the next interface refresh. Two things to know before you con
 - With a `statusLine` configured, Claude Code stops showing most footer keyboard hints, such as `esc to interrupt` and `? for shortcuts`.
 - Sessions opened before the plugin was installed start running the new command right away, but do not get the bar: in them it stays empty until the session is reopened. If you replaced an existing bar, those sessions have no bar until reopened.
 
-**4. The VS Code panel installs itself.** With the `code` command on `PATH`, the session start installs the panel extension in the background, without asking anything and without spending tokens. In a VS Code window that was already open, the item may only show up after you reload it (`Developer: Reload Window`). To skip the install, or to remove it, see [Install, turn off and remove](#install-turn-off-and-remove).
+**4. The VS Code panel installs itself.** With VS Code installed (the `code` command on `PATH`, or on a Mac the app in `/Applications`), the session start installs the panel extension in the background, without asking anything and without spending tokens. In a VS Code window that was already open, the item may only show up after you reload it (`Developer: Reload Window`). To skip the install, or to remove it, see [Install, turn off and remove](#install-turn-off-and-remove).
 
-### What `/claude-hadouken:instalar` changes, and how to undo it
+### What `/hadouken:instalar` changes, and how to undo it
 
 | Question | Answer |
 |---|---|
@@ -1004,17 +1028,19 @@ The bar appears on the next interface refresh. Two things to know before you con
 | What changes in it? | Only the `statusLine` key, which now calls `node "<data folder>/bin/statusline.mjs"`. The rest of the file stays as it was. |
 | What if I already have a bar? | It is shown, and the recommended answer is to keep it. Only "Substituir a barra atual" (replace the current bar) swaps it. |
 | Is there a backup? | Yes, before writing: `settings.json.bak-hadouken-<time in ms>`, next to the file. The 5 most recent are kept. |
-| How do I undo it? | `node "$HOME/.claude/hadouken/bin/cli.mjs" instalar --remover`, in a terminal (or in Claude Code, prefixed with `!`). It removes only the claude-hadouken bar, also with a backup; if the file's `statusLine` is someone else's, it touches nothing. |
+| How do I undo it? | `node "$HOME/.claude/hadouken/bin/cli.mjs" instalar --remover`, in a terminal (or in Claude Code, prefixed with `!`). It removes only the hadouken bar, also with a backup; if the file's `statusLine` is someone else's, it touches nothing. |
 | And to get back exactly the file I had? | Copy the `settings.json.bak-hadouken-*` backup back over `settings.json`. Changes made to the file after the backup are lost. |
 
 ### Updating
 
-Third-party marketplaces do not auto-update by default. To update, use **Update now** on the **Installed** tab of `/plugin`, or in the terminal:
+If you installed with the one command, automatic updates are on: Claude Code updates the hadouken marketplace and plugins after the first message of a session, and the new version applies in the next session (`DISABLE_AUTOUPDATER=1` turns it off). To update now, run the one command again, use **Update now** in the **Installed** tab of `/plugin`, or, in the terminal:
 
 ```bash
 claude plugin marketplace update claude-hadouken
-claude plugin update claude-hadouken@claude-hadouken
+claude plugin update hadouken@claude-hadouken
 ```
+
+**Installed before v0.5.2?** The plugin was renamed from `claude-hadouken` to `hadouken` (Claude Code reserves names that start with `claude-`). The marketplace moves your `enabledPlugins` entry to the new name, but the plugin has to be installed once under it: run the one command again or, in the terminal, `claude plugin install hadouken@claude-hadouken`. The commands become `/hadouken:liberar`, `/hadouken:aprender`, `/hadouken:consumo` and the rest.
 
 The bar does not need to be reinstalled. The `statusLine` runs a stable script in the data folder (`bin/statusline.mjs`), and that script points to the plugin version loaded by the latest session start (opening, resuming, `/clear` and `/compact` all count as a start). The VS Code panel loads its logic the same way, through `bin/painel.mjs`. In v0.3.0 the bar loses the 5-hour and 7-day segments, the session-start line changes and the panel comes in. In practice:
 
@@ -1089,7 +1115,7 @@ In `~/.claude/hadouken/` (or in `HADOUKEN_HOME`), outside any repository:
 | `aprendizado.json`, `ajustes.json`, `sugestoes.json` | Only with learning on: the aggregates (26 weeks), the adjustments in force with a record of each one, and the suggestions. |
 | `aprendizado-cursor.json`, `aprendizado-eventos.json`, `aprendizado.lock` | Only with learning on: how far the telemetry has been read, the latest events (port busy, low memory…) and the one-step-at-a-time lock. |
 | `guarda.json` | The guard (v0.4.0): the tripped locks, each with its trigger and the window's reset. |
-| `liberacao.json` | The active release, written only by the typed `/claude-hadouken:liberar`. |
+| `liberacao.json` | The active release, written only by the typed `/hadouken:liberar`. |
 | `guarda-eventos.json` | The guard's 200 newest events (trips, denials, releases, config changes blocked, errors), with fixed labels and numbers only. Feeds "Guarda (7 dias)". |
 | `despachos-fable.json` | The instants of the Fable dispatches in the last 24 h, for G7 (up to 200). |
 | `limites-atingidos.json` | The last Fable limit reached and the last general one. |
@@ -1114,7 +1140,7 @@ You can delete the folder at any time; it is recreated on the next session, with
 
 **The guarantee:** nothing the plugin reads (state files, transcripts, the status line input, GitHub responses, command arguments) ever becomes executed code, a shell command, an arbitrary path, a terminal sequence or an instruction carrying the plugin's authority in Claude's context. Every threat in the model (S1 to S9: tampered file, malicious text, terminal sequences, argument injection, malicious repo, tampered script, installer triggered behind your back, supply chain, huge file; and, for the panel, S26 to S28: the panel runs `claude`, the installer runs the VS Code CLI, a tampered `uso-oficial.json`; and, from v0.4.0, S29 and S30: other plugins' text in the report, the bar's repeated reading; and, for learning, L1 to L8: forged OTLP, swapped binary, identity leak, exposed port, corrupted `settings.json`, deleted `ajustes.json`, the download and the Collector's processes) has a defence and a test with synthetic malicious input.
 
-**The honest limit:** no plugin can stop code that **already runs as your OS user**. A malicious skill that got that far can change any of your files, including `settings.json` and the plugin itself. What `claude-hadouken` guarantees is that it does not widen that power, and that it restores its own scripts on every new session.
+**The honest limit:** no plugin can stop code that **already runs as your OS user**. A malicious skill that got that far can change any of your files, including `settings.json` and the plugin itself. What `hadouken` guarantees is that it does not widen that power, and that it restores its own scripts on every new session.
 
 The full threat model, the environment variables and how to report a vulnerability privately are in [SECURITY.md](SECURITY.md) (bilingual). Do not open a public issue for vulnerabilities.
 
@@ -1137,10 +1163,10 @@ No plugin failure or slowness may stall Claude. Targets are measured, not assume
 | Guard before dispatching a subagent (P1), Windows | p95 ≤ 250 ms | 161 ms |
 | Guard before switching models (P3), Windows | p95 ≤ 250 ms | 162 ms |
 | Plugin file guard (P5), Windows | p95 ≤ 250 ms | 146 ms |
-| `/claude-hadouken:liberar`, Windows | p95 ≤ 250 ms | 171 ms |
+| `/hadouken:liberar`, Windows | p95 ≤ 250 ms | 171 ms |
 | Guard hooks, Linux/macOS | p95 ≤ 150 ms | to be measured in CI |
-| `/claude-hadouken:consumo`, index already built | ≤ 2 s | Windows 548 ms · Linux 207 ms · macOS 169 ms |
-| `/claude-hadouken:consumo`, index from scratch | ≤ 15 s | Windows 2.60 s · Linux 834 ms · macOS 623 ms |
+| `/hadouken:consumo`, index already built | ≤ 2 s | Windows 548 ms · Linux 207 ms · macOS 169 ms |
+| `/hadouken:consumo`, index from scratch | ≤ 15 s | Windows 2.60 s · Linux 834 ms · macOS 623 ms |
 
 - p95 of the worst scenario in each row. Windows measured on 2026-10-01, on an Intel Core i7-7700HQ (8 logical cores, Node 24) with VS Code open and about 22% background CPU (numbers may run slightly high); Linux and macOS on GitHub Actions runners (`ubuntu-latest` and `macos-latest`, Node 24), the CI `bench` job.
 - The bar and the hooks are measured over 100 runs, from process start to exit, with a worst-case disk: 1,000 registered sessions, the state at its 50-session cap and a full reading history (90 points); for the hooks, both notice memories are full as well (`alertas.json` and `projecao.json`, the latter with the projections of 256 sessions). The worst case is rebuilt before every round, so it holds for the whole measurement.
@@ -1178,7 +1204,7 @@ Why the report is fast the second time: the transcript index is incremental and 
 - **The notices' projection is a straight line.** It projects the pace of the last minutes (20 on the 5-hour window, 3 hours on the 7-day one) as if it stayed the same: a pause or a burst changes the projection on the next reading. It needs at least 3 readings covering 6 minutes, so it does not come out right at the start of a window or with the bar idle. The panel's forecast uses a different calculation, the average pace of the whole window, and so reacts slowly to a burst.
 - **One account at a time.** Readings are not separated per account: with two accounts under the same OS user, the panel, the notices and the report use the most recent reading from either, and the panel's `/usage` reads the account `claude` is logged into. The projection's history is a single one too; since the two accounts have different resets, switching between them restarts the history on every switch, and the projection disappears until it gathers points again.
 - **Fable depends on the `/usage` text.** The panel reads the English lines of `/usage` (`Current session`, `Current week (all models)`, `Current week (Fable)`) with fixed rules. If a Claude Code version changes that text, Fable shows `—` or the tooltip shows `Última leitura falhou (formato).` (last reading failed: format); 5 h and the week keep coming from the status line.
-- **The panel needs `code` and `claude`.** Without the `code` command on `PATH`, the extension does not install itself. Without `claude` in `~/.local/bin` or on `PATH` (on Windows, only `claude.exe`, never `.cmd`), Fable has no reading and the tooltip says `claude não encontrado em ~/.local/bin nem no PATH.` (claude not found).
+- **The panel needs `code` and `claude`.** Without the `code` command on `PATH` (on a Mac, without the app in `/Applications` or `~/Applications`), the extension does not install itself, and the session start says so in one line. Without `claude` in `~/.local/bin` or on `PATH` (on Windows, only `claude.exe`, never `.cmd`), Fable has no reading and the tooltip says `claude não encontrado em ~/.local/bin nem no PATH.` (claude not found).
 - **Worktrees** of the same project show up as separate projects (the project is the folder name).
 - **The plugin does not switch model or effort.** The official documentation does not allow switching models mid-session from outside, and switching mid-session wastes the cache. The plugin measures and notifies; the decision is yours.
 
@@ -1192,7 +1218,7 @@ Why the report is fast the second time: the transcript index is incremental and 
 node "$HOME/.claude/hadouken/bin/cli.mjs" instalar --remover
 ```
 
-It removes **only** the claude-hadouken bar, with a backup. If the file's `statusLine` is someone else's, it touches nothing. This command needs the plugin installed, which is why it comes first; `/claude-hadouken:instalar` also reminds you of it when it finishes. If you added the bar by hand (the `caminho-inseguro` case), delete the `statusLine` key by hand.
+It removes **only** the hadouken bar, with a backup. If the file's `statusLine` is someone else's, it touches nothing. This command needs the plugin installed, which is why it comes first; `/hadouken:instalar` also reminds you of it when it finishes. If you added the bar by hand (the `caminho-inseguro` case), delete the `statusLine` key by hand.
 
 **2. Remove the VS Code panel.** In a terminal:
 
@@ -1205,11 +1231,11 @@ Then reload every open VS Code window (`Developer: Reload Window`): the item sta
 **3. Uninstall the plugin and, if you like, remove the marketplace:**
 
 ```text
-/plugin uninstall claude-hadouken@claude-hadouken
+/plugin uninstall hadouken@claude-hadouken
 /plugin marketplace remove claude-hadouken
 ```
 
-In a terminal: `claude plugin uninstall claude-hadouken@claude-hadouken` and `claude plugin marketplace remove claude-hadouken`.
+In a terminal: `claude plugin uninstall hadouken@claude-hadouken` and `claude plugin marketplace remove claude-hadouken`.
 
 **4. Delete the data, if you like:**
 
@@ -1248,13 +1274,13 @@ No, that is by design: only sessions started after installation use the plugin. 
 None, except the `gh api` queries (always GET, read-only) the report makes to the configured repos, or to `origin`, using your `gh` login, and the usage query Claude Code itself makes when the panel runs `claude -p /usage`. No telemetry, no calls to the Claude API. Details in [Privacy and security](#privacy-and-security).
 
 **How do I uninstall?**
-In four steps: remove the bar (`node "$HOME/.claude/hadouken/bin/cli.mjs" instalar --remover`), remove the panel (`code --uninstall-extension gariolilabs.claude-hadouken-painel`), uninstall the plugin (`/plugin uninstall claude-hadouken@claude-hadouken`) and, if you like, delete `~/.claude/hadouken`. The full walkthrough is in [Uninstalling](#uninstalling).
+In four steps: remove the bar (`node "$HOME/.claude/hadouken/bin/cli.mjs" instalar --remover`), remove the panel (`code --uninstall-extension gariolilabs.claude-hadouken-painel`), uninstall the plugin (`/plugin uninstall hadouken@claude-hadouken`) and, if you like, delete `~/.claude/hadouken`. The full walkthrough is in [Uninstalling](#uninstalling).
 
 **The report says "plugin files not found - open a new session".**
 The plugin was updated and the old version left the disk. The next session repoints the scripts to the version in use.
 
 **Does it work on Windows? And in VS Code's terminal?**
-Yes. The bar is a command that Claude Code runs wherever it is open, including VS Code's integrated terminal. The panel is a VS Code extension; on Windows, it needs `code.cmd` on `PATH` to install itself and `claude.exe` to read Fable. CI runs the tests on Linux, Windows and macOS, with Node 20 and 24, and paths with spaces and accents are covered by tests.
+Yes. The bar is a command that Claude Code runs wherever it is open, including VS Code's integrated terminal. The panel is a VS Code extension; on Windows, it needs `code.cmd` on `PATH` to install itself and `claude.exe` to read Fable. CI runs the tests on Linux, Windows and macOS, with Node 20 and 24 (the kit robot, with 20, 22 and 24), and paths with spaces and accents are covered by tests.
 
 **I have several sessions open in VS Code. Does the plugin take all of them into account?**
 Yes, in two ways. The 5-hour, week and Fable percentages already belong to the whole account, adding up every session (in VS Code, another terminal or another machine), and the panel shows them once, with the forecast and the projection coming from them. The panel tooltip also shows how many plugin sessions are active right now (`Sessões ativas: 3`), and the projection notice takes that number to Claude, which can reduce parallelism. The plugin does not tell VS Code sessions apart from other terminals: it counts every Claude Code session on this machine that started after installation. See [Projection and several sessions](#projection-and-several-sessions).
@@ -1277,7 +1303,7 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 
 - **v0.2.0** = a prettier bar: percentages also as little squares (`▰▰▰▱▱▱▱▱`), the weekly pace mark on the 7-day bar, colours for ctx and cache, and an easier-to-read `/consumo` (panel with bars, share-of-total column, short names, decimal comma and thousands separator); and, for several sessions at once, the active session count on the bar, each window's run-out forecast (`→100% 13:10`), the projection notice to Claude and the "open sessions in the last hour" section in `/consumo`.
 - **v0.3.0** = the VS Code panel: 5 h, week and Fable in a status bar item, with Fable read from the official `/usage` without spending tokens, the forecast worded like claude.ai, and a lean read that uses little RAM. The terminal bar keeps only the session (model·effort, ctx and cache), and the session-start line swaps the expected value and the mode for the week's forecast sentence.
-- **v0.4.0** = the guard: instead of only notifying, hold back subagent dispatch, Fable use and the expensive dispatch when usage goes too far, with release only by the user (`/claude-hadouken:liberar`), and protect the plugin's files and the settings fields that would turn the guard off. `/consumo` gains "Guarda (7 dias)" and "Custo dos hooks (7 dias)"; the notices gain the floor reading, the reset in minutes, the return time and the week's pace; the bar redraws every minute while the session is idle; and resuming an idle session shows the cache tokens to be rewritten. Plus optional local learning: hadouken learns from Claude Code's OpenTelemetry, on this machine only and with no tokens, adjusts comfort within fixed limits, only tightens the guard by itself, and leaves loosening and model switches as suggestions.
+- **v0.4.0** = the guard: instead of only notifying, hold back subagent dispatch, Fable use and the expensive dispatch when usage goes too far, with release only by the user (`/hadouken:liberar`), and protect the plugin's files and the settings fields that would turn the guard off. `/consumo` gains "Guarda (7 dias)" and "Custo dos hooks (7 dias)"; the notices gain the floor reading, the reset in minutes, the return time and the week's pace; the bar redraws every minute while the session is idle; and resuming an idle session shows the cache tokens to be rewritten. Plus optional local learning: hadouken learns from Claude Code's OpenTelemetry, on this machine only and with no tokens, adjusts comfort within fixed limits, only tightens the guard by itself, and leaves loosening and model switches as suggestions.
 - **v0.5.0** = hadouken-kit and hadouken-rea, optional in the same marketplace: the kit installs and pins the workflow skills (superpowers, Matt Pocock, yu-ux-web-expert, graphify and others), tells Claude the moment for each one and warns when a dependency ships a new major version; the REA turns on the reverse engineering MCP server. Plus the minor fixes from the v0.4.0 review.
 - **v0.5.1** (this one) = follows mattpocock-skills 1.3.1 (27 skills), makes the REA start under a junction or link and say so when Node is too old, and has the weekly check read the superpowers the official marketplace installs, without reopening issues or passing third-party text along.
 - **v0.6.0** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.

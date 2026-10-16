@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { VERSAO_REA } from '../rea/lancar.mjs';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const allow = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'marketplace.json'), 'utf8'))
@@ -29,6 +30,6 @@ for (const arq of ['README.md', 'README.en.md']) {
     assert.match(bloco, /^```bash\nclaude plugin marketplace add Garioli-Labs\/claude-hadouken\nclaude plugin marketplace update claude-hadouken\n/);
     assert.equal(bloco.match(/claude plugin marketplace add /g).length, allow.length + 1, 'nenhum marketplace add sobrando');
     assert.match(t, /claude plugin enable hadouken-rea@claude-hadouken/);
-    assert.match(t, /rea-agents@6\.1\.0/);
+    assert.ok(t.includes(`rea-agents@${VERSAO_REA}`), `rea-agents@${VERSAO_REA}`);
   });
 }

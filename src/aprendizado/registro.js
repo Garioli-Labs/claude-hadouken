@@ -31,7 +31,7 @@ const EVENTOS_MAX = 50;
 const TRAVA_VENCIDA_MS = 120_000;
 const TRAVA_TENTATIVAS = 5;
 const TRAVA_ESPERA_MS = 50;
-// 'comando-recusado': o /claude-hadouken:aprender recusado por vir de -p/SDK
+// 'comando-recusado': o /hadouken:aprender recusado por vir de -p/SDK
 // ou de uma origem que não é o comando digitado (Task 11, ruling I1), só com
 // o aprendizado ligado. 'parar-falhou': o pararColetor com 'erro' (consulta
 // sem resposta ou taskkill que falhou com o Collector de pé; revisão da Task

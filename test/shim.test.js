@@ -25,15 +25,15 @@ const SHIMS = ['statusline.mjs', 'cli.mjs', 'painel.mjs'];
 const ALVO = { 'statusline.mjs': 'statusline.js', 'cli.mjs': 'cli.js', 'painel.mjs': path.join('uso', 'painel.js') };
 // O marcador que cada alvo sintético de criarRaiz imprime.
 const MARCADOR = { 'statusline.mjs': 'alvo-statusline', 'cli.mjs': 'alvo-cli', 'painel.mjs': 'alvo-painel' };
-const LINHA_CLI = 'claude-hadouken: plugin files not found - open a new session';
-const linhaInterna = (token) => `claude-hadouken: internal error (${token})\n`;
+const LINHA_CLI = 'hadouken: plugin files not found - open a new session';
+const linhaInterna = (token) => `hadouken: internal error (${token})\n`;
 // Handler do cli.mjs, copiado à mão (não importado de shim.js). String.raw:
 // o \n fica como os dois caracteres \ e n, e o shim continua uma linha só.
 // "plugin files not found" só quando o módulo que falta é o próprio alvo:
 // e.url === u (Node >= 20.10) ou, sem e.url (Node 20.0 a 20.9), a mensagem
 // começa pelo caminho do alvo. Qualquer outro erro: "internal error (<code
 // ou name>)", só letras, dígitos e _, no máximo 40, sem stack. Sai 1 sempre.
-const CATCH_CLI = String.raw`(e) => { let m = "internal error (unknown)"; try { const s = (v) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : ""); if (e?.code === "ERR_MODULE_NOT_FOUND" && (e.url === u || (e.url === undefined && typeof e.message === "string" && e.message.startsWith("Cannot find module '" + fileURLToPath(u) + "'")))) m = "plugin files not found - open a new session"; else m = "internal error (" + (s(e?.code) || s(e?.name) || "unknown") + ")"; } catch {} process.exitCode = 1; try { process.stderr.write("claude-hadouken: " + m + "\n"); } catch {} }`;
+const CATCH_CLI = String.raw`(e) => { let m = "internal error (unknown)"; try { const s = (v) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : ""); if (e?.code === "ERR_MODULE_NOT_FOUND" && (e.url === u || (e.url === undefined && typeof e.message === "string" && e.message.startsWith("Cannot find module '" + fileURLToPath(u) + "'")))) m = "plugin files not found - open a new session"; else m = "internal error (" + (s(e?.code) || s(e?.name) || "unknown") + ")"; } catch {} process.exitCode = 1; try { process.stderr.write("hadouken: " + m + "\n"); } catch {} }`;
 const PREFIXO_CLI = 'import { fileURLToPath } from "node:url"; const u = ';
 const MODELO = {
   'statusline.mjs': (url) => `await import(${JSON.stringify(url)}).catch(() => {});\n`,

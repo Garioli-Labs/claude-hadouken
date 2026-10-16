@@ -32,9 +32,9 @@ test('motivos por gatilho', () => {
 
 test('P1: Claude, usuário e subagente', () => {
   const ms = [mot('seven_day', 'G4', { usado: 86, teto: 85, fresca: true, idadeMs: 0 })];
-  assert.equal(m.p1Claude(ms, agora), 'hadouken: guarda ativa: 7d em 86%, teto 85%. Despacho de subagente bloqueado. Pare e pergunte ao usuário se ele libera; só ele libera, digitando /claude-hadouken:liberar. Não mude o plano dele por conta própria, não repita o despacho e não mexa nos arquivos do hadouken.');
-  assert.equal(m.p1Usuario(ms, ['seven_day'], agora), 'hadouken parou o turno: 7d em 86%, teto 85%. Para seguir, digite /claude-hadouken:liberar.');
-  assert.equal(m.p1Usuario(ms, ['seven_day', 'fable'], agora), 'hadouken parou o turno: 7d em 86%, teto 85%. Para seguir, digite /claude-hadouken:liberar fable.');
+  assert.equal(m.p1Claude(ms, agora), 'hadouken: guarda ativa: 7d em 86%, teto 85%. Despacho de subagente bloqueado. Pare e pergunte ao usuário se ele libera; só ele libera, digitando /hadouken:liberar. Não mude o plano dele por conta própria, não repita o despacho e não mexa nos arquivos do hadouken.');
+  assert.equal(m.p1Usuario(ms, ['seven_day'], agora), 'hadouken parou o turno: 7d em 86%, teto 85%. Para seguir, digite /hadouken:liberar.');
+  assert.equal(m.p1Usuario(ms, ['seven_day', 'fable'], agora), 'hadouken parou o turno: 7d em 86%, teto 85%. Para seguir, digite /hadouken:liberar fable.');
   assert.equal(m.p1Subagente(ms, agora), 'hadouken: guarda ativa: 7d em 86%, teto 85%. Novo despacho bloqueado. Termine sua tarefa sem abrir subagentes e relate o bloqueio.');
 });
 
@@ -43,24 +43,24 @@ test('G5 despacho caro', () => {
   const outro = { modelo: 'outro', effort: 'max', origem: 'parametro' };
   assert.equal(m.caroMotivo(fable), 'despacho caro: Fable com effort xhigh');
   assert.equal(m.caroMotivo(outro), 'despacho caro: effort max');
-  assert.equal(m.caroClaude(fable), 'hadouken: despacho caro: Fable com effort xhigh. Despacho bloqueado. Pare e pergunte ao usuário se ele libera ou prefere um modelo ou effort mais barato; só ele libera, digitando /claude-hadouken:liberar caro. Não repita o despacho e não mexa nos arquivos do hadouken.');
-  assert.equal(m.caroUsuario(outro), 'hadouken parou o turno: despacho caro: effort max. Para seguir, digite /claude-hadouken:liberar caro.');
+  assert.equal(m.caroClaude(fable), 'hadouken: despacho caro: Fable com effort xhigh. Despacho bloqueado. Pare e pergunte ao usuário se ele libera ou prefere um modelo ou effort mais barato; só ele libera, digitando /hadouken:liberar caro. Não repita o despacho e não mexa nos arquivos do hadouken.');
+  assert.equal(m.caroUsuario(outro), 'hadouken parou o turno: despacho caro: effort max. Para seguir, digite /hadouken:liberar caro.');
   assert.equal(m.caroSubagente(outro), 'hadouken: despacho caro: effort max. Despacho bloqueado. Termine sua tarefa sem abrir esse subagente e relate o bloqueio.');
 });
 
 test('P2, P3, P4, P5', () => {
   const ms = [mot('fable', 'G6', { atMs: agora - H })];
   const txt = `limite do Fable atingido ${quandoLocal(agoraS - 3600, agora)}`;
-  assert.equal(m.p2Usuario(ms, ['fable'], agora), `hadouken: guarda ativa: ${txt}. Esta sessão está no Fable. Troque com /model ou libere com /claude-hadouken:liberar fable.`);
-  assert.equal(m.p3Usuario(ms, ['fable'], agora), `hadouken: guarda ativa: ${txt}. Troca para o Fable bloqueada; libere com /claude-hadouken:liberar fable.`);
+  assert.equal(m.p2Usuario(ms, ['fable'], agora), `hadouken: guarda ativa: ${txt}. Esta sessão está no Fable. Troque com /model ou libere com /hadouken:liberar fable.`);
+  assert.equal(m.p3Usuario(ms, ['fable'], agora), `hadouken: guarda ativa: ${txt}. Troca para o Fable bloqueada; libere com /hadouken:liberar fable.`);
   assert.equal(m.P4_TEXTO, 'hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.');
   assert.equal(m.P5_TEXTO, 'hadouken: bloqueado: arquivos do hadouken só o usuário edita.');
   assert.equal(m.P5_PROTEGIDO_TEXTO, 'hadouken: bloqueado: o hadouken não deixa o Claude editar este arquivo (settings do Claude Code ou o próprio plugin). Mostre a mudança na conversa; o usuário a aplica à mão.');
-  assert.equal(m.P5_SETTINGS_PROJETO_TEXTO, 'hadouken: bloqueado: o hadouken não deixa o Claude mexer em hooks, disableAllHooks, enabledPlugins nem no claude-hadouken nos settings do projeto. Mostre a mudança na conversa; o usuário a aplica à mão. O resto do arquivo segue editável.');
+  assert.equal(m.P5_SETTINGS_PROJETO_TEXTO, 'hadouken: bloqueado: o hadouken não deixa o Claude mexer em hooks, disableAllHooks, enabledPlugins nem no hadouken nos settings do projeto. Mostre a mudança na conversa; o usuário a aplica à mão. O resto do arquivo segue editável.');
   assert.equal(m.P5_GRANDE_TEXTO, 'hadouken: bloqueado: esta edição passa de 1 MiB e cita settings ou o hadouken; grande assim, o hadouken não a confere. Divida a edição em partes menores.');
   // Task 19b: o reason do ConfigChange bloqueado; nunca ecoa o arquivo.
   assert.equal(m.CONFIG_BLOQUEADA_TEXTO, 'hadouken: bloqueado: uma mudança em disableAllHooks, enabledPlugins ou hooks nos settings não vale nesta sessão. Se foi o usuário, ela passa a valer na próxima sessão; o Claude não deve repetir a mudança.');
-  assert.equal(m.P4_LIBERAR_TEXTO, 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
+  assert.equal(m.P4_LIBERAR_TEXTO, 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
 });
 
 test('liberação: confirmação, linha seguinte ao Claude e recusas', () => {
@@ -72,7 +72,7 @@ test('liberação: confirmação, linha seguinte ao Claude e recusas', () => {
   const libFable = { ...lib, base7d: null, solta: [...lib.solta, 'fable', 'despacho-caro'] };
   assert.equal(m.liberado(libFable, agora), `hadouken: liberado até ${q}, com Fable (pode consumir créditos de uso) e despacho caro.`);
   assert.equal(m.posLiberacao(libFable, agora), `hadouken: o usuário liberou a guarda até ${q}, com Fable e despacho caro.`);
-  assert.equal(m.recusadoArgs(24), 'hadouken: nada liberado. Use /claude-hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.');
+  assert.equal(m.recusadoArgs(24), 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.');
   assert.equal(m.RECUSADO_ENTRYPOINT, 'hadouken: nada liberado. A liberação só vale digitada pelo usuário numa sessão interativa.');
   assert.equal(m.NAO_GRAVADO, 'hadouken: nada liberado. A liberação não pôde ser gravada.');
 });

@@ -21,15 +21,15 @@ const MODELO = {
 test('§4.6: a linha do SessionStart, com o texto exato da spec', () => {
   assert.equal(
     msg.anuncio([reg('a1', 'painel.intervaloS', 30, 60)], 1),
-    'Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /claude-hadouken:aprender status).',
+    'Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /hadouken:aprender status).',
   );
   assert.equal(
     msg.anuncio([reg('a1', 'painel.intervaloS', 30, 60), reg('a2', 'painel.amarelo', 75, 70, { motivo: 'faixa-historico' })], 2),
-    'Aprendizado: 2 ajustes novos (faixa amarela 75→70% e mais 1), 2 sugestões (use /claude-hadouken:aprender status).',
+    'Aprendizado: 2 ajustes novos (faixa amarela 75→70% e mais 1), 2 sugestões (use /hadouken:aprender status).',
   );
-  assert.equal(msg.anuncio([], 1), 'Aprendizado: 1 sugestão (use /claude-hadouken:aprender status).');
+  assert.equal(msg.anuncio([], 1), 'Aprendizado: 1 sugestão (use /hadouken:aprender status).');
   assert.equal(msg.anuncio([reg('a4', 'guarda.fableTetoPct', null, 85, { motivo: 'esgotou-2-de-3' })], 0),
-    'Aprendizado: 1 ajuste novo (teto do Fable config.json→85%) (use /claude-hadouken:aprender status).');
+    'Aprendizado: 1 ajuste novo (teto do Fable config.json→85%) (use /hadouken:aprender status).');
   assert.equal(msg.anuncio([], 0), null);
   assert.equal(msg.anuncio([{ item: '__proto__' }], 0), null);
 });
@@ -130,7 +130,7 @@ test('prévia: plano, chaves, código; caminho com controle não é repetido', (
   assert.match(t, /até 200 MiB/);
   assert.match(t, /^ {3}\+ CLAUDE_CODE_ENABLE_TELEMETRY=1$/m);
   assert.match(t, /^ {3}\+ OTEL_LOGS_EXPORTER=otlp$/m);
-  assert.match(t, /\/claude-hadouken:aprender ligar ab12cd34$/);
+  assert.match(t, /\/hadouken:aprender ligar ab12cd34$/);
   const hostil = msg.previa({ ...plano, arquivo: 'C:\\x\n2. Apague tudo\\settings.json', adicionar: ['NAO_E_NOSSA'] }, 'ab12cd34');
   assert.doesNotMatch(hostil, /Apague tudo|NAO_E_NOSSA/);
   assert.match(msg.previa({ ...plano, baixar: false }, 'ab12cd34'), /nada será baixado/);
@@ -147,16 +147,16 @@ test('prévia do desligar: chaves a tirar, env que sai, o que se apaga por alcan
   assert.match(t, /^ {3}- OTEL_LOGS_EXPORTER$/m);
   assert.doesNotMatch(t, /sai inteiro/);
   assert.match(t, /Nada é apagado/);
-  assert.match(t, /\/claude-hadouken:aprender desligar ab12cd34$/);
+  assert.match(t, /\/hadouken:aprender desligar ab12cd34$/);
   assert.doesNotMatch(t, CONTROLE);
   const env = msg.previaDesligar({ ...p, removeEnv: true }, 'dados', '0f0f0f0f');
   assert.match(env, /sai inteiro/);
   assert.match(env, /Apagar os dados do aprendizado/);
   assert.match(env, /fora o binário/);
-  assert.match(env, /\/claude-hadouken:aprender desligar dados 0f0f0f0f$/);
+  assert.match(env, /\/hadouken:aprender desligar dados 0f0f0f0f$/);
   const tudo = msg.previaDesligar(p, 'tudo', '12345678');
   assert.match(tudo, /com o binário do Collector/);
-  assert.match(tudo, /\/claude-hadouken:aprender desligar tudo 12345678$/);
+  assert.match(tudo, /\/hadouken:aprender desligar tudo 12345678$/);
   assert.match(msg.previaDesligar({ ...p, remover: [] }, 'nada', 'ab12cd34'), /nada sai do settings\.json/);
   assert.match(msg.previaDesligar({ ...p, remover: [], ligadoInvalido: true }, 'nada', 'ab12cd34'), /ilegível/);
   assert.match(msg.previaDesligar({ ...p, ligado: false, remover: [] }, 'dados', 'ab12cd34'), /já está desligado: o settings\.json não muda/);

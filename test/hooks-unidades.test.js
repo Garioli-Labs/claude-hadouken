@@ -148,19 +148,19 @@ test('linhaEstado: nunca lança nem repete texto de fora', () => {
 
 test('linhas fixas de falha: só códigos conhecidos, o resto vira erro', () => {
   for (const m of ['sem_diretorio', 'raiz_invalida', 'bin_invalido', 'shim_invalido', 'tmp_invalido', 'shim', 'EPERM', 'EACCES', 'EBUSY', 'ENOENT', 'ENOSPC', 'EROFS']) {
-    assert.equal(linhaShimIndisponivel(m), `claude-hadouken: barra indisponível (${m})`);
+    assert.equal(linhaShimIndisponivel(m), `hadouken: barra indisponível (${m})`);
   }
   for (const m of ['invalido', 'pasta', 'criar', 'inesperado']) {
-    assert.equal(linhaSemRegistro(m), `claude-hadouken: sessão não registrada (${m}); barra e alertas desligados nesta sessão.`);
+    assert.equal(linhaSemRegistro(m), `hadouken: sessão não registrada (${m}); barra e alertas desligados nesta sessão.`);
   }
   const hostis = [INSTRUCAO, '\x1b]0;pwned\x07', 'EPERM\n', 'toString', '__proto__', 'constructor', '', null, undefined, 42, {}, ['EPERM']];
   for (const m of hostis) {
-    assert.equal(linhaShimIndisponivel(m), 'claude-hadouken: barra indisponível (erro)', String(m));
-    assert.equal(linhaSemRegistro(m), 'claude-hadouken: sessão não registrada (erro); barra e alertas desligados nesta sessão.', String(m));
+    assert.equal(linhaShimIndisponivel(m), 'hadouken: barra indisponível (erro)', String(m));
+    assert.equal(linhaSemRegistro(m), 'hadouken: sessão não registrada (erro); barra e alertas desligados nesta sessão.', String(m));
   }
   // Códigos de outra origem não valem aqui.
-  assert.equal(linhaSemRegistro('raiz_invalida'), 'claude-hadouken: sessão não registrada (erro); barra e alertas desligados nesta sessão.');
-  assert.equal(linhaShimIndisponivel('pasta'), 'claude-hadouken: barra indisponível (erro)');
+  assert.equal(linhaSemRegistro('raiz_invalida'), 'hadouken: sessão não registrada (erro); barra e alertas desligados nesta sessão.');
+  assert.equal(linhaShimIndisponivel('pasta'), 'hadouken: barra indisponível (erro)');
 });
 
 // --- memória de alertas ------------------------------------------------------

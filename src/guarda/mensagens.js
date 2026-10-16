@@ -54,8 +54,8 @@ export const textoMotivos = (motivos, agoraMs) => motivos.map((mo) => textoMotiv
 // G6 só sai com o escopo fable (§5.2): o comando sugerido já o traz.
 export const sufixoLiberar = (ativas) => (ativas.includes('fable') ? ' fable' : '');
 
-export const p1Claude = (motivos, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Despacho de subagente bloqueado. Pare e pergunte ao usuário se ele libera; só ele libera, digitando /claude-hadouken:liberar. Não mude o plano dele por conta própria, não repita o despacho e não mexa nos arquivos do hadouken.`;
-export const p1Usuario = (motivos, ativas, agoraMs) => `hadouken parou o turno: ${textoMotivos(motivos, agoraMs)}. Para seguir, digite /claude-hadouken:liberar${sufixoLiberar(ativas)}.`;
+export const p1Claude = (motivos, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Despacho de subagente bloqueado. Pare e pergunte ao usuário se ele libera; só ele libera, digitando /hadouken:liberar. Não mude o plano dele por conta própria, não repita o despacho e não mexa nos arquivos do hadouken.`;
+export const p1Usuario = (motivos, ativas, agoraMs) => `hadouken parou o turno: ${textoMotivos(motivos, agoraMs)}. Para seguir, digite /hadouken:liberar${sufixoLiberar(ativas)}.`;
 export const p1Subagente = (motivos, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Novo despacho bloqueado. Termine sua tarefa sem abrir subagentes e relate o bloqueio.`;
 
 // G5 (D1 emendado): só o rótulo 'fable' e o effort validado; nunca o nome
@@ -64,12 +64,12 @@ export function caroMotivo(perfil) {
   const effort = effortValido(perfil?.effort) ?? '—';
   return perfil?.modelo === 'fable' ? `despacho caro: Fable com effort ${effort}` : `despacho caro: effort ${effort}`;
 }
-export const caroClaude = (perfil) => `hadouken: ${caroMotivo(perfil)}. Despacho bloqueado. Pare e pergunte ao usuário se ele libera ou prefere um modelo ou effort mais barato; só ele libera, digitando /claude-hadouken:liberar caro. Não repita o despacho e não mexa nos arquivos do hadouken.`;
-export const caroUsuario = (perfil) => `hadouken parou o turno: ${caroMotivo(perfil)}. Para seguir, digite /claude-hadouken:liberar caro.`;
+export const caroClaude = (perfil) => `hadouken: ${caroMotivo(perfil)}. Despacho bloqueado. Pare e pergunte ao usuário se ele libera ou prefere um modelo ou effort mais barato; só ele libera, digitando /hadouken:liberar caro. Não repita o despacho e não mexa nos arquivos do hadouken.`;
+export const caroUsuario = (perfil) => `hadouken parou o turno: ${caroMotivo(perfil)}. Para seguir, digite /hadouken:liberar caro.`;
 export const caroSubagente = (perfil) => `hadouken: ${caroMotivo(perfil)}. Despacho bloqueado. Termine sua tarefa sem abrir esse subagente e relate o bloqueio.`;
 
-export const p2Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Esta sessão está no Fable. Troque com /model ou libere com /claude-hadouken:liberar${sufixoLiberar(ativas)}.`;
-export const p3Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Troca para o Fable bloqueada; libere com /claude-hadouken:liberar${sufixoLiberar(ativas)}.`;
+export const p2Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Esta sessão está no Fable. Troque com /model ou libere com /hadouken:liberar${sufixoLiberar(ativas)}.`;
+export const p3Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Troca para o Fable bloqueada; libere com /hadouken:liberar${sufixoLiberar(ativas)}.`;
 export const P4_TEXTO = 'hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.';
 export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuário edita.';
 // P5 estendida (Task 0 da parte 2): os settings do usuário e o próprio
@@ -77,7 +77,7 @@ export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuári
 // hooks ou nos plugins. O texto nunca ecoa o pedido: o Claude mostra o trecho
 // na conversa por conta própria.
 export const P5_PROTEGIDO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude editar este arquivo (settings do Claude Code ou o próprio plugin). Mostre a mudança na conversa; o usuário a aplica à mão.';
-export const P5_SETTINGS_PROJETO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude mexer em hooks, disableAllHooks, enabledPlugins nem no claude-hadouken nos settings do projeto. Mostre a mudança na conversa; o usuário a aplica à mão. O resto do arquivo segue editável.';
+export const P5_SETTINGS_PROJETO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude mexer em hooks, disableAllHooks, enabledPlugins nem no hadouken nos settings do projeto. Mostre a mudança na conversa; o usuário a aplica à mão. O resto do arquivo segue editável.';
 // Stdin da P5 acima de 1 MiB que cita settings ou hadouken (rodada 3 da
 // revisão da Task 0): o JSON não é lido; a edição menor passa pela
 // conferência de sempre.
@@ -90,11 +90,11 @@ export const CONFIG_BLOQUEADA_TEXTO = 'hadouken: bloqueado: uma mudança em disa
 // junto com o comando de liberação, negado sempre, disparada ou não. Desde a
 // rodada 2 da revisão da Task 16 o texto que só cita 'hadouken:liberar' (numa
 // mensagem de commit, num grep) também nega; a última frase aponta a saída.
-export const P4_LIBERAR_TEXTO = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
+export const P4_LIBERAR_TEXTO = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
 // Hook da agenda (C1 da revisão final da parte 1): CronCreate, ScheduleWakeup
 // e RemoteTrigger com o pedido de liberação no texto, negados sempre. Desde a
-// Task 11 do aprendizado, também o /claude-hadouken:aprender.
-export const AGENDA_LIBERAR_TEXTO = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /claude-hadouken:liberar ou /claude-hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
+// Task 11 do aprendizado, também o /hadouken:aprender.
+export const AGENDA_LIBERAR_TEXTO = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar ou /hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
 
 // Prazo da liberação (§6.2 e D4): a hora e, com base de 7d, o ponto de 7d
 // em que ela acaba antes.
@@ -118,7 +118,7 @@ export function posLiberacao(lib, agoraMs) {
   const { q, pontos } = prazo(lib, agoraMs);
   return `hadouken: o usuário liberou a guarda até ${q}${pontos ? ` ou até ${pontos}` : ''}${extras(lib, false)}.`;
 }
-export const recusadoArgs = (maxH) => `hadouken: nada liberado. Use /claude-hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a ${inteiro(maxH)}.`;
+export const recusadoArgs = (maxH) => `hadouken: nada liberado. Use /hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a ${inteiro(maxH)}.`;
 export const RECUSADO_ENTRYPOINT = 'hadouken: nada liberado. A liberação só vale digitada pelo usuário numa sessão interativa.';
 // C1 da revisão final da parte 1: a expansão que não vem do comando digitado
 // (command_source ou expansion_type fora da lista fechada de liberar.js).

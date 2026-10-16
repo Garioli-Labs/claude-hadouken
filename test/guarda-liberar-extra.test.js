@@ -11,7 +11,7 @@ import { ARQ_LIBERACAO } from '../src/guarda/liberacao.js';
 import { ARQ_EVENTOS, DIR_MARCAS, lerEventos } from '../src/guarda/registros.js';
 import { NAO_GRAVADO } from '../src/guarda/mensagens.js';
 
-// Complementos do hook de /claude-hadouken:liberar (spec v0.4.0 §6 e §4.5;
+// Complementos do hook de /hadouken:liberar (spec v0.4.0 §6 e §4.5;
 // revisão da Task 13), fora de test/guarda-hooks.test.js. Mesmo arnês: cada
 // hook num processo filho, com HADOUKEN_HOME e CLAUDE_CONFIG_DIR temporários,
 // HADOUKEN_SEM_PAINEL=1 e CLAUDE_EFFORT, CLAUDE_CODE_SUBAGENT_MODEL e
@@ -81,7 +81,7 @@ function saida(r) {
 
 const expansao = (id, args, extra = {}) => ({
   session_id: id, hook_event_name: 'UserPromptExpansion', expansion_type: 'slash_command',
-  command_name: 'claude-hadouken:liberar', command_args: args, command_source: 'plugin', prompt: `/claude-hadouken:liberar ${args}`, ...extra,
+  command_name: 'hadouken:liberar', command_args: args, command_source: 'plugin', prompt: `/hadouken:liberar ${args}`, ...extra,
 });
 const eventos = (home, tipo) => lerEventos(home, Date.now()).filter((e) => e.tipo === tipo);
 

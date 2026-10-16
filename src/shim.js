@@ -37,7 +37,7 @@ export const DIR_BIN = 'bin';
 // O handler nunca lança (um Proxy hostil cai no try) e põe exitCode antes de
 // escrever. String.raw: o \n fica como os dois caracteres \ e n, e o shim
 // continua uma linha só, toda ASCII.
-const CATCH_CLI = String.raw`(e) => { let m = "internal error (unknown)"; try { const s = (v) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : ""); if (e?.code === "ERR_MODULE_NOT_FOUND" && (e.url === u || (e.url === undefined && typeof e.message === "string" && e.message.startsWith("Cannot find module '" + fileURLToPath(u) + "'")))) m = "plugin files not found - open a new session"; else m = "internal error (" + (s(e?.code) || s(e?.name) || "unknown") + ")"; } catch {} process.exitCode = 1; try { process.stderr.write("claude-hadouken: " + m + "\n"); } catch {} }`;
+const CATCH_CLI = String.raw`(e) => { let m = "internal error (unknown)"; try { const s = (v) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : ""); if (e?.code === "ERR_MODULE_NOT_FOUND" && (e.url === u || (e.url === undefined && typeof e.message === "string" && e.message.startsWith("Cannot find module '" + fileURLToPath(u) + "'")))) m = "plugin files not found - open a new session"; else m = "internal error (" + (s(e?.code) || s(e?.name) || "unknown") + ")"; } catch {} process.exitCode = 1; try { process.stderr.write("hadouken: " + m + "\n"); } catch {} }`;
 // O do painel (emenda E4) só reexporta a lógica de src/uso/painel.js: a
 // extensão do VS Code o carrega por import() dinâmico e trata a rejeição
 // (alvo sumido) ela mesma. O alvo em subpasta entra pelo path.join de

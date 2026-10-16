@@ -29,7 +29,13 @@ const SO_USUARIO = ['ask-matt', 'grill-with-docs', 'implement', 'implement-spec'
   'improve-codebase-architecture', 'retro', 'setup-matt-pocock-skills', 'to-spec', 'to-tickets',
   'triage', 'wayfinder', 'grill-me', 'handoff', 'teach', 'to-questionnaire', 'wait-what',
 ].map((s) => `mattpocock-skills:${s}`);
-const CACHE_MATT = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'mattpocock', 'mattpocock-skills', '1.3.1');
+// v0.5.2: depois do comando único, o cache dos terceiros fica sob o
+// marketplace claude-hadouken; antes, sob o de cada um. Vale o que existir.
+const primeiro = (...ps) => ps.find((p) => fs.existsSync(p)) ?? ps[0];
+const CACHE_MATT = primeiro(
+  path.join(os.homedir(), '.claude', 'plugins', 'cache', 'claude-hadouken', 'mattpocock-skills', '1.3.1'),
+  path.join(os.homedir(), '.claude', 'plugins', 'cache', 'mattpocock', 'mattpocock-skills', '1.3.1'),
+);
 
 // Cita a skill no texto: as do usuário só com a barra; as outras só sem.
 function citacoes(texto) {
@@ -58,7 +64,7 @@ const EXISTENTES = new Set([
 const CACHE = path.join(os.homedir(), '.claude', 'plugins', 'cache');
 const CACHE_DE = {
   superpowers: path.join(CACHE, 'claude-plugins-official', 'superpowers', '6.4.1'),
-  'poka-yoke': path.join(CACHE, 'poka-yoke', 'poka-yoke', '0.2.0'),
+  'poka-yoke': primeiro(path.join(CACHE, 'claude-hadouken', 'poka-yoke', '0.2.0'), path.join(CACHE, 'poka-yoke', 'poka-yoke', '0.2.0')),
 };
 
 function rodar(cwd, input = '') {
@@ -131,14 +137,36 @@ test('SKILL fluxo: cada uma das 27 skills do Matt Pocock tem o seu momento na ta
 
 // v0.5.1 (revisão): sem cache 1.3.1, o teste abaixo pula, inclusive no CI.
 // A lista registrada e o disable-model-invocation de cada skill ficam num
-// retrato do repositório mattpocock/skills (gerado do clone, 2026-10-14), e
-// a versão do retrato é a do testado.json: os dois andam juntos.
+// retrato do repositório mattpocock/skills, que o robô (kit-atualizar) regera
+// no sha novo; a versão e o commit do retrato são os do testado.json e do
+// marketplace. Skill que sumir ou mudar faz a suíte do ramo do robô ficar
+// vermelha, e nada é publicado (revisão final, Important 4).
 test('POCOCK e SO_USUARIO batem com o retrato do mattpocock-skills testado', () => {
   const r = JSON.parse(fs.readFileSync(path.join(repo, 'test', 'dados', 'mattpocock-skills.json'), 'utf8'));
   const t = JSON.parse(fs.readFileSync(path.join(repo, 'kit', 'testado.json'), 'utf8'));
-  assert.equal(r.versao, t.dependencias['mattpocock-skills@mattpocock']);
+  assert.equal(r.versao, t.dependencias['mattpocock-skills@claude-hadouken']);
+  const m = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'marketplace.json'), 'utf8'));
+  assert.equal(r.commit, m.plugins.find((p) => p.name === 'mattpocock-skills').source.sha, 'o robô regera o retrato no sha novo');
   assert.deepEqual(r.skills.map((s) => `mattpocock-skills:${s.nome}`).sort(), [...POCOCK].sort());
   assert.deepEqual(r.skills.filter((s) => s.soUsuario).map((s) => `mattpocock-skills:${s.nome}`).sort(), [...SO_USUARIO].sort());
+});
+
+// Toda skill de terceiro que o fluxo cita existe no retrato daquele terceiro
+// (test/dados/<nome>.json), que o robô regera no sha novo, com a versão e o
+// commit do testado.json e do marketplace.
+test('as skills de terceiros citadas existem no retrato do sha testado', () => {
+  const t = JSON.parse(fs.readFileSync(path.join(repo, 'kit', 'testado.json'), 'utf8'));
+  const m = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'marketplace.json'), 'utf8'));
+  const terceiros = new Set(m.plugins.filter((p) => typeof p.source !== 'string').map((p) => p.name));
+  const citadas = [...EXISTENTES].filter((n) => terceiros.has(n.split(':')[0]));
+  assert.ok(citadas.some((n) => n.startsWith('poka-yoke:')));
+  for (const nome of new Set(citadas.map((n) => n.split(':')[0]))) {
+    const r = JSON.parse(fs.readFileSync(path.join(repo, 'test', 'dados', `${nome}.json`), 'utf8'));
+    assert.equal(r.versao, t.dependencias[`${nome}@claude-hadouken`], nome);
+    assert.equal(r.commit, m.plugins.find((p) => p.name === nome).source.sha, nome);
+    const tem = new Set(r.skills.map((s) => `${nome}:${s.nome}`));
+    for (const c of citadas.filter((n) => n.startsWith(`${nome}:`))) assert.ok(tem.has(c), c);
+  }
 });
 
 test('SO_USUARIO bate com o frontmatter do mattpocock-skills instalado', { skip: !fs.existsSync(CACHE_MATT) && 'sem o cache 1.3.1' }, () => {

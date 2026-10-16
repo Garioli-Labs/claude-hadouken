@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { VERSAO_REA } from '../rea/lancar.mjs';
+import { GRAPHIFY } from '../src/instalar-tudo.js';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ler = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
@@ -10,21 +12,42 @@ const ler = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
 // Sem o clean-architecture desde 2026-10-14: o plugin.json dele virou link
 // simbólico no upstream e, no Windows (git sem symlinks), a instalação falha
 // com JSON parse error e derruba o kit inteiro.
-const ALLOW = ['claude-plugins-official', 'mattpocock', 'poka-yoke',
-  'fullstack-dev-skills', 'ui-ux-pro-max-skill'];
+// v0.5.2: os terceiros do kit são entradas deste marketplace, com sha fixo;
+// só o superpowers continua no marketplace oficial.
+const ALLOW = ['claude-plugins-official'];
+const TERCEIROS = {
+  'mattpocock-skills': { source: 'github', repo: 'mattpocock/skills', sha: '49dd158d1076134a641b33efb035946536778336' },
+  'poka-yoke': { source: 'git-subdir', url: 'rainmanjam/poka-yoke', path: 'plugins/poka-yoke', sha: '726a575e3d48d07d908abfcbb192cae09671fff2' },
+  'fullstack-dev-skills': { source: 'github', repo: 'jeffallan/claude-skills', sha: '882ef55e377dbf9a4dbe496bb41ac6ccd0e555cf' },
+  'ui-ux-pro-max': { source: 'github', repo: 'nextlevelbuilder/ui-ux-pro-max-skill', sha: 'e353a508767c6d39f0e7698b084dbfc8699fffd3' },
+};
 
-test('marketplace: três entradas, cada uma aponta para pasta com plugin.json de mesmo nome', () => {
+test('marketplace: as três locais apontam para pasta com plugin.json de mesmo nome e versão', () => {
   const m = ler('.claude-plugin/marketplace.json');
-  assert.deepEqual(m.plugins.map((p) => p.name).sort(),
-    ['claude-hadouken', 'hadouken-kit', 'hadouken-rea']);
-  for (const p of m.plugins) {
+  const locais = m.plugins.filter((p) => typeof p.source === 'string');
+  assert.deepEqual(locais.map((p) => p.name).sort(), ['hadouken', 'hadouken-kit', 'hadouken-rea']);
+  for (const p of locais) {
     const man = ler(path.join(p.source, '.claude-plugin', 'plugin.json'));
     assert.equal(man.name, p.name, p.source);
     assert.equal(man.version, p.version, `${p.name}: versão do marketplace = do plugin.json`);
   }
 });
 
-test('marketplace: allowlist exata e toda dependência com marketplace está nela', () => {
+test('marketplace: cada terceiro com fonte github/git-subdir, sha de 40 hex e sem versão própria', () => {
+  const m = ler('.claude-plugin/marketplace.json');
+  const terceiros = m.plugins.filter((p) => typeof p.source !== 'string');
+  assert.deepEqual(terceiros.map((p) => p.name).sort(), Object.keys(TERCEIROS).sort());
+  for (const p of terceiros) {
+    // O sha é do robô (kit-atualizar): sobe a cada versão nova do terceiro.
+    const { sha: _a, ...fonte } = p.source;
+    const { sha: _b, ...esperada } = TERCEIROS[p.name];
+    assert.deepEqual(fonte, esperada, p.name);
+    assert.match(p.source.sha, /^[0-9a-f]{40}$/, p.name);
+    assert.equal(p.version, undefined, `${p.name}: a versão vem do plugin.json do terceiro`);
+  }
+});
+
+test('marketplace: allowlist só com o oficial', () => {
   const m = ler('.claude-plugin/marketplace.json');
   assert.deepEqual(m.allowCrossMarketplaceDependenciesOn, ALLOW);
   const kit = ler('kit/.claude-plugin/plugin.json');
@@ -33,17 +56,18 @@ test('marketplace: allowlist exata e toda dependência com marketplace está nel
   }
 });
 
-test('kit: dependências exatas e sem faixa de versão', () => {
+test('kit: versão igual à do marketplace, dependências só por nome (menos o superpowers) e sem faixa de versão', () => {
   const kit = ler('kit/.claude-plugin/plugin.json');
   assert.equal(kit.name, 'hadouken-kit');
-  assert.equal(kit.version, '1.0.1');
+  assert.match(kit.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken-kit').version, kit.version);
   assert.deepEqual(kit.dependencies, [
-    'claude-hadouken',
+    'hadouken',
     { name: 'superpowers', marketplace: 'claude-plugins-official' },
-    { name: 'mattpocock-skills', marketplace: 'mattpocock' },
-    { name: 'poka-yoke', marketplace: 'poka-yoke' },
-    { name: 'fullstack-dev-skills', marketplace: 'fullstack-dev-skills' },
-    { name: 'ui-ux-pro-max', marketplace: 'ui-ux-pro-max-skill' },
+    'mattpocock-skills',
+    'poka-yoke',
+    'fullstack-dev-skills',
+    'ui-ux-pro-max',
   ]);
   for (const d of kit.dependencies) if (typeof d === 'object') assert.equal(d.version, undefined, d.name);
 });
@@ -60,20 +84,26 @@ test('kit: o REA não é dependência do kit (dependência sobe sempre ligada)',
   assert.ok(!JSON.stringify(kit.dependencies).includes('rea'));
 });
 
-test('testado.json: uma versão para cada dependência, e nenhuma sobrando', () => {
+test('testado.json: uma versão para cada dependência, chaves novas e as mesmas versões', () => {
   const kit = ler('kit/.claude-plugin/plugin.json');
   const t = ler('kit/testado.json');
   const chaves = kit.dependencies.map((d) =>
     typeof d === 'string' ? `${d}@claude-hadouken` : `${d.name}@${d.marketplace}`).sort();
   assert.deepEqual(Object.keys(t.dependencias).sort(), chaves);
   for (const v of Object.values(t.dependencias)) assert.match(v, /^\d+\.\d+\.\d+$/);
-  assert.equal(t.npm['rea-agents'], '6.1.0');
+  // As versões dos terceiros e do rea-agents são do robô; aqui, só o que anda
+  // junto: o principal com o plugin.json, o REA com o lançador, o pip com o
+  // instalador (revisão final, Important 3).
+  assert.equal(t.dependencias['hadouken@claude-hadouken'], ler('.claude-plugin/plugin.json').version);
+  assert.equal(t.npm['rea-agents'], VERSAO_REA);
+  assert.deepEqual(t.pip, { graphifyy: GRAPHIFY.split('==')[1] });
 });
 
 test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node', () => {
   const r = ler('rea/.claude-plugin/plugin.json');
   assert.equal(r.name, 'hadouken-rea');
-  assert.equal(r.version, '1.0.1');
+  assert.match(r.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken-rea').version, r.version);
   assert.equal(r.defaultEnabled, false);
   assert.equal(r.license, 'MIT');
   assert.match(r.description, /permiss/i);
@@ -82,7 +112,8 @@ test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node',
     command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/lancar.mjs'] } } });
 });
 
-test('claude-hadouken: plugin.json e package.json em 0.5.1', () => {
-  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.1');
-  assert.equal(ler('package.json').version, '0.5.1');
+test('hadouken: plugin.json, package.json e marketplace em 0.5.2', () => {
+  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.2');
+  assert.equal(ler('package.json').version, '0.5.2');
+  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken').version, '0.5.2');
 });

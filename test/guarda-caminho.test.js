@@ -41,43 +41,43 @@ test('chamaClaude: casa o executável claude, não um caminho com claude no nome
 // lançadores npx e node do pacote.
 test('claudeComLiberar: claude (ou o pacote) junto com o comando de liberação', () => {
   const sim = [
-    'claude -p "/claude-hadouken:liberar 2h"',
-    "claude -p '/claude-hadouken:liberar'",
-    'claude -p /claude-hadouken:liberar',
-    'claude "/claude-hadouken:liberar fable"',
-    'claude.exe -p "/claude-hadouken:liberar caro"',
-    '"C:/Program Files/Claude/claude.exe" -p "/claude-hadouken:liberar"',
-    'C:\\Users\\x\\.local\\bin\\claude.exe -p "/claude-hadouken:liberar"',
-    '"claude" -p "/claude-hadouken:liberar"',
-    'npx @anthropic-ai/claude-code -p "/claude-hadouken:liberar fable"',
-    'npx -y @anthropic-ai/claude-code@latest --print "claude-hadouken:liberar"',
-    'node C:/npm/node_modules/@anthropic-ai/claude-code/cli.js -p "/claude-hadouken:liberar"',
-    'node C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js -p "/claude-hadouken:liberar"',
-    'CLAUDE_CODE_ENTRYPOINT=cli claude -p "/claude-hadouken:liberar"',
-    'env FOO=1 claude -p "/claude-hadouken:liberar"',
-    'cd . && claude -p "/claude-hadouken:liberar"',
-    'true; claude -p "/claude-hadouken:liberar"',
-    'echo "/claude-hadouken:liberar 2h" | claude -p',
-    "claude -p <<'EOF'\n/claude-hadouken:liberar 2h\nEOF",
+    'claude -p "/hadouken:liberar 2h"',
+    "claude -p '/hadouken:liberar'",
+    'claude -p /hadouken:liberar',
+    'claude "/hadouken:liberar fable"',
+    'claude.exe -p "/hadouken:liberar caro"',
+    '"C:/Program Files/Claude/claude.exe" -p "/hadouken:liberar"',
+    'C:\\Users\\x\\.local\\bin\\claude.exe -p "/hadouken:liberar"',
+    '"claude" -p "/hadouken:liberar"',
+    'npx @anthropic-ai/claude-code -p "/hadouken:liberar fable"',
+    'npx -y @anthropic-ai/claude-code@latest --print "hadouken:liberar"',
+    'node C:/npm/node_modules/@anthropic-ai/claude-code/cli.js -p "/hadouken:liberar"',
+    'node C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js -p "/hadouken:liberar"',
+    'CLAUDE_CODE_ENTRYPOINT=cli claude -p "/hadouken:liberar"',
+    'env FOO=1 claude -p "/hadouken:liberar"',
+    'cd . && claude -p "/hadouken:liberar"',
+    'true; claude -p "/hadouken:liberar"',
+    'echo "/hadouken:liberar 2h" | claude -p',
+    "claude -p <<'EOF'\n/hadouken:liberar 2h\nEOF",
     'claude -p "/claude-hadouken"":liberar"',
     'claude -p "/claude-hadouken\\:lib\\erar"',
     '& claude -p "/claude-hadouken`:liberar"',
     'cmd /c "claude -p /claude-hadouken^:liberar"',
     'claude -p "/Claude-Hadouken:LIBERAR"',
-    'claude -p "/claude-hadouken: liberar"',
+    'claude -p "/hadouken: liberar"',
     'A=claude-hadouken; claude -p "/$A:liberar"',
     'claude -p "/liberar 2h"',
-    '$(which claude) -p "/claude-hadouken:liberar"',
-    "bash -c 'claude -p \"/claude-hadouken:liberar\"'",
-    "Start-Process claude -ArgumentList '-p','/claude-hadouken:liberar'",
-    'X=claude; $X -p "/claude-hadouken:liberar"',
-    `${' '.repeat(10_000)}claude -p "/claude-hadouken:liberar"`,
+    '$(which claude) -p "/hadouken:liberar"',
+    "bash -c 'claude -p \"/hadouken:liberar\"'",
+    "Start-Process claude -ArgumentList '-p','/hadouken:liberar'",
+    'X=claude; $X -p "/hadouken:liberar"',
+    `${' '.repeat(10_000)}claude -p "/hadouken:liberar"`,
     // Decisão do controlador (rodada 2): o texto com 'hadouken:liberar' nega
     // mesmo sem claude; quem só cita o comando grava o texto num arquivo.
-    'echo "/claude-hadouken:liberar"',
-    'grep -rn "claude-hadouken:liberar" src',
-    'cd "E:/Projetos DEV/claude-hadouken" && grep -n "/claude-hadouken:liberar" README.md',
-    'cat CLAUDE.md && echo /claude-hadouken:liberar',
+    'echo "/hadouken:liberar"',
+    'grep -rn "hadouken:liberar" src',
+    'cd "E:/Projetos DEV/claude-hadouken" && grep -n "/hadouken:liberar" README.md',
+    'cat CLAUDE.md && echo /hadouken:liberar',
   ];
   for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
   const nao = [
@@ -97,15 +97,15 @@ test('claudeComLiberar: claude (ou o pacote) junto com o comando de liberação'
 // normalizado) ou '/liberar' como palavra.
 test('pedeLiberacao: hadouken:liberar normalizado ou /liberar como palavra', () => {
   const sim = [
-    '/claude-hadouken:liberar 24h fable caro',
-    '  /claude-hadouken:liberar',
+    '/hadouken:liberar 24h fable caro',
+    '  /hadouken:liberar',
     'rode /Claude-Hadouken:LIBERAR agora',
     '/claude-hadouken"":liberar',
     '/claude-hadouken\\:lib\\erar',
     '/claude-hadouken`:liberar',
     '/claude-hadouken^:liberar',
     '/claude-had\\\nouken:liberar',
-    'claude-hadouken:liberar',
+    'hadouken:liberar',
     '/liberar',
     '/liberar 2h',
     'depois rode /liberar.',
@@ -130,15 +130,15 @@ test('pedeLiberacao: hadouken:liberar normalizado ou /liberar como palavra', () 
 });
 
 // Rodada 1 da revisão da Task 11 do aprendizado: o mesmo teste vale para
-// /claude-hadouken:aprender (aprovar afrouxa a guarda; desligar tira o
+// /hadouken:aprender (aprovar afrouxa a guarda; desligar tira o
 // aprendizado), que também só vale digitado.
 test('pedeLiberacao: hadouken:aprender normalizado ou /aprender como palavra', () => {
   const sim = [
-    '/claude-hadouken:aprender aprovar s1',
+    '/hadouken:aprender aprovar s1',
     'rode /Claude-Hadouken:APRENDER desligar tudo',
     '/claude-hadouken"":aprender',
     '/claude-hadouken\\:apren\\der',
-    'claude-hadouken:aprender',
+    'hadouken:aprender',
     '/aprender',
     '/aprender recusar s2',
     'depois rode /aprender.',

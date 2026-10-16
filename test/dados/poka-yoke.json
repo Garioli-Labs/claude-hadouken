@@ -1,0 +1,51 @@
+{
+  "fonte": "github.com/rainmanjam/poka-yoke",
+  "commit": "726a575e3d48d07d908abfcbb192cae09671fff2",
+  "versao": "0.2.0",
+  "skills": [
+    {
+      "nome": "agent-guardrails",
+      "soUsuario": false
+    },
+    {
+      "nome": "audit",
+      "soUsuario": false
+    },
+    {
+      "nome": "authz",
+      "soUsuario": false
+    },
+    {
+      "nome": "data",
+      "soUsuario": false
+    },
+    {
+      "nome": "design",
+      "soUsuario": false
+    },
+    {
+      "nome": "guardrails",
+      "soUsuario": false
+    },
+    {
+      "nome": "llm",
+      "soUsuario": false
+    },
+    {
+      "nome": "ops",
+      "soUsuario": false
+    },
+    {
+      "nome": "poka-yoke",
+      "soUsuario": false
+    },
+    {
+      "nome": "retro",
+      "soUsuario": false
+    },
+    {
+      "nome": "ux",
+      "soUsuario": false
+    }
+  ]
+}

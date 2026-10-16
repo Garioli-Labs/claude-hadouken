@@ -137,9 +137,9 @@ test('P1: guarda disparada na thread principal nega com continue:false e stopRea
   const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose', model: 'sonnet' }), home, { CLAUDE_EFFORT: 'high' }));
   assert.equal(o.hookSpecificOutput.hookEventName, 'PreToolUse');
   assert.equal(o.hookSpecificOutput.permissionDecision, 'deny');
-  assert.equal(o.hookSpecificOutput.permissionDecisionReason, 'hadouken: guarda ativa: 7d em 86%, teto 85%. Despacho de subagente bloqueado. Pare e pergunte ao usuário se ele libera; só ele libera, digitando /claude-hadouken:liberar. Não mude o plano dele por conta própria, não repita o despacho e não mexa nos arquivos do hadouken.');
+  assert.equal(o.hookSpecificOutput.permissionDecisionReason, 'hadouken: guarda ativa: 7d em 86%, teto 85%. Despacho de subagente bloqueado. Pare e pergunte ao usuário se ele libera; só ele libera, digitando /hadouken:liberar. Não mude o plano dele por conta própria, não repita o despacho e não mexa nos arquivos do hadouken.');
   assert.equal(o.continue, false);
-  assert.equal(o.stopReason, 'hadouken parou o turno: 7d em 86%, teto 85%. Para seguir, digite /claude-hadouken:liberar.');
+  assert.equal(o.stopReason, 'hadouken parou o turno: 7d em 86%, teto 85%. Para seguir, digite /hadouken:liberar.');
   assert.equal(eventos(home, 'negado').length, 1);
 });
 
@@ -169,8 +169,8 @@ test('foco 4: agente do usuário com model fable e effort max, sem o parâmetro 
   gravarEstado(home);
   agente(home, 'fable-max', 'model: fable\neffort: max');
   const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'fable-max', prompt: INSTRUCAO }), home, { CLAUDE_EFFORT: 'high' }));
-  assert.equal(o.hookSpecificOutput.permissionDecisionReason, 'hadouken: despacho caro: Fable com effort max. Despacho bloqueado. Pare e pergunte ao usuário se ele libera ou prefere um modelo ou effort mais barato; só ele libera, digitando /claude-hadouken:liberar caro. Não repita o despacho e não mexa nos arquivos do hadouken.');
-  assert.equal(o.stopReason, 'hadouken parou o turno: despacho caro: Fable com effort max. Para seguir, digite /claude-hadouken:liberar caro.');
+  assert.equal(o.hookSpecificOutput.permissionDecisionReason, 'hadouken: despacho caro: Fable com effort max. Despacho bloqueado. Pare e pergunte ao usuário se ele libera ou prefere um modelo ou effort mais barato; só ele libera, digitando /hadouken:liberar caro. Não repita o despacho e não mexa nos arquivos do hadouken.');
+  assert.equal(o.stopReason, 'hadouken parou o turno: despacho caro: Fable com effort max. Para seguir, digite /hadouken:liberar caro.');
   assert.ok(!r2s(o).includes('Ignore previous'));
   const agora = Date.now();
   gravarLiberacao(home, montarLiberacao({ pedido: lerPedido('caro', PADRAO_GUARDA), agoraMs: agora, usado7d: 40, travas: travasVazias(), config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef01' }));
@@ -204,7 +204,7 @@ test('G7: o quinto despacho Fable em 5 h é negado; despacho Sonnet segue', () =
   const agora = Date.now();
   for (let i = 4; i >= 1; i--) registrarDespachoFable(home, agora - i * 10 * 60_000);
   const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose', model: 'fable' }), home, { CLAUDE_EFFORT: 'high' }));
-  assert.equal(o.stopReason, 'hadouken parou o turno: 4 despachos Fable em 5 h, teto 4. Para seguir, digite /claude-hadouken:liberar.');
+  assert.equal(o.stopReason, 'hadouken parou o turno: 4 despachos Fable em 5 h, teto 4. Para seguir, digite /hadouken:liberar.');
   semSaida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose', model: 'sonnet' }), home, { CLAUDE_EFFORT: 'high' }));
 });
 
@@ -231,7 +231,7 @@ test('P1: entrada hostil nunca quebra o hook', () => {
 
 const expansao = (id, args, extra = {}) => ({
   session_id: id, hook_event_name: 'UserPromptExpansion', expansion_type: 'slash_command',
-  command_name: 'claude-hadouken:liberar', command_args: args, command_source: 'plugin', prompt: `/claude-hadouken:liberar ${args}`, ...extra,
+  command_name: 'hadouken:liberar', command_args: args, command_source: 'plugin', prompt: `/hadouken:liberar ${args}`, ...extra,
 });
 
 test('liberar 2h: grava a liberação, limpa as travas e confirma só com números', () => {
@@ -278,7 +278,7 @@ test('liberar com argumento inválido recusa sem repetir o texto', () => {
   registrar(home, 's1');
   for (const args of ['99h', INSTRUCAO, 'janela 2h', '1h\u001b]0;x\u0007']) {
     const o = saida(rodar('liberar.js', expansao('s1', args), home));
-    assert.deepEqual(o, { decision: 'block', reason: 'hadouken: nada liberado. Use /claude-hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.' });
+    assert.deepEqual(o, { decision: 'block', reason: 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.' });
   }
   assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
 });
@@ -304,13 +304,13 @@ test('liberar fable caro: a confirmação avisa dos créditos de uso', () => {
 test('liberar: entrada hostil nunca quebra o hook nem libera', () => {
   const home = novoHome();
   registrar(home, 's1');
-  for (const e of ['', '{', '[]', '"x"', JSON.stringify({ session_id: 's1', command_name: ['claude-hadouken:liberar'], command_args: '2h' }),
+  for (const e of ['', '{', '[]', '"x"', JSON.stringify({ session_id: 's1', command_name: ['hadouken:liberar'], command_args: '2h' }),
     JSON.stringify({ session_id: 's1', command_name: 'liberar', command_args: '2h' })]) {
     semSaida(rodar('liberar.js', e, home));
   }
   assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
   const o = saida(rodar('liberar.js', expansao('s1', `2h ${'x'.repeat(10_000)}`), home));
-  assert.equal(o.reason, 'hadouken: nada liberado. Use /claude-hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.');
+  assert.equal(o.reason, 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.');
   assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
 });
 
@@ -342,7 +342,7 @@ test('P2 ponta a ponta: sessão Fable disparada bloqueia o prompt; task-notifica
   gravarModeloSessao(home, 's1', 'claude-fable-5-1', Date.now());
   const o = saida(rodar('prompt-submit.js', promptDe('s1', 'rode a revisão'), home));
   assert.equal(o.decision, 'block');
-  assert.equal(o.reason, 'hadouken: guarda ativa: 7d em 86%, teto 85%. Esta sessão está no Fable. Troque com /model ou libere com /claude-hadouken:liberar.');
+  assert.equal(o.reason, 'hadouken: guarda ativa: 7d em 86%, teto 85%. Esta sessão está no Fable. Troque com /model ou libere com /hadouken:liberar.');
   const r = rodar('prompt-submit.js', promptDe('s1', '<task-notification>\n<task-id>x</task-id>\n</task-notification>'), home);
   assert.equal(r.status, 0);
   assert.equal(r.stderr, '');
@@ -368,7 +368,7 @@ test('P3: troca para o Fable com trava ativa é negada; para fora do Fable, nunc
   gravarEstado(home, { u7: 86 });
   const o = saida(rodar('guarda-modelo.js', troca('s1', 'claude-fable-5-1'), home));
   assert.deepEqual(o, { hookSpecificOutput: { hookEventName: 'PreModelSwitch', permissionDecision: 'deny',
-    permissionDecisionReason: 'hadouken: guarda ativa: 7d em 86%, teto 85%. Troca para o Fable bloqueada; libere com /claude-hadouken:liberar.' } });
+    permissionDecisionReason: 'hadouken: guarda ativa: 7d em 86%, teto 85%. Troca para o Fable bloqueada; libere com /hadouken:liberar.' } });
   semSaida(rodar('guarda-modelo.js', troca('s1', 'claude-sonnet-5-5'), home));
   assert.equal(eventos(home, 'troca-bloqueada').length, 1);
   const livre = novoHome();
@@ -395,7 +395,7 @@ test('StopFailure rate_limit do Fable trava o Fable (G6) sem repetir o texto', (
   assert.ok(!fs.readFileSync(path.join(home, ARQ_LIMITES), 'utf8').includes('Ignore'));
   gravarModeloSessao(home, 's1', 'claude-fable-5-1', Date.now());
   const o = saida(rodar('prompt-submit.js', promptDe('s1', 'continue'), home));
-  assert.match(o.reason, /^hadouken: guarda ativa: limite do Fable atingido .+\. Esta sessão está no Fable\. Troque com \/model ou libere com \/claude-hadouken:liberar fable\.$/);
+  assert.match(o.reason, /^hadouken: guarda ativa: limite do Fable atingido .+\. Esta sessão está no Fable\. Troque com \/model ou libere com \/hadouken:liberar fable\.$/);
   assert.equal(lerTravas(home, Date.now()).travas.fable.gatilho, 'G6');
 });
 
@@ -435,9 +435,9 @@ test('SessionStart: marca da guarda que falha registra erro; a linha de consumo 
 
 const ferramenta = (id, tool_name, tool_input) => ({ session_id: id, hook_event_name: 'PreToolUse', tool_name, tool_input, cwd: os.tmpdir() });
 const negacao = (razao) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
-const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
+const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
 
-// O brief da Task 16 usava 'claude -p "/claude-hadouken:liberar"' aqui; com a
+// O brief da Task 16 usava 'claude -p "/hadouken:liberar"' aqui; com a
 // regra fixa (decisão do controlador na revisão da Task 13) esse comando é
 // negado sempre, então a P4 comum é conferida com um pedido qualquer.
 test('P4: claude por Bash ou PowerShell é negado só com a guarda disparada', () => {
@@ -467,14 +467,14 @@ test('P4: claude com o comando de liberação é negado sempre: armada, disparad
   registrar(home, 's1');
   gravarEstado(home);
   const casos = [
-    ['Bash', 'claude -p "/claude-hadouken:liberar 2h"'],
-    ['Bash', 'npx @anthropic-ai/claude-code -p "/claude-hadouken:liberar caro"'],
-    ['Bash', "FOO=1 claude.exe -p 'claude-hadouken:liberar'"],
-    ['Bash', 'echo "/claude-hadouken:liberar fable" | claude -p'],
+    ['Bash', 'claude -p "/hadouken:liberar 2h"'],
+    ['Bash', 'npx @anthropic-ai/claude-code -p "/hadouken:liberar caro"'],
+    ['Bash', "FOO=1 claude.exe -p 'hadouken:liberar'"],
+    ['Bash', 'echo "/hadouken:liberar fable" | claude -p'],
     ['PowerShell', '& claude -p "/claude-hadouken`:liberar"'],
   ];
   for (const [tool, command] of casos) assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', tool, { command }), home)), LIBERAR_NEGADO, command);
-  const cmd = { command: 'cd . && claude -p "/claude-hadouken:liberar"' };
+  const cmd = { command: 'cd . && claude -p "/hadouken:liberar"' };
   // Antes do gate: sessão sem registro e id inválido também.
   assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('nao-registrada', 'Bash', cmd), home)), LIBERAR_NEGADO);
   assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('__proto__', 'Bash', cmd), home)), LIBERAR_NEGADO);
@@ -499,7 +499,7 @@ test('P4: comando que só menciona liberar, sem claude, passa; com hadouken:libe
   for (const command of ['git log --grep liberar', 'echo liberar']) {
     semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command }), home));
   }
-  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'grep -rn "/claude-hadouken:liberar" src' }), home)), LIBERAR_NEGADO);
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'grep -rn "/hadouken:liberar" src' }), home)), LIBERAR_NEGADO);
   const armada = novoHome();
   registrar(armada, 's1');
   gravarEstado(armada);
@@ -533,7 +533,7 @@ test('P4: import que falha não solta a regra fixa; a P4 comum passa e registra 
   const home = novoHome();
   registrar(home, 's1');
   gravarEstado(home, { u7: 86 });
-  const liberar = ferramenta('s1', 'Bash', { command: 'claude -p "/claude-hadouken:liberar"' });
+  const liberar = ferramenta('s1', 'Bash', { command: 'claude -p "/hadouken:liberar"' });
   const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
   assert.deepEqual(saida(rodar('guarda-filha.js', liberar, home, {}, semMensagens)), negacao(P4_LIBERAR_TEXTO));
   assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), ['P4']);
@@ -549,11 +549,11 @@ test('P4: entrada hostil nunca quebra o hook', () => {
   registrar(home, 's1');
   gravarEstado(home, { u7: 86 });
   for (const e of ['', '{', '[]', '"x"', JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: 'claude -p x' }),
-    JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: { command: ['claude', '-p', '/claude-hadouken:liberar'] } }),
+    JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: { command: ['claude', '-p', '/hadouken:liberar'] } }),
     JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: null })]) {
     semSaida(rodar('guarda-filha.js', e, home));
   }
-  const o = saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `claude -p "/claude-hadouken:liberar ${INSTRUCAO}"` }), home));
+  const o = saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `claude -p "/hadouken:liberar ${INSTRUCAO}"` }), home));
   assert.deepEqual(o, LIBERAR_NEGADO);
 });
 
@@ -565,12 +565,12 @@ test('agenda: CronCreate, ScheduleWakeup e RemoteTrigger com o pedido de libera�
   const home = novoHome();
   fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ guarda: { ligada: false } }));
   const casos = [
-    ['CronCreate', { cron: '*/1 * * * *', prompt: '/claude-hadouken:liberar 24h fable caro', recurring: true, durable: true }],
+    ['CronCreate', { cron: '*/1 * * * *', prompt: '/hadouken:liberar 24h fable caro', recurring: true, durable: true }],
     ['CronCreate', { cron: '0 9 * * *', prompt: 'lembrete: rode /liberar' }],
-    ['CronCreate', '/claude-hadouken:liberar'],
-    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: '/claude-hadouken:liberar' }],
+    ['CronCreate', '/hadouken:liberar'],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: '/hadouken:liberar' }],
     ['ScheduleWakeup', { delaySeconds: 60, reason: '/claude-hadouken"":liberar', prompt: 'continue', noop: false }],
-    ['RemoteTrigger', { action: 'create', body: { name: 'r', job_config: { ccr: { events: [{ data: { message: { content: '/claude-hadouken:liberar 2h' } } }] } } } }],
+    ['RemoteTrigger', { action: 'create', body: { name: 'r', job_config: { ccr: { events: [{ data: { message: { content: '/hadouken:liberar 2h' } } }] } } } }],
     ['RemoteTrigger', { action: 'update', trigger_id: 't1', body: { prompt: '/liberar fable' } }],
   ];
   for (const [tool, input] of casos) {
@@ -584,7 +584,7 @@ test('agenda: CronCreate, ScheduleWakeup e RemoteTrigger com o pedido de libera�
     ['ScheduleWakeup', { stop: true }],
     ['RemoteTrigger', { action: 'list' }],
     ['RemoteTrigger', { action: 'run', trigger_id: 'liberar' }],
-    ['Bash', { command: 'echo /claude-hadouken:liberar' }],
+    ['Bash', { command: 'echo /hadouken:liberar' }],
     ['CronCreate', null],
   ];
   for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
@@ -599,7 +599,7 @@ test('agenda: CronCreate, ScheduleWakeup e RemoteTrigger com o pedido de libera�
 // sem o evento. Uma estrutura funda não quebra o hook.
 test('agenda: import que falha não solta a negação; estrutura funda também nega', () => {
   const home = novoHome();
-  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/claude-hadouken:liberar' });
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/hadouken:liberar' });
   const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
   assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
   const semNada = ganchoQueFalha(home, ['/src/guarda/mensagens.js', '/src/guarda/registros.js']);
@@ -608,7 +608,7 @@ test('agenda: import que falha não solta a negação; estrutura funda também n
   // 200 mil níveis: o JSON.parse aceita, e uma varredura recursiva estouraria
   // a pilha (o JSON.stringify do teste também, por isso o texto é montado).
   const n = 200_000;
-  const fundo = `{"session_id":"s1","tool_name":"RemoteTrigger","tool_input":{"action":"create","body":${'['.repeat(n)}"/claude-hadouken:liberar"${']'.repeat(n)}}}`;
+  const fundo = `{"session_id":"s1","tool_name":"RemoteTrigger","tool_input":{"action":"create","body":${'['.repeat(n)}"/hadouken:liberar"${']'.repeat(n)}}}`;
   assert.deepEqual(saida(rodar('guarda-agenda.js', fundo, home)), AGENDA_NEGADO);
 });
 
@@ -618,7 +618,7 @@ test('agenda: import que falha não solta a negação; estrutura funda também n
 test('agenda: stdin ilegível com o pedido nega; sem o pedido passa e registra erro', () => {
   const home = novoHome();
   const truncados = [
-    '{"session_id":"s1","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/claude-hadouken:liberar 24h',
+    '{"session_id":"s1","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/hadouken:liberar 24h',
     '{"tool_name":"ScheduleWakeup","tool_input":{"prompt":"/liberar',
   ];
   for (const e of truncados) assert.deepEqual(saida(rodar('guarda-agenda.js', e, home)), AGENDA_NEGADO, e);
@@ -662,7 +662,7 @@ test('agenda: stdin ilegível com o pedido depois de \\n, \\t ou \\r\\n nega', (
   const truncados = [
     '{"tool_name":"CronCreate","tool_input":{"prompt":"check the build\\n/liberar 2h',
     '{"tool_name":"ScheduleWakeup","tool_input":{"prompt":"x\\t/liberar',
-    '{"tool_name":"RemoteTrigger","tool_input":{"body":"oi\\r\\n/claude-hadouken:liberar',
+    '{"tool_name":"RemoteTrigger","tool_input":{"body":"oi\\r\\n/hadouken:liberar',
   ];
   for (const e of truncados) assert.deepEqual(saida(rodar('guarda-agenda.js', e, home)), AGENDA_NEGADO, e);
   assert.deepEqual(eventos(home, 'liberacao-recusada').map((e) => e.detalhe), ['agenda', 'agenda', 'agenda']);
@@ -676,14 +676,14 @@ test('agenda: stdin ilegível com o pedido depois de \\n, \\t ou \\r\\n nega', (
 test('agenda: scheduler MCP com o pedido de liberação é negado', () => {
   const home = novoHome();
   const casos = [
-    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', cronExpression: '* * * * *', prompt: '/claude-hadouken:liberar 2h' }],
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', cronExpression: '* * * * *', prompt: '/hadouken:liberar 2h' }],
     ['mcp__Agenda__CreateTrigger', { message: 'rode /liberar fable' }],
-    ['mcp__x__CRON_add', { body: { texto: '/claude-hadouken:liberar' } }],
+    ['mcp__x__CRON_add', { body: { texto: '/hadouken:liberar' } }],
   ];
   for (const [tool, input] of casos) assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
   const passam = [
     ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: 'check the build' }],
-    ['mcp__github__create_issue', { body: '/claude-hadouken:liberar' }],
+    ['mcp__github__create_issue', { body: '/hadouken:liberar' }],
     ['xmcp__a__task', { prompt: '/liberar' }],
   ];
   for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
@@ -691,32 +691,32 @@ test('agenda: scheduler MCP com o pedido de liberação é negado', () => {
 });
 
 // Rodada 1 da revisão da Task 11 do aprendizado (segunda metade do I1 do
-// preflight): /claude-hadouken:aprender também só vale digitado. Uma tarefa
+// preflight): /hadouken:aprender também só vale digitado. Uma tarefa
 // agendada, um loop, uma rotina ou um scheduler MCP com o comando no texto
 // são negados, inclusive no stdin ilegível e acima do teto (vigia); o texto
 // do deny diz que só o usuário digita o comando.
-test('agenda: tarefa, loop ou rotina com /claude-hadouken:aprender são negados; prompt sem o comando passa', () => {
+test('agenda: tarefa, loop ou rotina com /hadouken:aprender são negados; prompt sem o comando passa', () => {
   const home = novoHome();
-  assert.match(AGENDA_LIBERAR_TEXTO, /\/claude-hadouken:aprender/);
+  assert.match(AGENDA_LIBERAR_TEXTO, /\/hadouken:aprender/);
   assert.match(AGENDA_LIBERAR_TEXTO, /só ele/);
   const casos = [
-    ['CronCreate', { cron: '0 9 * * *', prompt: '/claude-hadouken:aprender aprovar s1', recurring: true }],
-    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: 'depois rode /claude-hadouken:aprender aprovar s1' }],
+    ['CronCreate', { cron: '0 9 * * *', prompt: '/hadouken:aprender aprovar s1', recurring: true }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: 'depois rode /hadouken:aprender aprovar s1' }],
     ['ScheduleWakeup', { delaySeconds: 60, reason: '/Claude-Hadouken"":APRENDER desligar tudo', prompt: 'continue' }],
     ['RemoteTrigger', { action: 'create', body: { prompt: '/aprender recusar s2' } }],
-    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: '/claude-hadouken:aprender aprovar s1' }],
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: '/hadouken:aprender aprovar s1' }],
   ];
   for (const [tool, input] of casos) {
     assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
   }
   // Sem mensagens.js, o texto de reserva do hook é o mesmo.
   const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
-  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/claude-hadouken:aprender aprovar s1' });
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/hadouken:aprender aprovar s1' });
   assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
   // Stdin ilegível (truncado) com o comando, e acima do teto com 'aprender' no texto cru.
-  const truncado = '{"tool_name":"CronCreate","tool_input":{"prompt":"/claude-hadouken:aprender aprovar s1';
+  const truncado = '{"tool_name":"CronCreate","tool_input":{"prompt":"/hadouken:aprender aprovar s1';
   assert.deepEqual(saida(rodar('guarda-agenda.js', truncado, home)), AGENDA_NEGADO);
-  const grande = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/claude-hadouken:aprender aprovar s1 ${'x'.repeat(1_100_000)}` } });
+  const grande = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/hadouken:aprender aprovar s1 ${'x'.repeat(1_100_000)}` } });
   assert.deepEqual(saida(rodar('guarda-agenda.js', grande, home)), AGENDA_NEGADO);
   assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 3);
   // Sem o comando: passa em silêncio.
@@ -743,7 +743,7 @@ test('M5: stdin acima do teto passa calado e registra erro com o rótulo do hook
     // A P4 lê até 4 MiB; acima, sem 'claude' nem 'liberar' no texto cru.
     ['guarda-filha.js', JSON.stringify({ session_id: 's1', tool_name: 'Bash', tool_input: { command: 'x'.repeat(4_300_000) } }), 'P4'],
     ['guarda-arquivos.js', grande({ tool_name: 'Write', tool_input: { file_path: 'a.txt' } }), 'P5'],
-    ['liberar.js', grande({ command_name: 'claude-hadouken:liberar' }), 'liberar'],
+    ['liberar.js', grande({ command_name: 'hadouken:liberar' }), 'liberar'],
     ['guarda-agenda.js', grande({ tool_name: 'CronCreate', tool_input: { prompt: 'oi' } }), 'agenda'],
   ];
   for (const [script, entrada, rotulo] of casos) {
@@ -763,7 +763,7 @@ test('M5: stdin acima do teto passa calado e registra erro com o rótulo do hook
 });
 
 // Rodada 3 da revisão da Task 0: acima de 1 MiB a P5 não lê o JSON. Como a
-// P4, nega quando o texto cru cita settings ou hadouken (o claude-hadouken do
+// P4, nega quando o texto cru cita settings ou hadouken (o hadouken do
 // plugin e a pasta de dados padrão), sem diferenciar maiúsculas (evento
 // 'arquivo-negado' 'P5:grande', sem 'erro'); senão, passa com o 'erro' P5 (o
 // caso de a.txt do teste M5). Sem mensagens.js, sai o texto de reserva do

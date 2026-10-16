@@ -1,6 +1,6 @@
 ---
 name: aprender
-description: Aprendizado local do hadouken. Só o usuário usa, digitando /claude-hadouken:aprender [status | ligar | desligar | desfazer | aprovar | recusar].
+description: Aprendizado local do hadouken. Só o usuário usa, digitando /hadouken:aprender [status | ligar | desligar | desfazer | aprovar | recusar].
 disable-model-invocation: true
 ---
 

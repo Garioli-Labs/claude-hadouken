@@ -5,7 +5,7 @@ import { lerSemLink } from './arquivo.js';
 import { LIBERACAO_TETO_H } from './config.js';
 
 // Liberação da guarda (spec v0.4.0 §6, D4 = opção C em 2026-09-29): sem
-// código. Só o hook UserPromptExpansion de /claude-hadouken:liberar grava este
+// código. Só o hook UserPromptExpansion de /hadouken:liberar grava este
 // arquivo; o modelo não digita comandos na sessão principal, a P4 nega sessões
 // claude filhas com a guarda disparada e o hook recusa -p e SDK pelo
 // CLAUDE_CODE_ENTRYPOINT. A liberação é global (o limite é da conta) e acaba no
@@ -24,7 +24,7 @@ const ID = /^[0-9a-f]{8}$/;
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const nenhuma = () => ({ ativa: false, solta: new Set(), fim: null });
 
-// Argumentos de /claude-hadouken:liberar (§6.2): até três palavras entre `Nh`
+// Argumentos de /hadouken:liberar (§6.2): até três palavras entre `Nh`
 // (1 a maxH) ou `janela`, que são o prazo (um só), `fable` e `caro`, cada uma
 // no máximo uma vez. Qualquer outra coisa, inclusive um invisível colado ou
 // um dígito que não é ASCII, recusa o pedido inteiro: nunca se adivinha um

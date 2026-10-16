@@ -8,7 +8,7 @@ import {
   anexarEventoApr, gravarAjustes, gravarSugestoes, lerAjustes, lerAprendizado, lerEventosApr, lerSugestoes, pegarTrava,
 } from './registro.js';
 
-// O comando /claude-hadouken:aprender (spec aprendizado §3.2, R4). Chamado
+// O comando /hadouken:aprender (spec aprendizado §3.2, R4). Chamado
 // só pelo hook UserPromptExpansion (src/hooks/aprender.js), que bloqueia a
 // expansão: o modelo não é chamado (0 tokens) e a resposta vai ao usuário.
 // Dois portões antes de qualquer outra leitura ou gravação, na ordem do

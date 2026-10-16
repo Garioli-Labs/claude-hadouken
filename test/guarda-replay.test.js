@@ -11,7 +11,7 @@ import { avaliarGuarda } from '../src/guarda/avaliar.js';
 // Replay do incidente de 2026-09-28/29 (spec v0.4.0 §1.1 e §1.3, critério 1):
 // uma sessão despacha revisores fable-xhigh em sequência, e o 7d sobe 3 pontos
 // por revisor. A guarda nega o primeiro (G5, despacho caro). Depois do
-// /claude-hadouken:liberar caro, passam 4 e o quinto é negado, porque a
+// /hadouken:liberar caro, passam 4 e o quinto é negado, porque a
 // liberação acaba com +10 pontos de 7d e o G7 conta 4 Fable em 5 h.
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -54,7 +54,7 @@ test('replay: G5 nega o primeiro revisor; com liberar caro, passam 4 e o quinto 
   // O comando digitado traz command_source 'plugin' e expansion_type
   // 'slash_command' (C1 da revisão final: o liberar recusa outra origem).
   const lib = hook(home, 'liberar.js', { session_id: 's1', hook_event_name: 'UserPromptExpansion', expansion_type: 'slash_command',
-    command_name: 'claude-hadouken:liberar', command_args: 'caro', command_source: 'plugin' });
+    command_name: 'hadouken:liberar', command_args: 'caro', command_source: 'plugin' });
   assert.equal(lib.decision, 'block');
   const resultados = [];
   for (let i = 0; i < 16; i++) {
@@ -62,7 +62,7 @@ test('replay: G5 nega o primeiro revisor; com liberar caro, passam 4 e o quinto 
     const o = hook(home, 'guarda-despacho.js', revisor);
     resultados.push(o === null ? 'passou' : 'negado');
     if (o !== null) {
-      assert.equal(o.stopReason, 'hadouken parou o turno: 4 despachos Fable em 5 h, teto 4. Para seguir, digite /claude-hadouken:liberar.');
+      assert.equal(o.stopReason, 'hadouken parou o turno: 4 despachos Fable em 5 h, teto 4. Para seguir, digite /hadouken:liberar.');
       break;
     }
   }

@@ -1,17 +1,17 @@
 {
   "name": "hadouken-kit",
   "displayName": "Hadouken Kit",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "One install for the daily skill set, plus the hadouken-kit:fluxo map of which skill to use at each step.",
   "author": { "name": "Lucas Garioli", "url": "https://github.com/Garioli-Labs" },
   "homepage": "https://github.com/Garioli-Labs/claude-hadouken",
   "license": "MIT AND Apache-2.0",
   "dependencies": [
-    "claude-hadouken",
+    "hadouken",
     { "name": "superpowers", "marketplace": "claude-plugins-official" },
-    { "name": "mattpocock-skills", "marketplace": "mattpocock" },
-    { "name": "poka-yoke", "marketplace": "poka-yoke" },
-    { "name": "fullstack-dev-skills", "marketplace": "fullstack-dev-skills" },
-    { "name": "ui-ux-pro-max", "marketplace": "ui-ux-pro-max-skill" }
+    "mattpocock-skills",
+    "poka-yoke",
+    "fullstack-dev-skills",
+    "ui-ux-pro-max"
   ]
 }

@@ -24,7 +24,7 @@ test('sessão Fable com trava: prompt digitado é bloqueado com o texto da P2', 
   travarG6(d);
   gravarModeloSessao(d, 's1', 'claude-fable-5-1', agora);
   const r = decidirPrompt({ dir: d, sessionId: 's1', prompt: 'continue', agoraMs: agora });
-  assert.equal(r.bloquear, `hadouken: guarda ativa: trava do Fable desde ${quandoLocal((agora - H) / 1000, agora)}. Esta sessão está no Fable. Troque com /model ou libere com /claude-hadouken:liberar fable.`);
+  assert.equal(r.bloquear, `hadouken: guarda ativa: trava do Fable desde ${quandoLocal((agora - H) / 1000, agora)}. Esta sessão está no Fable. Troque com /model ou libere com /hadouken:liberar fable.`);
   assert.equal(lerEventos(d, agora).filter((e) => e.tipo === 'prompt-bloqueado').length, 1);
 });
 
@@ -32,7 +32,7 @@ test('foco 1: turno automático <task-notification> e comando do hadouken passam
   const d = novo();
   travarG6(d);
   gravarModeloSessao(d, 's1', 'claude-fable-5-1', agora);
-  for (const prompt of ['<task-notification>\n<task-id>a1</task-id>', '  /claude-hadouken:liberar fable', '/claude-hadouken:consumo']) {
+  for (const prompt of ['<task-notification>\n<task-id>a1</task-id>', '  /hadouken:liberar fable', '/hadouken:consumo']) {
     assert.deepEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt, agoraMs: agora }), { bloquear: null, linha: null });
   }
 });
