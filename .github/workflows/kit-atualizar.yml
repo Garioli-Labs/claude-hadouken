@@ -28,6 +28,7 @@ jobs:
       versao_kit: ${{ steps.robo.outputs.versao_kit }}
       ramo: ${{ steps.robo.outputs.ramo }}
       aviso: ${{ steps.robo.outputs.aviso }}
+      recusa: ${{ steps.robo.outputs.recusa }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,7 +52,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$RAMO"
-          git add .claude-plugin/marketplace.json kit/.claude-plugin/plugin.json kit/testado.json rea/.claude-plugin/plugin.json rea/lancar.mjs
+          git add .claude-plugin/marketplace.json kit/.claude-plugin/plugin.json kit/testado.json rea/.claude-plugin/plugin.json rea/lancar.mjs README.md README.en.md SECURITY.md test/dados/*.json
           git commit -q -m "$TITULO"
           git push --force -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$RAMO"
 
@@ -147,4 +148,24 @@ jobs:
           n=$(gh issue list --state all --limit 500 --json title --jq '[.[] | select(.title == $ENV.AVISO)] | length')
           if [ "$n" = 0 ]; then
             gh issue create --title "$AVISO" --body "Versão nova do graphifyy no pip. O kit e o instalador fixam a testada em \`kit/testado.json\` e em \`src/instalar-tudo.js\` (GRAPHIFY). Teste e atualize os dois."
+          fi
+
+  avisar-recusa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: preparar
+    if: needs.preparar.outputs.recusa != ''
+    permissions:
+      issues: write
+    steps:
+      - name: Abrir issue da recusa (uma por título, aberta ou fechada)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RECUSA: ${{ needs.preparar.outputs.recusa }}
+        run: |
+          n=$(gh issue list --state all --limit 500 --json title --jq '[.[] | select(.title == $ENV.RECUSA)] | length')
+          if [ "$n" = 0 ]; then
+            gh issue create --title "$RECUSA" --body "O robô não sobe esta versão: no sha novo, o terceiro ganhou algo além de skills (hooks, servidor MCP/LSP ou bin), ou o rea-agents mudou o engines do Node. O kit fica no que foi testado. Revise e suba à mão, se for o caso."
           fi

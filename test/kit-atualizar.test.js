@@ -4,15 +4,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  aplicarLancar, aplicarMarketplace, aplicarPluginJson, aplicarTestado, avisoPip, compararVersoes, decidir, subirPatch, TERCEIROS, tituloIssue, xyz,
+  aplicarLancar, aplicarMarketplace, aplicarPluginJson, aplicarTestado, aplicarVersaoRea, avisoPip, compararVersoes, decidir, lerSkill, montarRetrato,
+  pastasDeSkills, proibidos, subirPatch, TERCEIROS, tituloIssue, tituloRecusa, xyz,
 } from '../.github/scripts/kit-atualizar.mjs';
+import { ENGINES_REA, VERSAO_REA } from '../rea/lancar.mjs';
 
 // Robô semanal (spec v0.5.2, peça 3): funções puras, sem rede, e o workflow
-// conferido pelo texto.
+// conferido pelo texto. As decisões partem de uma cópia congelada do
+// testado.json (test/dados/kit-robo): o robô muda o de verdade, e estes testes
+// rodam no ramo dele (revisão final, Important 3).
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ler = (rel) => fs.readFileSync(path.join(repo, rel), 'utf8');
-const testado = JSON.parse(ler('kit/testado.json'));
+const testado = JSON.parse(ler('test/dados/kit-robo/testado.json'));
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
 
@@ -48,6 +52,7 @@ test('decidir: só versão maior entra (menor ou principal); sha inválido, igua
       'ui-ux-pro-max': { sha: SHA_A, versao: '2.13.0' },
     },
     rea: '6.1.0',
+    reaEngines: ENGINES_REA,
   };
   assert.deepEqual(decidir(testado, lidos), {
     terceiros: [
@@ -55,9 +60,55 @@ test('decidir: só versão maior entra (menor ou principal); sha inválido, igua
       { nome: 'poka-yoke', de: '0.2.0', para: '1.0.0', sha: SHA_B, tipo: 'principal' },
     ],
     rea: null,
+    recusas: [],
   });
-  assert.deepEqual(decidir(testado, { terceiros: {}, rea: '6.2.0' }).rea, { de: '6.1.0', para: '6.2.0', tipo: 'menor' });
-  assert.deepEqual(decidir(testado, { terceiros: { 'poka-yoke': null }, rea: '7.0.0-beta.1' }), { terceiros: [], rea: null });
+  assert.deepEqual(decidir(testado, { terceiros: {}, rea: '6.2.0', reaEngines: ENGINES_REA }).rea, { de: '6.1.0', para: '6.2.0', tipo: 'menor' });
+  assert.deepEqual(decidir(testado, { terceiros: { 'poka-yoke': null }, rea: '7.0.0-beta.1', reaEngines: ENGINES_REA }), { terceiros: [], rea: null, recusas: [] });
+});
+
+test('decidir: rea-agents novo que muda o engines é recusado (o instalador liga o REA por essa faixa)', () => {
+  const d = decidir(testado, { terceiros: {}, rea: '6.2.0', reaEngines: '>=24.0.0' });
+  assert.equal(d.rea, null);
+  assert.deepEqual(d.recusas, ['rea-agents 6.2.0 (engines >=24.0.0)']);
+  assert.deepEqual(decidir(testado, { terceiros: {}, rea: '6.2.0', reaEngines: null }).recusas, ['rea-agents 6.2.0 (engines ?)']);
+  assert.equal(tituloRecusa(d.recusas), 'robô: recusado rea-agents 6.2.0 (engines >=24.0.0)');
+});
+
+// ------------------------------------------------------------ trava dos terceiros
+
+const ARVORE = [
+  '.claude-plugin/plugin.json', 'skills', 'skills/a', 'skills/a/SKILL.md', 'skills/b', 'skills/b/SKILL.md', 'skills/c/README.md',
+  'plugins/p/.claude-plugin/plugin.json', 'plugins/p/skills/x/SKILL.md', 'plugins/p/hooks', 'plugins/p/hooks/hooks.json',
+  'plugins/p/.mcp.json', 'plugins/p/bin/ferramenta',
+];
+
+test('proibidos: hooks, servidores MCP/LSP e bin na raiz do plugin, pelo arquivo ou pelo plugin.json', () => {
+  assert.deepEqual(proibidos({ arvore: ARVORE, raiz: '', manifesto: { name: 'a' } }), []);
+  assert.deepEqual(proibidos({ arvore: ARVORE, raiz: 'plugins/p', manifesto: {} }), ['.mcp.json', 'bin/', 'hooks/']);
+  assert.deepEqual(proibidos({ arvore: ['.lsp.json'], raiz: '', manifesto: { hooks: './h.json', mcpServers: {}, lspServers: {} } }),
+    ['.lsp.json', 'plugin.json hooks', 'plugin.json lspServers', 'plugin.json mcpServers']);
+  assert.deepEqual(proibidos({ arvore: [], raiz: '', manifesto: null }), ['sem plugin.json']);
+});
+
+test('pastasDeSkills: skills/<x>/ mais o campo skills (pasta da skill ou pasta de skills, texto ou lista); só com SKILL.md', () => {
+  assert.deepEqual(pastasDeSkills({ arvore: ARVORE, raiz: '', manifesto: {} }), ['skills/a', 'skills/b']);
+  assert.deepEqual(pastasDeSkills({ arvore: [...ARVORE, 'extra/z/SKILL.md'], raiz: '', manifesto: { skills: ['./skills/b', './skills/c', '../fora/x', './extra/z'] } }), ['extra/z', 'skills/a', 'skills/b']);
+  const uiux = ['.claude/skills/brand/SKILL.md', '.claude/skills/design/SKILL.md', 'cli/assets/skills/brand/SKILL.md'];
+  assert.deepEqual(pastasDeSkills({ arvore: uiux, raiz: '', manifesto: { skills: './.claude/skills/' } }), ['.claude/skills/brand', '.claude/skills/design']);
+  assert.deepEqual(pastasDeSkills({ arvore: ARVORE, raiz: 'plugins/p', manifesto: {} }), ['plugins/p/skills/x']);
+});
+
+test('lerSkill e montarRetrato: nome do frontmatter (ou da pasta), só do usuário pelo disable-model-invocation', () => {
+  assert.deepEqual(lerSkill('---\nname: tdd\ndescription: x\n---\n', 'skills/eng/tdd'), { nome: 'tdd', soUsuario: false });
+  assert.deepEqual(lerSkill('---\nname: wayfinder\ndisable-model-invocation: true\n---\n', 'skills/w'), { nome: 'wayfinder', soUsuario: true });
+  assert.deepEqual(lerSkill('sem frontmatter', 'skills/eng/pasta'), { nome: 'pasta', soUsuario: false });
+  const r = montarRetrato({ repo: 'mattpocock/skills', commit: SHA_A, versao: '1.4.0', skills: [{ nome: 'b', soUsuario: true }, { nome: 'a', soUsuario: false }] });
+  assert.deepEqual(r, { fonte: 'github.com/mattpocock/skills', commit: SHA_A, versao: '1.4.0', skills: [{ nome: 'a', soUsuario: false }, { nome: 'b', soUsuario: true }] });
+});
+
+test('o retrato guardado do mattpocock-skills tem o formato de montarRetrato', () => {
+  const r = JSON.parse(ler('test/dados/mattpocock-skills.json'));
+  assert.deepEqual(montarRetrato({ repo: 'mattpocock/skills', commit: r.commit, versao: r.versao, skills: r.skills }), r);
 });
 
 test('subirPatch', () => {
@@ -86,17 +137,25 @@ test('aplicarMarketplace: troca o sha do terceiro e as versões do kit e do REA;
 });
 
 test('aplicarTestado, aplicarLancar e aplicarPluginJson', () => {
-  const t = JSON.parse(aplicarTestado(ler('kit/testado.json'), DECISAO));
+  const t = JSON.parse(aplicarTestado(ler('test/dados/kit-robo/testado.json'), DECISAO));
   assert.equal(t.dependencias['mattpocock-skills@claude-hadouken'], '1.4.0');
   assert.equal(t.dependencias['poka-yoke@claude-hadouken'], '0.2.0');
   assert.equal(t.npm['rea-agents'], '6.2.0');
   assert.equal(t.pip.graphifyy, '0.9.25');
-  const lancar = aplicarLancar(ler('rea/lancar.mjs'), '6.2.0');
-  assert.match(lancar, /export const VERSAO_REA = '6\.2\.0';/);
-  assert.equal(lancar.replace("'6.2.0'", "'6.1.0'"), ler('rea/lancar.mjs'), 'só a constante muda');
+  const lancar = aplicarLancar(ler('rea/lancar.mjs'), '99.0.0');
+  assert.match(lancar, /export const VERSAO_REA = '99\.0\.0';/);
+  assert.equal(lancar.replace("'99.0.0'", `'${VERSAO_REA}'`), ler('rea/lancar.mjs'), 'só a constante muda');
   assert.throws(() => aplicarLancar('sem a constante', '6.2.0'));
   assert.throws(() => aplicarLancar("export const VERSAO_REA = '1.0.0';\nexport const VERSAO_REA = '1.0.0';", '6.2.0'));
   assert.equal(JSON.parse(aplicarPluginJson(ler('kit/.claude-plugin/plugin.json'), '1.1.1')).version, '1.1.1');
+});
+
+test('aplicarVersaoRea: troca rea-agents@x e "rea-agents x" e nada mais', () => {
+  const t = 'npx -y rea-agents@6.1.0 mcp; pinned to rea-agents 6.1.0. Outro 6.1.0 e rea-agents@6.1.01 ficam.';
+  assert.equal(aplicarVersaoRea(t, '6.1.0', '6.2.0'), 'npx -y rea-agents@6.2.0 mcp; pinned to rea-agents 6.2.0. Outro 6.1.0 e rea-agents@6.1.01 ficam.');
+  for (const rel of ['README.md', 'README.en.md', 'SECURITY.md', 'rea/.claude-plugin/plugin.json', 'rea/lancar.mjs']) {
+    assert.ok(ler(rel).includes(`rea-agents@${VERSAO_REA}`) || ler(rel).includes(`rea-agents ${VERSAO_REA}`), rel);
+  }
 });
 
 test('tituloIssue e avisoPip', () => {
@@ -123,7 +182,7 @@ test('workflow: cada job declara as próprias permissões, e só o necessário',
   const perm = Object.fromEntries(jobs.map((j) => [j.split(':')[0], /permissions:\n((?: {6}.+\n)+)/.exec(j)?.[1].trim().split(/\n\s*/) ?? null]));
   assert.deepEqual(perm, {
     preparar: ['contents: write'], testar: ['contents: read'], publicar: ['contents: write'],
-    avisar: ['issues: write'], 'avisar-pip': ['issues: write'],
+    avisar: ['issues: write'], 'avisar-pip': ['issues: write'], 'avisar-recusa': ['issues: write'],
   });
 });
 
@@ -157,6 +216,13 @@ test('workflow: nenhum ${{ }} dentro de run', () => {
     }
     if (dentro >= 0) assert.ok(!l.includes('${{'), l);
   }
+});
+
+test('workflow: o ramo leva os retratos e os textos com a versão do REA; recusa vira issue', () => {
+  const add = /git add (.+)/.exec(WF)[1];
+  for (const a of ['kit/testado.json', 'rea/lancar.mjs', 'README.md', 'README.en.md', 'SECURITY.md', 'test/dados/*.json']) assert.ok(add.split(' ').includes(a), a);
+  assert.match(WF, /recusa: \$\{\{ steps\.robo\.outputs\.recusa \}\}/);
+  assert.match(WF, /avisar-recusa:\n(?: {4}.*\n)*? {4}if: needs\.preparar\.outputs\.recusa != ''/);
 });
 
 test('o aviso semanal antigo saiu', () => {
