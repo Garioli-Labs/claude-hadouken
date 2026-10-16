@@ -457,6 +457,7 @@ hadouken: bloqueado: uma mudança em disableAllHooks, enabledPlugins ou hooks no
 - `/hadouken:liberar janela`: até o reset da janela que travou, no máximo 24 h.
 - Acrescente `fable` para soltar também o limite do Fable. Depois do limite, o Fable pode consumir créditos de uso.
 - Acrescente `caro` para soltar o despacho caro, por exemplo antes da revisão final de um bloco.
+- `/hadouken:liberar off`: desliga a guarda de consumo até você digitar `/hadouken:liberar on` (desde a v0.5.3). Grava `guarda.ligada` no `config.json` do hadouken e mantém o resto do arquivo.
 
 Toda liberação acaba antes do prazo se a semana subir 10 pontos. Ela vale para todas as sessões, porque o limite é da conta. A barra mostra "liberada até …" enquanto ela vale, também ao lado de uma trava que ela não cobre.
 

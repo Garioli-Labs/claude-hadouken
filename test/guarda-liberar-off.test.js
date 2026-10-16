@@ -9,7 +9,7 @@ import { ARQ_CONFIG, lerConfigGuarda } from '../src/guarda/config.js';
 import { lerEventos } from '../src/guarda/registros.js';
 import { GUARDA_DESLIGADA, GUARDA_LIGADA, GUARDA_NAO_ALTERADA } from '../src/guarda/mensagens.js';
 
-// /hadouken:liberar off | on (pedido do Sr. Garioli, v0.5.2): desliga e
+// /hadouken:liberar off | on (pedido do Sr. Garioli, v0.5.3): desliga e
 // religa a guarda de consumo pelo mesmo comando digitado, com os mesmos
 // portões (entrypoint e origem). Grava guarda.ligada no config.json e
 // preserva o resto do arquivo; um config.json ilegível não é sobrescrito.

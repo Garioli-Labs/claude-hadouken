@@ -465,6 +465,7 @@ hadouken: bloqueado: uma mudança em disableAllHooks, enabledPlugins ou hooks no
 - `/hadouken:liberar janela`: until the reset of the window that locked, at most 24 h.
 - Add `fable` to lift the Fable limit as well. After the limit, Fable may consume usage credits.
 - Add `caro` to lift the expensive dispatch, for example before the final review of a block.
+- `/hadouken:liberar off`: turns the usage guard off until you type `/hadouken:liberar on` (since v0.5.3). It writes `guarda.ligada` to the hadouken `config.json` and keeps the rest of the file.
 
 Every release ends early if the week rises 10 points. It applies to every session, because the limit belongs to the account. The bar shows "liberada até …" (released until …) while it holds, also next to a lock it does not cover.
 
