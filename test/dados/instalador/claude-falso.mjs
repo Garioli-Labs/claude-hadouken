@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 // como o de verdade (revisão final da v0.5.2, Critical 2).
 
 export const CATALOGO = Object.freeze({
-  'claude-hadouken@claude-hadouken': '0.5.2',
+  'hadouken@claude-hadouken': '0.5.2',
   'hadouken-kit@claude-hadouken': '1.1.0',
   'hadouken-rea@claude-hadouken': '1.0.1',
   'superpowers@claude-plugins-official': '6.4.1',
@@ -22,7 +22,7 @@ export const CATALOGO = Object.freeze({
   'ui-ux-pro-max@claude-hadouken': '1.0.0',
 });
 export const DEPS_KIT = Object.freeze([
-  'claude-hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
+  'hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
   'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
 ]);
 const ARQUIVO = fileURLToPath(import.meta.url);

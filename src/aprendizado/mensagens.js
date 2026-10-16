@@ -17,7 +17,7 @@ import { CHAVES_LIGAR } from './settings-env.js';
 // `reason` do decision:block): nomes de modelo que casam MODELO_VALIDO e de
 // subagente que casam SUBAGENTE, conferidos de novo aqui.
 
-const CMD = '/claude-hadouken:aprender';
+const CMD = '/hadouken:aprender';
 const DIA_MS = 86_400_000;
 const DIAS_BLOQUEIO = Math.round(BLOQUEIO_MS / DIA_MS);
 const INVISIVEL = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/u;

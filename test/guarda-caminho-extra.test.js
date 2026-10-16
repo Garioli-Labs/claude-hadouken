@@ -88,14 +88,14 @@ function semSaida(r) {
 
 const ferramenta = (id, tool_name, tool_input, cwd = os.tmpdir()) => ({ session_id: id, hook_event_name: 'PreToolUse', tool_name, tool_input, cwd });
 const negacao = (razao) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
-const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
+const LIBERAR_NEGADO = negacao('hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.');
 const P4_NEGADO = negacao('hadouken: bloqueado: sessões claude filhas ficam fechadas com a guarda ativa.');
 const P5_NEGADO = negacao('hadouken: bloqueado: arquivos do hadouken só o usuário edita.');
 const eventos = (home, tipo) => lerEventos(home, Date.now()).filter((e) => e.tipo === tipo);
 
 test('claudeComLiberar: continuação de linha dentro da palavra claude (bash, PowerShell, cmd)', () => {
   for (const fim of ['\n', '\r\n']) {
-    for (const c of [`cla\\${fim}ude -p /claude-hadouken:liberar`, `cla\`${fim}ude -p /claude-hadouken:liberar`, `cla^${fim}ude -p /claude-hadouken:liberar`]) {
+    for (const c of [`cla\\${fim}ude -p /hadouken:liberar`, `cla\`${fim}ude -p /hadouken:liberar`, `cla^${fim}ude -p /hadouken:liberar`]) {
       assert.equal(claudeComLiberar(c), true, JSON.stringify(c));
     }
   }
@@ -120,33 +120,33 @@ test('claudeComLiberar: claude em posição de comando nega; mensagem que cita h
   ];
   for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
   const sim = [
-    'git commit -m "docs: claude must not run /claude-hadouken:liberar"',
-    'git commit -m "P4 nega claude -p /claude-hadouken:liberar"',
-    "git commit -m 'docs: claude e /claude-hadouken:liberar'",
-    "git commit -m \"$(cat <<'EOF'\nfeat: a P4 nega o comando claude-hadouken:liberar\n\nclaude-hadouken: liberar só pelo usuário\nEOF\n)\"",
-    'echo "claude -p /claude-hadouken:liberar" > nota.txt',
-    'gh pr create --title "liberar" --body "claude -p /claude-hadouken:liberar"',
-    'bash -c "claude -p /claude-hadouken:liberar"',
-    "sh -lc 'claude -p /claude-hadouken:liberar'",
-    "powershell -Command \"claude -p '/claude-hadouken:liberar'\"",
-    'pwsh -c "& claude -p /claude-hadouken:liberar"',
-    'cmd /k claude -p /claude-hadouken:liberar',
-    'cmd.exe /s /c "claude -p /claude-hadouken:liberar"',
-    'eval "claude -p /claude-hadouken:liberar"',
-    "Invoke-Expression 'claude -p /claude-hadouken:liberar'",
-    'git commit -m "$(claude -p /claude-hadouken:liberar)"',
-    'echo `claude -p /claude-hadouken:liberar`',
-    'find . -exec claude -p /claude-hadouken:liberar ;',
-    'sudo -u root claude -p /claude-hadouken:liberar',
-    'command claude -p /claude-hadouken:liberar',
-    'exec claude -p /claude-hadouken:liberar',
-    'pnpm dlx @anthropic-ai/claude-code -p /claude-hadouken:liberar',
-    'bunx @anthropic-ai/claude-code -p /claude-hadouken:liberar',
-    '(claude -p /claude-hadouken:liberar)',
-    'if true; then claude -p /claude-hadouken:liberar; fi',
-    'false || claude -p /claude-hadouken:liberar',
-    'x & claude -p /claude-hadouken:liberar',
-    'echo x\nclaude -p /claude-hadouken:liberar',
+    'git commit -m "docs: claude must not run /hadouken:liberar"',
+    'git commit -m "P4 nega claude -p /hadouken:liberar"',
+    "git commit -m 'docs: claude e /hadouken:liberar'",
+    "git commit -m \"$(cat <<'EOF'\nfeat: a P4 nega o comando hadouken:liberar\n\nclaude-hadouken: liberar só pelo usuário\nEOF\n)\"",
+    'echo "claude -p /hadouken:liberar" > nota.txt',
+    'gh pr create --title "liberar" --body "claude -p /hadouken:liberar"',
+    'bash -c "claude -p /hadouken:liberar"',
+    "sh -lc 'claude -p /hadouken:liberar'",
+    "powershell -Command \"claude -p '/hadouken:liberar'\"",
+    'pwsh -c "& claude -p /hadouken:liberar"',
+    'cmd /k claude -p /hadouken:liberar',
+    'cmd.exe /s /c "claude -p /hadouken:liberar"',
+    'eval "claude -p /hadouken:liberar"',
+    "Invoke-Expression 'claude -p /hadouken:liberar'",
+    'git commit -m "$(claude -p /hadouken:liberar)"',
+    'echo `claude -p /hadouken:liberar`',
+    'find . -exec claude -p /hadouken:liberar ;',
+    'sudo -u root claude -p /hadouken:liberar',
+    'command claude -p /hadouken:liberar',
+    'exec claude -p /hadouken:liberar',
+    'pnpm dlx @anthropic-ai/claude-code -p /hadouken:liberar',
+    'bunx @anthropic-ai/claude-code -p /hadouken:liberar',
+    '(claude -p /hadouken:liberar)',
+    'if true; then claude -p /hadouken:liberar; fi',
+    'false || claude -p /hadouken:liberar',
+    'x & claude -p /hadouken:liberar',
+    'echo x\nclaude -p /hadouken:liberar',
   ];
   for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
 });
@@ -156,12 +156,12 @@ test('claudeComLiberar: claude em posição de comando nega; mensagem que cita h
 // bash expande (:libe{rar,}, :lib?rar, $X). Na dúvida, nega.
 test('claudeComLiberar: expansão de chaves, variável, crase e glob junto de hadouken nega', () => {
   const sim = [
-    'claude -p "/claude-hadouken:libe{rar,}"',
-    'claude -p /claude-hadouken:lib?rar',
-    'claude -p "/claude-hadouken:libera*"',
-    'claude -p "/claude-hadouken:$X"',
-    'claude -p "/claude-hadouken:`printf liberar`"',
-    'claude -p "/claude-hadouken:$(printf liberar)"',
+    'claude -p "/hadouken:libe{rar,}"',
+    'claude -p /hadouken:lib?rar',
+    'claude -p "/hadouken:libera*"',
+    'claude -p "/hadouken:$X"',
+    'claude -p "/hadouken:`printf liberar`"',
+    'claude -p "/hadouken:$(printf liberar)"',
     'cd "E:/Projetos DEV/claude-hadouken" && claude -p "revise $ARQ"',
   ];
   for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
@@ -177,8 +177,8 @@ test('P4 ponta a ponta: continuação nega; commit que cita claude passa; 20 KB 
   const home = novoHome();
   registrar(home, 's1');
   gravarEstado(home, 40);
-  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'cla\\\nude -p /claude-hadouken:liberar' }), home)), LIBERAR_NEGADO);
-  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'PowerShell', { command: 'cla`\r\nude -p /claude-hadouken:liberar' }), home)), LIBERAR_NEGADO);
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'cla\\\nude -p /hadouken:liberar' }), home)), LIBERAR_NEGADO);
+  assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'PowerShell', { command: 'cla`\r\nude -p /hadouken:liberar' }), home)), LIBERAR_NEGADO);
   semSaida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: 'git commit -m "feat: liberar guard for claude"' }), home));
   gravarEstado(home, 86);
   assert.deepEqual(saida(rodar('guarda-filha.js', ferramenta('s1', 'Bash', { command: `echo ${'a'.repeat(20_000)} && claude -p x` }), home)), P4_NEGADO);
@@ -199,24 +199,24 @@ test('claudeComLiberar (rodada 2): redirecionamento, cmd /c e -Command, bloco do
     'try { claude -p ARG } catch {}', '1 | ForEach-Object { claude -p ARG }', 'Start-Job { claude -p ARG }', 'try {claude -p ARG}', // C
     '. claude -p ARG', // D
   ];
-  for (const arg of ['/claude-hadouken:liberar', '"/liberar 2h"', '"/claude-hadouken:libe{rar,}"']) {
+  for (const arg of ['/hadouken:liberar', '"/liberar 2h"', '"/hadouken:libe{rar,}"']) {
     for (const c of casos) assert.equal(claudeComLiberar(c.replace('ARG', arg)), true, c.replace('ARG', arg));
   }
 });
 
 test('claudeComLiberar (rodada 2): texto levado a outro interpretador e concatenação junto de hadouken negam', () => {
   const sim = [
-    'echo "claude -p /claude-hadouken:liberar" | bash',
-    "python -c \"os.system('claude -p /claude-hadouken:liberar')\"",
-    "python -c \"import os; os.system('cl' + 'aude -p /claude-hadouken:liberar')\"",
-    'claude -p ("/claude-hadouken:lib"+"erar")',
-    "& claude -p ('/claude-hadouken:' + 'lib' + 'erar')",
-    "python -c \"import subprocess; subprocess.run(['claude', '-p', '/claude-hadouken:lib' + 'erar'])\"",
-    'claude -p "/claude-hadouken:lib$(echo erar)"',
-    'claude -p "/claude-hadouken:lib%X%"',
-    'claude -p "/claude-hadouken:lib!X!"',
+    'echo "claude -p /hadouken:liberar" | bash',
+    "python -c \"os.system('claude -p /hadouken:liberar')\"",
+    "python -c \"import os; os.system('cl' + 'aude -p /hadouken:liberar')\"",
+    'claude -p ("/hadouken:lib"+"erar")',
+    "& claude -p ('/hadouken:' + 'lib' + 'erar')",
+    "python -c \"import subprocess; subprocess.run(['claude', '-p', '/hadouken:lib' + 'erar'])\"",
+    'claude -p "/hadouken:lib$(echo erar)"',
+    'claude -p "/hadouken:lib%X%"',
+    'claude -p "/hadouken:lib!X!"',
     'git commit -m "docs: CLAUDE must not run /Claude-Hadouken:Liberar"',
-    'echo "/claude-hadouken:lib\\\nerar"',
+    'echo "/hadouken:lib\\\nerar"',
   ];
   for (const c of sim) assert.equal(claudeComLiberar(c), true, c);
   // Sem 'hadouken:liberar' no texto, sem claude como palavra (claude-hadouken
@@ -255,7 +255,7 @@ test('claudeComLiberar (rodada 3): claude grudado a - . : } ] ou , não é palav
     '"C:\\x\\claude.exe" -p "/liberar 2h"',
     'claude.cmd -p "/liberar 2h"',
     '.\\claude.ps1 -p "/liberar 2h"',
-    'X=claude; $X -p "/claude-hadouken:libe{rar,}"',
+    'X=claude; $X -p "/hadouken:libe{rar,}"',
     "Start-Process 'claude' -ArgumentList '-p','/liberar'",
     '`claude` -p "/liberar 2h"',
   ];
@@ -297,7 +297,7 @@ test('claudeComLiberar (rodadas 4 e 5): o trailer do Claude sai antes do (b) no 
   ];
   for (const c of nao) assert.equal(claudeComLiberar(c), false, c);
   const sim = [
-    heredoc(...MENSAGEM, 'claude -p /claude-hadouken:liberar', '', TRAILER),
+    heredoc(...MENSAGEM, 'claude -p /hadouken:liberar', '', TRAILER),
     'Co-Authored-By: Claude x <noreply@anthropic.com>; claude -p "$(echo hadouken)"',
     'Co-Authored-By: Claude x <outro@example.com> && claude -p x hadouken$',
     // Rodada 5: o comando que a regra da rodada 4 deixava passar, e o trailer
@@ -333,7 +333,7 @@ test('claudeComLiberar (rodadas 4 e 5): só sai o trailer que começa a linha, s
     'echo "hadouken$X"\nCo-Authored-By: Claude x <noreply@anthropic.com.br>',
     'echo "hadouken$X"\nCo-Authored-By: Cl""aude x <noreply@anthropic.com>',
     // (a) e (c) ainda leem o trailer: o texto da liberação e um -c com claude.
-    'git commit -m "x\nCo-Authored-By: Claude /claude-hadouken:liberar <noreply@anthropic.com>"',
+    'git commit -m "x\nCo-Authored-By: Claude /hadouken:liberar <noreply@anthropic.com>"',
     'Co-Authored-By: Claude -c claude /liberar <noreply@anthropic.com>',
   ];
   // Metacaractere no trecho entre Claude e o endereço.
@@ -375,8 +375,8 @@ test('P4 ponta a ponta (rodada 2): commit que cita hadouken:liberar nega com o t
   registrar(home, 's1');
   gravarEstado(home, 40);
   const casos = [
-    'git commit -m "docs: claude must not run /claude-hadouken:liberar"',
-    '2>&1 claude -p /claude-hadouken:liberar',
+    'git commit -m "docs: claude must not run /hadouken:liberar"',
+    '2>&1 claude -p /hadouken:liberar',
     'cmd /c start claude -p "/liberar 2h"',
     `echo liberar ${'a'.repeat(1_048_576)}`,
   ];
@@ -399,11 +399,11 @@ test('P4 ponta a ponta (rodada 2): commit que cita hadouken:liberar nega com o t
 test('claudeComLiberar e chamaClaude (Task 18): redireção grudada e -FilePath:claude negam; o que passava segue passando', () => {
   const sim = [
     'claude>o -p "/claude-hado$u""ken:liberar"',
-    'claude>/dev/null -p "/claude-hadouken:lib$x"',
-    'claude</dev/null -p /claude-hadouken:liberar',
-    'claude>o -p /claude-hadouken:lib{,}erar',
-    '2>&1 claude>o -p /claude-hadouken:lib`echo erar`',
-    "Start-Process -FilePath:claude -ArgumentList '-p','/claude-hadouken:lib$x'",
+    'claude>/dev/null -p "/hadouken:lib$x"',
+    'claude</dev/null -p /hadouken:liberar',
+    'claude>o -p /hadouken:lib{,}erar',
+    '2>&1 claude>o -p /hadouken:lib`echo erar`',
+    "Start-Process -FilePath:claude -ArgumentList '-p','/hadouken:lib$x'",
   ];
   for (const c of sim) {
     assert.equal(claudeComLiberar(c), true, `claudeComLiberar: ${c}`);

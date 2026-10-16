@@ -326,8 +326,8 @@ try {
       nome: '/liberar 2h',
       argv: [hook('liberar.js')],
       stdin: JSON.stringify({
-        ...comum(uuid(0), 'UserPromptExpansion'), expansion_type: 'slash_command', command_name: 'claude-hadouken:liberar',
-        command_args: '2h', command_source: 'plugin', prompt: '/claude-hadouken:liberar 2h',
+        ...comum(uuid(0), 'UserPromptExpansion'), expansion_type: 'slash_command', command_name: 'hadouken:liberar',
+        command_args: '2h', command_source: 'plugin', prompt: '/hadouken:liberar 2h',
       }),
       // liberar.js responde decision 'block' em todo desfecho, inclusive "nada
       // liberado" e as recusas: só o texto de liberado e o arquivo gravado

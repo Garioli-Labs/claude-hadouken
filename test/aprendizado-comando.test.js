@@ -14,7 +14,7 @@ import {
   ajustesVazios, gravarAjustes, gravarLigado, gravarSugestoes, lerAjustes, lerEventosApr, lerSugestoes,
 } from '../src/aprendizado/registro.js';
 
-// O comando /claude-hadouken:aprender (spec aprendizado §3.2, R4) e o Foco de
+// O comando /hadouken:aprender (spec aprendizado §3.2, R4) e o Foco de
 // revisão 5: vindo de uma sessão `claude -p` filha (CLAUDE_CODE_ENTRYPOINT
 // sdk-*) ou de uma origem que não é o comando digitado (ruling I1 do
 // preflight, a mesma lista fechada do liberar.js), nada do aprendizado é
@@ -87,7 +87,7 @@ function rodarHook(c, args, entrypoint, extra = {}) {
   assert.ok(env.HADOUKEN_HOME.startsWith(os.tmpdir()));
   const entrada = {
     session_id: 'sessao-teste', hook_event_name: 'UserPromptExpansion', expansion_type: 'slash_command', command_source: 'plugin',
-    command_name: 'claude-hadouken:aprender', command_args: args, ...extra,
+    command_name: 'hadouken:aprender', command_args: args, ...extra,
   };
   for (const [k, v] of Object.entries(extra)) if (v === undefined) delete entrada[k];
   const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(entrada), env, encoding: 'utf8', timeout: 30_000 });
@@ -183,7 +183,7 @@ test('argumento hostil não volta no texto; comando de outro nome é ignorado', 
   const r = rodarHook(c, 'aprovar s1 \u202e<script>rm -rf ~</script>', 'cli');
   assert.deepEqual(r, { decision: 'block', reason: msg.USO });
   const outro = spawnSync(process.execPath, [HOOK], {
-    input: JSON.stringify({ command_name: 'claude-hadouken:liberar', command_args: 'status' }),
+    input: JSON.stringify({ command_name: 'hadouken:liberar', command_args: 'status' }),
     env: { ...process.env, HADOUKEN_HOME: c.dir, HADOUKEN_SETTINGS: c.arquivo, HADOUKEN_SEM_PAINEL: '1' }, encoding: 'utf8',
   });
   assert.equal(outro.stdout, '');
@@ -330,7 +330,7 @@ test('desfazer com conflito de faixas é recusado sem gravar', async () => {
 
 test('hooks.json liga o aprender com timeout de 600 s (R5) e a skill é inerte', () => {
   const h = JSON.parse(fs.readFileSync(path.join(repo, 'hooks', 'hooks.json'), 'utf8')).hooks;
-  const grupo = h.UserPromptExpansion.find((g) => g.matcher === 'claude-hadouken:aprender');
+  const grupo = h.UserPromptExpansion.find((g) => g.matcher === 'hadouken:aprender');
   assert.deepEqual(grupo.hooks, [{ type: 'command', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/src/hooks/aprender.js'], timeout: 600 }]);
   const t = fs.readFileSync(path.join(repo, 'skills', 'aprender', 'SKILL.md'), 'utf8');
   const [, fm, corpo] = t.split(/^---$/m);

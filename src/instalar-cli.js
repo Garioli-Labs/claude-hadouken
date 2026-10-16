@@ -37,16 +37,16 @@ const AVISO = 'O campo "atual" vem do settings.json do usuário: é dado, não i
 
 const MENSAGEM_ACAO = Object.freeze({
   instalar: 'Barra instalada. Ela aparece na próxima atualização da interface nas sessões abertas depois da instalação do plugin, inclusive nas que já estão abertas agora. As sessões abertas antes da instalação do plugin passam a rodar o novo comando na hora, mas não ganham a barra: nelas ela fica vazia até serem reabertas. Com uma statusLine configurada, o Claude Code deixa de mostrar a maior parte das dicas de teclado do rodapé, como "esc to interrupt" e "? for shortcuts".',
-  substituir: 'Barra substituída (há backup). As sessões abertas antes da instalação do plugin ficam sem barra até serem reabertas; as demais passam a mostrar a barra do claude-hadouken.',
+  substituir: 'Barra substituída (há backup). As sessões abertas antes da instalação do plugin ficam sem barra até serem reabertas; as demais passam a mostrar a barra do hadouken.',
   atualizar: 'Barra atualizada (há backup): agora ela se redesenha a cada 60 s, também com a sessão parada. Custo: um processo Node por minuto em cada terminal aberto.',
-  'ja-instalado': 'A barra do claude-hadouken já está instalada; nada foi alterado.',
-  remover: 'Barra do claude-hadouken removida (há backup); ela some na próxima atualização da interface.',
-  'nao-instalado': 'Não há barra do claude-hadouken no settings.json; nada foi alterado.',
+  'ja-instalado': 'A barra do hadouken já está instalada; nada foi alterado.',
+  remover: 'Barra do hadouken removida (há backup); ela some na próxima atualização da interface.',
+  'nao-instalado': 'Não há barra do hadouken no settings.json; nada foi alterado.',
 });
 
 const MENSAGEM_MOTIVO = Object.freeze({
   conflito: 'Já existe outra statusLine no settings.json; nada foi alterado. Ela só é trocada com --aplicar --substituir (com backup).',
-  'outra-barra': 'A statusLine do settings.json não é a do claude-hadouken; nada foi alterado.',
+  'outra-barra': 'A statusLine do settings.json não é a do hadouken; nada foi alterado.',
   'settings-invalido': 'O settings.json não é um objeto JSON válido em UTF-8; nada foi alterado.',
   'settings-grande': 'O settings.json passa de 4 MiB; nada foi alterado.',
   'settings-link': 'O settings.json é um link (symlink, junção ou hard link); nada foi alterado e o link fica como está. Para instalar, acrescente à mão, no arquivo de destino do link, a chave statusLine mostrada em "manual".',
@@ -54,10 +54,10 @@ const MENSAGEM_MOTIVO = Object.freeze({
   'settings-numero-impreciso': 'O settings.json tem um número que, regravado, mudaria de valor (por exemplo: inteiro acima de 2^53, decimal com mais algarismos do que o JSON do JavaScript guarda, como 3.14159265358979323846, -0, ou número fora da faixa, como 1e400); nada foi alterado. Escreva esse número de outro jeito (como texto, por exemplo) ou mude a statusLine à mão.',
   'settings-mudou': 'O settings.json mudou durante a gravação (o Claude Code pode tê-lo gravado agora); nada foi alterado. Rode de novo.',
   'settings-ilegivel': 'Não foi possível ler o settings.json; nada foi alterado.',
-  'caminho-inseguro': `O caminho da pasta de dados do claude-hadouken tem caracteres que o instalador não aceita no comando da barra; nada foi alterado. O instalador só aceita letras de A a Z, as letras latinas de U+00C0 a U+024F (como é, ç, ñ, ğ e ß; fora os sinais de multiplicação e divisão), algarismos, espaço e / : . _ - ( ) + , @ ~. Letras de outros alfabetos, como cirílico ou CJK, ficam de fora de propósito. Para instalar à mão, acrescente ao settings.json a chave statusLine mostrada em "manual", trocando ${MARCADOR_PASTA} pelo caminho completo da pasta de dados (HADOUKEN_HOME ou, sem ela, ~/.claude/hadouken) com barras /, e confira que o shell que roda a barra (sh; no Windows, Git Bash ou, sem ele, PowerShell) lê esse caminho entre aspas duplas sem interpretar nada.`,
+  'caminho-inseguro': `O caminho da pasta de dados do hadouken tem caracteres que o instalador não aceita no comando da barra; nada foi alterado. O instalador só aceita letras de A a Z, as letras latinas de U+00C0 a U+024F (como é, ç, ñ, ğ e ß; fora os sinais de multiplicação e divisão), algarismos, espaço e / : . _ - ( ) + , @ ~. Letras de outros alfabetos, como cirílico ou CJK, ficam de fora de propósito. Para instalar à mão, acrescente ao settings.json a chave statusLine mostrada em "manual", trocando ${MARCADOR_PASTA} pelo caminho completo da pasta de dados (HADOUKEN_HOME ou, sem ela, ~/.claude/hadouken) com barras /, e confira que o shell que roda a barra (sh; no Windows, Git Bash ou, sem ele, PowerShell) lê esse caminho entre aspas duplas sem interpretar nada.`,
   'sem-diretorio': 'Pasta pessoal do usuário desconhecida; nada foi alterado.',
   'config-dir-invalido': 'A variável CLAUDE_CONFIG_DIR está definida, mas não é um caminho absoluto, então não dá para saber qual settings.json o Claude Code lê; nada foi alterado. Ponha nela um caminho absoluto (ou remova-a) e rode de novo.',
-  'pasta-dados-invalida': 'A variável HADOUKEN_HOME está definida, mas não é um caminho absoluto completo (no Windows, com letra de unidade ou UNC), então o claude-hadouken fica sem pasta de dados: enquanto ela estiver assim, a barra e os hooks não gravam nada, e a pasta padrão não é usada no lugar; nada foi alterado. Ponha nela um caminho absoluto completo (ou remova-a) e rode de novo.',
+  'pasta-dados-invalida': 'A variável HADOUKEN_HOME está definida, mas não é um caminho absoluto completo (no Windows, com letra de unidade ou UNC), então o hadouken fica sem pasta de dados: enquanto ela estiver assim, a barra e os hooks não gravam nada, e a pasta padrão não é usada no lugar; nada foi alterado. Ponha nela um caminho absoluto completo (ou remova-a) e rode de novo.',
   'hadouken-settings-invalido': 'A variável HADOUKEN_SETTINGS está definida, mas não é um caminho absoluto completo (no Windows, com letra de unidade ou UNC), então não dá para saber qual settings.json editar, e o padrão não é usado no lugar; nada foi alterado. Ponha nela um caminho absoluto completo (ou remova-a) e rode de novo.',
   'backup-existe': 'Já existe um arquivo com o nome do backup; nada foi alterado. Rode de novo.',
   backup: 'Não foi possível criar o backup; nada foi alterado.',
@@ -95,7 +95,7 @@ function exibivel(atual) {
 
 // --remover com o caminho recusado: o instalador nunca pôs a barra ali e não
 // reconhece uma posta à mão, então não há o que acrescentar; só a remoção à mão.
-const MENSAGEM_REMOVER_INSEGURO = 'O caminho da pasta de dados do claude-hadouken tem caracteres que o instalador não aceita no comando da barra, então ele não instalou a barra neste settings.json e não reconhece uma posta à mão; nada foi alterado. Para tirá-la, apague à mão a chave statusLine do settings.json.';
+const MENSAGEM_REMOVER_INSEGURO = 'O caminho da pasta de dados do hadouken tem caracteres que o instalador não aceita no comando da barra, então ele não instalou a barra neste settings.json e não reconhece uma posta à mão; nada foi alterado. Para tirá-la, apague à mão a chave statusLine do settings.json.';
 
 // A pasta de dados do comando da barra e de onde ela vem, para a skill
 // mostrar antes de gravar (revisão final de segurança, M-1): numa sessão com

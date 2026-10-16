@@ -37,12 +37,12 @@ const rotuloDe = (nome) => {
 // Acima de 1 MiB de stdin (o teto comum, spec 8.1, S9) o JSON não é lido;
 // 'liberar' ou 'aprender' em qualquer ponto do texto cru nega
 // (lerStdinVigiando em base.js), como a vigia da P4. 'aprender' desde a
-// Task 11 do aprendizado: o /claude-hadouken:aprender também só vale
+// Task 11 do aprendizado: o /hadouken:aprender também só vale
 // digitado (aprovar afrouxa a guarda; desligar tira o aprendizado).
 const VIGIA = /liberar|aprender/i;
 // O mesmo texto de AGENDA_LIBERAR_TEXTO (mensagens.js), só para quando o
 // import dele falha. test/guarda-hooks.test.js confere que os dois são iguais.
-const AGENDA_LIBERAR_RESERVA = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /claude-hadouken:liberar ou /claude-hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
+const AGENDA_LIBERAR_RESERVA = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar ou /hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
 
 // Todo texto da entrada, a qualquer profundidade, sem recursão: o JSON.parse
 // aceita 200 mil níveis de lista, e uma varredura recursiva estouraria a pilha.

@@ -15,7 +15,7 @@ import { criarClaude, ID_KIT, passoKit, passoRea } from './instalar/claude-cli.j
 import { codigoDeSaida, formatarResumo, item } from './instalar/itens.js';
 
 // Instalador de um comando, passos 6 e 7 (spec v0.5.2). O install.sh ou o
-// install.ps1 já conferiram o PC, instalaram o claude-hadouken e chamam
+// install.ps1 já conferiram o PC, instalaram o hadouken e chamam
 // `node <plugin>/src/instalar-tudo.js [opções]` com HADOUKEN_CLAUDE = o
 // caminho do claude. Daqui: kit e REA, atualização automática, arquivos da
 // barra, barra, item do VS Code, aprendizado e extras (graphify e yu-ux),
@@ -28,8 +28,8 @@ const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const GRAPHIFY = 'graphifyy==0.9.25';
 const DE_NOVO = 'rode o comando de instalação de novo';
 const CONSERTO_PAINEL = 'rode node ~/.claude/hadouken/bin/cli.mjs painel instalar';
-const CONSERTO_BARRA = 'rode /claude-hadouken:instalar numa sessão';
-const CONSERTO_APRENDER = 'rode /claude-hadouken:aprender ligar numa sessão';
+const CONSERTO_BARRA = 'rode /hadouken:instalar numa sessão';
+const CONSERTO_APRENDER = 'rode /hadouken:aprender ligar numa sessão';
 const SEM_VSCODE = "VS Code não encontrado; no VS Code, rode Shell Command: Install 'code' command in PATH e instale de novo";
 const OPCOES = Object.freeze({ '--sim': 'sim', '--substituir-barra': 'substituirBarra', '--sem-extras': 'semExtras', '--com-aprendizado': 'comAprendizado' });
 export const CUSTO_APRENDIZADO = [
@@ -145,7 +145,7 @@ async function passoBarra({ settings, opcoes, perguntar, agoraMs, aplicar }) {
   const r = aplicar({ arquivo: settings.arquivo, agoraMs, substituir: opcoes.substituirBarra });
   if (r.ok) return feito(r);
   if (r.motivo !== 'conflito') return item.falhou(nome, r.motivo, CONSERTO_BARRA);
-  const trocar = !opcoes.sim && (await perguntar('Já existe outra barra (statusLine). Trocar pela barra do claude-hadouken? [s/N] ', false));
+  const trocar = !opcoes.sim && (await perguntar('Já existe outra barra (statusLine). Trocar pela barra do hadouken? [s/N] ', false));
   if (!trocar) return item.pulado(nome, 'outra barra; rode de novo com --substituir-barra');
   const r2 = aplicar({ arquivo: settings.arquivo, agoraMs, substituir: true });
   return r2.ok ? feito(r2) : item.falhou(nome, r2.motivo, CONSERTO_BARRA);
@@ -173,7 +173,7 @@ async function passoAprendizado({ dir, settings, opcoes, perguntar, escrever, ag
     escrever(CUSTO_APRENDIZADO);
     quer = await perguntar('Ligar o aprendizado? [s/N] ', false);
   }
-  if (!quer) return item.pulado(nome, 'desligado; para ligar depois, /claude-hadouken:aprender ligar');
+  if (!quer) return item.pulado(nome, 'desligado; para ligar depois, /hadouken:aprender ligar');
   if (dir === null || !settings.ok) return item.falhou(nome, dir === null ? 'sem-pasta' : settings.motivo, CONSERTO_APRENDER);
   const base = { dir, arquivo: settings.arquivo, ambiente };
   const p = apr.previa(base);

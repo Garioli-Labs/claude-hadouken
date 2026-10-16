@@ -3445,6 +3445,40 @@ git commit -q -F /tmp/msg052
 
 ---
 
+### Task 11: o plugin passa a se chamar `hadouken`
+
+Aprovada pelo Sr. Garioli depois da revisão final: `claude plugin validate .` recusa `claude-hadouken` (nome reservado: prefixo `claude-`). Muda o nome do **plugin**; ficam o marketplace `claude-hadouken`, o repositório `Garioli-Labs/claude-hadouken`, a pasta `~/.claude/hadouken/`, a extensão `claude-hadouken-painel`, o `name` do `package.json` e os docs históricos em `docs/superpowers/`.
+
+Comportamento real (teste numa config temporária, marketplace em pasta): depois do `marketplace update` com `renames`, o Claude Code regrava `enabledPlugins` para `hadouken@claude-hadouken` e tira a entrada antiga do `installed_plugins.json`; `plugin update hadouken@…` falha ("not installed") e `plugin install hadouken@…` instala em `plugins/cache/claude-hadouken/hadouken/<versão>`. Os instaladores já rodam `install` quando o ID não está na lista, então só o ID muda. A guarda continua cobrindo o cache (o caminho tem `claude-hadouken`, o marketplace) e os dois nomes do comando (`pedeLiberacao` procura `hadouken:liberar`).
+
+**Files:**
+- Create: `test/renome.test.js`
+- Modify: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (nome da entrada `./` e `"renames": {"claude-hadouken": "hadouken"}`), `kit/.claude-plugin/plugin.json` (dependência), `kit/testado.json`, `test/dados/kit-robo/testado.json`, `hooks/hooks.json`, `src/instalar/claude-cli.js`, `src/hooks/liberar.js`, `src/hooks/aprender.js`, `src/guarda/prompt.js` (`ISENTOS` com `/hadouken:`), `install.sh`, `install.ps1`, `test/dados/instalador/claude-falso.mjs`, as mensagens em `src/`, `skills/`, `kit/skills/`, `README.md`, `README.en.md`, `SECURITY.md` e os testes que citam o ID ou o comando.
+
+- [ ] **Step 1: Escrever `test/renome.test.js`** (nome do plugin e `renames`; IDs e dependências; matchers dos hooks; nenhum `/claude-hadouken:` nem `claude-hadouken@claude-hadouken` em `src`, `skills`, `kit`, `hooks`, `rea`, `bench`, READMEs, SECURITY e instaladores; a guarda nega `/hadouken:liberar` e `/claude-hadouken:liberar`; `claude plugin validate .` sem `✘`, pulado sem `claude` no PATH).
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `node --test test/renome.test.js`
+Expected: FAIL nos testes de nome, IDs, hooks, textos e validate (`Plugin name "claude-hadouken" is reserved`); a guarda já passa (fixa o comportamento).
+
+- [ ] **Step 3: Troca mecânica nos testes e no código** (fora de `docs/`), nesta ordem: `claude-hadouken@claude-hadouken` → `hadouken@claude-hadouken`; `/claude-hadouken:` → `/hadouken:`; `claude-hadouken:<palavra>` → `hadouken:<palavra>`; prefixo de mensagem `claude-hadouken: ` → `hadouken: `; e, no texto de `src/`, `skills/`, instaladores e bench, "do/o/no claude-hadouken" → "do/o/no hadouken". Os testes da guarda que usam o nome antigo de propósito (`/claude-hadouken"":liberar` e afins) ficam. À mão: `name` dos dois `plugin.json` e da entrada do marketplace, `renames`, a dependência do kit, os nomes em `test/kit-manifestos.test.js` e `test/kit-atualizar.test.js`, e as frases dos READMEs e do SECURITY em que `claude-hadouken` é o plugin (com uma nota de migração: quem instalou antes roda `claude plugin install hadouken@claude-hadouken` uma vez, ou o instalador de um comando).
+
+- [ ] **Step 4: Rodar a suíte**
+
+Run: `node --test`
+Expected: PASS, com `test/renome.test.js` verde.
+
+- [ ] **Step 5: Prova real da migração** numa config temporária (`CLAUDE_CONFIG_DIR`): marketplace em pasta com o código antigo, `plugin install claude-hadouken@claude-hadouken`; trocar para o código novo; `marketplace update claude-hadouken`; rodar o `install.ps1 --sim --sem-extras` contra essa config. Expected: `enabledPlugins` com `hadouken@claude-hadouken`, o plugin em `cache/claude-hadouken/hadouken/0.5.2` e o resumo do instalador sem `✗`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A -- . ':!docs' && git commit -F <msg>
+```
+
+---
+
 ## Fim
 
 Depois da Task 10: `node --test` verde, `git status` limpo, e o branch `v0.5.2` pronto para a revisão do branch inteiro. Merge, tag `v0.5.2` e push são decisão do Sr. Garioli.

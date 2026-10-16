@@ -1,5 +1,5 @@
 {
-  "name": "claude-hadouken",
+  "name": "hadouken",
   "displayName": "Claude Hadouken",
   "version": "0.5.2",
   "description": "Usage-aware pacing for Claude Code: rate limits, weekly pace, tokens per model and effort, GitHub Actions minutes.",

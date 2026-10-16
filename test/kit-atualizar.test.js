@@ -130,7 +130,7 @@ test('aplicarMarketplace: troca o sha do terceiro e as versões do kit e do REA;
   assert.equal(p(depois, 'hadouken-kit').version, '1.1.1');
   assert.equal(p(depois, 'hadouken-rea').version, '1.0.2');
   assert.deepEqual(p(depois, 'poka-yoke'), p(antes, 'poka-yoke'));
-  assert.deepEqual(p(depois, 'claude-hadouken'), p(antes, 'claude-hadouken'));
+  assert.deepEqual(p(depois, 'hadouken'), p(antes, 'hadouken'));
   const semRea = JSON.parse(aplicarMarketplace(ler('.claude-plugin/marketplace.json'), { ...DECISAO, rea: null }, { kit: '1.1.1', rea: null }));
   assert.equal(p(semRea, 'hadouken-rea').version, p(antes, 'hadouken-rea').version);
   assert.throws(() => aplicarMarketplace(ler('.claude-plugin/marketplace.json'), { terceiros: [{ nome: 'nao-existe', sha: SHA_A }], rea: null }, { kit: '1.1.1' }));

@@ -7,7 +7,7 @@
   "homepage": "https://github.com/Garioli-Labs/claude-hadouken",
   "license": "MIT AND Apache-2.0",
   "dependencies": [
-    "claude-hadouken",
+    "hadouken",
     { "name": "superpowers", "marketplace": "claude-plugins-official" },
     "mattpocock-skills",
     "poka-yoke",

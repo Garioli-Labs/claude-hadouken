@@ -1,7 +1,7 @@
 import { dirDados } from '../base.js';
 import { emitirJson, rodarHook } from './comum.js';
 
-// Hook UserPromptExpansion de /claude-hadouken:aprender (spec aprendizado
+// Hook UserPromptExpansion de /hadouken:aprender (spec aprendizado
 // §3.2, R4, R5). Sempre bloqueia a expansão (decision:block): o corpo da
 // skill não chega ao Claude, o modelo não é chamado e a `reason` vai só ao
 // usuário. A recusa de -p e SDK e a conferência da origem (command_source e
@@ -13,9 +13,9 @@ import { emitirJson, rodarHook } from './comum.js';
 // (ligar.js e coletor.js), nos ramos que os usam, depois dos portões.
 // Timeout de 600 s no hooks.json (R5); o download tem prazo próprio.
 
-const COMANDO = 'claude-hadouken:aprender';
+const COMANDO = 'hadouken:aprender';
 // O mesmo texto de FALHOU (mensagens.js), para quando o import dele falha.
-const FALHOU_RESERVA = 'hadouken: o comando falhou. Confira o estado com /claude-hadouken:aprender status.';
+const FALHOU_RESERVA = 'hadouken: o comando falhou. Confira o estado com /hadouken:aprender status.';
 
 rodarHook(async (entrada) => {
   // Stdin nulo (acima do teto, JSON inválido ou cortado pelo prazo): sai sem

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { rodarHook, emitirJson, falharAberto } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 
-// Hook UserPromptExpansion de /claude-hadouken:liberar (spec v0.4.0 §6, D4 =
+// Hook UserPromptExpansion de /hadouken:liberar (spec v0.4.0 §6, D4 =
 // opção C em 2026-09-29: sem código). Sempre bloqueia a expansão
 // (decision:block): o corpo da skill não chega ao Claude e o modelo não é
 // chamado (spike S2). Recusa quando CLAUDE_CODE_ENTRYPOINT indica -p ou SDK
@@ -39,7 +39,7 @@ import { dirDados, idValido } from '../base.js';
 // versão nova rotular o comando digitado com outro valor, ele é recusado
 // (fail-closed) até a lista ganhar o valor.
 
-const COMANDO = 'claude-hadouken:liberar';
+const COMANDO = 'hadouken:liberar';
 const ORIGENS = Object.freeze(['plugin']);
 const EXPANSOES = Object.freeze(['slash_command']);
 const digitado = (entrada) => ORIGENS.includes(entrada.command_source) && EXPANSOES.includes(entrada.expansion_type);

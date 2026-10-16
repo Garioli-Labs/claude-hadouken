@@ -31,7 +31,7 @@ function montar({ claude = true, versaoClaude } = {}) {
   if (claude) instalarFalso(bin);
   const estado = path.join(casa, 'estado.json');
   fs.writeFileSync(estado, JSON.stringify({ plugins: [], log: [], raiz: casa, ...(versaoClaude ? { versao: versaoClaude } : {}) }));
-  const stub = path.join(casa, 'claude-hadouken', 'src', 'instalar-tudo.js');
+  const stub = path.join(casa, 'hadouken', 'src', 'instalar-tudo.js');
   fs.mkdirSync(path.dirname(stub), { recursive: true });
   const saida = path.join(casa, 'stub.json');
   fs.writeFileSync(stub, "const fs = require('node:fs');\nfs.writeFileSync(process.env.STUB_SAIDA, JSON.stringify({ argv: process.argv.slice(2), claude: process.env.HADOUKEN_CLAUDE || null }));\n");
@@ -63,7 +63,7 @@ test('install.ps1 -File: instala o principal e chama o instalar-tudo com as opç
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.deepEqual(m.lerEstado().log, [
     '--version', 'plugin marketplace add Garioli-Labs/claude-hadouken', 'plugin marketplace update claude-hadouken',
-    'plugin list --json', 'plugin install claude-hadouken@claude-hadouken', 'plugin list --json',
+    'plugin list --json', 'plugin install hadouken@claude-hadouken', 'plugin list --json',
   ]);
   assert.deepEqual(m.lerStub(), { argv: ['--sim', '--sem-extras'], claude: path.join(m.bin, 'claude.cmd') });
 });

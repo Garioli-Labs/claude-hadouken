@@ -71,7 +71,7 @@ New-Item -ItemType Directory -Force -Path graphify-out | Out-Null
 $GRAPHIFY_PYTHON = $null
 
 function Find-GraphifyPython {
-    # 0. claude-hadouken installer: its own venv in the Hadouken data folder
+    # 0. hadouken installer: its own venv in the Hadouken data folder
     $hk = if ($env:HADOUKEN_HOME) { $env:HADOUKEN_HOME } else { Join-Path $HOME ".claude/hadouken" }
     foreach ($py in @((Join-Path $hk "venv/Scripts/python.exe"), (Join-Path $hk "venv/bin/python"))) {
         if (Test-Path $py) {

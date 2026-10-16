@@ -1,4 +1,4 @@
-# Instalador de um comando do claude-hadouken, Windows (spec v0.5.2).
+# Instalador de um comando do hadouken, Windows (spec v0.5.2).
 #   irm https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.ps1 | iex
 #   $env:HADOUKEN_INSTALAR = '--sim --sem-extras'; irm ... | iex
 #   powershell -ExecutionPolicy Bypass -File install.ps1 --sim
@@ -10,7 +10,7 @@
 # quando o script roda como arquivo. So ASCII (o 5.1 le .ps1 sem BOM como ANSI).
 
 & {
-  $ID = 'claude-hadouken@claude-hadouken'
+  $ID = 'hadouken@claude-hadouken'
   $NodeMin = [version]'20.0.0'
   $ClaudeMin = [version]'2.1.251'
   $Opcoes = @{
@@ -21,7 +21,7 @@
   }
 
   function Hadouken-Parar([string]$texto) {
-    Write-Host "claude-hadouken: $texto" -ForegroundColor Red
+    Write-Host "hadouken: $texto" -ForegroundColor Red
     throw 'HADOUKEN_PAROU'
   }
 
@@ -91,7 +91,7 @@
 
     # 2 e 3. Pergunta uma vez e instala o que falta.
     if ($faltaGit -or $faltaNode -or $claudeAcao -ne 'ok') {
-      Write-Host 'Falta para o claude-hadouken:'
+      Write-Host 'Falta para o hadouken:'
       if ($faltaGit) { Write-Host '  - git (Git for Windows, que traz o Git Bash)' }
       if ($faltaNode) { Write-Host '  - Node 20 ou mais novo' }
       if ($claudeAcao -eq 'instalar') { Write-Host '  - Claude Code' }
@@ -124,10 +124,10 @@
       if (Hadouken-Pergunta 'Instalar tambem os extras? [S/n]' $true) {
         $mudou = $false
         if (-not (Hadouken-Exe @('python.exe', 'py.exe'))) {
-          if ($winget) { if (Hadouken-Winget 'Python.Python.3.12') { $mudou = $true } else { Write-Host 'claude-hadouken: winget install Python.Python.3.12 falhou; os outros extras seguem' } }
+          if ($winget) { if (Hadouken-Winget 'Python.Python.3.12') { $mudou = $true } else { Write-Host 'hadouken: winget install Python.Python.3.12 falhou; os outros extras seguem' } }
         }
         if (-not (Hadouken-Exe @('gh.exe'))) {
-          if ($winget) { if (Hadouken-Winget 'GitHub.cli') { $mudou = $true } else { Write-Host 'claude-hadouken: winget install GitHub.cli falhou; os outros extras seguem' } }
+          if ($winget) { if (Hadouken-Winget 'GitHub.cli') { $mudou = $true } else { Write-Host 'hadouken: winget install GitHub.cli falhou; os outros extras seguem' } }
         }
         if ($mudou) { Hadouken-AtualizarPath }
       } else {
@@ -167,7 +167,7 @@
   foreach ($a in @($args) + @("$env:HADOUKEN_INSTALAR" -split '\s+' | Where-Object { $_ })) {
     $k = "$a".ToLower()
     if (-not $Opcoes.ContainsKey($k)) {
-      Write-Host 'claude-hadouken: opcao desconhecida; as opcoes sao --sim, --sem-extras, --com-aprendizado e --substituir-barra' -ForegroundColor Red
+      Write-Host 'hadouken: opcao desconhecida; as opcoes sao --sim, --sem-extras, --com-aprendizado e --substituir-barra' -ForegroundColor Red
       $codigo = 2
       break
     }
@@ -177,7 +177,7 @@
     try {
       $codigo = Hadouken-Principal
     } catch {
-      if ("$_" -ne 'HADOUKEN_PAROU') { Write-Host "claude-hadouken: erro inesperado: $_" -ForegroundColor Red }
+      if ("$_" -ne 'HADOUKEN_PAROU') { Write-Host "hadouken: erro inesperado: $_" -ForegroundColor Red }
       $codigo = 1
     }
   }

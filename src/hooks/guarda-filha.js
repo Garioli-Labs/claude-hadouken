@@ -53,7 +53,7 @@ const TETO_STDIN = 4 * 1_048_576;
 const VIGIA_ACIMA = /claude|liberar/i;
 // O mesmo texto de P4_LIBERAR_TEXTO (mensagens.js), só para quando o import
 // dele falha. test/guarda-hooks.test.js confere que os dois são iguais.
-const P4_LIBERAR_RESERVA = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /claude-hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
+const P4_LIBERAR_RESERVA = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
 
 const negar = (razao) => emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razao } });
 

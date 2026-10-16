@@ -73,9 +73,9 @@
         "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-agenda.js"], "timeout": 10 } ] }
     ],
     "UserPromptExpansion": [
-      { "matcher": "claude-hadouken:liberar",
+      { "matcher": "hadouken:liberar",
         "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/liberar.js"], "timeout": 10 } ] },
-      { "matcher": "claude-hadouken:aprender",
+      { "matcher": "hadouken:aprender",
         "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/aprender.js"], "timeout": 600 } ] }
     ],
     "PreModelSwitch": [

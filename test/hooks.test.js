@@ -214,19 +214,19 @@ test('session-start: shim indisponível vira uma linha fixa', () => {
   // Sem CLAUDE_PLUGIN_ROOT.
   let home = novoHome();
   let texto = contexto(rodar('session-start.js', inicio(), home, { CLAUDE_PLUGIN_ROOT: undefined }), 'SessionStart');
-  assert.deepEqual(texto.split('\n'), ['Consumo ainda sem leitura nesta máquina.', 'claude-hadouken: barra indisponível (raiz_invalida)']);
+  assert.deepEqual(texto.split('\n'), ['Consumo ainda sem leitura nesta máquina.', 'hadouken: barra indisponível (raiz_invalida)']);
   assert.ok(fs.lstatSync(arqAtiva(home, 's1')).isFile());
   // Raiz hostil: o texto dela nunca aparece.
   home = novoHome();
   const hostil = `${repo}\x1b]0;pwned\x07\n${INSTRUCAO}`;
   texto = contexto(rodar('session-start.js', inicio(), home, { CLAUDE_PLUGIN_ROOT: hostil }), 'SessionStart');
-  assert.equal(texto.split('\n')[1], 'claude-hadouken: barra indisponível (raiz_invalida)');
+  assert.equal(texto.split('\n')[1], 'hadouken: barra indisponível (raiz_invalida)');
   assert.ok(!texto.includes('Ignore') && !texto.includes('pwned'));
   // bin/ como arquivo.
   home = novoHome();
   fs.writeFileSync(path.join(home, 'bin'), 'lixo');
   texto = contexto(rodar('session-start.js', inicio(), home), 'SessionStart');
-  assert.equal(texto.split('\n')[1], 'claude-hadouken: barra indisponível (bin_invalido)');
+  assert.equal(texto.split('\n')[1], 'hadouken: barra indisponível (bin_invalido)');
   assert.equal(fs.readFileSync(path.join(home, 'bin'), 'utf8'), 'lixo');
 });
 
@@ -237,7 +237,7 @@ test('session-start: registro recusado vira uma linha fixa, e shims e estado seg
   const linhas = contexto(rodar('session-start.js', inicio(), home), 'SessionStart').split('\n');
   assert.equal(linhas.length, 2);
   assert.match(linhas[0], LINHA_ESTADO);
-  assert.equal(linhas[1], 'claude-hadouken: sessão não registrada (invalido); barra e alertas desligados nesta sessão.');
+  assert.equal(linhas[1], 'hadouken: sessão não registrada (invalido); barra e alertas desligados nesta sessão.');
   assert.ok(fs.lstatSync(arqAtiva(home, 's1')).isDirectory());
   assert.ok(fs.lstatSync(path.join(home, 'bin', 'statusline.mjs')).isFile());
 });

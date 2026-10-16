@@ -123,7 +123,7 @@ const LINHAS_P95 = [
   ['hooks', 'despacho-disparada', 'guarda antes de despachar um subagente (P1), guarda disparada', 'p95'],
   ['hooks', 'troca-fable', 'guarda antes de trocar para o Fable (P3)', 'p95'],
   ['hooks', 'arquivo-negado', 'guarda de arquivos do plugin (P5), escrita negada na pasta de dados', 'p95'],
-  ['hooks', 'liberar-2h', '`/claude-hadouken:liberar 2h`', 'p95'],
+  ['hooks', 'liberar-2h', '`/hadouken:liberar 2h`', 'p95'],
   ['statusline', 'node-vazio', 'piso: `node -e ""` sem script', 'referencia'],
 ];
 const LINHAS_TRANSCRIPTS = [
@@ -230,7 +230,7 @@ try {
   }
   const env = { ...process.env, HADOUKEN_HOME: home };
 
-  console.log('## Bench do claude-hadouken');
+  console.log('## Bench do hadouken');
   console.log('');
   console.log('Relatório, sem gate: nenhum número muda o código de saída. Números indicativos: dependem da máquina e da carga dela durante a medida.');
   console.log('');

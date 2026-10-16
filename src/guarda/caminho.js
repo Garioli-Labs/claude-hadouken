@@ -515,7 +515,7 @@ const DOIS_PONTOS_LIBERAR = /:\s*l\s*i\s*b\s*e\s*r\s*a\s*r/;
 // ':' antes (Start-Process -FilePath:claude) também contam.
 const PALAVRA_CLAUDE = /(?:^|[\s;&|({'"`=/\\:])claude(?:\.exe|\.cmd|\.ps1)?(?=$|[\s;&|)'"`<>])/;
 const PACOTE = /claude-code/;
-// (b): ':liberar' com qualquer coisa antes (claude-hadouken:liberar) ou
+// (b): ':liberar' com qualquer coisa antes (hadouken:liberar) ou
 // '/liberar' fora de um caminho, sem outro nome depois (liberar.js,
 // liberar/, liberara não contam; 'liberar.' no fim da frase conta).
 const LIBERAR_PALAVRA = /(?::|(?<![a-z0-9_./-])\/)liberar(?![a-z0-9_/-]|\.[a-z0-9_])/;
@@ -599,7 +599,7 @@ export function claudeComLiberar(comando) {
 // o texto do deny pede para tirá-lo do prompt. Só texto, linear, e nunca
 // lança: na dúvida, true.
 // Desde a rodada 1 da revisão da Task 11 do aprendizado (segunda metade do
-// I1 do preflight), o mesmo teste vale para o /claude-hadouken:aprender
+// I1 do preflight), o mesmo teste vale para o /hadouken:aprender
 // ('hadouken:aprender' ou '/aprender' como palavra): o `aprovar` afrouxa a
 // guarda e o `desligar` tira o aprendizado, então ele também só vale
 // digitado pelo usuário.

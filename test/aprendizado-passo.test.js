@@ -262,7 +262,7 @@ test('§4.6: o anúncio sai uma vez por dia e só com novidade, no texto da spec
   gravarAjustes(d, aj);
   gravarSugestoes(d, { v: 1, seq: 1, lista: [{ id: 's1', estado: 'pendente', em: ontem, tipo: 'afrouxar', item: 'guarda.teto7d', de: 80, para: 85 }] });
   assert.deepEqual(linhasDoInicio({ dir: d, agoraMs: AGORA }), [
-    'Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /claude-hadouken:aprender status).',
+    'Aprendizado: 1 ajuste novo (painel 30→60 s fora do horário), 1 sugestão (use /hadouken:aprender status).',
   ]);
   assert.deepEqual(linhasDoInicio({ dir: d, agoraMs: AGORA }), [], 'no mesmo dia, nada');
   aj.seq = 2;
@@ -271,7 +271,7 @@ test('§4.6: o anúncio sai uma vez por dia e só com novidade, no texto da spec
   gravarAjustes(d, aj);
   assert.deepEqual(linhasDoInicio({ dir: d, agoraMs: AGORA + 60_000 }), [], 'novidade no mesmo dia espera o dia seguinte');
   assert.deepEqual(linhasDoInicio({ dir: d, agoraMs: AGORA + DIA }), [
-    'Aprendizado: 1 ajuste novo (faixa amarela 75→70%) (use /claude-hadouken:aprender status).',
+    'Aprendizado: 1 ajuste novo (faixa amarela 75→70%) (use /hadouken:aprender status).',
   ]);
   assert.deepEqual(linhasDoInicio({ dir: d, agoraMs: AGORA + 2 * DIA }), [], 'sem novidade, nada');
 });

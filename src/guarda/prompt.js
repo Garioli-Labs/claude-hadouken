@@ -10,7 +10,7 @@ import { p2Usuario, posLiberacao } from './mensagens.js';
 // modelo é Fable (modelos.json, senão o display_name do estado), com trava
 // ativa, o prompt digitado é bloqueado; o reason vai só ao usuário (C10).
 // Passam sem bloqueio:
-//   - '/claude-hadouken:...', para a liberação nunca travar a si mesma;
+//   - '/hadouken:...', para a liberação nunca travar a si mesma;
 //   - '<task-notification>...', o turno automático que entrega o resultado de
 //     um subagente em segundo plano (achado S6: o UserPromptSubmit dele tem as
 //     mesmas chaves de um prompt digitado; só o começo do texto o separa).
@@ -30,7 +30,7 @@ import { p2Usuario, posLiberacao } from './mensagens.js';
 // um deles), e a trava é a mesma.
 
 const NADA = Object.freeze({ bloquear: null, linha: null });
-const ISENTOS = ['/claude-hadouken:', '<task-notification>'];
+const ISENTOS = ['/hadouken:', '<task-notification>'];
 const FABLE = /fable/i;
 
 function registrarErro(dir, agoraMs) {

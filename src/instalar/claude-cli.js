@@ -14,12 +14,12 @@ import { item } from './itens.js';
 // casa do usuário, nunca o projeto aberto. A verdade de cada passo é o
 // `claude plugin list --json` depois dele, nunca o texto da saída.
 
-export const ID_PRINCIPAL = 'claude-hadouken@claude-hadouken';
+export const ID_PRINCIPAL = 'hadouken@claude-hadouken';
 export const ID_KIT = 'hadouken-kit@claude-hadouken';
 export const ID_REA = 'hadouken-rea@claude-hadouken';
 // As dependências do kit/.claude-plugin/plugin.json, como ids da lista.
 export const DEPENDENCIAS_KIT = Object.freeze([
-  'claude-hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
+  'hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
   'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
 ]);
 export const PRAZO_CLAUDE_MS = 600_000;

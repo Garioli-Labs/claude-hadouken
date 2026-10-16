@@ -46,7 +46,7 @@ const TETO_SETTINGS = 1_048_576;
 // Task 0): o JSON não é lido. Como a P4, 'settings' ou 'hadouken' em qualquer
 // ponto do texto cru, sem diferenciar maiúsculas, nega (lerStdinVigiando em
 // base.js; evento 'P5:grande'); senão, passa e registra o 'erro' P5 (rodarHook
-// em comum.js, R2). 'hadouken' cobre o claude-hadouken do plugin e também a
+// em comum.js, R2). 'hadouken' cobre o hadouken do plugin e também a
 // pasta de dados padrão (~/.claude/hadouken), que não tem 'claude-hadouken'.
 const VIGIA_ACIMA = /settings|hadouken/i;
 // O mesmo texto de P5_GRANDE_TEXTO (mensagens.js), só para quando o import

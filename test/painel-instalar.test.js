@@ -393,9 +393,9 @@ test('falhaPendente: o motivo só quando a versão atual não está instalada', 
 
 test('linhaPainel: conserto fixo por motivo, e motivo fora da lista vira erro', () => {
   assert.equal(linhaPainel('sem-vscode'),
-    "claude-hadouken: item do VS Code não instalado (sem-vscode); no VS Code, rode Shell Command: Install 'code' command in PATH. Sem VS Code, defina HADOUKEN_SEM_PAINEL=1.");
+    "hadouken: item do VS Code não instalado (sem-vscode); no VS Code, rode Shell Command: Install 'code' command in PATH. Sem VS Code, defina HADOUKEN_SEM_PAINEL=1.");
   for (const m of ['tempo', 'erro', 'caminho-inseguro', 'escrita']) {
-    assert.equal(linhaPainel(m), `claude-hadouken: item do VS Code não instalado (${m}); rode node ~/.claude/hadouken/bin/cli.mjs painel instalar. Sem VS Code, defina HADOUKEN_SEM_PAINEL=1.`);
+    assert.equal(linhaPainel(m), `hadouken: item do VS Code não instalado (${m}); rode node ~/.claude/hadouken/bin/cli.mjs painel instalar. Sem VS Code, defina HADOUKEN_SEM_PAINEL=1.`);
   }
   assert.match(linhaPainel('<script>'), /\(erro\)/);
   for (const m of MOTIVOS_PAINEL) assert.match(linhaPainel(m), new RegExp(`\\(${m}\\)`));

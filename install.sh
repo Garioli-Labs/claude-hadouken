@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instalador de um comando do claude-hadouken, Mac e Linux (spec v0.5.2).
+# Instalador de um comando do hadouken, Mac e Linux (spec v0.5.2).
 #   curl -fsSL https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.sh | bash
 #   ... | bash -s -- --sim --sem-extras
 # Passos 1 a 5: confere Node, git e claude; pergunta uma vez e instala o que
@@ -9,10 +9,10 @@
 
 NODE_MIN=20.0.0
 CLAUDE_MIN=2.1.251
-ID=claude-hadouken@claude-hadouken
+ID=hadouken@claude-hadouken
 
 aviso() {
-  printf 'claude-hadouken: %s\n' "$1" >&2
+  printf 'hadouken: %s\n' "$1" >&2
 }
 
 # pergunta "texto" s|n -> 0 sim, 1 não. --sim responde sim; sem tty, não.
@@ -113,7 +113,7 @@ main() {
 
   # 2 e 3. Pergunta uma vez e instala o que falta.
   if [ "$falta_node$falta_git" != 00 ] || [ "$claude_acao" != ok ]; then
-    echo "Falta para o claude-hadouken:"
+    echo "Falta para o hadouken:"
     [ "$falta_node" = 1 ] && echo "  - Node 20 ou mais novo"
     [ "$falta_git" = 1 ] && echo "  - git"
     [ "$claude_acao" = instalar ] && echo "  - Claude Code"

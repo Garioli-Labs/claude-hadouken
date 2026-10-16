@@ -219,7 +219,7 @@ test('aprendizado: s liga; n e sem tty deixam desligado; já ligado é igual; fa
   assert.equal(aprendizadoDe(await rodarTudo(c, { deps: { aprendizado: aprendizadoFalso({ ligado: true }) } })).estado, 'igual');
   c = cenario();
   const itens = await rodarTudo(c, { argv: ['--sim', '--sem-extras', '--com-aprendizado'], deps: { aprendizado: aprendizadoFalso({ resultado: { ok: false, motivo: 'download' } }) } });
-  assert.deepEqual(aprendizadoDe(itens), { nome: 'aprendizado', estado: 'falhou', detalhe: 'download', conserto: 'rode /claude-hadouken:aprender ligar numa sessão' });
+  assert.deepEqual(aprendizadoDe(itens), { nome: 'aprendizado', estado: 'falhou', detalhe: 'download', conserto: 'rode /hadouken:aprender ligar numa sessão' });
   assert.equal(itens.find((i) => i.nome === 'barra').estado, 'ok');
 });
 
