@@ -13,10 +13,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSAO_REA = '6.1.0';
+export const VERSAO_REA = '6.7.0';
 const ARGS = ['-y', `rea-agents@${VERSAO_REA}`, 'mcp'];
 
-// engines do rea-agents 6.1.0 no npm. O robô (kit-atualizar) recusa versão
+// engines do rea-agents 6.7.0 no npm. O robô (kit-atualizar) recusa versão
 // nova com outro engines: nodeServe e o instalador seguem esta faixa.
 export const ENGINES_REA = '^22.19.0 || ^24.11.0 || >=26.0.0';
 export function nodeServe(versao) {
