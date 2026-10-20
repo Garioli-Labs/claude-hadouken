@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { arquivoSettings } from '../configuracao.js';
 import { lerConfigGuardaBase } from '../guarda/config.js';
+import { gravarSubida } from '../roteamento/config.js';
 import { aprovar, desfazer, recusar } from './ajustar.js';
 import { caminhos, ligadoExiste } from './arquivos.js';
 import * as msg from './mensagens.js';
@@ -171,9 +172,12 @@ function responder(dir, c, agoraMs) {
       ? aprovar(aj, sug, c.arg, lerConfigGuardaBase(dir).config, agoraMs)
       : recusar(sug, aj, c.arg, agoraMs);
     if (!r.ok && r.motivo === 'nao-achou') return msg.SEM_SUGESTAO;
+    // Subir agente: o config.json primeiro; se ele falha, a sugestão fica.
+    if (r.ok && r.tipo === 'subir-agente' && !gravarSubida(dir, r.sugestao.agente, r.sugestao.para).ok) return msg.NAO_GRAVADO;
     if (!gravarSugestoes(dir, r.sug).ok || !gravarAjustes(dir, r.aj).ok) return msg.NAO_GRAVADO;
     if (!r.ok) return msg.MUDOU;
     if (c.sub === 'recusar') return msg.recusado(r.sugestao);
+    if (r.tipo === 'subir-agente') return msg.aprovadoSubirAgente(r.sugestao);
     return r.tipo === 'afrouxar' ? msg.aprovadoAfrouxar(r.registro) : msg.aprovadoModelo(r.sugestao);
   } finally {
     t.soltar();

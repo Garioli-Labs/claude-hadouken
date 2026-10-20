@@ -345,3 +345,21 @@ test('o hook não carrega o módulo de rede antes do gate: ligar.js só por impo
   assert.doesNotMatch(t, /^import [^;]*from '\.\/(?:ligar|baixar|coletor)\.js';$/m);
   assert.match(t, /await import\('\.\/ligar\.js'\)/);
 });
+
+// Task 13 da v0.5.3: aprovar a subida grava roteamento.subir no config.json,
+// preservando o resto, e mostra o agente substituto. Sem o comando, nada.
+test('aprovar subir agente grava roteamento.subir no config.json e cita o substituto', async () => {
+  const c = cenario({ ligado: true });
+  fs.writeFileSync(path.join(c.dir, 'config.json'), JSON.stringify({ guarda: { teto7d: 80 }, roteamento: { avisos: false } }));
+  const em = new Date(Date.now() - 3_600_000).toISOString();
+  assert.equal(gravarSugestoes(c.dir, {
+    v: 1, seq: 2, lista: [{ id: 's2', estado: 'pendente', em, tipo: 'subir-agente', agente: 'hadouken:mecanico', de: 'haiku', para: 'sonnet', retrabalhoPct: 25 }],
+  }).ok, true);
+  assert.equal(lerSugestoes(c.dir, Date.now()).lista.length, 1, 'a sugestão gravada é lida de volta');
+  const base = { dir: c.dir, agoraMs: Date.now(), entrypoint: 'cli', ambiente: {}, arquivo: c.arquivo, ...ORIGEM_OK };
+  const t = await executarComando({ ...base, texto: 'aprovar s2' });
+  assert.equal(t, 'hadouken: aplicado: use hadouken:executor para tarefas mecânicas (roteamento.subir no config.json). O modelo do hadouken:mecanico não muda; o hadouken nunca troca o modelo sozinho.');
+  const cfg = JSON.parse(fs.readFileSync(path.join(c.dir, 'config.json'), 'utf8'));
+  assert.deepEqual(cfg, { guarda: { teto7d: 80 }, roteamento: { avisos: false, subir: { 'hadouken:mecanico': 'sonnet' } } });
+  assert.deepEqual(lerSugestoes(c.dir, Date.now()).lista, []);
+});

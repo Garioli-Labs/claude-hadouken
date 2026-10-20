@@ -6,7 +6,7 @@ import { lerSemLink, lerTextoSemLink } from '../guarda/arquivo.js';
 import { MODELO_VALIDO } from '../guarda/registros.js';
 import { TOLERANCIA_JANELA_S } from '../util.js';
 import { apagar, esperar, fechar, idValido, instante, numeroFinito, varrerTmpVelhos } from '../base.js';
-import { ITENS, TETO, caminhos, ligadoExiste, valorDoItem } from './arquivos.js';
+import { ITENS, SUBIR_AGENTE, TETO, caminhos, ligadoExiste, valorDoItem } from './arquivos.js';
 import { CHAVES_LIGAR } from './settings-env.js';
 import {
   aprendizadoVazio, CAMPOS_MODELO, CHAVE_MODELO, DURACAO_JANELA_MS, inicioSemana, JANELAS_MAX, LIMIARES, MODELOS_SEMANA_MAX, SEMANAS_MAX,
@@ -274,6 +274,12 @@ function sugestaoValida(s, agoraMs) {
       de: { modelo: s.de.modelo, effort: s.de.effort }, para: { modelo: s.para.modelo, effort: s.para.effort },
       razao: s.razao, erroDe: s.erroDe, erroPara: s.erroPara,
     };
+  }
+  if (s.tipo === 'subir-agente') {
+    const alvo = typeof s.agente === 'string' && Object.hasOwn(SUBIR_AGENTE, s.agente) ? SUBIR_AGENTE[s.agente] : null;
+    if (alvo === null || s.de !== alvo.de || s.para !== alvo.para) return null;
+    if (!Number.isInteger(s.retrabalhoPct) || s.retrabalhoPct < 0 || s.retrabalhoPct > 100) return null;
+    return { ...base, tipo: 'subir-agente', agente: s.agente, de: s.de, para: s.para, retrabalhoPct: s.retrabalhoPct };
   }
   return null;
 }

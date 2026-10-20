@@ -4,6 +4,7 @@ import { ajustar, desfazer, aprovar, recusar } from '../src/aprendizado/ajustar.
 import { aprendizadoVazio, agregarRegistros, inicioSemana, LIMIARES } from '../src/aprendizado/agregar.js';
 import { ajustesVazios, sugestoesVazias } from '../src/aprendizado/registro.js';
 import { ITENS, valorDoItem } from '../src/aprendizado/arquivos.js';
+import { textoSubirAgente } from '../src/aprendizado/mensagens.js';
 
 // Decisor do aprendizado (spec aprendizado §4 e §8): puro, relógio por
 // parâmetro. O teste de propriedade prova que nenhum ajuste automático
@@ -531,4 +532,41 @@ test('propriedade de §8 (1.000 casos): nunca aperto acima do config.json, nunca
   for (const ramo of ['apertoGuarda', 'faixaHistorico', 'foraGuarda', 'foraFaixa', 'afrouxar', 'podadas', 'conflito']) {
     assert.ok(ramos[ramo] >= 20, `ramo ${ramo} com só ${ramos[ramo]} casos: ${JSON.stringify(ramos)}`);
   }
+});
+
+// Task 13 da v0.5.3 (spec roteamento §8): subir um agente do plugin com
+// retrabalho ≥ 20% em ≥ 10 despachos na semana. Só sugestão; o decisor não
+// grava nada e nunca muda um vigente por causa dela.
+const linhaRot = (extra = {}) => ({ agente: 'hadouken:mecanico', familia: 'haiku', despachos: 12, negados: 0, avisados: 0, retrabalhoPct: 25, ...extra });
+const rot = (...linhas) => ({ porAgente: linhas, porRegra: { N1: 0, N2: 0, A1: 0, A2: 0, A3: 0 }, custoEvitado: null });
+const subidas = (r) => r.novos.sugestoes.filter((x) => x.tipo === 'subir-agente');
+
+test('subir agente: 25% em 12 despachos sugere; 8 despachos ou 15% não; agente fora da lista nem família errada', () => {
+  const comRot = (roteamento, sug = sugestoesVazias()) => ajustar({ ap: apMaduro(), aj: ajustesVazios(), sug, config: CONFIG, agoraMs: AGORA, roteamento });
+  const r = comRot(rot(linhaRot()));
+  assert.deepEqual(subidas(r).map(({ id, em, ...x }) => x), [{ tipo: 'subir-agente', agente: 'hadouken:mecanico', de: 'haiku', para: 'sonnet', retrabalhoPct: 25, estado: 'pendente' }]);
+  assert.equal(textoSubirAgente(subidas(r)[0]), 'hadouken:mecanico teve 25% de retrabalho em 7 dias; subir para Sonnet?');
+  assert.deepEqual(r.aj.vigentes, comRot(rot()).aj.vigentes, 'nenhum vigente muda por causa dela');
+  assert.deepEqual(subidas(comRot(rot(linhaRot({ despachos: 8 })))), []);
+  assert.deepEqual(subidas(comRot(rot(linhaRot({ retrabalhoPct: 15 })))), []);
+  assert.deepEqual(subidas(comRot(rot(linhaRot({ retrabalhoPct: 20, despachos: 10 })))).length, 1);
+  assert.deepEqual(subidas(comRot(rot(linhaRot({ agente: 'Explore' })))), []);
+  assert.deepEqual(subidas(comRot(rot(linhaRot({ familia: 'sonnet' })))), []);
+  assert.deepEqual(subidas(comRot(undefined)), []);
+  // Pendente não repete; recusada fica bloqueada 7 dias.
+  const sug = r.sug;
+  assert.deepEqual(subidas(comRot(rot(linhaRot()), sug)), []);
+  const rec = recusar(sug, r.aj, subidas(r)[0].id, AGORA);
+  const depois = ajustar({ ap: apMaduro(), aj: rec.aj, sug: rec.sug, config: CONFIG, agoraMs: AGORA + D, roteamento: rot(linhaRot()) });
+  assert.deepEqual(subidas(depois), []);
+});
+
+test('aprovar subir agente só a marca e devolve o que gravar; o decisor não grava', () => {
+  const r = ajustar({ ap: apMaduro(), aj: ajustesVazios(), sug: sugestoesVazias(), config: CONFIG, agoraMs: AGORA, roteamento: rot(linhaRot()) });
+  const s = subidas(r)[0];
+  const a = aprovar(r.aj, r.sug, s.id, CONFIG, AGORA);
+  assert.equal(a.ok, true);
+  assert.equal(a.tipo, 'subir-agente');
+  assert.deepEqual([a.sugestao.agente, a.sugestao.para], ['hadouken:mecanico', 'sonnet']);
+  assert.deepEqual(a.sug.lista.filter((x) => x.tipo === 'subir-agente'), []);
 });

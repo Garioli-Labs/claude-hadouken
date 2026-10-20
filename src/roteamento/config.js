@@ -1,5 +1,6 @@
+import fs from 'node:fs';
 import path from 'node:path';
-import { lerJson } from '../estado.js';
+import { gravarJsonAtomico, lerJson } from '../estado.js';
 import { ARQ_CONFIG } from '../guarda/config.js';
 
 // Chave `roteamento` do config.json (spec roteamento §6.3 e §9), no mesmo
@@ -41,6 +42,28 @@ export function roteamentoDaConfig(valor) {
     return { config, avisos };
   } catch {
     return { config: copia(), avisos: ['config.json: roteamento inválido, usando os padrões'] };
+  }
+}
+
+// Aprovar "subir agente" (spec roteamento §8) grava roteamento.subir[agente]
+// no config.json, no molde de gravarGuardaLigada: preserva o resto e não
+// sobrescreve um arquivo que existe mas não abre.
+export function gravarSubida(dir, agente, familia) {
+  try {
+    if (typeof dir !== 'string' || typeof agente !== 'string' || typeof familia !== 'string') return { ok: false };
+    const arquivo = path.join(dir, ARQ_CONFIG);
+    let valor = {};
+    const lido = lerJson(arquivo, CONFIG_MAX_BYTES);
+    if (lido.ok) valor = lido.valor;
+    else if (lido.motivo !== 'ausente' || fs.existsSync(arquivo)) return { ok: false };
+    if (!ehObjeto(valor)) return { ok: false };
+    const r = proprio(valor, 'roteamento');
+    if (r !== undefined && !ehObjeto(r)) return { ok: false };
+    const s = proprio(r, 'subir');
+    if (s !== undefined && !ehObjeto(s)) return { ok: false };
+    return gravarJsonAtomico(arquivo, { ...valor, roteamento: { ...(r ?? {}), subir: { ...(s ?? {}), [agente]: familia } } });
+  } catch {
+    return { ok: false };
   }
 }
 

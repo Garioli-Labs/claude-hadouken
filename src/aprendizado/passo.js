@@ -2,6 +2,8 @@ import path from 'node:path';
 import { ARQ_ESTADO, instante, lerJson, limitesValidos, validarEstado } from '../estado.js';
 import { lerConfigGuardaBase } from '../guarda/config.js';
 import { lerEventos, ultimoLimiteFable } from '../guarda/registros.js';
+import { lerDespachos } from '../roteamento/registro.js';
+import { resumoRoteamento } from '../roteamento/retrabalho.js';
 import { lerUso } from '../uso/ler-uso.js';
 import { ajustar } from './ajustar.js';
 import { agregarHistorico, agregarRegistros, atualizarJanela, marcarNaJanela, marcarSessao, podar } from './agregar.js';
@@ -154,7 +156,10 @@ export function rodarPasso({ dir, agoraMs, inicio = false } = {}) {
     // por dia local (cursor.fora; ruling da Task 5).
     let novos = { ajustes: [], sugestoes: [] };
     if (!n.corrompido) {
-      const r = ajustar({ ap, aj: lerAjustes(dir, agoraMs), sug: lerSugestoes(dir, agoraMs), config: lerConfigGuardaBase(dir).config, agoraMs });
+      // O retrabalho vem do roteamento.json (spec roteamento §8); a
+      // reescrita fica de fora aqui, para o passo não abrir transcripts.
+      const roteamento = resumoRoteamento({ despachos: lerDespachos(dir, agoraMs), respostasSubagente: [] });
+      const r = ajustar({ ap, aj: lerAjustes(dir, agoraMs), sug: lerSugestoes(dir, agoraMs), config: lerConfigGuardaBase(dir).config, agoraMs, roteamento });
       for (const item of new Set(r.fora)) {
         if (cursor.fora[item] === hoje) continue;
         anexarEventoApr(dir, 'ajuste-fora', agoraMs);

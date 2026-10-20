@@ -3,7 +3,7 @@ import { MODELO_VALIDO } from '../guarda/registros.js';
 import { RAM_MIN_BYTES } from '../uso/painel.js';
 import { decimal } from '../util.js';
 import { BLOQUEIO_MS, PISO_MS, PISO_SESSOES } from './ajustar.js';
-import { ITENS } from './arquivos.js';
+import { ITENS, SUBIR_AGENTE } from './arquivos.js';
 import { HOST, PORTA } from './config-coletor.js';
 import { ARQ_TELEMETRIA } from './otlp.js';
 import { diaLocal, ORIGEM_VALIDA } from './registro.js';
@@ -213,7 +213,17 @@ export function textoModelo(s) {
   return `No seu uso, ${origem} com ${para} custaram ${numero(s.razao)}× menos que com ${de}, com erros parecidos (${numero(s.erroPara)}% contra ${numero(s.erroDe)}%). É um indício pelo custo e pelos erros, não uma medida de qualidade.`;
 }
 
+// Spec roteamento §8, o texto fixo da sugestão de subir um agente.
+const FAMILIA_TXT = Object.freeze({ haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' });
+
+export function textoSubirAgente(s) {
+  const alvo = typeof s?.agente === 'string' && Object.hasOwn(SUBIR_AGENTE, s.agente) ? SUBIR_AGENTE[s.agente] : null;
+  if (alvo === null || s.para !== alvo.para || !Number.isInteger(s.retrabalhoPct)) return null;
+  return `${s.agente} teve ${s.retrabalhoPct}% de retrabalho em 7 dias; subir para ${FAMILIA_TXT[alvo.para]}?`;
+}
+
 function textoSugestao(s) {
+  if (s.tipo === 'subir-agente') return textoSubirAgente(s);
   if (s.tipo === 'afrouxar' && temRotulo(s.item)) {
     return `afrouxar ${comArtigo(s.item)} de ${valorTxt(s.item, s.de)} para ${valorTxt(s.item, s.para)} (nunca acima do config.json).`;
   }
@@ -408,6 +418,11 @@ export function aprovadoAfrouxar(registro) {
 
 export function aprovadoModelo(s) {
   return `hadouken: sugestão ${s.id} marcada como aprovada. O hadouken nunca troca o modelo sozinho: a troca é sua, no /model ou na definição do subagente.`;
+}
+
+export function aprovadoSubirAgente(s) {
+  const alvo = SUBIR_AGENTE[s.agente];
+  return `hadouken: aplicado: use ${alvo.substituto} para ${alvo.uso} (roteamento.subir no config.json). O modelo do ${s.agente} não muda; o hadouken nunca troca o modelo sozinho.`;
 }
 
 export function recusado(s) {

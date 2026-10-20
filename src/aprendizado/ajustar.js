@@ -1,4 +1,4 @@
-import { ITENS, chaveSugestao, valorDoItem } from './arquivos.js';
+import { ITENS, SUBIR_AGENTE, chaveSugestao, valorDoItem } from './arquivos.js';
 import { perfilDe, CAMPOS_MODELO, DURACAO_JANELA_MS, LIMIARES } from './agregar.js';
 
 // Decisor do aprendizado (spec aprendizado §4.2 a §4.5 e §4.7). Puro: sem
@@ -197,6 +197,29 @@ function modelos(ap, aj, sug, agoraMs, novos) {
   }
 }
 
+// Spec roteamento §8: um agente do plugin com retrabalho ≥ 20% em ≥ 10
+// despachos na semana vira sugestão de subir. Nunca aplicada aqui; a mesma
+// pendente não repete e a recusada fica bloqueada como as outras.
+const SUBIR_PCT_MIN = 20;
+const SUBIR_DESPACHOS_MIN = 10;
+
+function subirAgentes(roteamento, aj, sug, agoraMs, novos) {
+  const linhas = Array.isArray(roteamento?.porAgente) ? roteamento.porAgente : [];
+  for (const l of linhas) {
+    const alvo = typeof l?.agente === 'string' && Object.hasOwn(SUBIR_AGENTE, l.agente) ? SUBIR_AGENTE[l.agente] : null;
+    if (alvo === null || l.familia !== alvo.de) continue;
+    if (!Number.isInteger(l.despachos) || l.despachos < SUBIR_DESPACHOS_MIN) continue;
+    if (!Number.isInteger(l.retrabalhoPct) || l.retrabalhoPct < SUBIR_PCT_MIN || l.retrabalhoPct > 100) continue;
+    const s = { tipo: 'subir-agente', agente: l.agente, de: alvo.de, para: alvo.para };
+    const chave = chaveSugestao(s);
+    if (bloqueado(aj, chave, agoraMs) || sug.lista.some((x) => x.tipo === 'subir-agente' && x.agente === l.agente)) continue;
+    sug.seq += 1;
+    const nova = { id: `s${sug.seq}`, ...s, retrabalhoPct: l.retrabalhoPct, estado: 'pendente', em: new Date(agoraMs).toISOString() };
+    sug.lista.push(nova);
+    novos.sugestoes.push(nova);
+  }
+}
+
 // Um afrouxar pendente vale para o vigente de quando nasceu; se o vigente
 // mudou (aperto, desfazer, aprovação), ele sai, para não segurar a
 // sugestão atual do item nem cair em 'mudou' na aprovação.
@@ -204,7 +227,7 @@ function podarObsoletas(aj, sug) {
   sug.lista = sug.lista.filter((x) => x.tipo !== 'afrouxar' || x.estado !== 'pendente' || x.de === aj.vigentes[x.item]);
 }
 
-export function ajustar({ ap, aj, sug, config, agoraMs }) {
+export function ajustar({ ap, aj, sug, config, agoraMs, roteamento }) {
   const novos = { ajustes: [], sugestoes: [] };
   const fora = [];
   aj.perfil = perfilDe(ap);
@@ -239,6 +262,7 @@ export function ajustar({ ap, aj, sug, config, agoraMs }) {
   // Um aperto deste passo deixa obsoleto o afrouxar pendente do item.
   podarObsoletas(aj, sug);
   modelos(ap, aj, sug, agoraMs, novos);
+  subirAgentes(roteamento, aj, sug, agoraMs, novos);
   return { aj, sug, novos, fora };
 }
 
@@ -277,6 +301,11 @@ export function aprovar(aj, sug, id, config, agoraMs) {
   if (s.tipo === 'modelo') {
     s.estado = 'aprovada';
     return { ok: true, tipo: 'modelo', aj, sug, sugestao: s };
+  }
+  // Subir agente: a sugestão sai e quem chama grava roteamento.subir.
+  if (s.tipo === 'subir-agente') {
+    sug.lista = sug.lista.filter((x) => x !== s);
+    return { ok: true, tipo: 'subir-agente', aj, sug, sugestao: s };
   }
   sug.lista = sug.lista.filter((x) => x !== s);
   const cfg = config?.[ITENS[s.item].campo];

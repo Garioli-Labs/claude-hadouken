@@ -66,8 +66,16 @@ export function valorDoItem(item, v) {
   return Number.isInteger(v) ? v : undefined;
 }
 
+// Agentes do plugin que o aprendizado pode sugerir subir (spec roteamento
+// §8): de que família para qual, e quem usar no lugar enquanto isso.
+export const SUBIR_AGENTE = Object.freeze({
+  'hadouken:mecanico': Object.freeze({ de: 'haiku', para: 'sonnet', substituto: 'hadouken:executor', uso: 'tarefas mecânicas' }),
+  'hadouken:busca': Object.freeze({ de: 'haiku', para: 'sonnet', substituto: 'hadouken:executor', uso: 'buscas' }),
+});
+
 export function chaveSugestao(s) {
   if (s.tipo === 'afrouxar') return `afrouxar:${s.item}`;
+  if (s.tipo === 'subir-agente') return `subir-agente:${s.agente}`;
   return `modelo:${s.origem}|${s.de.modelo}|${s.de.effort}|${s.para.modelo}|${s.para.effort}`;
 }
 
