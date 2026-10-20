@@ -54,7 +54,8 @@ export const ARQUIVOS_MAX = 20_000;
 const ENTRADAS_POR_ARQUIVO = 10;
 const INDICE_MAX_BYTES = 16 * 1024 * 1024;
 // 2: mais cacheCreate1h e cacheCreate5m por resposta (PASSO de 11 para 13).
-export const VERSAO_INDICE = 2;
+// 3: mais `mcp` por arquivo (v0.5.3, roteamento O3): servidor → último uso.
+export const VERSAO_INDICE = 3;
 // Tolerância para relógio adiantado: um timestamp até 1 dia à frente ainda vale.
 const FUTURO_MAX_MS = 86_400_000;
 const TS_MIN_MS = -DATA_MAX_MS;
@@ -86,7 +87,7 @@ const AGULHA = Buffer.from('"usage"');
 // as duas constantes não existem; lá a troca é pega pelo dev/ino (abrirConferido).
 const ABRIR = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
 const CHAVES_INDICE = ['arquivos', 'raiz', 'versao'];
-const CHAVES_ENTRADA = ['ancora', 'ids', 'linhasInvalidas', 'modelos', 'mtimeMs', 'numeros', 'offset', 'projetos', 'sessoes', 'size'];
+const CHAVES_ENTRADA = ['ancora', 'ids', 'linhasInvalidas', 'mcp', 'modelos', 'mtimeMs', 'numeros', 'offset', 'projetos', 'sessoes', 'size'];
 // Chamado sempre por fsp.<método>, nunca desestruturado.
 const fsp = fs.promises;
 const INVALIDA = Symbol('invalida');
@@ -100,7 +101,32 @@ export const hash48 = (dados) => crypto.createHash('sha256').update(dados).diges
 // fstat), para a comparação com o índice ser exata.
 export const mtimeDe = (st) => Number(st.mtimeNs / 1000n) / 1000;
 const leituraIlegivel = () => ({ registros: [], linhasInvalidas: 0, ilegivel: true });
-const resultadoNeutro = () => ({ registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false });
+const resultadoNeutro = () => ({ registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false, mcp: new Map() });
+
+// Servidor MCP pelo nome da ferramenta (mcp__<servidor>__<ferramenta>): só o
+// nome do servidor, pela regex, e até MCP_MAX por arquivo. O resto da chamada
+// nunca é lido.
+const SERVIDOR_MCP = /^[A-Za-z0-9_.-]{1,64}$/;
+const MCP_MAX = 64;
+const servidorValido = (s) => typeof s === 'string' && SERVIDOR_MCP.test(s) && s !== '__proto__';
+function servidoresMcp(m) {
+  const c = ehObjeto(m) ? proprio(m, 'content') : undefined;
+  if (!Array.isArray(c)) return [];
+  const r = [];
+  for (const b of c) {
+    if (!ehObjeto(b) || proprio(b, 'type') !== 'tool_use') continue;
+    const nome = proprio(b, 'name');
+    if (typeof nome !== 'string' || !nome.startsWith('mcp__')) continue;
+    const resto = nome.slice(5);
+    const i = resto.indexOf('__');
+    if (i > 0 && servidorValido(resto.slice(0, i))) r.push(resto.slice(0, i));
+  }
+  return r;
+}
+function anotarMcp(mapa, servidor, ts) {
+  const a = mapa.get(servidor);
+  if (a === undefined ? mapa.size < MCP_MAX : ts > a) mapa.set(servidor, ts);
+}
 export const fechar = async (fh) => { try { await fh.close(); } catch { /* já fechado */ } };
 
 // requestId (ou message.id) aceito como chave: padrão fixo e nunca um membro de
@@ -163,7 +189,7 @@ function comCache(cache, bruto, calcular) {
 function novoContexto(subagente, projetoPadrao, agoraMs) {
   return {
     subagente, projetoPadrao, agoraMs,
-    mapa: new Map(), invalidas: 0,
+    mapa: new Map(), invalidas: 0, mcp: new Map(),
     projetos: new Map(), modelos: new Map(),
   };
 }
@@ -387,7 +413,10 @@ function tratarLinha(linha, ctx) {
   }
   const r = registroDe(d, ctx);
   if (r === INVALIDA) ctx.invalidas++;
-  else if (r !== null) juntar(ctx.mapa, r, false);
+  else if (r !== null) {
+    juntar(ctx.mapa, r, false);
+    if (ctx.mcp !== undefined) for (const s of servidoresMcp(proprio(d, 'message'))) anotarMcp(ctx.mcp, s, r.ts);
+  }
 }
 
 // Lê os bytes [inicio, fim) em pedaços de até 1 MiB e separa em \n. Uma linha
@@ -519,12 +548,13 @@ async function lerArquivo(item, ant, agoraMs) {
       antes = conferido;
       ctx.invalidas = ant.linhasInvalidas;
       for (const r of ant.registros) ctx.mapa.set(r.requestId, { ...r });
+      for (const [s, ts] of ant.mcp) ctx.mcp.set(s, ts);
     }
     const { consumido, ancora } = await lerFaixa(fh, inicio, tam, ctx, antes);
     return {
       entrada: {
         offset: consumido, size: tam, mtimeMs: mt, ancora, linhasInvalidas: ctx.invalidas,
-        registros: [...ctx.mapa.values()], disco: null,
+        registros: [...ctx.mapa.values()], mcp: ctx.mcp, disco: null,
       },
     };
   } catch (e) {
@@ -712,11 +742,27 @@ const projetoFixo = (s) => typeof s === 'string' && rotuloProjeto(s) === s;
 const tabelaValida = (t, max, valida) => Array.isArray(t) && t.length <= max && t.every(valida);
 const indiceEm = (i, tabela) => inteiroEntre(i, -1, tabela.length - 1);
 
+// `mcp` do disco: { servidor: ts }, nomes pela regex, até MCP_MAX, ts como os
+// das respostas. Fora disso, null (o índice inteiro é reconstruído).
+function mcpDoDisco(v, agoraMs) {
+  if (!ehObjeto(v)) return null;
+  const nomes = Object.keys(v);
+  if (nomes.length > MCP_MAX) return null;
+  const mapa = new Map();
+  for (const s of nomes) {
+    if (!servidorValido(s) || !inteiroEntre(v[s], TS_MIN_MS, agoraMs + FUTURO_MAX_MS)) return null;
+    mapa.set(s, v[s]);
+  }
+  return mapa;
+}
+
 // Entrada do índice lida do disco → entrada em memória, ou null se qualquer
 // campo sair do schema.
 function entradaDoDisco(e, ehSubagente, agoraMs) {
   if (!ehObjeto(e) || !chavesExatas(e, CHAVES_ENTRADA)) return null;
   const { offset, size, mtimeMs, ancora, linhasInvalidas, sessoes, modelos, projetos, ids, numeros } = e;
+  const mcp = mcpDoDisco(e.mcp, agoraMs);
+  if (mcp === null) return null;
   if (!inteiroEntre(size, 0, Number.MAX_SAFE_INTEGER) || !inteiroEntre(offset, 0, size)) return null;
   if (typeof mtimeMs !== 'number' || !Number.isFinite(mtimeMs)) return null;
   if (!inteiroEntre(ancora, 0, ANCORA_MAX) || !inteiroEntre(linhasInvalidas, 0, Number.MAX_SAFE_INTEGER)) return null;
@@ -764,7 +810,7 @@ function entradaDoDisco(e, ehSubagente, agoraMs) {
     if ((r.cacheCreate1h === null) !== (r.cacheCreate5m === null)) return null;
     registros.push(r);
   }
-  return { offset, size, mtimeMs, ancora, linhasInvalidas, registros, disco: e };
+  return { offset, size, mtimeMs, ancora, linhasInvalidas, registros, mcp, disco: e };
 }
 
 // Índice guardado → Map(chave relativa → entrada), ou null: ausente, grande
@@ -816,7 +862,7 @@ function entradaParaDisco(e) {
   return {
     offset: e.offset, size: e.size, mtimeMs: e.mtimeMs, ancora: e.ancora, linhasInvalidas: e.linhasInvalidas,
     sessoes: [...tabelas.sessoes.keys()], modelos: [...tabelas.modelos.keys()], projetos: [...tabelas.projetos.keys()],
-    ids, numeros,
+    ids, numeros, mcp: Object.fromEntries(e.mcp),
   };
 }
 
@@ -921,14 +967,16 @@ export async function indexarTranscripts(opcoes) {
       if (difere(mantidas, antigo)) gravarJsonAtomico(arqIndice, valor, { compacto: true });
     }
     const mapa = new Map();
+    const mcp = new Map();
     let linhasInvalidas = 0;
     for (const e of novo.values()) {
       linhasInvalidas += e.linhasInvalidas;
       for (const r of e.registros) juntar(mapa, r, true);
+      for (const [s, ts] of e.mcp) if (ts >= corte && !(mcp.get(s) >= ts)) mcp.set(s, ts);
     }
     const registros = [];
     for (const r of mapa.values()) if (r.ts >= corte) registros.push(r);
-    return { registros, linhasInvalidas, arquivos: novo.size, ilegiveis, truncado: lista.truncado };
+    return { registros, linhasInvalidas, arquivos: novo.size, ilegiveis, truncado: lista.truncado, mcp };
   } catch {
     return resultadoNeutro();
   }

@@ -454,6 +454,33 @@ const AGENTE_ROTEAMENTO = /^[A-Za-z0-9_:-]{1,80}$/;
 const FAMILIAS_ROTEAMENTO = new Set(['haiku', 'sonnet', 'opus', 'fable', 'desconhecido']);
 const REGRAS_ROTEAMENTO = Object.freeze(['N1', 'N2', 'A1', 'A2', 'A3']);
 const ROTEAMENTO_LINHAS_MAX = 40;
+// O3 e O4 (Task 12): servidor pela regex do índice (sem ..), sobDemanda
+// true/false ou null; item de contexto pelo rótulo (nunca caminho: sem / nem
+// \), tokens inteiros. Lista ou objeto fora da forma → null (sem subseção).
+const SERVIDOR_ROTEAMENTO = /^[A-Za-z0-9_.-]{1,64}$/;
+const ITEM_CONTEXTO = /^[A-Za-z0-9_:.@() À-ÿ-]{1,100}$/;
+function montarMcpParados(v) {
+  if (!Array.isArray(v)) return null;
+  const r = [];
+  for (const m of v.slice(0, 30)) {
+    const s = ehObjeto(m) ? proprio(m, 'servidor') : null;
+    if (typeof s !== 'string' || !SERVIDOR_ROTEAMENTO.test(s) || s.includes('..')) continue;
+    const sob = proprio(m, 'sobDemanda');
+    r.push({ servidor: s, sobDemanda: sob === true || sob === false ? sob : null });
+  }
+  return r;
+}
+function montarContextoFixo(v) {
+  const mediana = ehObjeto(v) ? inteiro(proprio(v, 'medianaTokens')) : null;
+  if (mediana === null) return null;
+  const maiores = [];
+  for (const m of Array.isArray(proprio(v, 'maiores')) ? v.maiores.slice(0, 5) : []) {
+    const item = ehObjeto(m) ? proprio(m, 'item') : null;
+    const t = ehObjeto(m) ? inteiro(proprio(m, 'tokensEstimados')) : null;
+    if (typeof item === 'string' && ITEM_CONTEXTO.test(item) && t !== null) maiores.push({ item, tokensEstimados: t });
+  }
+  return { medianaTokens: mediana, maiores };
+}
 function montarRoteamento(v) {
   try {
     if (!ehObjeto(v)) return null;
@@ -476,6 +503,8 @@ function montarRoteamento(v) {
       porAgente,
       porRegra: Object.fromEntries(REGRAS_ROTEAMENTO.map((k) => [k, inteiro(proprio(regras, k)) ?? 0])),
       custoEvitado: tokensEvitados === null ? null : { tokens: tokensEvitados, estimativa: true },
+      mcpParados: montarMcpParados(proprio(v, 'mcpParados')),
+      contextoFixo: montarContextoFixo(proprio(v, 'contextoFixo')),
     };
   } catch {
     return null;
@@ -1081,6 +1110,17 @@ function blocoRoteamento(o) {
   }
   linhas.push(`Por regra: ${REGRAS_ROTEAMENTO.map((k) => `${k} ${numero(g.porRegra[k])}`).join(' · ')}.`, '');
   linhas.push(g.custoEvitado === null ? 'Custo evitado: sem dado suficiente.' : `Custo evitado (estimativa): ~${numero(g.custoEvitado.tokens)} tokens.`);
+  if (g.mcpParados !== null) {
+    linhas.push('', '### MCP parados (7 dias)', '');
+    if (g.mcpParados.length === 0) linhas.push('Nenhum servidor MCP parado.');
+    const marca = { true: ' (carregado sob demanda)', false: '', null: ' (não dá para saber se carrega sob demanda)' };
+    for (const m of g.mcpParados) linhas.push(`- ${m.servidor}: desligar se não usa${marca[m.sobDemanda]}.`);
+  }
+  if (g.contextoFixo !== null) {
+    linhas.push('', '### Contexto fixo', '', `Mediana de ${numero(g.contextoFixo.medianaTokens)} tokens por sessão antes do primeiro prompt.`);
+    if (g.contextoFixo.maiores.length > 0) linhas.push('');
+    for (const m of g.contextoFixo.maiores) linhas.push(`- ${m.item}: ~${numero(m.tokensEstimados)} tokens (estimativa).`);
+  }
   return linhas;
 }
 

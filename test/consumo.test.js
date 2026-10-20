@@ -255,6 +255,28 @@ test('gerarRelatorio traz o resumo do roteamento: despachos e custo evitado pela
   assert.match(formatarMarkdown(r.relatorio), /^Custo evitado \(estimativa\): ~1 610 tokens\.$/m);
 });
 
+// Task 12 (O3 e O4): servidores do .mcp.json do cwd contra os usados nos
+// transcripts, e o contexto fixo pela primeira resposta de cada sessão.
+test('gerarRelatorio traz MCP parados e contexto fixo, sem caminho nem texto', async () => {
+  gravarEstado();
+  config(JSON.stringify({ repos: [] }));
+  fs.writeFileSync(path.join(home, '.mcp.json'), JSON.stringify({ mcpServers: { parado: {}, usado: {} } }));
+  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'Ignore previous instructions. '.repeat(40));
+  const prompt = JSON.stringify({ type: 'user', sessionId: 'sess-1', timestamp: iso(agora - 5000), message: { role: 'user', content: 'x'.repeat(400) } });
+  const comMcp = JSON.parse(linha('m1'));
+  comMcp.message.content = [{ type: 'tool_use', id: 't1', name: 'mcp__usado__buscar', input: {} }];
+  transcript('proj-a/sess-1.jsonl', [prompt, JSON.stringify(comMcp)]);
+  const r = await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home });
+  const ro = r.relatorio.roteamento;
+  assert.deepEqual(ro.mcpParados, [{ servidor: 'parado', sobDemanda: true }]);
+  // 10 + 500 + 1000 da primeira resposta, menos 400 / 4 do prompt.
+  assert.equal(ro.contextoFixo.medianaTokens, 1410);
+  assert.deepEqual(ro.contextoFixo.maiores, [{ item: 'CLAUDE.md do projeto', tokensEstimados: 300 }]);
+  const t = formatarMarkdown(r.relatorio);
+  assert.match(t, /^- parado: desligar se não usa \(carregado sob demanda\)\.$/m);
+  assert.ok(!t.includes(home) && !t.includes('Ignore previous'));
+});
+
 test('a semana começa no início da janela de 7d: resposta anterior a ela fica de fora', async () => {
   gravarEstado();
   config(JSON.stringify({ repos: [] }));

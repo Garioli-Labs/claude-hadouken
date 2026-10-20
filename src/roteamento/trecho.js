@@ -55,7 +55,9 @@ function usageDe(u) {
   return { entrada: n(u.input_tokens), cacheLido: n(u.cache_read_input_tokens), cacheCriado: n(u.cache_creation_input_tokens) };
 }
 
-export async function lerTrecho(arquivo, { maxBytes = 2 * 1024 * 1024, respostas = 15 } = {}) {
+// `sidechain: true` (Task 12, para o transcript de um subagente) aceita as
+// linhas marcadas isSidechain, que a thread principal ignora.
+export async function lerTrecho(arquivo, { maxBytes = 2 * 1024 * 1024, respostas = 15, sidechain = false } = {}) {
   try {
     if (typeof arquivo !== 'string') return [];
     const ls = await lerFim(arquivo, maxBytes);
@@ -70,7 +72,7 @@ export async function lerTrecho(arquivo, { maxBytes = 2 * 1024 * 1024, respostas
       if (!l.includes('"assistant"') && !l.includes('"tool_result"')) continue;
       let o;
       try { o = JSON.parse(l); } catch { continue; }
-      if (!ehObjeto(o) || o.isSidechain === true || !ehObjeto(o.message)) continue;
+      if (!ehObjeto(o) || (o.isSidechain === true && sidechain !== true) || !ehObjeto(o.message)) continue;
       const conteudo = Array.isArray(o.message.content) ? o.message.content : [];
       if (o.type === 'assistant') {
         const id = texto(o.message.id);

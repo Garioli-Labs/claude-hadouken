@@ -24,6 +24,39 @@ export function marcarRetrabalho(despachos) {
   });
 }
 
+// Reescrita (spec roteamento §8): o subagente do despacho (mesma sessão,
+// começou entre 5 s antes e 2 min depois) editou um arquivo, e até 15 min
+// depois de ele acabar a sessão principal mudou mais da metade daquelas
+// linhas no mesmo arquivo (pelo hash). `sessoes`: { subagentes: [{ sessao,
+// inicio, fim, edicoes: { hash: linhas } }], principais: { sessao: [{ em,
+// arquivoHash, linhasMudadas }] } }. Cada subagente liga a um despacho só.
+// Devolve cópias, com `retrabalho` ligado se já vinha ligado.
+const ANTES_MS = 5000;
+const DEPOIS_MS = 120_000;
+export function marcarReescrita(despachos, sessoes) {
+  if (!Array.isArray(despachos)) return [];
+  const s = sessoes !== null && typeof sessoes === 'object' ? sessoes : {};
+  const subs = Array.isArray(s.subagentes) ? s.subagentes.filter((x) => x !== null && typeof x === 'object') : [];
+  const principais = s.principais !== null && typeof s.principais === 'object' ? s.principais : {};
+  const usados = new Set();
+  return despachos.filter((r) => r !== null && typeof r === 'object').map((r) => {
+    if (r.retrabalho === true || !rodou(r)) return { ...r, retrabalho: r.retrabalho === true };
+    const sub = subs.find((x) => !usados.has(x) && x.sessao === r.sessao && x.inicio >= r.em - ANTES_MS && x.inicio <= r.em + DEPOIS_MS);
+    if (sub === undefined) return { ...r, retrabalho: false };
+    usados.add(sub);
+    const edicoes = Object.hasOwn(principais, r.sessao) && Array.isArray(principais[r.sessao]) ? principais[r.sessao] : [];
+    const depois = edicoes.filter((e) => e !== null && typeof e === 'object' && e.em > sub.fim && e.em - sub.fim <= PRAZO_MS);
+    const mudadas = sub.edicoes !== null && typeof sub.edicoes === 'object' ? sub.edicoes : {};
+    const retrabalho = Object.keys(mudadas).some((h) => {
+      const linhas = mudadas[h];
+      if (!Number.isSafeInteger(linhas) || linhas <= 0) return false;
+      const refeitas = depois.filter((e) => e.arquivoHash === h).reduce((t, e) => t + (Number.isSafeInteger(e.linhasMudadas) ? e.linhasMudadas : 0), 0);
+      return refeitas > linhas / 2;
+    });
+    return { ...r, retrabalho };
+  });
+}
+
 const tokensDe = (x) => [x.input, x.output, x.cacheRead, x.cacheCreate].reduce((s, n) => s + (Number.isSafeInteger(n) && n >= 0 ? n : 0), 0);
 
 // Mediana (a do meio por baixo) dos tokens das respostas de subagente em
@@ -41,7 +74,7 @@ export function resumoRoteamento(entrada) {
   const vazio = { porAgente: [], porRegra: Object.fromEntries(REGRAS.map((k) => [k, 0])), custoEvitado: null };
   try {
     if (entrada === null || typeof entrada !== 'object') return vazio;
-    const despachos = marcarRetrabalho(entrada.despachos);
+    const despachos = marcarReescrita(marcarRetrabalho(entrada.despachos), entrada.sessoes);
     const porRegra = { ...vazio.porRegra };
     const grupos = new Map();
     for (const r of despachos) {

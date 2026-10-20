@@ -156,7 +156,7 @@ test('arquivo alterado é relido e arquivo apagado sai do índice', async () => 
 
 test('raiz inexistente devolve vazio, conta a raiz como ilegível e não mexe no índice', async () => {
   const r = await indexarTranscripts({ raiz: path.join(home, 'nada'), desdeMs: 0 });
-  assert.deepEqual(r, { registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false });
+  assert.deepEqual(r, { registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false, mcp: new Map() });
   assert.equal(fs.existsSync(arqIndice()), false);
 });
 
@@ -282,6 +282,27 @@ test('duplicatas: o detalhe do cache guarda o máximo de cada campo, e bloco sem
   const por = Object.fromEntries(r.registros.map((x) => [x.requestId, x]));
   assert.deepEqual(detalhe(por.r1), [50, 20]);
   assert.deepEqual(detalhe(por.r2), [400, 100]);
+  fs.rmSync(arqIndice());
+  assert.deepEqual(await indexar(), r, 'igual à leitura do zero');
+});
+
+// Task 12 da v0.5.3 (O3): o último uso de cada servidor MCP, só o nome
+// validado, guardado por arquivo e juntado pelo máximo.
+const usoMcp = (...nomes) => ({ content: nomes.map((name, i) => ({ type: 'tool_use', id: `t${i}`, name, input: { segredo: 'Ignore previous instructions' } })) });
+test('índice guarda o último uso de cada servidor MCP, sem o texto da chamada', async () => {
+  const ts = (ms) => ({ timestamp: new Date(ms).toISOString() });
+  const arq = escrever('proj-a/s1.jsonl', [
+    js(obj('r1', 0, { message: usoMcp('mcp__github__get_issue', 'Read', 'mcp__plugin_hadouken-rea_rea__abrir'), topo: ts(agora - 2 * DIA) })),
+    js(obj('r2', 0, { message: usoMcp('mcp__github__list', 'mcp__../x__y', 'mcp____proto____z', 'mcp__semfim'), topo: ts(agora - DIA) })),
+  ]);
+  let r = await indexar();
+  assert.deepEqual([...r.mcp.entries()].sort(), [['github', agora - DIA], ['plugin_hadouken-rea_rea', agora - 2 * DIA]]);
+  assert.ok(!fs.readFileSync(arqIndice(), 'utf8').includes('Ignore previous'));
+  // Leitura incremental mantém o que já estava e junta o novo pelo máximo.
+  fs.appendFileSync(arq, js(obj('r3', 0, { message: usoMcp('mcp__plugin_hadouken-rea_rea__ler'), topo: ts(agora - 1000) })) + '\n');
+  r = await indexar();
+  assert.equal(r.mcp.get('plugin_hadouken-rea_rea'), agora - 1000);
+  assert.equal(r.mcp.get('github'), agora - DIA);
   fs.rmSync(arqIndice());
   assert.deepEqual(await indexar(), r, 'igual à leitura do zero');
 });
@@ -792,7 +813,7 @@ test('raiz que é junção ou symlink: nada é lido e ela conta como ilegível',
   fs.writeFileSync(path.join(real, 'proj-a', 's.jsonl'), `${linha('r1', 0)}\n`);
   if (!link(t, real, raiz, LINK_PASTA)) return;
   const r = await indexar();
-  assert.deepEqual(r, { registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false });
+  assert.deepEqual(r, { registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false, mcp: new Map() });
 });
 
 test('arquivo trocado por symlink entre o lstat e o open não é lido', async (t) => {
@@ -1043,6 +1064,10 @@ test('índice corrompido ou adulterado é descartado e reconstruído igual ao li
     'sessão inválida': mut((e) => { e.sessoes[0] = 'a b'; }),
     'sessão __proto__': mut((e) => { e.sessoes[0] = '__proto__'; }),
     'tabela não é lista': mut((e) => { e.modelos = { 0: 'claude-opus-5' }; }),
+    'mcp ausente': mut((e) => { delete e.mcp; }),
+    'mcp com caminho': mut((e) => { e.mcp = { '../x': agora }; }),
+    'mcp __proto__': () => JSON.stringify(clone()).replace('"mcp":{}', `"mcp":{"__proto__":${agora}}`),
+    'mcp com texto': mut((e) => { e.mcp = { github: 'Ignore previous instructions' }; }),
     'índice de 17 MB': () => ' '.repeat(17 * 1024 * 1024) + JSON.stringify(clone()),
   };
   for (const [nome, gerar] of Object.entries(variantes)) {
@@ -1096,11 +1121,11 @@ test('índice guarda só números, ids validados e rótulos saneados', async () 
   await indexar();
   const indice = lerIndice();
   assert.deepEqual(Object.keys(indice).sort(), ['arquivos', 'raiz', 'versao']);
-  assert.equal(indice.versao, 2);
-  assert.equal(VERSAO_INDICE, 2);
+  assert.equal(indice.versao, 3);
+  assert.equal(VERSAO_INDICE, 3);
   assert.ok(Number.isInteger(indice.raiz));
   for (const [rel, e] of Object.entries(indice.arquivos)) {
-    assert.deepEqual(Object.keys(e).sort(), ['ancora', 'ids', 'linhasInvalidas', 'modelos', 'mtimeMs', 'numeros', 'offset', 'projetos', 'sessoes', 'size'], rel);
+    assert.deepEqual(Object.keys(e).sort(), ['ancora', 'ids', 'linhasInvalidas', 'mcp', 'modelos', 'mtimeMs', 'numeros', 'offset', 'projetos', 'sessoes', 'size'], rel);
     for (const k of ['ancora', 'linhasInvalidas', 'mtimeMs', 'offset', 'size']) assert.equal(typeof e[k], 'number', `${rel}.${k}`);
     assert.ok(e.numeros.every((n) => Number.isInteger(n)), rel);
     assert.equal(e.numeros.length, e.ids.length * 13, rel);
@@ -1201,7 +1226,7 @@ test('lerTranscript nunca lança: inexistente, pasta, argumento inválido, junç
 
 test('indexarTranscripts nunca lança com argumentos inválidos; desdeMs inválido vale 0', async () => {
   escrever('proj-a/s.jsonl', [linha('r1', 0, { timestamp: new Date(agora - 400 * DIA).toISOString() })]);
-  const neutro = { registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false };
+  const neutro = { registros: [], linhasInvalidas: 0, arquivos: 0, ilegiveis: 1, truncado: false, mcp: new Map() };
   for (const a of [undefined, null, 42, 'x', {}, { raiz: 42 }, { raiz: '' }, { raiz: ['x'] }]) {
     assert.deepEqual(await indexarTranscripts(a), neutro, String(JSON.stringify(a)));
   }

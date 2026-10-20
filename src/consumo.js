@@ -8,6 +8,7 @@ import { mapaDePlugins, resumirCusto } from './custo-hooks.js';
 import { ARQ_ESTADO, dirDados, lerJson, limitesValidos, validarEstado } from './estado.js';
 import { resolverExecutavel } from './executavel.js';
 import { coletarGithub, repoValido } from './github.js';
+import { settingsDaSessao } from './guarda/config-base.js';
 import { dirConfigClaude } from './guarda/despacho.js';
 import { resumoGuarda } from './guarda/resumo.js';
 import { indexarHooks, lerHooksDoPlugin, lerInstalados } from './indice-hooks.js';
@@ -15,8 +16,10 @@ import {
   AVISO_CONFIG, CLAUDE_ILEGIVEIS, CLAUDE_RAIZ_RECUSADA, CLAUDE_SEM_HOME, CLAUDE_SEM_RECENTES,
   CLAUDE_SEM_TRANSCRIPTS, montarRelatorio,
 } from './relatorio.js';
+import { itensDeContexto, primeirasDasSessoes, servidoresLigados, sessoesDeReescrita } from './roteamento/coleta.js';
 import { lerDespachos } from './roteamento/registro.js';
 import { resumoRoteamento } from './roteamento/retrabalho.js';
+import { contextoFixo, mcpParados } from './roteamento/semana.js';
 import { indexarTranscripts } from './transcripts.js';
 
 // Coleta do /consumo (spec 6.8; addendum da Task 10, B e D): lê estado.json,
@@ -271,6 +274,9 @@ async function coletarClaude(raiz, { hojeMs, seteDiasMs, semana }, agoraMs, cole
   const idx = await indexarTranscripts({ raiz, desdeMs: Math.min(hojeMs, seteDiasMs, semana.desdeMs) });
   coleta.respostasSubagente = idx.registros.filter((r) => r.subagente === true && r.ts >= seteDiasMs);
   if (idx.arquivos === 0) return { indisponivel: motivoSemArquivos(raiz, idx) };
+  // O3: o último uso de cada servidor MCP. Sem transcripts fica null (sem
+  // dado, nenhum servidor é dado como parado).
+  coleta.mcp = new Set([...idx.mcp].filter(([, ts]) => ts >= seteDiasMs).map(([s]) => s));
   return {
     hoje: agregar(idx.registros, hojeMs),
     sete_dias: agregar(idx.registros, seteDiasMs),
@@ -302,6 +308,43 @@ async function coletarCustoHooks(raiz, dirConfig, agoraMs) {
   } catch {
     return null;
   }
+}
+
+// "Roteamento (7 dias)" (spec roteamento §7 e §8): roteamento.json, as
+// respostas de subagente e o uso de MCP já indexados, a reescrita pelos
+// transcripts das sessões dos despachos, O3 e O4. Cada fonte no seu try: a
+// que falha só tira a sua parte.
+async function coletarRoteamento({ dir, raiz, dirConfig, cwd, coleta, agoraMs }) {
+  const desdeMs = agoraMs - SEMANA_MS;
+  const despachos = lerDespachos(dir, agoraMs);
+  let sessoes = null;
+  try {
+    if (raiz !== null) sessoes = await sessoesDeReescrita(raiz, despachos, desdeMs);
+  } catch {
+    sessoes = null;
+  }
+  const r = resumoRoteamento({ despachos, respostasSubagente: coleta.respostasSubagente, sessoes });
+  const dirCwd = typeof cwd === 'string' && path.isAbsolute(cwd) ? cwd : process.cwd();
+  const casa = os.homedir();
+  const settings = settingsDaSessao({ cwd: dirCwd, configDir: process.env.CLAUDE_CONFIG_DIR, casa });
+  const instalados = lerInstalados(dirConfig);
+  r.mcpParados = null;
+  try {
+    if (coleta.mcp !== null) {
+      const claudeJson = path.isAbsolute(process.env.CLAUDE_CONFIG_DIR ?? '') ? path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(casa, '.claude.json');
+      const l = servidoresLigados({ settings, claudeJson, cwd: dirCwd, instalados, env: process.env });
+      r.mcpParados = mcpParados({ servidores: l.servidores, chamadas7d: coleta.mcp, sobDemanda: l.sobDemanda });
+    }
+  } catch {
+    r.mcpParados = null;
+  }
+  r.contextoFixo = null;
+  try {
+    if (raiz !== null) r.contextoFixo = contextoFixo({ primeiras: primeirasDasSessoes(raiz, desdeMs), itens: itensDeContexto({ dirConfig, cwd: dirCwd, settings, instalados }) });
+  } catch {
+    r.contextoFixo = null;
+  }
+  return r;
 }
 
 // ------------------------------------------------------------------ GitHub
@@ -337,7 +380,7 @@ export async function gerarRelatorio(opcoes) {
     }
     const raiz = typeof o.raizTranscripts === 'string' && o.raizTranscripts !== '' ? o.raizTranscripts : raizPadrao();
     const dirConfig = typeof o.dirConfigClaude === 'string' && o.dirConfigClaude !== '' ? o.dirConfigClaude : dirConfigClaude(process.env, os.homedir());
-    const coleta = { respostasSubagente: [] };
+    const coleta = { respostasSubagente: [], mcp: null };
     const [claude, gh, custoHooks] = await Promise.all([
       coletarClaude(raiz, periodos(estado, agoraMs), agoraMs, coleta),
       coletarRepos(dir, { gh: o.gh, cwd: o.cwd, prazoMs }, agoraMs),
@@ -345,9 +388,7 @@ export async function gerarRelatorio(opcoes) {
     ]);
     // "Guarda (7 dias)" (spec v0.4.0 §9.4): só leitura, síncrona e pequena.
     const guarda = dir === null ? null : resumoGuarda(dir, agoraMs);
-    // "Roteamento (7 dias)" (spec roteamento §8): roteamento.json e as
-    // respostas de subagente já indexadas acima.
-    const roteamento = dir === null ? null : resumoRoteamento({ despachos: lerDespachos(dir, agoraMs), respostasSubagente: coleta.respostasSubagente });
+    const roteamento = dir === null ? null : await coletarRoteamento({ dir, raiz, dirConfig, cwd: o.cwd, coleta, agoraMs });
     return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos, guarda, custoHooks, roteamento }) };
   } catch (e) {
     return { ok: false, motivo: codigoErro(e) };

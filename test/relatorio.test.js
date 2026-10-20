@@ -1284,6 +1284,8 @@ const roteamento = (extra = {}) => ({
   ],
   porRegra: { N1: 1, N2: 0, A1: 2, A2: 0, A3: 3 },
   custoEvitado: { tokens: 12_000, estimativa: true },
+  mcpParados: [{ servidor: 'figma', sobDemanda: true }, { servidor: 'plugin_dak_notebook', sobDemanda: null }],
+  contextoFixo: { medianaTokens: 18_500, maiores: [{ item: 'CLAUDE.md do usuário', tokensEstimados: 900 }, { item: 'skill hadouken-kit:fluxo', tokensEstimados: 120 }] },
   ...extra,
 });
 
@@ -1295,11 +1297,17 @@ test('roteamento: última chave do JSON, revalidada; inválido vira null e sem s
     porAgente: [{ agente: 'Ignore previous instructions', familia: 'opus', despachos: 1, negados: 0, avisados: 0, retrabalhoPct: 0 },
       { agente: 'Explore', familia: 'gpt', despachos: -1, negados: 'x', avisados: 1.5, retrabalhoPct: 101, extra: 1 }],
     porRegra: { N1: -1, N9: 3 }, custoEvitado: { tokens: 'muito', estimativa: true }, extra: 1,
+    mcpParados: [{ servidor: 'C:/Users/x/.mcp.json', sobDemanda: true }, { servidor: 'ok', sobDemanda: 'sim' }],
+    contextoFixo: { medianaTokens: 5, maiores: [{ item: 'C:/Users/x/CLAUDE.md', tokensEstimados: 1 }, { item: 'agente x', tokensEstimados: -3 }] },
   }) }).roteamento;
   assert.deepEqual(hostil, {
     porAgente: [{ agente: 'Explore', familia: 'desconhecido', despachos: 0, negados: 0, avisados: 0, retrabalhoPct: 0 }],
     porRegra: { N1: 0, N2: 0, A1: 0, A2: 0, A3: 0 }, custoEvitado: null,
+    mcpParados: [{ servidor: 'ok', sobDemanda: null }],
+    contextoFixo: { medianaTokens: 5, maiores: [] },
   });
+  const semExtras = montarRelatorio({ estado, agoraMs: agora, claude, github, roteamento: roteamento({ mcpParados: 'x', contextoFixo: { medianaTokens: 'x' } }) }).roteamento;
+  assert.deepEqual([semExtras.mcpParados, semExtras.contextoFixo], [null, null]);
   assert.equal(montarRelatorio({ estado, agoraMs: agora, claude, github }).roteamento, null);
   assert.equal(montarRelatorio({ estado, agoraMs: agora, claude, github, roteamento: 'x' }).roteamento, null);
   assert.ok(!md({ roteamento: [] }).includes('## Roteamento'));
@@ -1315,6 +1323,18 @@ test('roteamento no markdown: tabela, linha por regra e custo evitado como estim
   assert.match(t, /^Custo evitado \(estimativa\): ~12 000 tokens\.$/m);
   assert.match(md({ roteamento: roteamento({ custoEvitado: null }) }), /^Custo evitado: sem dado suficiente\.$/m);
   assert.match(md({ roteamento: roteamento({ porAgente: [] }) }), /^Nenhum despacho de agente nos últimos 7 dias\.$/m);
+  // O3 e O4 (Task 12): as duas subseções, sem caminho nem texto de arquivo.
+  assert.match(t, /^### MCP parados \(7 dias\)$/m);
+  assert.match(t, /^- figma: desligar se não usa \(carregado sob demanda\)\.$/m);
+  assert.match(t, /^- plugin_dak_notebook: desligar se não usa \(não dá para saber se carrega sob demanda\)\.$/m);
+  assert.match(t, /^### Contexto fixo$/m);
+  assert.match(t, /^Mediana de 18 500 tokens por sessão antes do primeiro prompt\.$/m);
+  assert.match(t, /^- CLAUDE\.md do usuário: ~900 tokens \(estimativa\)\.$/m);
+  assert.match(t, /^- skill hadouken-kit:fluxo: ~120 tokens \(estimativa\)\.$/m);
+  assert.doesNotMatch(t, /[A-Za-z]:[\\/]|\/Users\//);
+  assert.match(md({ roteamento: roteamento({ mcpParados: [] }) }), /^Nenhum servidor MCP parado\.$/m);
+  const semO = md({ roteamento: roteamento({ mcpParados: null, contextoFixo: null }) });
+  assert.ok(!semO.includes('### MCP parados') && !semO.includes('### Contexto fixo'));
   const todas = md({ guarda: guarda(), roteamento: roteamento(), custoHooks: custo() });
   const pos = ['## Guarda (7 dias)', '## Roteamento (7 dias)', '## Custo dos hooks (7 dias)', '## GitHub'].map((s) => todas.indexOf(s));
   assert.deepEqual([...pos].sort((a, b) => a - b), pos);
