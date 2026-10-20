@@ -30,7 +30,7 @@ export const PADRAO_GUARDA = Object.freeze({
 });
 
 // [chave em ConfigGuarda, caminho no JSON, rótulo do aviso, mínimo, máximo]
-const CAMPOS = Object.freeze([
+export const CAMPOS = Object.freeze([
   ['teto5h', ['teto5h'], 'teto5h', 50, 100],
   ['horizonte5hMin', ['horizonte5hMin'], 'horizonte5hMin', 10, 300],
   ['margemReset5hMin', ['margemReset5hMin'], 'margemReset5hMin', 0, 60],
