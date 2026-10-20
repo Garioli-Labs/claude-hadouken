@@ -46,6 +46,10 @@ function indicador(rotulo, valor, resto) {
   return b === null ? `${rotulo} ${resto}` : `${rotulo} ${b} ${resto}`;
 }
 
+// As marcas que roteamento/fila.js põe na barra (test/roteamento-fila.test.js
+// confere que são as mesmas da tabela de lá).
+export const MARCAS_VALIDAS = Object.freeze(['↓ effort medium', '↓ sonnet', '↑ effort high', '⇣ compact']);
+
 // Monta a linha "modelo·effort │ ctx │ cache" (E6), ctx e cache com a sua
 // barrinha (spec v0.2.0 §5). `cor` liga as cores só se for exatamente true.
 // As opções antigas `limites`, `agoraMs`, `previsao` e `sessoesAtivas` seguem
@@ -55,7 +59,7 @@ function indicador(rotulo, valor, resto) {
 // saneado; vazio não muda nada.
 export function formatarBarra(opcoes) {
   try {
-    const { entrada, cor, guarda, versao } = opcoes ?? {};
+    const { entrada, cor, guarda, versao, marca } = opcoes ?? {};
     const e = ehObjeto(entrada) ? entrada : {};
     const ligado = cor === true;
 
@@ -86,6 +90,10 @@ export function formatarBarra(opcoes) {
     // fim e só quando há algo a dizer. Texto do código, saneado mesmo assim (S3).
     const g = typeof guarda === 'string' && guarda.length > 0 ? sanear(guarda, GUARDA_MAX) : null;
     if (g) partes.push(g);
+
+    // Spec roteamento §7: a marca da sugestão em curso (roteamento/fila.js),
+    // sem cor e só da lista fixa; fica antes da versão.
+    if (MARCAS_VALIDAS.includes(marca)) partes.push(marca);
 
     // v0.5.3: a versão do hadouken desta sessão, fixa no canto direito (o
     // último segmento). Só no formato N.N.N; qualquer outra coisa some.

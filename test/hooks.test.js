@@ -838,3 +838,73 @@ test('session-start resume com cache expirado: a linha de retomada vai ao usuár
   // Sem os campos: a saída de antes, só o contexto.
   assert.match(contexto(rodar('session-start.js', inicio('s1', 'resume'), home), 'SessionStart'), LINHA_ESTADO);
 });
+
+// Task 10 do roteamento: a sugestão da sessão no UserPromptSubmit, uma por
+// 30 min, sem modelo.
+const LINHA_EFFORT_MEDIUM = 'hadouken: as últimas respostas são trabalho simples; sugira ao usuário /effort medium (economiza sem perder qualidade aqui).';
+
+// Transcript com `n` respostas simples (Read e Edit de 3 linhas), mais `lastro`
+// bytes de linhas de usuário antes delas.
+function transcriptSimples(home, n = 15, lastro = 0) {
+  const ls = ['{}'];
+  if (lastro > 0) {
+    const linha = JSON.stringify({ type: 'user', message: { content: 'z'.repeat(9000) } });
+    for (let b = 0; b < lastro; b += linha.length + 1) ls.push(linha);
+  }
+  const t0 = Date.now() - 60_000;
+  for (let i = 0; i < n; i++) {
+    ls.push(JSON.stringify({ type: 'assistant', timestamp: iso(t0 + i * 1000), message: { id: `m${i}`, content: [
+      { type: 'tool_use', id: `r${i}`, name: 'Read', input: { file_path: '/p/a.js', offset: 1, limit: 20 } },
+      { type: 'tool_use', id: `e${i}`, name: 'Edit', input: { file_path: '/p/a.js', old_string: 'a', new_string: 'a\nb\nc' } }] } }));
+  }
+  const f = path.join(home, 'transcript.jsonl');
+  fs.writeFileSync(f, ls.join('\n') + '\n');
+  return f;
+}
+const sessaoFable = () => ({ s1: { at: new Date().toISOString(), model: 'Fable 5.1', effort: 'high' } });
+
+test('roteamento: 15 respostas simples em Fable high sugerem effort medium uma vez', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { sessoes: sessaoFable() });
+  const transcript_path = transcriptSimples(home);
+  const texto = contexto(rodar('prompt-submit.js', prompt('s1', { transcript_path }), home), 'UserPromptSubmit');
+  assert.ok(texto.split('\n').includes(LINHA_EFFORT_MEDIUM), texto);
+  const r2 = rodar('prompt-submit.js', prompt('s1', { transcript_path }), home);
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.ok(!r2.stdout.includes('effort medium'), r2.stdout);
+});
+
+test('roteamento: sugerirSessao false cala a sugestão', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { sessoes: sessaoFable() });
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ roteamento: { sugerirSessao: false } }));
+  const r = rodar('prompt-submit.js', prompt('s1', { transcript_path: transcriptSimples(home) }), home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!r.stdout.includes('effort medium'), r.stdout);
+});
+
+// Ruling da Task 10: o tempo de processo inteiro já inclui a subida do Node
+// (quase 300 ms no Windows sob carga); o teste mede o que o roteamento soma,
+// a mediana com o transcript de 5 MB menos a mediana sem transcript.
+test('roteamento: transcript de 5 MB soma menos de 100 ms ao hook (mediana de 10)', () => {
+  const home = novoHome();
+  registrar(home, 's1');
+  gravarEstado(home, { sessoes: sessaoFable() });
+  const transcript_path = transcriptSimples(home, 15, 5 * 1024 * 1024);
+  assert.ok(fs.statSync(transcript_path).size > 5 * 1024 * 1024);
+  const mediana = (extra) => {
+    const tempos = [];
+    for (let i = 0; i < 10; i++) {
+      const t = performance.now();
+      const r = rodar('prompt-submit.js', prompt('s1', extra), home);
+      tempos.push(performance.now() - t);
+      assert.equal(r.status, 0, r.stderr);
+    }
+    return tempos.sort((a, b) => a - b)[5];
+  };
+  const sem = mediana({});
+  const com = mediana({ transcript_path });
+  assert.ok(com - sem < 100, `com ${com} ms, sem ${sem} ms`);
+});

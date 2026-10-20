@@ -78,13 +78,18 @@ async function principal() {
   atualizarEstado(entrada, agoraMs);
   // A guarda lê a janela de 7 dias do estado.json recém-gravado, não da barra.
   const guarda = await segmentoDaGuarda(dirDados(), entrada, agoraMs);
+  // Spec roteamento §7: a marca da sugestão em curso; uma falha só a tira.
+  let marca = null;
+  try {
+    marca = (await import('./roteamento/fila.js')).marcaDaSessao(dirDados(), entrada.session_id, agoraMs);
+  } catch { /* sem marca */ }
   // no-color.org: NO_COLOR presente e não vazio desliga as cores.
   const cor = !process.env.NO_COLOR;
   // v0.5.3: a versão do hadouken que roda esta barra, do plugin.json ao lado
   // deste script; formatarBarra valida o formato e a põe no canto direito.
   const plugin = lerJson(fileURLToPath(new URL('../.claude-plugin/plugin.json', import.meta.url)), 64 * 1024);
   const versao = plugin.ok && plugin.valor !== null && typeof plugin.valor === 'object' ? plugin.valor.version : undefined;
-  process.stdout.write(formatarBarra({ entrada, cor, guarda, versao }));
+  process.stdout.write(formatarBarra({ entrada, cor, guarda, versao, marca }));
 }
 
 principal().catch(() => {}).finally(() => { process.exitCode = 0; });

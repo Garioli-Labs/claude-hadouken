@@ -268,3 +268,13 @@ test('versão do hadouken: último segmento, sempre; inválida some', () => {
     assert.equal(formatarBarra({ entrada, cor: false, versao: v }), LINHA);
   }
 });
+
+// Task 10 do roteamento: a marca da sugestão, sem cor e só da lista fixa;
+// a versão continua o último segmento.
+test('marca do roteamento: só da lista fixa, antes da versão', () => {
+  assert.equal(formatarBarra({ entrada, cor: false, guarda: '', marca: '↓ effort medium' }), `${LINHA} │ ↓ effort medium`);
+  assert.equal(formatarBarra({ entrada, cor: true, marca: '⇣ compact', versao: '0.5.3' }).endsWith(' │ ⇣ compact │ hadouken 0.5.3'), true);
+  for (const m of ['↓ effort low', 'x', '', null, 7, '↓ sonnet\u001b[31m']) {
+    assert.equal(formatarBarra({ entrada, cor: false, marca: m }), LINHA);
+  }
+});

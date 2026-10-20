@@ -109,5 +109,24 @@ rodarHook(async (entrada) => {
   if (precisaGravar(registro, guardado, agoraMs)) gravarJsonAtomico(arqAlertas, registro);
   const registroProjecao = projecaoParaGravar(novos.projecao);
   if (precisaGravarProjecao(registroProjecao, projecaoLida)) gravarJsonAtomico(arqProjecao, registroProjecao);
-  emitirContexto('UserPromptSubmit', (p2.linha === null ? linhas : [...linhas, p2.linha]).join('\n'));
+  // Spec roteamento §7 e §9: uma sugestão por 30 min (fila), sem modelo.
+  // Toda falha só tira a linha.
+  let linhaRoteamento = null;
+  try {
+    const { config } = (await import('../roteamento/config.js')).lerConfigRoteamento(dir);
+    const s = estado?.sessoes?.[sessionId] ?? null;
+    if (typeof entrada.transcript_path === 'string' && (config.sugerirSessao || Object.values(config.otimizacoes).some(Boolean))) {
+      const [{ lerTrecho }, { sugerirSessao }, { otimizacoesDaSessao }, { escolher }] = await Promise.all([
+        import('../roteamento/trecho.js'), import('../roteamento/sessao.js'), import('../roteamento/otimizacoes.js'), import('../roteamento/fila.js'),
+      ]);
+      const respostas = await lerTrecho(entrada.transcript_path, {});
+      const candidatas = [
+        ...(config.sugerirSessao ? [sugerirSessao({ respostas, modelo: s?.model ?? null, effort: s?.effort ?? null })].filter(Boolean) : []),
+        ...otimizacoesDaSessao({ respostas, sessaoEstado: s, faixas: undefined, otimizacoes: config.otimizacoes, agoraMs }),
+      ];
+      linhaRoteamento = escolher({ dir, sessionId, candidatas, agoraMs })?.linha ?? null;
+    }
+  } catch { /* sem sugestão neste prompt */ }
+  const todas = [...linhas, p2.linha, linhaRoteamento].filter((x) => typeof x === 'string' && x.length > 0);
+  emitirContexto('UserPromptSubmit', todas.join('\n'));
 }, undefined, undefined, 'P2');
