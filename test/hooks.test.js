@@ -894,17 +894,19 @@ test('roteamento: transcript de 5 MB soma menos de 100 ms ao hook (mediana de 10
   gravarEstado(home, { sessoes: sessaoFable() });
   const transcript_path = transcriptSimples(home, 15, 5 * 1024 * 1024);
   assert.ok(fs.statSync(transcript_path).size > 5 * 1024 * 1024);
-  const mediana = (extra) => {
-    const tempos = [];
-    for (let i = 0; i < 10; i++) {
-      const t = performance.now();
-      const r = rodar('prompt-submit.js', prompt('s1', extra), home);
-      tempos.push(performance.now() - t);
-      assert.equal(r.status, 0, r.stderr);
-    }
-    return tempos.sort((a, b) => a - b)[5];
+  // Intercaladas: a carga da máquina pesa igual nas duas medianas.
+  const tempo = (extra) => {
+    const t = performance.now();
+    const r = rodar('prompt-submit.js', prompt('s1', extra), home);
+    assert.equal(r.status, 0, r.stderr);
+    return performance.now() - t;
   };
-  const sem = mediana({});
-  const com = mediana({ transcript_path });
-  assert.ok(com - sem < 100, `com ${com} ms, sem ${sem} ms`);
+  const sem = [];
+  const com = [];
+  for (let i = 0; i < 10; i++) {
+    sem.push(tempo({}));
+    com.push(tempo({ transcript_path }));
+  }
+  const mediana = (xs) => xs.sort((a, b) => a - b)[5];
+  assert.ok(mediana(com) - mediana(sem) < 100, `com ${mediana(com)} ms, sem ${mediana(sem)} ms`);
 });

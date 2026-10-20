@@ -65,6 +65,9 @@ export async function lerTrecho(arquivo, { maxBytes = 2 * 1024 * 1024, respostas
     const ultimoNovo = new Map(); // arquivoHash → hash do new_string do último Edit
     let atual = null; // a resposta da última linha do assistente, para juntar o mesmo message.id
     for (const l of ls) {
+      // Só a resposta do assistente e a linha com tool_result interessam; as
+      // outras (prompts, anexos) nem passam pelo JSON.parse.
+      if (!l.includes('"assistant"') && !l.includes('"tool_result"')) continue;
       let o;
       try { o = JSON.parse(l); } catch { continue; }
       if (!ehObjeto(o) || o.isSidechain === true || !ehObjeto(o.message)) continue;
