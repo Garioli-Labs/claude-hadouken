@@ -41,9 +41,9 @@ export const TIPOS_EVENTO_APR = Object.freeze([
   'comando-recusado', 'parar-falhou',
 ]);
 export const MOTIVOS = Object.freeze([
-  'fora-do-horario', 'horario-mudou', 'faixa-historico', 'perfil-por-hora', 'perfil-insuficiente', 'esgotou-2-de-3', 'sobra-4-semanas', 'desfazer',
+  'fora-do-horario', 'horario-mudou', 'faixa-historico', 'perfil-por-hora', 'perfil-insuficiente', 'esgotou-2-de-3', 'sobra-4-semanas', 'desfazer', 'limites',
 ]);
-export const ORIGENS_REGISTRO = Object.freeze(['auto', 'aprovado', 'desfeito']);
+export const ORIGENS_REGISTRO = Object.freeze(['auto', 'aprovado', 'desfeito', 'limites']);
 export const ORIGEM_VALIDA = /^(?:principal|outro|sub|sub:[A-Za-z0-9._-]{1,40})$/;
 export const DIA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const EFFORT_OU_TRACO = new Set(['low', 'medium', 'high', 'xhigh', 'max', '-']);

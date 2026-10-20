@@ -315,6 +315,17 @@ export function aprovar(aj, sug, id, config, agoraMs) {
   return { ok: true, tipo: 'afrouxar', aj, sug, registro };
 }
 
+// O senhor afrouxou a guarda no /hadouken:limites (spec v0.5.3 VS Code,
+// foco 3): o aperto do item sai (null = o config.json) e o item fica
+// bloqueado 7 dias, para o aprendizado não reapertar na hora. Sem aperto
+// vigente, só bloqueia, sem registro novo.
+export function soltarAperto(aj, item, agoraMs) {
+  if (!Object.hasOwn(ITENS, item) || ITENS[item].tipo !== 'guarda') return { ok: false, aj };
+  if (aj.vigentes[item] !== null) registrar(aj, item, null, 'limites', 'limites', agoraMs);
+  aj.bloqueios[item] = agoraMs + BLOQUEIO_MS;
+  return { ok: true, aj };
+}
+
 // Recusar: a sugestão sai e a mesma (pela chave) fica bloqueada 7 dias.
 export function recusar(sug, aj, id, agoraMs) {
   const s = sug.lista.find((x) => x.id === id && x.estado === 'pendente');

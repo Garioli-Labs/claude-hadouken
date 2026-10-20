@@ -66,8 +66,9 @@ const MOTIVO_TXT = Object.freeze({
   'esgotou-2-de-3': 'esgotou em 2 das últimas 3 semanas',
   'sobra-4-semanas': 'sobra nas últimas 4 semanas',
   desfazer: 'desfeito pelo senhor',
+  limites: 'mudado pelo senhor nos limites',
 });
-const ORIGEM_REG = Object.freeze({ auto: 'automático', aprovado: 'aprovado', desfeito: 'desfeito' });
+const ORIGEM_REG = Object.freeze({ auto: 'automático', aprovado: 'aprovado', desfeito: 'desfeito', limites: 'limites' });
 const EVENTO_TXT = Object.freeze({
   'porta-ocupada': 'porta ocupada',
   'pouca-ram': 'pouca memória',
