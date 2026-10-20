@@ -232,6 +232,29 @@ test('gerarRelatorio traz o resumo da guarda da pasta de dados (spec v0.4.0 §9.
   fs.rmSync(path.join(process.env.HADOUKEN_HOME, 'guarda-eventos.json'), { force: true });
 });
 
+// Task 11 da v0.5.3 (spec roteamento §8): despachos de roteamento.json e as
+// respostas de subagente em Haiku dos transcripts.
+test('gerarRelatorio traz o resumo do roteamento: despachos e custo evitado pelas respostas de Haiku', async () => {
+  gravarEstado();
+  config(JSON.stringify({ repos: [] }));
+  const desp = (extra) => ({ sessao: 'sess-1', agente: 'Explore', familia: 'opus', effort: null, regra: 'N1', decisao: 'negar', em: agora - 3_600_000, tamPrompt: 50, palavras: [1, 2], ...extra });
+  fs.writeFileSync(path.join(process.env.HADOUKEN_HOME, 'roteamento.json'), JSON.stringify({ versao: 1, despachos: [desp(), desp({ agente: 'hadouken:mecanico', familia: 'haiku', regra: null, decisao: 'passar' })] }));
+  const sub = (req, ts = agora - 1000) => { const o = JSON.parse(linha(req, { ts, model: 'claude-haiku-4-5' })); o.isSidechain = true; return JSON.stringify(o); };
+  transcript('proj-a/s1.jsonl', [linha('p1'), sub('h1'), sub('h2'), sub('h3'), sub('h4')]);
+  let r = await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home });
+  assert.deepEqual(r.relatorio.roteamento.porRegra, { N1: 1, N2: 0, A1: 0, A2: 0, A3: 0 });
+  assert.deepEqual(r.relatorio.roteamento.porAgente.map((a) => [a.agente, a.familia, a.negados]), [['Explore', 'opus', 1], ['hadouken:mecanico', 'haiku', 0]]);
+  assert.equal(r.relatorio.roteamento.custoEvitado, null, 'só 4 respostas de Haiku');
+  // A quinta de Haiku, mas de 8 dias atrás, não conta; a de hoje conta.
+  transcript('proj-a/s1.jsonl', [linha('p1'), sub('h1'), sub('h2'), sub('h3'), sub('h4'), sub('velha', agora - 8 * DIA)]);
+  r = await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home });
+  assert.equal(r.relatorio.roteamento.custoEvitado, null);
+  transcript('proj-a/s1.jsonl', [linha('p1'), sub('h1'), sub('h2'), sub('h3'), sub('h4'), sub('h5')]);
+  r = await gerarRelatorio({ agoraMs: agora, gh: ghFalso([]), raizTranscripts: raiz, cwd: home });
+  assert.deepEqual(r.relatorio.roteamento.custoEvitado, { tokens: 1610, estimativa: true });
+  assert.match(formatarMarkdown(r.relatorio), /^Custo evitado \(estimativa\): ~1 610 tokens\.$/m);
+});
+
 test('a semana começa no início da janela de 7d: resposta anterior a ela fica de fora', async () => {
   gravarEstado();
   config(JSON.stringify({ repos: [] }));

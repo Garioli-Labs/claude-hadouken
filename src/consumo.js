@@ -15,6 +15,8 @@ import {
   AVISO_CONFIG, CLAUDE_ILEGIVEIS, CLAUDE_RAIZ_RECUSADA, CLAUDE_SEM_HOME, CLAUDE_SEM_RECENTES,
   CLAUDE_SEM_TRANSCRIPTS, montarRelatorio,
 } from './relatorio.js';
+import { lerDespachos } from './roteamento/registro.js';
+import { resumoRoteamento } from './roteamento/retrabalho.js';
 import { indexarTranscripts } from './transcripts.js';
 
 // Coleta do /consumo (spec 6.8; addendum da Task 10, B e D): lê estado.json,
@@ -261,10 +263,13 @@ function motivoSemArquivos(raiz, idx) {
 // Agregados dos três períodos e, sobre o mesmo índice, o `abertas` (spec
 // v0.2.0 §12.6): as respostas desde agoraMs − 1 h, que já estão dentro dos
 // últimos 7 dias indexados. Os subagentes trazem a sessionId da sessão mãe, e
-// o agregado por sessão os soma a ela.
-async function coletarClaude(raiz, { hojeMs, seteDiasMs, semana }, agoraMs) {
+// o agregado por sessão os soma a ela. As respostas de subagente dos últimos
+// 7 dias vão para `coleta.respostasSubagente` (o custo evitado do
+// roteamento), fora do que entra em `claude`.
+async function coletarClaude(raiz, { hojeMs, seteDiasMs, semana }, agoraMs, coleta) {
   if (raiz === null) return { indisponivel: CLAUDE_SEM_HOME };
   const idx = await indexarTranscripts({ raiz, desdeMs: Math.min(hojeMs, seteDiasMs, semana.desdeMs) });
+  coleta.respostasSubagente = idx.registros.filter((r) => r.subagente === true && r.ts >= seteDiasMs);
   if (idx.arquivos === 0) return { indisponivel: motivoSemArquivos(raiz, idx) };
   return {
     hoje: agregar(idx.registros, hojeMs),
@@ -332,14 +337,18 @@ export async function gerarRelatorio(opcoes) {
     }
     const raiz = typeof o.raizTranscripts === 'string' && o.raizTranscripts !== '' ? o.raizTranscripts : raizPadrao();
     const dirConfig = typeof o.dirConfigClaude === 'string' && o.dirConfigClaude !== '' ? o.dirConfigClaude : dirConfigClaude(process.env, os.homedir());
+    const coleta = { respostasSubagente: [] };
     const [claude, gh, custoHooks] = await Promise.all([
-      coletarClaude(raiz, periodos(estado, agoraMs), agoraMs),
+      coletarClaude(raiz, periodos(estado, agoraMs), agoraMs, coleta),
       coletarRepos(dir, { gh: o.gh, cwd: o.cwd, prazoMs }, agoraMs),
       coletarCustoHooks(raiz, dirConfig, agoraMs),
     ]);
     // "Guarda (7 dias)" (spec v0.4.0 §9.4): só leitura, síncrona e pequena.
     const guarda = dir === null ? null : resumoGuarda(dir, agoraMs);
-    return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos, guarda, custoHooks }) };
+    // "Roteamento (7 dias)" (spec roteamento §8): roteamento.json e as
+    // respostas de subagente já indexadas acima.
+    const roteamento = dir === null ? null : resumoRoteamento({ despachos: lerDespachos(dir, agoraMs), respostasSubagente: coleta.respostasSubagente });
+    return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos, guarda, custoHooks, roteamento }) };
   } catch (e) {
     return { ok: false, motivo: codigoErro(e) };
   }

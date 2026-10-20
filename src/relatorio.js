@@ -446,6 +446,42 @@ function montarGuarda(v) {
   }
 }
 
+// Roteamento (v0.5.3, spec roteamento §8) revalidado: agentes pela regex do
+// registro de despachos, família da lista fixa (senão desconhecido),
+// contadores inteiros (senão 0), retrabalho de 0 a 100, custo evitado só com
+// tokens inteiros. Chaves de fora não passam. Ausente ou não objeto → null.
+const AGENTE_ROTEAMENTO = /^[A-Za-z0-9_:-]{1,80}$/;
+const FAMILIAS_ROTEAMENTO = new Set(['haiku', 'sonnet', 'opus', 'fable', 'desconhecido']);
+const REGRAS_ROTEAMENTO = Object.freeze(['N1', 'N2', 'A1', 'A2', 'A3']);
+const ROTEAMENTO_LINHAS_MAX = 40;
+function montarRoteamento(v) {
+  try {
+    if (!ehObjeto(v)) return null;
+    const porAgente = [];
+    for (const a of Array.isArray(proprio(v, 'porAgente')) ? v.porAgente.slice(0, ROTEAMENTO_LINHAS_MAX) : []) {
+      const agente = ehObjeto(a) ? proprio(a, 'agente') : null;
+      if (typeof agente !== 'string' || !AGENTE_ROTEAMENTO.test(agente)) continue;
+      const familia = proprio(a, 'familia');
+      const pct = inteiro(proprio(a, 'retrabalhoPct'));
+      porAgente.push({
+        agente, familia: FAMILIAS_ROTEAMENTO.has(familia) ? familia : 'desconhecido',
+        despachos: inteiro(proprio(a, 'despachos')) ?? 0, negados: inteiro(proprio(a, 'negados')) ?? 0,
+        avisados: inteiro(proprio(a, 'avisados')) ?? 0, retrabalhoPct: pct !== null && pct <= 100 ? pct : 0,
+      });
+    }
+    const regras = ehObjeto(proprio(v, 'porRegra')) ? v.porRegra : {};
+    const custo = proprio(v, 'custoEvitado');
+    const tokensEvitados = ehObjeto(custo) ? inteiro(proprio(custo, 'tokens')) : null;
+    return {
+      porAgente,
+      porRegra: Object.fromEntries(REGRAS_ROTEAMENTO.map((k) => [k, inteiro(proprio(regras, k)) ?? 0])),
+      custoEvitado: tokensEvitados === null ? null : { tokens: tokensEvitados, estimativa: true },
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Custo dos hooks (spec v0.4.0 §9.4) revalidado: a linha só fica se o rótulo
 // casar ROTULO_PLUGIN ou for OUTROS/AMBIGUO; contadores inteiros (senão 0);
 // p50/p95 inteiros ou null; até CUSTO_LINHAS_MAX linhas. Entrada ausente ou
@@ -520,6 +556,8 @@ function montarCustoHooks(v) {
 // montarGuarda (7 dias de guarda-eventos.json e limites-atingidos.json).
 // `custoHooks` (spec v0.4.0 §9.4) é a última: null ou o resumo de
 // montarCustoHooks (números por plugin; nunca texto injetado nem comando).
+// `roteamento` (v0.5.3, spec roteamento §8) vem por último: null ou o resumo
+// de montarRoteamento.
 export function montarRelatorio(entrada) {
   const r = {
     versao: VERSAO_RELATORIO,
@@ -533,6 +571,7 @@ export function montarRelatorio(entrada) {
     sessoesAbertas: null,
     guarda: null,
     custoHooks: null,
+    roteamento: null,
   };
   const e = ehObjeto(entrada) ? entrada : {};
   const agoraMs = ler(e, 'agoraMs');
@@ -548,6 +587,7 @@ export function montarRelatorio(entrada) {
   r.sessoesAbertas = Object.hasOwn(r.claude, 'indisponivel') ? null : montarSessoesAbertas(ler(e, 'claude'));
   r.guarda = montarGuarda(ler(e, 'guarda'));
   r.custoHooks = montarCustoHooks(ler(e, 'custoHooks'));
+  r.roteamento = montarRoteamento(ler(e, 'roteamento'));
   return r;
 }
 
@@ -1022,6 +1062,28 @@ function blocoGuarda(o) {
   return linhas;
 }
 
+// Seção "Roteamento (7 dias)" (spec roteamento §8): tabela por agente e
+// família, a linha por regra e o custo evitado, sempre como estimativa. Só o
+// que passou por montarRoteamento.
+const COLUNAS_ROTEAMENTO = Object.freeze([['agente', TEXTO], ['modelo', TEXTO], ['despachos', NUMERO], ['negados', NUMERO], ['avisados', NUMERO], ['retrabalho', NUMERO]]);
+function blocoRoteamento(o) {
+  const g = montarRoteamento(ler(o, 'roteamento'));
+  if (g === null) return [];
+  const linhas = ['## Roteamento (7 dias)', ''];
+  if (g.porAgente.length === 0) {
+    linhas.push('Nenhum despacho de agente nos últimos 7 dias.', '');
+  } else {
+    linhas.push(...linhasCabecalho(COLUNAS_ROTEAMENTO));
+    for (const a of g.porAgente) {
+      linhas.push(`| ${[a.agente, a.familia, numero(a.despachos), numero(a.negados), numero(a.avisados), `${numero(a.retrabalhoPct)}%`].join(' | ')} |`);
+    }
+    linhas.push('');
+  }
+  linhas.push(`Por regra: ${REGRAS_ROTEAMENTO.map((k) => `${k} ${numero(g.porRegra[k])}`).join(' · ')}.`, '');
+  linhas.push(g.custoEvitado === null ? 'Custo evitado: sem dado suficiente.' : `Custo evitado (estimativa): ~${numero(g.custoEvitado.tokens)} tokens.`);
+  return linhas;
+}
+
 // Seção "Custo dos hooks (7 dias)" (spec v0.4.0 §9.4): tabela por plugin e a
 // linha das compactações. Só números e rótulos que passaram por
 // montarCustoHooks. Não sugere desligar nada (spec §9.4).
@@ -1052,7 +1114,7 @@ function blocoCustoHooks(o) {
 export function formatarMarkdown(r) {
   try {
     const o = ehObjeto(r) ? r : {};
-    const extras = [blocoGuarda(o), blocoCustoHooks(o)].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+    const extras = [blocoGuarda(o), blocoRoteamento(o), blocoCustoHooks(o)].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
     return [AVISO_DADOS, '', ...blocoLimites(o), '', ...blocoClaude(o), '', ...extras, ...blocoGithub(o)].join('\n');
   } catch {
     return `${AVISO_DADOS}\n\nRelatório indisponível: erro interno.`;

@@ -11,18 +11,20 @@ import { jsonSeguro } from '../src/util.js';
 // montarRelatorio (comandos.js); o \n do fim é da CLI. A §12.6 acrescenta
 // a chave `sessoesAbertas`, sempre a última: o teste compara só as chaves da
 // v0.1.0, que seguem idênticas byte a byte. A v0.4.0 (§9.4) acrescenta
-// `guarda` e `custoHooks` depois dela.
+// `guarda` e `custoHooks` depois dela, e a v0.5.3 (roteamento §8), `roteamento`.
 const ler = (nome) => fs.readFileSync(new URL(`./fixtures/${nome}`, import.meta.url), 'utf8');
 
 test('--json: as chaves da v0.1.0 idênticas às da v0.1.0, byte a byte, e sessoesAbertas por último', () => {
   const entrada = JSON.parse(ler('consumo-v0.1.0-entrada.json'));
   const r = montarRelatorio(entrada);
-  assert.deepEqual(Object.keys(r).slice(-3), ['sessoesAbertas', 'guarda', 'custoHooks']);
+  assert.deepEqual(Object.keys(r).slice(-4), ['sessoesAbertas', 'guarda', 'custoHooks', 'roteamento']);
   assert.equal(r.guarda, null, 'a entrada da v0.1.0 não traz o resumo da guarda');
+  assert.equal(r.roteamento, null, 'a entrada da v0.1.0 não traz o resumo do roteamento');
   assert.equal(r.sessoesAbertas, null, 'a entrada da v0.1.0 não traz o agregado da última hora');
   delete r.sessoesAbertas;
   delete r.guarda;
   delete r.custoHooks;
+  delete r.roteamento;
   assert.equal(jsonSeguro(r), ler('consumo-v0.1.0.json'));
 });
 
@@ -35,6 +37,7 @@ test('--json com o agregado da última hora: sessoesAbertas é lista e as chaves
   delete r.sessoesAbertas;
   delete r.guarda;
   delete r.custoHooks;
+  delete r.roteamento;
   assert.equal(jsonSeguro(r), ler('consumo-v0.1.0.json'));
 });
 
