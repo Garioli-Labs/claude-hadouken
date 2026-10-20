@@ -26,7 +26,9 @@ const limpo = (r) => ({ sessao: r.sessao, agente: r.agente, familia: r.familia, 
 export function hashesDePalavras(texto) {
   try {
     if (typeof texto !== 'string') return [];
-    const unicas = [...new Set(texto.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').split(/[^a-z0-9]+/).filter((p) => p.length >= 3))].slice(0, 40);
+    // Os acentos combinantes por faixa, sem \p (o Node sem ICU não o aceita;
+    // test/sem-icu.test.js).
+    const unicas = [...new Set(texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter((p) => p.length >= 3))].slice(0, 40);
     return unicas.map((p) => crypto.createHash('sha256').update(p).digest().readUInt32BE(0));
   } catch {
     return [];
