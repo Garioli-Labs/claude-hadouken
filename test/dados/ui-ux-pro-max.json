@@ -1,0 +1,35 @@
+{
+  "fonte": "github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+  "commit": "28b3b8dee8c976df4fa3e94aed4e092ad43fcb03",
+  "versao": "2.15.0",
+  "skills": [
+    {
+      "nome": "banner-design",
+      "soUsuario": false
+    },
+    {
+      "nome": "brand",
+      "soUsuario": false
+    },
+    {
+      "nome": "design",
+      "soUsuario": false
+    },
+    {
+      "nome": "design-system",
+      "soUsuario": false
+    },
+    {
+      "nome": "slides",
+      "soUsuario": false
+    },
+    {
+      "nome": "ui-styling",
+      "soUsuario": false
+    },
+    {
+      "nome": "ui-ux-pro-max",
+      "soUsuario": false
+    }
+  ]
+}
