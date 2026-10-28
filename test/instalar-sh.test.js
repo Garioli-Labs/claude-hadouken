@@ -73,6 +73,22 @@ test('install.sh: instalação nova, na ordem, e o instalar-tudo recebe as opç�
   assert.equal(m.lerLog(), '', 'nem curl nem brew');
 });
 
+test('install.sh: --sem-aprender chega ao instalar-tudo; a lista de opções o cita', { skip: pulaWin }, () => {
+  const m = montar();
+  const r = rodar(m, ['--sim', '--sem-extras', '--sem-aprender']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(m.lerStub().argv, ['--sim', '--sem-extras', '--sem-aprender']);
+  const ruim = rodar(montar(), ['--xyz']);
+  assert.match(ruim.stdout + ruim.stderr, /--sem-aprender/);
+});
+
+test('install.sh e install.ps1: as opções novas no texto (estático)', () => {
+  assert.match(fs.readFileSync(SCRIPT, 'utf8'), /--sem-aprender\) REPASSE|--sem-aprender\)/);
+  const ps1 = fs.readFileSync(path.join(path.dirname(SCRIPT), 'install.ps1'), 'utf8');
+  assert.match(ps1, /'-semaprender' = '--sem-aprender'/);
+  assert.match(ps1, /as opcoes sao --sim, --sem-extras, --sem-aprender e --substituir-barra/);
+});
+
 test('install.sh: segunda rodada usa plugin update', { skip: pulaWin }, () => {
   const m = montar();
   rodar(m, ['--sim', '--sem-extras']);

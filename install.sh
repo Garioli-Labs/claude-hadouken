@@ -92,8 +92,8 @@ main() {
     case "$a" in
       --sim) SIM=1; REPASSE+=("$a") ;;
       --sem-extras) sem_extras=1; REPASSE+=("$a") ;;
-      --substituir-barra|--com-aprendizado) REPASSE+=("$a") ;;
-      *) aviso "opção desconhecida; as opções são --sim, --sem-extras, --com-aprendizado e --substituir-barra"; return 2 ;;
+      --substituir-barra|--com-aprendizado|--sem-aprender) REPASSE+=("$a") ;;
+      *) aviso "opção desconhecida; as opções são --sim, --sem-extras, --sem-aprender e --substituir-barra"; return 2 ;;
     esac
   done
 

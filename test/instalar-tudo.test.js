@@ -6,9 +6,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { instalarTudo, lerOpcoes, respostaSim } from '../src/instalar-tudo.js';
+import { instalarTudo, lerOpcoes, respostaSim, ARQ_DESLIGADO } from '../src/instalar-tudo.js';
 import { ID_KIT, ID_REA } from '../src/instalar/claude-cli.js';
 import { versaoDoPlugin } from '../src/painel/instalar-painel.js';
+import { ARQ_DESLIGADO_USUARIO } from '../src/aprendizado/ligar.js';
 import { instalarFalso, rodarFalso } from './dados/instalador/claude-falso.mjs';
 
 // Instalador, passos 6 e 7 (spec v0.5.2). Tudo em pasta temporária: settings
@@ -50,14 +51,16 @@ const naoPergunta = async () => assert.fail('não pergunta');
 function rodarTudo(c, { argv = ['--sim', '--sem-extras'], deps = {}, ...resto } = {}) {
   return instalarTudo({
     opcoes: lerOpcoes(argv), rodar: c.rodar, versaoNode: '24.11.0', agoraMs: AGORA, ambiente: { CLAUDE_CONFIG_DIR: c.casa },
-    perguntar: naoPergunta, escrever: () => {}, deps: { instalar: painelBom, ...deps }, ...resto,
+    perguntar: naoPergunta, escrever: () => {}, deps: { instalar: painelBom, aprendizado: aprendizadoFalso(), ...deps }, ...resto,
   });
 }
 const estados = (itens) => itens.map((i) => [i.nome, i.estado]);
 const backups = (arq) => fs.readdirSync(path.dirname(arq)).filter((n) => n.startsWith(`${path.basename(arq)}.bak-hadouken-`)).sort();
 
 test('lerOpcoes e respostaSim', () => {
-  assert.deepEqual(lerOpcoes(['--sim', '--com-aprendizado', '--xyz']), { sim: true, substituirBarra: false, semExtras: false, comAprendizado: true, desconhecidas: ['--xyz'] });
+  assert.deepEqual(lerOpcoes(['--sim', '--com-aprendizado', '--xyz']), { sim: true, substituirBarra: false, semExtras: false, comAprendizado: true, semAprender: false, desconhecidas: ['--xyz'] });
+  assert.equal(lerOpcoes(['--sem-aprender']).semAprender, true);
+  assert.equal(ARQ_DESLIGADO, ARQ_DESLIGADO_USUARIO);
   for (const s of ['s', 'S', 'sim', ' y ', 'yes']) assert.equal(respostaSim(s, false), true, s);
   for (const n of ['n', 'não', 'x']) assert.equal(respostaSim(n, true), false, n);
   assert.equal(respostaSim('', true), true);
@@ -70,7 +73,7 @@ test('instalação nova: cada item, na ordem, e os comandos do claude', async ()
   const itens = await rodarTudo(c);
   assert.deepEqual(estados(itens), [
     ['hadouken-kit', 'ok'], ['hadouken-rea', 'ok'], ['atualização automática', 'ok'], ['arquivos da barra', 'ok'],
-    ['barra', 'ok'], ['item do VS Code', 'ok'], ['aprendizado', 'pulado'],
+    ['barra', 'ok'], ['item do VS Code', 'ok'], ['aprendizado', 'ok'],
   ]);
   assert.deepEqual(c.estado.log, [
     'plugin marketplace add anthropics/claude-plugins-official',
@@ -84,13 +87,14 @@ test('instalação nova: cada item, na ordem, e os comandos do claude', async ()
 
 test('segunda rodada: = em tudo, settings e backups intocados', async () => {
   const c = cenario({ theme: 'dark' });
-  await rodarTudo(c);
+  const aprendizado = aprendizadoFalso();
+  await rodarTudo(c, { deps: { aprendizado } });
   const bytes = fs.readFileSync(c.arq);
   const bk = backups(c.arq);
-  const itens = await rodarTudo(c);
+  const itens = await rodarTudo(c, { deps: { aprendizado } });
   assert.deepEqual(estados(itens), [
     ['hadouken-kit', 'igual'], ['hadouken-rea', 'igual'], ['atualização automática', 'igual'], ['arquivos da barra', 'igual'],
-    ['barra', 'igual'], ['item do VS Code', 'igual'], ['aprendizado', 'pulado'],
+    ['barra', 'igual'], ['item do VS Code', 'igual'], ['aprendizado', 'igual'],
   ]);
   assert.deepEqual(fs.readFileSync(c.arq), bytes);
   assert.deepEqual(backups(c.arq), bk);
@@ -178,47 +182,54 @@ test('atualização: marketplace registrado de outra fonte é pulado, settings i
 
 // ------------------------------------------------------------ aprendizado
 
+// O falso guarda o "ligado" depois de um ligar que deu certo, para a
+// segunda rodada ver igual.
 function aprendizadoFalso({ ligado = false, resultado = { ok: true } } = {}) {
   const chamadas = [];
+  let agora = ligado;
   return {
     chamadas,
-    ligadoExiste: () => ligado,
+    ligadoExiste: () => agora,
     previa: (o) => { chamadas.push(['previa', o]); return { ok: true, plano: {}, assinatura: 'x', codigo: 'abcd1234' }; },
-    ligar: async (o) => { chamadas.push(['ligar', o]); return resultado; },
+    ligar: async (o) => { chamadas.push(['ligar', o]); if (resultado.ok) agora = true; return resultado; },
   };
 }
 const aprendizadoDe = (itens) => itens.find((i) => i.nome === 'aprendizado');
 
-test('aprendizado: --sim não pergunta e não liga; --com-aprendizado liga com o código da prévia', async () => {
-  let apr = aprendizadoFalso();
-  let c = cenario();
-  assert.equal(aprendizadoDe(await rodarTudo(c, { deps: { aprendizado: apr } })).estado, 'pulado');
-  assert.equal(apr.chamadas.length, 0);
-  apr = aprendizadoFalso();
-  c = cenario();
-  assert.deepEqual(aprendizadoDe(await rodarTudo(c, { argv: ['--sim', '--sem-extras', '--com-aprendizado'], deps: { aprendizado: apr } })), { nome: 'aprendizado', estado: 'ok', detalhe: 'ligado' });
+test('aprendizado (spec §7): ligado por padrão, sem perguntar, com o código da prévia', async () => {
+  const apr = aprendizadoFalso();
+  const c = cenario();
+  const itens = await rodarTudo(c, { argv: ['--sem-extras'], deps: { aprendizado: apr } });
+  assert.deepEqual(aprendizadoDe(itens), { nome: 'aprendizado', estado: 'ok', detalhe: 'ligado (desligue na janela ou com --sem-aprender)' });
   const [, o] = apr.chamadas.find(([k]) => k === 'ligar');
   assert.equal(o.codigo, 'abcd1234');
   assert.equal(o.arquivo, c.arq);
   assert.equal(o.agoraMs, AGORA + 2);
+  // --com-aprendizado continua aceito, e não muda nada.
+  assert.equal(aprendizadoDe(await rodarTudo(cenario(), { argv: ['--sim', '--com-aprendizado'] })).estado, 'ok');
 });
 
-test('aprendizado: s liga; n e sem tty deixam desligado; já ligado é igual; falha do ligar é ✗ sem derrubar', async () => {
-  for (const [resposta, esperado] of [[true, 'ok'], [false, 'pulado'], [null, 'pulado']]) {
-    const apr = aprendizadoFalso();
-    const c = cenario();
-    const textos = [];
-    const perguntar = async (t) => { textos.push(t); return t.includes('aprendizado') ? resposta === true : false; };
-    const escritos = [];
-    const itens = await rodarTudo(c, { argv: ['--sem-extras'], perguntar, escrever: (t) => escritos.push(t), deps: { aprendizado: apr } });
-    assert.equal(aprendizadoDe(itens).estado, esperado, String(resposta));
-    assert.ok(textos.includes('Ligar o aprendizado? [s/N] '));
-    assert.match(escritos.join(''), /367 MiB/);
-  }
-  let c = cenario();
-  assert.equal(aprendizadoDe(await rodarTudo(c, { deps: { aprendizado: aprendizadoFalso({ ligado: true }) } })).estado, 'igual');
-  c = cenario();
-  const itens = await rodarTudo(c, { argv: ['--sim', '--sem-extras', '--com-aprendizado'], deps: { aprendizado: aprendizadoFalso({ resultado: { ok: false, motivo: 'download' } }) } });
+test('aprendizado: --sem-aprender e o marcador do usuário não ligam; já ligado é igual', async () => {
+  let apr = aprendizadoFalso();
+  assert.deepEqual(aprendizadoDe(await rodarTudo(cenario(), { argv: ['--sim', '--sem-aprender'], deps: { aprendizado: apr } })),
+    { nome: 'aprendizado', estado: 'pulado', detalhe: 'desligado (--sem-aprender); para ligar, na janela ou /hadouken:aprender ligar' });
+  assert.equal(apr.chamadas.length, 0);
+  apr = aprendizadoFalso();
+  const c = cenario();
+  fs.mkdirSync(process.env.HADOUKEN_HOME, { recursive: true });
+  fs.writeFileSync(path.join(process.env.HADOUKEN_HOME, ARQ_DESLIGADO_USUARIO), '');
+  assert.deepEqual(aprendizadoDe(await rodarTudo(c, { deps: { aprendizado: apr } })),
+    { nome: 'aprendizado', estado: 'pulado', detalhe: 'desligado por você; para ligar, na janela ou /hadouken:aprender ligar' });
+  assert.equal(apr.chamadas.length, 0);
+  assert.equal(aprendizadoDe(await rodarTudo(cenario(), { deps: { aprendizado: aprendizadoFalso({ ligado: true }) } })).estado, 'igual');
+});
+
+test('aprendizado: falha do ligar é ✗ sem derrubar; nenhum texto diz opcional', async () => {
+  const c = cenario();
+  const escritos = [];
+  const itens = await rodarTudo(c, { argv: ['--sim', '--sem-extras'], escrever: (t) => escritos.push(t), deps: { aprendizado: aprendizadoFalso({ resultado: { ok: false, motivo: 'download' } }) } });
+  assert.doesNotMatch(escritos.join(''), /opcional/i);
+  assert.doesNotMatch(fs.readFileSync(path.join(repo, 'src', 'instalar-tudo.js'), 'utf8'), /aprendizado[^\n]*opcional|opcional[^\n]*aprendizado/i);
   assert.deepEqual(aprendizadoDe(itens), { nome: 'aprendizado', estado: 'falhou', detalhe: 'download', conserto: 'rode /hadouken:aprender ligar numa sessão' });
   assert.equal(itens.find((i) => i.nome === 'barra').estado, 'ok');
 });

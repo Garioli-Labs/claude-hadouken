@@ -17,6 +17,7 @@
     '--sim' = '--sim'; '-sim' = '--sim'
     '--sem-extras' = '--sem-extras'; '-semextras' = '--sem-extras'
     '--com-aprendizado' = '--com-aprendizado'; '-comaprendizado' = '--com-aprendizado'
+    '--sem-aprender' = '--sem-aprender'; '-semaprender' = '--sem-aprender'
     '--substituir-barra' = '--substituir-barra'; '-substituirbarra' = '--substituir-barra'
   }
 
@@ -167,7 +168,7 @@
   foreach ($a in @($args) + @("$env:HADOUKEN_INSTALAR" -split '\s+' | Where-Object { $_ })) {
     $k = "$a".ToLower()
     if (-not $Opcoes.ContainsKey($k)) {
-      Write-Host 'hadouken: opcao desconhecida; as opcoes sao --sim, --sem-extras, --com-aprendizado e --substituir-barra' -ForegroundColor Red
+      Write-Host 'hadouken: opcao desconhecida; as opcoes sao --sim, --sem-extras, --sem-aprender e --substituir-barra' -ForegroundColor Red
       $codigo = 2
       break
     }

@@ -31,15 +31,16 @@ const CONSERTO_PAINEL = 'rode node ~/.claude/hadouken/bin/cli.mjs painel instala
 const CONSERTO_BARRA = 'rode /hadouken:instalar numa sessão';
 const CONSERTO_APRENDER = 'rode /hadouken:aprender ligar numa sessão';
 const SEM_VSCODE = "VS Code não encontrado; no VS Code, rode Shell Command: Install 'code' command in PATH e instale de novo";
-const OPCOES = Object.freeze({ '--sim': 'sim', '--substituir-barra': 'substituirBarra', '--sem-extras': 'semExtras', '--com-aprendizado': 'comAprendizado' });
-export const CUSTO_APRENDIZADO = [
-  'Aprendizado local (OpenTelemetry): o Hadouken aprende o seu ritmo com a telemetria do próprio Claude Code.',
-  'Custo: o Collector otelcol-contrib, ~367 MiB em disco e ~108 MiB de memória, um processo por sessão. Nada sai da máquina.',
-  '',
-].join('\n');
+// --com-aprendizado segue aceita (comandos antigos salvos) e não muda nada:
+// o aprendizado liga por padrão desde a v0.5.4 (spec v0.5.3 VS Code §7).
+const OPCOES = Object.freeze({ '--sim': 'sim', '--substituir-barra': 'substituirBarra', '--sem-extras': 'semExtras', '--com-aprendizado': 'comAprendizado', '--sem-aprender': 'semAprender' });
+// O mesmo nome de ARQ_DESLIGADO_USUARIO (aprendizado/ligar.js), sem carregar
+// o aprendizado só para isto; test/instalar-tudo.test.js confere os dois.
+export const ARQ_DESLIGADO = 'aprendizado-desligado-pelo-usuario';
+const PARA_LIGAR = 'para ligar, na janela ou /hadouken:aprender ligar';
 
 export function lerOpcoes(argv) {
-  const o = { sim: false, substituirBarra: false, semExtras: false, comAprendizado: false, desconhecidas: [] };
+  const o = { sim: false, substituirBarra: false, semExtras: false, comAprendizado: false, semAprender: false, desconhecidas: [] };
   for (const a of argv) {
     if (Object.hasOwn(OPCOES, a)) o[OPCOES[a]] = true;
     else o.desconhecidas.push(a);
@@ -164,22 +165,29 @@ async function passoPainel({ dir, raizPlugin, agoraMs, ambiente, instalar }) {
   return item.falhou(nome, r.motivo, CONSERTO_PAINEL);
 }
 
-async function passoAprendizado({ dir, settings, opcoes, perguntar, escrever, agoraMs, ambiente, aprendizado }) {
+// Ligado por padrão, sem perguntar (spec v0.5.3 VS Code §7). Não liga com
+// --sem-aprender nem quando o usuário já desligou (o marcador que o desligar
+// grava na pasta de dados).
+function desligadoPeloUsuario(dir) {
+  try {
+    return fs.existsSync(path.join(dir, ARQ_DESLIGADO));
+  } catch {
+    return false;
+  }
+}
+
+async function passoAprendizado({ dir, settings, opcoes, agoraMs, ambiente, aprendizado }) {
   const nome = 'aprendizado';
+  if (opcoes.semAprender) return item.pulado(nome, `desligado (--sem-aprender); ${PARA_LIGAR}`);
+  if (dir !== null && desligadoPeloUsuario(dir)) return item.pulado(nome, `desligado por você; ${PARA_LIGAR}`);
   const apr = aprendizado ?? { ...(await import('./aprendizado/arquivos.js')), ...(await import('./aprendizado/ligar.js')) };
   if (dir !== null && apr.ligadoExiste(dir)) return item.igual(nome);
-  let quer = opcoes.comAprendizado;
-  if (!quer && !opcoes.sim) {
-    escrever(CUSTO_APRENDIZADO);
-    quer = await perguntar('Ligar o aprendizado? [s/N] ', false);
-  }
-  if (!quer) return item.pulado(nome, 'desligado; para ligar depois, /hadouken:aprender ligar');
   if (dir === null || !settings.ok) return item.falhou(nome, dir === null ? 'sem-pasta' : settings.motivo, CONSERTO_APRENDER);
   const base = { dir, arquivo: settings.arquivo, ambiente };
   const p = apr.previa(base);
   if (!p.ok) return item.falhou(nome, p.motivo, CONSERTO_APRENDER);
   const r = await apr.ligar({ ...base, codigo: p.codigo, agoraMs });
-  return r.ok ? item.ok(nome, 'ligado') : item.falhou(nome, r.motivo, CONSERTO_APRENDER);
+  return r.ok ? item.ok(nome, 'ligado (desligue na janela ou com --sem-aprender)') : item.falhou(nome, r.motivo, CONSERTO_APRENDER);
 }
 
 // O python e o bash dos extras rodam com o cwd na casa do usuário, nunca na
@@ -313,7 +321,7 @@ export async function instalarTudo(o) {
   await passo(itens, 'arquivos da barra', () => passoShims({ raizPlugin, sincronizar }));
   await passo(itens, 'barra', () => passoBarra({ settings, opcoes, perguntar, agoraMs: agoraMs + 1, aplicar }));
   await passo(itens, 'item do VS Code', () => passoPainel({ dir, raizPlugin, agoraMs, ambiente, instalar }));
-  await passo(itens, 'aprendizado', () => passoAprendizado({ dir, settings, opcoes, perguntar, escrever, agoraMs: agoraMs + 2, ambiente, aprendizado }));
+  await passo(itens, 'aprendizado', () => passoAprendizado({ dir, settings, opcoes, agoraMs: agoraMs + 2, ambiente, aprendizado }));
   if (!opcoes.semExtras) {
     const python = deps.python !== undefined ? deps.python : await acharPython({ ambiente, plataforma, executar, cwd: casa });
     await passo(itens, 'graphify', () => passoGraphify({ python, executar, dir, plataforma, cwd: casa }));

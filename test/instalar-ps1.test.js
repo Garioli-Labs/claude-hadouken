@@ -94,6 +94,15 @@ test('install.ps1: sem claude e com a entrada redirecionada, sai 1 sem instalar'
 
 test('install.ps1: opção desconhecida sai 2', { skip: soWin }, () => {
   const m = montar();
-  assert.equal(ps(m.env, ['-File', SCRIPT, '--xyz']).status, 2);
+  const r = ps(m.env, ['-File', SCRIPT, '--xyz']);
+  assert.equal(r.status, 2);
+  assert.match(r.stdout + r.stderr, /--sem-aprender/);
   assert.deepEqual(m.lerEstado().log, []);
+});
+
+test('install.ps1: -SemAprender chega ao instalar-tudo como --sem-aprender', { skip: soWin }, () => {
+  const m = montar();
+  const r = ps(m.env, ['-File', SCRIPT, '--sim', '-SemExtras', '-SemAprender']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(m.lerStub().argv, ['--sim', '--sem-extras', '--sem-aprender']);
 });
