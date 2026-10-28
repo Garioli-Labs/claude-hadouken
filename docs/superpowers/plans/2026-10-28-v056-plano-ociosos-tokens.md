@@ -4,7 +4,7 @@
 
 **Goal:** O hadouken passa a saber o plano da conta, aponta sessões do Claude paradas e corta o gasto do vigia noturno, sem nunca bloquear prompt novo.
 
-**Architecture:** Três módulos novos e profundos atrás de interfaces pequenas: `src/conta/plano.js` (tokens por ponto → plano e conversão tokens↔%), `src/saude/ociosas.js` (sessões `claude` paradas, decidido sobre as leituras do coletor) e o prazo `noite` dentro de `guarda/liberacao.js`. A agenda com trava ganha uma linha de contexto em `hooks/guarda-agenda.js`. Os hooks continuam lendo só JSON pequeno; o cálculo pesado fica no coletor (v0.5.5).
+**Architecture:** Três módulos novos e profundos atrás de interfaces pequenas: `src/conta/plano.js` (plano da conta lido do Claude Code; a conversão tokens↔% caiu na Task 1, decisão 7), `src/saude/ociosas.js` (sessões `claude` paradas, decidido sobre as leituras do coletor) e o prazo `noite` dentro de `guarda/liberacao.js`. A agenda com trava ganha uma linha de contexto em `hooks/guarda-agenda.js`. Os hooks continuam lendo só JSON pequeno; o cálculo pesado fica no coletor (v0.5.5).
 
 **Tech Stack:** Node ≥ 20, ESM, `node:test`, sem dependências.
 
@@ -27,11 +27,15 @@
 2. **Spec §4, ociosa só pela CPU.** No Windows o `cwd` de outro processo não é legível sem privilégio (spec §8.2), então não há ligação segura processo ↔ transcript. Ociosa = processo de classe `claude`, fora da árvore da sessão atual, com CPU < 1% em todas as leituras de um intervalo contínuo ≥ 30 min. Sem projeto no aviso (a linha de comando não o traz com segurança); vai a contagem e a RAM.
 3. **Spec §3, a fonte do plano é o campo `organizationRateLimitTier` do `.claude.json`** (achado na escrita do plano; o Sr. Garioli confirmou: Max 20x, valor `default_claude_max_20x`). É o arquivo de configuração do Claude Code, não o de credenciais, então não fere a spec §2. Caminho: `$CLAUDE_CONFIG_DIR/.claude.json` com a variável definida, senão `~/.claude.json` (na pasta do usuário, não em `~/.claude/`). Só o coletor o lê (nunca um hook), com teto de 8 MB, e só esse campo sai da função: `*_max_20x` → `max20`, `*_max_5x` → `max5`, `*pro*` → `pro`; ausente ou outro valor → `desconhecido` (o comportamento da v0.5.5).
 3a. **Revisão do plano (pedido do Sr. Garioli antes da Task 1): saem a inferência por tokens/ponto e o item `conta.plano`.** Com o campo do Claude Code, a inferência só cobriria um formato futuro, e a tabela de config só tem `inteiro` e `booleano` (`src/config/tabela.js`); um tipo novo de escolha mexeria no config inteiro e na janela por um caso que ninguém tem. YAGNI: voltam juntos se o campo sumir. A Task 1 continua, mas só para a conversão tokens → % (a proporção pública 1 : 5 : 20 entre Pro, Max 5x e Max 20x; a unidade vem da conta Max 20x do Sr. Garioli). Todo número em % sai marcado como estimativa.
-4. **Spec §3, uso 3 (folga do roteamento): só a conversão para pontos.** O roteamento não tem limiar em tokens hoje (`guarda/config.js`), então não há limiar a "subir". O ganho do plano aparece na mensagem: o custo em % da semana.
+4. **Spec §3, uso 3 (folga do roteamento): só a conversão para pontos.** O roteamento não tem limiar em tokens hoje (`guarda/config.js`), então não há limiar a "subir". O ganho do plano aparece na mensagem: o custo em % da semana. (Caiu na Task 1, decisão 7: a medida não ficou estável.)
 5. **Spec §6.1, aviso único: na agenda, não no prompt.** O gasto da noite do Metrô SP veio de cada volta do `/loop`. A linha vai no `ScheduleWakeup`/`CronCreate` com trava ativa (`guarda-agenda.js`, que já roda nessas ferramentas): diz até quando vale o reset da janela travada e sugere esperar até lá. Nada é negado por isso. Limite aceito: um `CronCreate` recorrente criado antes da trava não passa de novo pela agenda, e cada disparo dele é um prompt comum que o hadouken não distingue do digitado. Por isso, quando a ferramenta é `CronCreate`, o texto sugere trocar o intervalo fixo por um `ScheduleWakeup` depois do reset.
 5a. **Spec §6.2, `noite` só pelo comando digitado.** A janela do VS Code não tem botão de liberar, de propósito (a liberação só vale digitada; `guarda/liberacao.js`, cabeçalho). O `noite` entra só como palavra do `/hadouken:liberar`.
 5b. **Spec §4, qual é a sessão atual.** O coletor é desanexado e perde a árvore. O hook que o dispara passa `process.ppid` como 2º argumento (`coletor-main.js <dirProjeto> <ppid>`); o coletor sobe pela lista de processos (`ppid` de cada item) a partir dele até o primeiro `claude` e exclui esse pid e os filhos dele. Sem argumento válido, nenhuma sessão é excluída e nenhum aviso de paradas sai naquela coleta (melhor calar que contar a sessão atual).
 6. **Spec §7, painel em outro PC: no `/hadouken:saude` e na wiki.** O painel se instala sozinho no SessionStart; não há saída de instalador para o usuário ler. O caminho do `.vsix` (`<dados>/painel/claude-hadouken-painel-<versão>.vsix`) vai na seção Compat do `/hadouken:saude` e nas duas páginas do painel da wiki.
+
+## Decisões da execução (Task 1)
+
+7. **Medida de 2026-10-28 (`node bench/tokens-por-ponto.mjs`, conta Max 20x do Sr. Garioli):** 196 leituras de 7d (`historico.jsonl` + `estado.json`), 36 intervalos com alta ≥ 3 pontos, 35 com respostas nesta máquina. Por ponto de 7d: `saida` mediana 76.222, CV 0,614 (robusto 0,713); `entradaNaoCacheada+saida` mediana 1.335.115, CV 0,525 (robusto 0,593); `pesoCache` mediana 5.308.147, CV 0,423 (robusto 0,367). Nenhuma métrica fica abaixo de 0,35, nem pela dispersão robusta. Causa provável: o limite também desce com uso fora destes transcripts (claude.ai, outro PC) e com a mistura de modelos, que pesam diferente. **Pela regra do Step 3, os relatórios não mostram %:** saem `UNIDADE_PRO_7D`, `pontosDeTokens` e o "% da semana" da economia (Tasks 2 e 6). O plano da conta continua detectado e aparece como linha informativa. A ferramenta fica em `bench/` para medir de novo numa versão futura.
 
 ## Review Focus
 
@@ -53,10 +57,10 @@
 - Consumes: o histórico de `estado.json` (`{ at, h5, d7 }`, via `src/estado.js`) e as respostas do índice dos transcripts (`src/transcripts.js`, `indexarTranscripts`).
 - Produces: `UNIDADE_PRO_7D` (tokens por ponto de 7d no Pro) e a métrica escolhida (`'saida'`, `'entradaNaoCacheada+saida'` ou `'pesoCache'`), gravadas como constantes na Task 2.
 
-- [ ] **Step 1:** Escreva o script: para cada intervalo do histórico com variação de `d7` ≥ 3 pontos (a semana, que é o que os relatórios mostram), some os tokens das respostas do intervalo por três métricas e divida pela variação. Saída: por métrica, n, mediana e coeficiente de variação.
-- [ ] **Step 2: Run** `node bench/tokens-por-ponto.mjs` na conta do Sr. Garioli. Expected: n ≥ 5 intervalos.
-- [ ] **Step 3:** Escolha a métrica de menor coeficiente de variação. O plano de referência é Max 20x (decisão 3); `UNIDADE_PRO_7D = mediana / 20`. Registre n, mediana, CV e a métrica no plano. CV > 0,35 em todas: os relatórios não mostram % (só tokens, como na v0.5.5) e isso fica registrado.
-- [ ] **Step 4: Commit** `chore(bench): medida de tokens por ponto do limite`.
+- [x] **Step 1:** Escreva o script: para cada intervalo do histórico com variação de `d7` ≥ 3 pontos (a semana, que é o que os relatórios mostram), some os tokens das respostas do intervalo por três métricas e divida pela variação. Saída: por métrica, n, mediana e coeficiente de variação.
+- [x] **Step 2: Run** `node bench/tokens-por-ponto.mjs` na conta do Sr. Garioli. Expected: n ≥ 5 intervalos.
+- [x] **Step 3:** Escolha a métrica de menor coeficiente de variação. O plano de referência é Max 20x (decisão 3); `UNIDADE_PRO_7D = mediana / 20`. Registre n, mediana, CV e a métrica no plano. CV > 0,35 em todas: os relatórios não mostram % (só tokens, como na v0.5.5) e isso fica registrado.
+- [x] **Step 4: Commit** `chore(bench): medida de tokens por ponto do limite`.
 
 ### Task 2: Plano da conta (`src/conta/plano.js`)
 
@@ -65,12 +69,11 @@
 - Modify: `src/saude/coletor-main.js` (lê o `.claude.json` no máximo uma vez por 24 h e grava `conta-plano.json`), `src/saude/reparo.js` (`conta-plano.json` em `ARQUIVOS_ESTADO`)
 
 **Interfaces:**
-- Consumes: `UNIDADE_PRO_7D` e a métrica da Task 1; `dirConfigClaude(env, home)` de `src/guarda/despacho.js` para o `CLAUDE_CONFIG_DIR`.
+- Consumes: `dirConfigClaude(env, home)` de `src/guarda/despacho.js` para o `CLAUDE_CONFIG_DIR`.
 - Produces:
   - `arquivoClaudeJson(env, home) → string|null` (`$CLAUDE_CONFIG_DIR/.claude.json` ou `<home>/.claude.json`; decisão 3)
   - `planoDoClaude(texto: string) → 'pro'|'max5'|'max20'|null` (só `organizationRateLimitTier`)
   - `planoEfetivo(dir: string) → 'pro'|'max5'|'max20'|'desconhecido'` (lê `conta-plano.json`; nunca lança)
-  - `pontosDeTokens(tokens: number, plano) → number|null` (pontos de 7d; null com plano `desconhecido`, tokens inválidos ou Task 1 sem medida estável)
   - `ROTULO_PLANO = { pro: 'Pro', max5: 'Max 5x', max20: 'Max 20x' }`
 
 - [ ] **Step 1: Write failing tests** `test/conta-plano.test.js`:
@@ -78,7 +81,6 @@
   - o resultado de `planoDoClaude` é sempre uma das quatro respostas (nunca objeto, nunca o e-mail do arquivo de teste).
   - `arquivoClaudeJson({ CLAUDE_CONFIG_DIR: '/x' }, '/h')` → `/x/.claude.json`; sem a variável → `/h/.claude.json`; variável relativa → `/h/.claude.json`.
   - `planoEfetivo` sem arquivo, com arquivo corrompido ou com `plano: 'ultra'` → `desconhecido`; com `{ v: 1, plano: 'max20', em }` → `max20`.
-  - `pontosDeTokens(UNIDADE_PRO_7D * 20, 'max20')` → `1`; `('max5')` com os mesmos tokens → `4`; `desconhecido` → `null`; `-1`, `NaN` → `null`.
   - coletor: com o `.claude.json` de teste (via `HOME`/`CLAUDE_CONFIG_DIR` temporários) grava `conta-plano.json`; numa segunda coleta dentro de 24 h não relê (conta leituras pelo `fs` injetado).
 - [ ] **Step 2: Run** `node --test test/conta-plano.test.js`. Expected: FAIL (módulo não existe).
 - [ ] **Step 3: Implement.** Leitura limitada (`lerTextoSemLink` de `guarda/arquivo.js` com teto de 8 MB), `JSON.parse`, só o campo. `conta-plano.json` = `{ v: 1, plano, em }`, gravado atômico.
@@ -147,18 +149,18 @@
 ### Task 6: Plano e pontos nos relatórios; caminho do `.vsix`
 
 **Files:**
-- Modify: `src/saude/economia.js` (tokens poupados também em % da semana via `pontosDeTokens`), `src/saude/relatorio.js` (linha "Plano: Max 20x" na seção Economia; caminho do `.vsix` em Compat), `src/relatorio.js` (`/hadouken:limites`: linha do plano), `src/saude/janela.js` e `vscode/` (plano na aba Saúde, só leitura)
+- Modify: `src/saude/relatorio.js` (linha "Plano: Max 20x" na seção Economia; caminho do `.vsix` em Compat), `src/relatorio.js` (`/hadouken:limites`: linha do plano), `src/saude/janela.js` e `vscode/` (plano na aba Saúde, só leitura)
 - Test: `test/saude-economia.test.js`, `test/saude-relatorio.test.js`, `test/saude-janela.test.js`, `test/relatorio.test.js`
 
 **Interfaces:**
-- Consumes: `planoEfetivo`, `pontosDeTokens` (Task 2).
-- Produces: textos — `hadouken na semana (estimativa): …; ~120 mil tokens poupados (~1,2% da semana).`; `Plano: Max 20x (do Claude Code)` / `Plano: não identificado (os relatórios mostram só tokens)`; `Painel: ~/.claude/hadouken/painel/claude-hadouken-painel-0.5.6.vsix (outro PC: code --install-extension <esse arquivo>)`.
+- Consumes: `planoEfetivo` (Task 2).
+- Produces: textos — `Plano: Max 20x (do Claude Code)` / `Plano: não identificado (os relatórios mostram só tokens)`; `Painel: ~/.claude/hadouken/painel/claude-hadouken-painel-0.5.6.vsix (outro PC: code --install-extension <esse arquivo>)`.
 
-- [ ] **Step 1: Write failing tests** para os três textos, inclusive plano `desconhecido` sem "%" nenhum (anti-objetivo da spec §2).
+- [ ] **Step 1: Write failing tests** para os dois textos (plano conhecido e `desconhecido`) e o do `.vsix`; a economia segue sem "%" nenhum (decisão 7).
 - [ ] **Step 2: Run.** Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** os quatro arquivos e `test/painel-*.test.js`. Expected: PASS.
-- [ ] **Step 5: Commit** `feat: plano da conta e custo em % nos relatórios; caminho do vsix`.
+- [ ] **Step 5: Commit** `feat: plano da conta nos relatórios; caminho do vsix`.
 
 ### Task 7: Documentação, versão e verificação final
 
