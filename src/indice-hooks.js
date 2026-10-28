@@ -226,6 +226,23 @@ export async function indexarHooks(opcoes) {
   }
 }
 
+// Só lê o índice que já existe (nunca indexa transcript): os itens com
+// ts >= desdeMs, ou null sem índice válido para esta raiz. Para o coletor de
+// saúde, que não pode gastar o tempo de uma indexação (spec v0.5.5 §6.H).
+export function lerItensDoIndice(raiz, desdeMs, dir = dirDados()) {
+  try {
+    if (typeof raiz !== 'string' || raiz === '' || typeof dir !== 'string' || dir === '') return null;
+    const carregado = carregar(path.join(dir, ARQ_INDICE_HOOKS), hash48(path.resolve(raiz)));
+    if (carregado === null) return null;
+    const corte = numeroFinito(desdeMs) ? desdeMs : 0;
+    const itens = [];
+    for (const e of carregado.mapa.values()) for (const it of e.itens) if (it[0] >= corte) itens.push(it);
+    return itens;
+  } catch {
+    return null;
+  }
+}
+
 const caminhoAbsoluto = (p) => typeof p === 'string' && p !== '' && p.length <= CAMINHO_MAX && !p.includes('\0') && path.isAbsolute(p);
 
 // installed_plugins.json da pasta de configuração do Claude Code

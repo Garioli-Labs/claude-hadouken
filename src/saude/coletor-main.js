@@ -14,6 +14,7 @@ import { executar } from './executar.js';
 import { encerraveis } from './processos.js';
 import { repararDados } from './reparo.js';
 import { limparDados } from './limpeza.js';
+import { atualizarConflitos } from './conflitos.js';
 import { ARQ_SAUDE, ARQ_TRAVA_SAUDE, travaViva } from './ler.js';
 import { conteudoTrava, lerTravaPid, tokenDaTrava } from './trava-pid.js';
 
@@ -84,10 +85,11 @@ function liberarPendurados(dir, leitura, antiga, agoraMs, matar, pidProprio) {
 }
 
 // deps: dir, agoraMs, coletar (async, sem argumentos), matar(pid), config
-// (de configSaude), prazoColetaMs, pidProprio. Nunca lança.
+// (de configSaude), prazoColetaMs, pidProprio, conflitos ({ dir, agoraMs } →
+// { lido }). Nunca lança.
 export async function rodarColetor({
   dir, agoraMs = Date.now(), coletar, matar = (pid) => process.kill(pid),
-  config, prazoColetaMs = PRAZO_COLETA_MS, pidProprio = process.pid,
+  config, prazoColetaMs = PRAZO_COLETA_MS, pidProprio = process.pid, conflitos = atualizarConflitos,
 }) {
   const token = crypto.randomBytes(16).toString('hex');
   const trava = pegarTravaSaude(dir, agoraMs, token);
@@ -99,7 +101,9 @@ export async function rodarColetor({
     const reparos = repararDados(dir, agoraMs);
     const cortes = cfg.limpeza?.ligada ? limparDados(dir, { tetoMb: cfg.limpeza.mb, agoraMs }).cortes : [];
     const g = gravarJsonAtomico(path.join(dir, ARQ_SAUDE), leitura, { compacto: true });
-    return { ok: g.ok, encerrados, reparos, cortes };
+    // Depois do saude.json: a barra não espera pelos conflitos (uma vez em 24 h).
+    const c = cfg.conflitos ? conflitos({ dir, agoraMs }) : { lido: false };
+    return { ok: g.ok, encerrados, reparos, cortes, conflitosLidos: c.lido };
   } catch {
     return { ok: false, motivo: 'erro' };
   } finally {

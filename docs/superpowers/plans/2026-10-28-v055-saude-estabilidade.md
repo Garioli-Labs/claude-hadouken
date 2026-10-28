@@ -331,9 +331,9 @@
     - `permissao` vale para outro plugin com matcher que intersecta os da guarda.
     - `lento` vale para p95 > 500 ms em 7 dias.
     - O rótulo do plugin passa por `ROTULO_PLUGIN`.
-  - O aviso ao usuário sai uma vez por combinação (hash em `conflitos.json`) pelo `systemMessage`.
+  - O aviso ao usuário sai uma vez por combinação (hash em `compat-avisados.json`) pelo `systemMessage`.
 
-- [ ] **Step 1: Write failing tests**:
+- [x] **Step 1: Write failing tests**:
   - `node 18 fora do suportado`;
   - `claudeCode ausente não acusa`;
   - `extensão mais velha que o plugin acusa`;
@@ -342,10 +342,26 @@
   - `p95 600 ms acusa lento`;
   - `rótulo malicioso vira (outros)`;
   - `segunda sessão no mesmo dia não relê`.
-- [ ] **Step 2: Run.** Expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run.** Expected: PASS.
-- [ ] **Step 5: Commit** `feat(saude): compatibilidade e conflitos com outros plugins`.
+- [x] **Step 2: Run.** Expected: FAIL.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run.** Expected: PASS.
+- [x] **Step 5: Commit** `feat(saude): compatibilidade e conflitos com outros plugins`.
+
+**Decisões da execução (Task 10):**
+- **Quem lê o quê.** Os conflitos saem do coletor desanexado (`src/saude/conflitos.js`, `atualizarConflitos`), não do SessionStart. O motivo é o índice de custo dos hooks, que passa de 6 MB e estouraria os 40 ms do hook. O coletor:
+  - roda a leitura no máximo uma vez a cada 24 h (`conflitos.json { v: 1, em, itens }`);
+  - só lê o `indice-hooks.json` que já existe (`lerItensDoIndice`, novo em `indice-hooks.js`) e nunca indexa transcript; sem índice, não acusa `lento`;
+  - roda depois de gravar `saude.json`, para a barra não esperar;
+  - respeita `saude.conflitos`.
+- **Plugin habilitado** é o que tem `enabledPlugins[chave] !== false` no settings do usuário, olhando só a primeira instalação de cada um.
+- **SessionStart.** `src/saude/aviso-compat.js` (leve: só JSON pequenos) roda dentro de `tetos.rodar('versao', …)`. Ele:
+  - lê as versões e o `conflitos.json`;
+  - avisa uma vez por combinação: `chaveDe` vai para `compat-avisados.json`, até 50 chaves. Arquivo à parte porque `saude-avisos.json` descarta chaves que não conhece. Se a gravação falha, não avisa, para não repetir em toda sessão;
+  - manda o texto só ao usuário, pelo `systemMessage`.
+- **Versões.**
+  - Claude Code: `entrada.version` ou `CLAUDE_CODE_VERSION`; sem nenhum dos dois, fica de fora (§10). O schema de `estado.json` não mudou.
+  - Extensão: só acusa com o `plugin.json` atualizado há mais de 24 h (o instalador automático teve tempo), sem falha de instalação pendente (que já tem a linha dela) e com `painel/instalado.json` presente (sem VS Code, nada a dizer).
+- `saude.ligado false` desliga o aviso, igual à 0.5.4.
 
 ### Task 11: Economia semanal
 

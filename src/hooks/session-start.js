@@ -141,9 +141,11 @@ rodarHook(async (entrada) => {
   // v0.5.2: a instalação do item do VS Code falhou e a versão atual não está
   // instalada: uma linha com o motivo e o conserto (rótulos fixos). Com
   // HADOUKEN_SEM_PAINEL=1, nada. Um import que falha só tira a linha.
+  let painelPendente = false;
   if (process.env.HADOUKEN_SEM_PAINEL !== '1') {
     try {
       const motivo = (await import('../painel/falha.js')).falhaPendente({ dir, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT });
+      painelPendente = motivo !== null;
       if (motivo !== null) saida.push(linhas.linhaPainel(motivo));
     } catch { /* sem a linha do painel nesta sessão */ }
   }
@@ -193,6 +195,18 @@ rodarHook(async (entrada) => {
     const pares = Object.entries(subir).map(([a, f]) => `${a} com model: ${f}`);
     if (pares.length > 0) saida.push(`hadouken: o usuário subiu estes agentes; despache-os assim: ${pares.join('; ')}.`);
   } catch { /* sem a linha nesta sessão */ }
+  // Spec v0.5.5 §6.G e §6.H: versão abaixo do suportado e conflito com outro
+  // plugin (conflitos.json, do coletor), ao usuário, uma vez por combinação.
+  try {
+    const aviso = await tetos.rodar('versao', async () => {
+      const { configSaude } = await import('../config/ler.js');
+      const versaoClaude = typeof entrada.version === 'string' ? entrada.version : process.env.CLAUDE_CODE_VERSION;
+      return (await import('../saude/aviso-compat.js')).avisoCompat({
+        dir, agoraMs, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT, versaoClaude, config: configSaude(dir), painelPendente,
+      });
+    });
+    if (typeof aviso === 'string') aoUsuario.push(aviso);
+  } catch { /* sem o aviso nesta sessão */ }
   // O teto que desligou o aprendizado ou o coletor neste hook avisa já; o do
   // painel, que roda depois da saída, fica no evento 'reparo' e no
   // /hadouken:saude.
