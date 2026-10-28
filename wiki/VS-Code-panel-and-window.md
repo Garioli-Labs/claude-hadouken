@@ -95,7 +95,7 @@ Click the hadouken logo in the VS Code status bar, or run the command `Claude Ha
 
 | Tab | What it changes |
 |---|---|
-| Guarda | Turns the guard on and off and changes its ceilings (see [Usage guard](Usage-guard)). |
+| Guarda | Turns the guard on and off, chooses between asking and blocking, and changes its ceilings (see [Usage guard](Usage-guard)). |
 | Barra | The colour bands for context and cache in the status bar. |
 | Alertas | How early the projection notices arrive. |
 | Aprendizado | Turns [local learning](Learning) on and off. |

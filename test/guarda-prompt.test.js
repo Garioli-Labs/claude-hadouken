@@ -12,7 +12,14 @@ import { PADRAO_GUARDA } from '../src/guarda/config.js';
 import { quandoLocal } from '../src/util.js';
 
 const dirs = [];
-const novo = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk-p2-')); dirs.push(d); return d; };
+// Modo estrito (guarda.perguntar = false) por padrão nos testes; o padrão da
+// v0.5.4 é perguntar, conferido no seu próprio teste com novo(true).
+const novo = (perguntar = false) => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk-p2-'));
+  dirs.push(d);
+  if (!perguntar) fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ guarda: { perguntar: false } }));
+  return d;
+};
 after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
 const H = 3_600_000;
 const agora = Date.UTC(2026, 8, 29, 6, 0);
@@ -26,6 +33,16 @@ test('sessão Fable com trava: prompt digitado é bloqueado com o texto da P2', 
   const r = decidirPrompt({ dir: d, sessionId: 's1', prompt: 'continue', agoraMs: agora });
   assert.equal(r.bloquear, `hadouken: guarda ativa: trava do Fable desde ${quandoLocal((agora - H) / 1000, agora)}. Esta sessão está no Fable. Troque com /model ou libere com /hadouken:liberar fable.`);
   assert.equal(lerEventos(d, agora).filter((e) => e.tipo === 'prompt-bloqueado').length, 1);
+});
+
+test('guarda.perguntar (padrão v0.5.4): o prompt digitado passa com o aviso e registra perguntado', () => {
+  const d = novo(true);
+  travarG6(d);
+  gravarModeloSessao(d, 's1', 'claude-fable-5-1', agora);
+  const r = decidirPrompt({ dir: d, sessionId: 's1', prompt: 'continue', agoraMs: agora });
+  assert.equal(r.bloquear, null);
+  assert.match(r.linha, /^hadouken: guarda ativa \(trava do Fable desde .+\) e esta sessão está no Fable\. O usuário decidiu seguir/);
+  assert.deepEqual(lerEventos(d, agora).filter((e) => e.tipo === 'perguntado').map((e) => e.detalhe), ['P2:fable']);
 });
 
 test('foco 1: turno automático <task-notification> e comando do hadouken passam', () => {

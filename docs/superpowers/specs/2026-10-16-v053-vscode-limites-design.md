@@ -391,3 +391,19 @@ Na aba, cada interruptor tem embaixo uma linha dizendo o que se perde ao deslig�
 O risco fica declarado no SECURITY.md e no README (Task 13):
 - com a P5 desligada, o Claude pode editar a configuração e os settings;
 - com a P4 desligada, uma sessão filha pode tentar o liberar, mas o `liberar.js` ainda recusa qualquer origem que não seja o comando digitado.
+
+## 13. Emenda 4 (2026-10-28): perguntar em vez de bloquear
+
+Pedido do Sr. Garioli: "Ele trava até aquilo que é decisão minha." Com a trava do 7d ativa, a P1 negou um despacho de revisão que ele tinha pedido e parou o turno.
+
+Item novo `guarda.perguntar` (booleano, padrão `true`, aba Guarda, "Perguntar em vez de bloquear"). Com ele ligado e uma trava dos G1 a G7 ativa:
+
+- P1 e G5 na conversa principal: `permissionDecision: 'ask'`, sem `continue: false`. O usuário aprova ou recusa na tela do Claude Code. Evento `perguntado` com `P1:<travas>` ou `G5`.
+- P1 dentro de subagente: o deny sem stop de antes (não há a quem perguntar).
+- P3 (PreModelSwitch para o Fable): `ask`. Evento `perguntado` `P3:<travas>`.
+- P2 (prompt numa sessão Fable): passa, com uma linha em additionalContext pedindo ao Claude que avise que `/model sonnet` gasta menos. Evento `perguntado` `P2:<travas>`.
+- P4, P5, a retenção do ConfigChange e as regras do liberar não mudam.
+
+Aprovar não grava liberação: a próxima chamada pergunta de novo. Desligar o item volta ao deny com `continue: false`. O item não conta como afrouxar (`frouxo: null`): ele não muda teto nenhum, e o aperto do aprendizado continua.
+
+Risco declarado no SECURITY.md: nos modos de permissão que aprovam sozinhos, o `ask` pode passar sem ser mostrado (não medido).

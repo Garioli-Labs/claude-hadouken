@@ -93,7 +93,7 @@ Clique no logo do hadouken na barra de status do VS Code, ou rode o comando `Cla
 
 | Aba | O que muda |
 |---|---|
-| Guarda | Liga e desliga a guarda e muda os tetos (veja [Guarda de consumo](Guarda-de-consumo)). |
+| Guarda | Liga e desliga a guarda, escolhe entre perguntar e bloquear e muda os tetos (veja [Guarda de consumo](Guarda-de-consumo)). |
 | Barra | As faixas de cor do contexto e do cache na barra de status. |
 | Alertas | Com quanta antecedência os avisos de projeção chegam. |
 | Aprendizado | Liga e desliga o [aprendizado local](Aprendizado). |

@@ -15,8 +15,15 @@ test('padrões quando não há chave guarda', () => {
   assert.deepEqual(PADRAO_GUARDA, {
     ligada: true, teto5h: 90, horizonte5hMin: 90, margemReset5hMin: 15, teto7d: 85, horizonte7dH: 24,
     fableDespachosMax: 4, fableDespachosHoras: 5, liberacaoPadraoH: 2, liberacaoMaxH: 24, liberacaoTetoPontos7d: 10,
-    fableTetoPct: 90,
+    fableTetoPct: 90, perguntar: true,
   });
+});
+
+test('perguntar: booleano, inválido volta a true com aviso', () => {
+  assert.equal(guardaDaConfig({ guarda: { perguntar: false } }).config.perguntar, false);
+  const r = guardaDaConfig({ guarda: { perguntar: 'sim' } });
+  assert.equal(r.config.perguntar, true);
+  assert.deepEqual(r.avisos, ['config.json: guarda.perguntar inválido, usando true']);
 });
 
 test('fable.tetoPct: padrão 90, faixa 50–100', () => {

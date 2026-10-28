@@ -42,6 +42,9 @@ export const TIPOS_EVENTO = Object.freeze([
   'guarda-ligada',
   // Spec roteamento §6: N1/N2 negaram ou A1–A3 avisaram; o detalhe é a regra.
   'roteamento-negado', 'roteamento-aviso',
+  // v0.5.4, guarda.perguntar: a trava pediu a aprovação do usuário (P1, P3)
+  // ou deixou passar o prompt com aviso (P2); o detalhe é o ponto e as travas.
+  'perguntado',
 ]);
 const DETALHE_MAX = 40;
 const DETALHE = new RegExp(`^[A-Za-z0-9:._-]{0,${DETALHE_MAX}}$`);

@@ -4,7 +4,7 @@
 
 ## The usage guard
 
-Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch, at Fable use and at the expensive dispatch. The lock stays until **you** release it with `/hadouken:liberar`, or until the reset of the window that tripped it. A release only counts when you type it in the conversation: a child `claude` session, a scheduled task, a `/loop` or a routine does not release. Claude does not release itself without forging hadouken's files or tampering with the plugin itself; the guard is a brake against carelessness, not a barrier against a model set on getting around it (see R1 in [SECURITY.md](https://github.com/Garioli-Labs/claude-hadouken/blob/main/SECURITY.md)).
+Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch, at Fable use and at the expensive dispatch. The lock stays until **you** release it with `/hadouken:liberar`, or until the reset of the window that tripped it; since v0.5.4, while it is active, hadouken asks before denying what is your decision (see [Ask instead of block](#ask-instead-of-block-default-since-v054)). A release only counts when you type it in the conversation: a child `claude` session, a scheduled task, a `/loop` or a routine does not release. Claude does not release itself without forging hadouken's files or tampering with the plugin itself; the guard is a brake against carelessness, not a barrier against a model set on getting around it (see R1 in [SECURITY.md](https://github.com/Garioli-Labs/claude-hadouken/blob/main/SECURITY.md)).
 
 ### What locks
 
@@ -44,7 +44,21 @@ hadouken: bloqueado: uma mudança em disableAllHooks, enabledPlugins ou hooks no
 
 **P5's double count on the user's settings.** Two rules of the `if` filter match the user's `settings.json`, so the hook runs twice on the same edit and records two `arquivo-negado` events. The deny is the same; only the count in "Guarda (7 dias)" doubles.
 
+### Ask instead of block (default since v0.5.4)
+
+With a G1 to G7 lock active, hadouken **asks** instead of stopping the turn, because spending more is your decision:
+
+- Subagent dispatch from the main conversation (G1 to G4, G6, G7) and expensive dispatch (G5): Claude Code shows the approval prompt with the reason. Approved, that dispatch goes ahead; declined, the lock stays. The turn does not stop.
+- Switching to Fable with `/model`: the picker asks for confirmation.
+- Prompt in a Fable session: it passes, and Claude says in one line that `/model sonnet` costs less.
+- Inside a subagent there is no one to ask: the new dispatch is still denied, without stopping the turn.
+- In permission modes that approve on their own (for example `bypassPermissions`), Claude Code may accept the prompt without showing it. Not measured.
+
+P4, P5 and the release rules do not change: they do not ask. Each question becomes a `perguntado` event (`P1:…`, `G5`, `P2:…`, `P3:…`). To go back to the old blocking, turn off **Perguntar em vez de bloquear** (Ask instead of block) in the window's Guarda tab, or run `/hadouken:limites guarda.perguntar desliga`.
+
 ### How to release
+
+Approving a question lets only that request through. To lift the whole lock:
 
 - `/hadouken:liberar`: releases for 2 h.
 - `/hadouken:liberar 8h`: from 1 to 24 h.

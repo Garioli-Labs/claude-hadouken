@@ -72,6 +72,7 @@ test('lerPedidoLimites: gramática fechada', () => {
   assert.deepEqual(lerPedidoLimites('padrao'), { acao: 'padrao-tudo' });
   assert.deepEqual(lerPedidoLimites('guarda.ligada desliga'), { acao: 'gravar', id: 'guarda.ligada', valor: false });
   assert.deepEqual(lerPedidoLimites('guarda.ligada liga'), { acao: 'gravar', id: 'guarda.ligada', valor: true });
+  assert.deepEqual(lerPedidoLimites('guarda.perguntar desliga'), { acao: 'gravar', id: 'guarda.perguntar', valor: false });
   for (const ruim of [
     'aprendizado.ligado desliga', 'guarda.teto7d 80 x', 'guarda.teto7d -1', 'guarda.teto7d 1e3', '__proto__ 1',
     'guarda.teto7d\n80', 'guarda.teto7d', 'guarda.teto7d liga', 'guarda.ligada 1', 'roteamento.avisos desliga',

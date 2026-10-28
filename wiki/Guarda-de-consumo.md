@@ -4,7 +4,7 @@
 
 ## A guarda de consumo
 
-Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subagente, no uso do Fable e no despacho caro. A trava fica até **você** liberar com `/hadouken:liberar` ou até o reset da janela que a disparou. A liberação só vale digitada por você na conversa: uma sessão `claude` filha, uma tarefa agendada, um `/loop` ou uma rotina não liberam. O Claude não se libera sozinho sem forjar os arquivos do hadouken ou mexer no próprio plugin; a guarda é um freio contra o descuido, não uma barreira contra um modelo decidido a contorná-la (veja R1 no [SECURITY.md](https://github.com/Garioli-Labs/claude-hadouken/blob/main/SECURITY.md)).
+Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subagente, no uso do Fable e no despacho caro. A trava fica até **você** liberar com `/hadouken:liberar` ou até o reset da janela que a disparou; desde a v0.5.4, com ela ativa, o hadouken pergunta antes de negar o que é decisão sua (veja [Perguntar em vez de bloquear](#perguntar-em-vez-de-bloquear-padrão-desde-a-v054)). A liberação só vale digitada por você na conversa: uma sessão `claude` filha, uma tarefa agendada, um `/loop` ou uma rotina não liberam. O Claude não se libera sozinho sem forjar os arquivos do hadouken ou mexer no próprio plugin; a guarda é um freio contra o descuido, não uma barreira contra um modelo decidido a contorná-la (veja R1 no [SECURITY.md](https://github.com/Garioli-Labs/claude-hadouken/blob/main/SECURITY.md)).
 
 ### O que trava
 
@@ -42,7 +42,21 @@ hadouken: bloqueado: uma mudança em disableAllHooks, enabledPlugins ou hooks no
 
 **Contagem dobrada da P5 nos settings do usuário.** Duas regras do filtro `if` casam o `settings.json` do usuário, então o hook roda duas vezes na mesma edição e grava dois eventos `arquivo-negado`. A negação é a mesma; só a contagem em "Guarda (7 dias)" dobra.
 
+### Perguntar em vez de bloquear (padrão desde a v0.5.4)
+
+Com a trava dos G1 a G7 ativa, o hadouken **pergunta** em vez de parar o turno, porque gastar mais é uma decisão sua:
+
+- Despacho de subagente pela conversa principal (G1 a G4, G6, G7) e despacho caro (G5): o Claude Code mostra o pedido de aprovação com o motivo. Aprovado, aquele despacho segue; recusado, a trava continua. O turno não para.
+- Troca para o Fable com `/model`: o seletor pede a confirmação.
+- Prompt numa sessão Fable: passa, e o Claude avisa numa linha que `/model sonnet` gasta menos.
+- Dentro de um subagente não há a quem perguntar: o despacho novo segue negado, sem parar o turno.
+- Nos modos de permissão que aprovam sozinhos (por exemplo `bypassPermissions`), o Claude Code pode aceitar o pedido sem mostrar. Não medido.
+
+A P4, a P5 e as regras da liberação não mudam: elas não perguntam. Cada pergunta vira o evento `perguntado` (`P1:…`, `G5`, `P2:…`, `P3:…`). Para voltar ao bloqueio de antes, desligue **Perguntar em vez de bloquear** na aba Guarda da janela, ou `/hadouken:limites guarda.perguntar desliga`.
+
 ### Como liberar
+
+Aprovar uma pergunta solta só aquele pedido. Para soltar a trava inteira:
 
 - `/hadouken:liberar`: libera por 2 h.
 - `/hadouken:liberar 8h`: de 1 a 24 h.

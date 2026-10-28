@@ -4,7 +4,7 @@ import { avaliarGuarda, modeloNoEstado } from './avaliar.js';
 import { lerConfigGuarda } from './config.js';
 import { lerLiberacao, coberturaAtual, gravarLiberacao } from './liberacao.js';
 import { marcarSessao, anexarEvento, modeloDaSessao } from './registros.js';
-import { p2Usuario, posLiberacao } from './mensagens.js';
+import { p2Aviso, p2Usuario, posLiberacao } from './mensagens.js';
 
 // Decisão do UserPromptSubmit (spec v0.4.0 §4.2 P2 e §6.1). Numa sessão cujo
 // modelo é Fable (modelos.json, senão o display_name do estado), com trava
@@ -80,6 +80,11 @@ export function decidirPrompt({ dir, sessionId, prompt, agoraMs, avaliar = avali
       return { ...NADA };
     }
     if (g.ativas.length > 0) {
+      // guarda.perguntar: o prompt foi digitado pelo usuário; passa com aviso.
+      if (g.config?.perguntar) {
+        anexarEvento(dir, 'perguntado', `P2:${g.ativas.join(':')}`, agoraMs);
+        return { bloquear: null, linha: p2Aviso(g.motivos, agoraMs) };
+      }
       anexarEvento(dir, 'prompt-bloqueado', g.ativas.join(':'), agoraMs);
       return { bloquear: p2Usuario(g.motivos, g.ativas, agoraMs), linha: null };
     }

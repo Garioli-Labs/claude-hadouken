@@ -25,6 +25,8 @@ function preparar() {
   assert.ok(home.startsWith(os.tmpdir()));
   fs.mkdirSync(path.join(home, 'cfg', 'agents'), { recursive: true });
   fs.writeFileSync(path.join(home, 'cfg', 'agents', 'fable-xhigh.md'), '---\nname: fable-xhigh\nmodel: fable\neffort: xhigh\n---\nRevisor.\n');
+  // O replay confere o modo estrito; desde a v0.5.4 o padrão é perguntar.
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ guarda: { perguntar: false } }));
   const antes = process.env.HADOUKEN_HOME;
   process.env.HADOUKEN_HOME = home;
   try { registrarSessao('s1', Date.now()); } finally {

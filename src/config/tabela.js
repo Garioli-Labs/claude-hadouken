@@ -30,6 +30,7 @@ const booleano = (id, caminho, grupo, rotulo, padrao, frouxo = null) => Object.f
 
 export const ITENS = Object.freeze([
   booleano('guarda.ligada', ['guarda', 'ligada'], 'guarda', 'Guarda ligada', PADRAO_GUARDA.ligada, 'desligar'),
+  booleano('guarda.perguntar', ['guarda', 'perguntar'], 'guarda', 'Perguntar em vez de bloquear', PADRAO_GUARDA.perguntar),
   ...CAMPOS.map(([chave, caminho, rotulo, min, max]) => {
     const [nome, unidade, frouxo] = GUARDA[chave];
     return inteiro(`guarda.${rotulo}`, ['guarda', ...caminho], 'guarda', nome, unidade, min, max, PADRAO_GUARDA[chave], frouxo);

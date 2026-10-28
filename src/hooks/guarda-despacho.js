@@ -28,6 +28,13 @@ function negar(razaoClaude, razaoUsuario) {
   emitirJson(saida);
 }
 
+// guarda.perguntar: na thread principal, o usuário aprova ou recusa na tela
+// do Claude Code; nada para o turno. Dentro de subagente não há a quem
+// perguntar com segurança, e o deny sem stop de antes continua.
+function perguntar(razaoUsuario) {
+  emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: razaoUsuario } });
+}
+
 function casa() {
   try { return os.homedir(); } catch { return null; }
 }
@@ -55,6 +62,11 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
   const chaves = g.ativas.filter((k) => GERAIS.has(k) || (perfil.modelo === 'fable' && DO_FABLE.has(k)));
   if (chaves.length > 0) {
     const motivos = g.motivos.filter((mo) => chaves.includes(mo.trava));
+    if (!noSubagente && g.config.perguntar) {
+      perguntar(msg.p1Perguntar(motivos, agoraMs));
+      reg.anexarEvento(dir, 'perguntado', `P1:${chaves.join(':')}`, agoraMs);
+      return;
+    }
     negar(
       noSubagente ? msg.p1Subagente(motivos, agoraMs) : msg.p1Claude(motivos, agoraMs),
       noSubagente ? null : msg.p1Usuario(motivos, chaves, agoraMs),
@@ -63,6 +75,11 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
     return;
   }
   if (desp.despachoCaro(perfil) && !g.cobertura.solta.has('despacho-caro')) {
+    if (!noSubagente && g.config.perguntar) {
+      perguntar(msg.caroPerguntar(perfil));
+      reg.anexarEvento(dir, 'perguntado', 'G5', agoraMs);
+      return;
+    }
     negar(noSubagente ? msg.caroSubagente(perfil) : msg.caroClaude(perfil), noSubagente ? null : msg.caroUsuario(perfil));
     reg.anexarEvento(dir, 'negado', 'G5', agoraMs);
     return;

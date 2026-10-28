@@ -29,6 +29,7 @@ const doItem = (id) => (typeof id === 'string' && Object.hasOwn(ITEM, id) ? ITEM
 // id da guarda → chave em ConfigGuarda.
 const CHAVE_GUARDA = Object.freeze({
   'guarda.ligada': 'ligada',
+  'guarda.perguntar': 'perguntar',
   ...Object.fromEntries(CAMPOS.map(([chave, , rotulo]) => [`guarda.${rotulo}`, chave])),
 });
 const CHAVE_APERTO = Object.freeze({ 'guarda.teto7d': 'teto7d', 'guarda.fable.tetoPct': 'fableTetoPct' });

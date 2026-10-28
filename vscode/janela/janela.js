@@ -18,6 +18,7 @@
   // Emenda 3 (§12.2): o que se perde ao desligar cada proteção, na linha
   // abaixo do switch. Sem diálogo: a mudança tem Desfazer e o aviso de afrouxar.
   const CONSEQUENCIA = {
+    'guarda.perguntar': 'Desligado: com a trava ativa, o despacho é negado e o turno para até você digitar /hadouken:liberar.',
     'protecoes.sessaoFilha': 'Desligado: o Claude pode abrir outra sessão claude (claude -p, plugin install) mesmo com a guarda disparada.',
     'protecoes.arquivos': 'Desligado: o Claude pode editar a configuração do hadouken e os settings do Claude Code.',
     'protecoes.hooks': 'Desligado: mudanças em hooks, plugins e disableAllHooks nos settings valem na hora.',

@@ -22,9 +22,14 @@ export const LIBERACAO_TETO_H = 24;
 // ConfigGuarda: os campos abaixo. fableTetoPct (guarda.fable.tetoPct, emenda
 // E7) é a porcentagem oficial da semana do Fable a partir da qual todo
 // despacho Fable pede liberação (G7 com teto 0); padrão 90, confirmado pelo
-// usuário em 2026-09-30.
+// usuário em 2026-09-30. perguntar (v0.5.4, pedido do Sr. Garioli em
+// 2026-10-28: "ele trava até aquilo que é decisão minha"): com a trava ativa,
+// o despacho e a troca de modelo pedem a aprovação do usuário na tela do
+// Claude Code (permissionDecision 'ask') em vez de negar e parar o turno, e o
+// prompt digitado numa sessão Fable passa com um aviso. false volta ao
+// bloqueio rígido.
 export const PADRAO_GUARDA = Object.freeze({
-  ligada: true, teto5h: 90, horizonte5hMin: 90, margemReset5hMin: 15, teto7d: 85, horizonte7dH: 24,
+  ligada: true, perguntar: true, teto5h: 90, horizonte5hMin: 90, margemReset5hMin: 15, teto7d: 85, horizonte7dH: 24,
   fableDespachosMax: 4, fableDespachosHoras: 5, liberacaoPadraoH: 2, liberacaoMaxH: LIBERACAO_TETO_H, liberacaoTetoPontos7d: 10,
   fableTetoPct: 90,
 });
@@ -59,6 +64,11 @@ export function guardaDaConfig(valor) {
     if (ligada !== undefined) {
       if (typeof ligada === 'boolean') config.ligada = ligada;
       else avisos.push('config.json: guarda.ligada inválido, usando true');
+    }
+    const perguntar = proprio(g, 'perguntar');
+    if (perguntar !== undefined) {
+      if (typeof perguntar === 'boolean') config.perguntar = perguntar;
+      else avisos.push('config.json: guarda.perguntar inválido, usando true');
     }
     for (const [chave, caminho, rotulo, min, max] of CAMPOS) {
       let v = g;

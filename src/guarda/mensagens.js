@@ -66,6 +66,14 @@ export function caroMotivo(perfil) {
 }
 export const caroClaude = (perfil) => `hadouken: ${caroMotivo(perfil)}. Despacho bloqueado. Pare e pergunte ao usuário se ele libera ou prefere um modelo ou effort mais barato; só ele libera, digitando /hadouken:liberar caro. Não repita o despacho e não mexa nos arquivos do hadouken.`;
 export const caroUsuario = (perfil) => `hadouken parou o turno: ${caroMotivo(perfil)}. Para seguir, digite /hadouken:liberar caro.`;
+// guarda.perguntar (v0.5.4): o texto do pedido de aprovação, que o Claude
+// Code mostra ao usuário junto do Sim/Não. Recusar mantém a trava.
+const RODAPE_PERGUNTA = 'Aprove para seguir agora, ou recuse e mantenha a trava. Para nunca perguntar, desligue "Perguntar em vez de bloquear" na aba Guarda.';
+export const p1Perguntar = (motivos, agoraMs) => `hadouken: ${textoMotivos(motivos, agoraMs)}. Este despacho de subagente pode gastar mais. ${RODAPE_PERGUNTA}`;
+export const caroPerguntar = (perfil) => `hadouken: ${caroMotivo(perfil)}. ${RODAPE_PERGUNTA}`;
+export const p3Perguntar = (motivos, agoraMs) => `hadouken: ${textoMotivos(motivos, agoraMs)}. Trocar para o Fable gasta mais. ${RODAPE_PERGUNTA}`;
+// P2 com perguntar: o prompt digitado passa; o Claude repassa o aviso.
+export const p2Aviso = (motivos, agoraMs) => `hadouken: guarda ativa (${textoMotivos(motivos, agoraMs)}) e esta sessão está no Fable. O usuário decidiu seguir: faça o que ele pediu e avise numa linha que /model sonnet gasta menos.`;
 export const caroSubagente = (perfil) => `hadouken: ${caroMotivo(perfil)}. Despacho bloqueado. Termine sua tarefa sem abrir esse subagente e relate o bloqueio.`;
 
 export const p2Usuario = (motivos, ativas, agoraMs) => `hadouken: guarda ativa: ${textoMotivos(motivos, agoraMs)}. Esta sessão está no Fable. Troque com /model ou libere com /hadouken:liberar${sufixoLiberar(ativas)}.`;
