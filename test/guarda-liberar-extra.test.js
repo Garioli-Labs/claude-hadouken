@@ -10,6 +10,7 @@ import { ARQ_GUARDA } from '../src/guarda/travas.js';
 import { ARQ_LIBERACAO } from '../src/guarda/liberacao.js';
 import { ARQ_EVENTOS, DIR_MARCAS, lerEventos } from '../src/guarda/registros.js';
 import { NAO_GRAVADO } from '../src/guarda/mensagens.js';
+import { ARQ_EVENTO } from '../src/eventos/eventos.js';
 
 // Complementos do hook de /hadouken:liberar (spec v0.4.0 §6 e §4.5;
 // revisão da Task 13), fora de test/guarda-hooks.test.js. Mesmo arnês: cada
@@ -107,7 +108,7 @@ test('foco 5: recusa de -p ou SDK grava só o evento, nem a marca de sessão', (
     const o = saida(rodar(expansao('s1', 'fable caro 24h'), home, { CLAUDE_CODE_ENTRYPOINT: ep }));
     assert.deepEqual(o, { decision: 'block', reason: 'hadouken: nada liberado. A liberação só vale digitada pelo usuário numa sessão interativa.' });
     assert.equal(fs.existsSync(path.join(home, DIR_MARCAS)), false, ep);
-    const depois = arvore(home).filter(([rel]) => rel !== ARQ_EVENTOS);
+    const depois = arvore(home).filter(([rel]) => rel !== ARQ_EVENTOS && rel !== ARQ_EVENTO);
     assert.deepEqual(depois, antes, ep);
     assert.deepEqual(lerEventos(home, Date.now()).map((e) => [e.tipo, e.detalhe]), [['liberacao-recusada', 'entrypoint']], ep);
   }
@@ -140,7 +141,7 @@ test('C1: origem que não é o comando digitado é recusada e grava só o evento
     const rotulo = JSON.stringify(extra);
     assert.deepEqual(o, { decision: 'block', reason: RECUSADO_ORIGEM }, rotulo);
     assert.equal(fs.existsSync(path.join(home, DIR_MARCAS)), false, rotulo);
-    assert.deepEqual(arvore(home).filter(([rel]) => rel !== ARQ_EVENTOS), antes, rotulo);
+    assert.deepEqual(arvore(home).filter(([rel]) => rel !== ARQ_EVENTOS && rel !== ARQ_EVENTO), antes, rotulo);
     assert.deepEqual(lerEventos(home, Date.now()).map((e) => [e.tipo, e.detalhe]), [['liberacao-recusada', 'origem']], rotulo);
   }
 });

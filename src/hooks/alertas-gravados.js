@@ -62,6 +62,17 @@ import { LIMITE_VELHO_MS } from '../estado.js';
 // que alerta.js produz" prendem as duas juntas.
 
 export const ARQ_ALERTAS = 'alertas.json';
+
+// A urgência com que um aviso novo anima a logo do VS Code: faixa vermelha
+// (5h 'fechar', 7d 'so-leitura') é urgente; o resto, atenção. `novos` é o
+// de avaliarAlertas.
+export function urgenciaDoAlerta(novos) {
+  try {
+    return novos?.five_hour?.faixa === 'fechar' || novos?.seven_day?.faixa === 'so-leitura' ? 'urgente' : 'atencao';
+  } catch {
+    return 'atencao';
+  }
+}
 // Teto de leitura dos dois arquivos de memória, alertas.json e projecao.json.
 export const ALERTAS_MAX_BYTES = 1_048_576;
 // No máximo SEM_LEITURA_MAX ids em sem_leitura, o que mantém o arquivo pequeno

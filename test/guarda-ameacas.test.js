@@ -81,8 +81,9 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   // cada uma das 4 ferramentas e 2 de settings de projeto em Write, Edit e
   // MultiEdit). O brief da parte 1 contava 11 com a P4 em 2 handlers; a Task
   // 18 trocou esses 2 pelos 15, e o M8 da revisão final somou 2. 46 desde a
-  // Task 19b: + 1 do ConfigChange (guarda-config.js).
-  assert.equal(novos.length, 46);
+  // Task 19b: + 1 do ConfigChange (guarda-config.js). 47 desde a v0.5.4: + 1
+  // do /hadouken:limites (limites.js).
+  assert.equal(novos.length, 47);
   for (const x of novos) {
     assert.equal(x.command, 'node');
     assert.equal(x.args.length, 1);

@@ -441,7 +441,7 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   // Desde a v0.5.3, roteamento/fila.js, para a marca da sugestão; desde a
   // v0.5.4, config/ler.js e config/tabela.js, para as faixas da barra.
   assert.deepEqual(dentro.nomes, [
-    'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js',
+    'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js', 'eventos.js',
     'fila.js', 'formato.js', 'gatilhos.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'registros.js',
     'statusline.js', 'tabela.js', 'travas.js', 'util.js',
   ]);

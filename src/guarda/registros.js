@@ -4,6 +4,7 @@ import { gravarJsonAtomico } from '../estado.js';
 import { fechar, idValido, instante, numeroFinito } from '../base.js';
 import { lerSemLink } from './arquivo.js';
 import { podar } from '../ativas.js';
+import { registrarEvento } from '../eventos/eventos.js';
 
 // Registros locais da guarda (spec v0.4.0 §4.3, §5.2, §6.5 e §14). Cada um
 // num arquivo novo, com teto de bytes, lstat e reconstrução só dos campos
@@ -91,12 +92,21 @@ export function lerEventos(dir, agoraMs) {
   }
 }
 
+// Os eventos de negar ou pedir também animam a logo do VS Code (spec v0.5.3
+// VS Code §2.1): um ponto só, no lugar dos seis hooks da guarda.
+const TIPOS_ATENCAO = Object.freeze([
+  'negado', 'prompt-bloqueado', 'troca-bloqueada', 'liberacao-recusada', 'filha-negada', 'arquivo-negado',
+  'config-bloqueada', 'roteamento-negado', 'roteamento-aviso',
+]);
+
 export function anexarEvento(dir, tipo, detalhe, agoraMs) {
   try {
     if (!TIPOS_EVENTO.includes(tipo) || !numeroFinito(agoraMs)) return { ok: false };
     const d = detalheValido(detalhe);
     const eventos = [...lerEventos(dir, agoraMs), { at: new Date(agoraMs).toISOString(), tipo, detalhe: d }];
-    return gravar(dir, ARQ_EVENTOS, { eventos: eventos.slice(-EVENTOS_MAX) });
+    const r = gravar(dir, ARQ_EVENTOS, { eventos: eventos.slice(-EVENTOS_MAX) });
+    if (TIPOS_ATENCAO.includes(tipo)) registrarEvento(dir, 'guarda', 'atencao', agoraMs);
+    return r;
   } catch {
     return { ok: false };
   }

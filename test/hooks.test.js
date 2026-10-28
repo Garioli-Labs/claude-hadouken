@@ -512,7 +512,7 @@ test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.j
   assert.match(contexto(dentro.r, 'UserPromptSubmit'), LINHA_SERIALIZAR);
   assert.deepEqual(dentro.nomes, [
     'alerta.js', 'alertas-gravados.js', 'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'base.js',
-    'comum.js', 'config.js', 'estado.js', 'gatilhos.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'previsao.js',
+    'comum.js', 'config.js', 'estado.js', 'eventos.js', 'gatilhos.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'previsao.js',
     'prompt-submit.js', 'prompt.js', 'registros.js', 'ritmo.js', 'tabela.js', 'travas.js', 'util.js',
   ]);
 });

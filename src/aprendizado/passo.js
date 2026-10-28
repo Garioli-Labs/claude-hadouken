@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { ARQ_ESTADO, instante, lerJson, limitesValidos, validarEstado } from '../estado.js';
+import { registrarEvento } from '../eventos/eventos.js';
 import { lerConfigGuardaBase } from '../guarda/config.js';
 import { lerEventos, ultimoLimiteFable } from '../guarda/registros.js';
 import { lerDespachos } from '../roteamento/registro.js';
@@ -166,6 +167,12 @@ export function rodarPasso({ dir, agoraMs, inicio = false } = {}) {
         cursor.fora = { ...cursor.fora, [item]: hoje };
       }
       if (gravarSugestoes(dir, r.sug).ok && gravarAjustes(dir, r.aj).ok) novos = r.novos;
+      // Ajuste aplicado: a logo do VS Code anima, calma.
+      if (novos.ajustes.length > 0) {
+        try {
+          registrarEvento(dir, 'aprendizado', 'calma', agoraMs);
+        } catch { /* sem animação */ }
+      }
     }
     podar(ap, agoraMs);
     // O cursor só anda com os agregados gravados: uma falha relê, nunca perde.

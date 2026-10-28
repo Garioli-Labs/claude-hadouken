@@ -6,6 +6,7 @@ import { ARQ_ESTADO, gravarJsonAtomico, lerJson, LIMITE_VELHO_MS, limitesValidos
 import { diaHora, horaLocal } from '../util.js';
 import { acharClaude, ambienteUso, rodarUso } from './oficial.js';
 import { fraseEsgota } from './frase.js';
+import { registrarEvento } from '../eventos/eventos.js';
 import { faixasDoPainel, intervaloDoPainelMs } from '../aprendizado/registro.js';
 import {
   ARQ_USO, BLOQUEIO_CUSTO_MS, ehObjeto, janelaGravada, lerUso, MOTIVOS_RODAR, naFaixaDoDate, VERSAO,
@@ -55,6 +56,7 @@ const MIN_MS = 60_000;
 
 const naoFeito = (motivo) => ({ feito: false, motivo });
 const SEM_LEITURA = Object.freeze({ texto: 'Hadouken: sem leitura', nivel: 'sem-leitura', dica: '' });
+const URGENCIA_DO_NIVEL = Object.freeze({ ok: 'calma', aviso: 'atencao', erro: 'urgente' });
 
 const msDe = (iso) => (typeof iso === 'string' ? Date.parse(iso) : Number.NEGATIVE_INFINITY);
 const bloqueioEmVigor = (uso, agoraMs) => uso !== null && uso.bloqueado !== null && msDe(uso.bloqueado.ate) > agoraMs;
@@ -278,6 +280,12 @@ export async function talvezAtualizar(opcoes) {
       return { feito: true, motivo: 'erro' };
     }
     falhasDeGravacao.delete(dir);
+    // A logo do VS Code anima com a urgência do nível que a leitura deixou.
+    if (res.ok) {
+      try {
+        registrarEvento(dir, 'leitura', URGENCIA_DO_NIVEL[estadoPainel({ dir, agoraMs: fimMs }).nivel] ?? 'calma', fimMs);
+      } catch { /* sem animação */ }
+    }
     return { feito: true, motivo: res.ok ? 'ok' : res.motivo };
   } catch {
     return naoFeito('erro');

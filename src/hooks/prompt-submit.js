@@ -55,7 +55,7 @@ rodarHook(async (entrada) => {
     { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, leiturasComPiso, ultimaLeitura, gravarJsonAtomico, sessoesAtivas },
     { avaliarAlertas },
     {
-      ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar,
+      ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar, urgenciaDoAlerta,
       ARQ_PROJECAO, projecaoGuardada, projecaoParaGravar, precisaGravarProjecao,
     },
     { preverEstouro, ritmo7dPorHora },
@@ -114,6 +114,12 @@ rodarHook(async (entrada) => {
   if (precisaGravar(registro, guardado, agoraMs)) gravarJsonAtomico(arqAlertas, registro);
   const registroProjecao = projecaoParaGravar(novos.projecao);
   if (precisaGravarProjecao(registroProjecao, projecaoLida)) gravarJsonAtomico(arqProjecao, registroProjecao);
+  // Aviso novo neste prompt: a logo do VS Code anima. Falha só tira a animação.
+  if (linhas.length > 0) {
+    try {
+      (await import('../eventos/eventos.js')).registrarEvento(dir, 'alerta', urgenciaDoAlerta(novos), agoraMs);
+    } catch { /* sem animação */ }
+  }
   // Spec roteamento §7 e §9: uma sugestão por 30 min (fila), sem modelo.
   // Toda falha só tira a linha.
   let linhaRoteamento = null;
