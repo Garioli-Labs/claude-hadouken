@@ -35,7 +35,7 @@ test('o ramo do robô passa nos testes do kit e do REA', { timeout: 180_000 }, a
   const retrato = { ...ler('test/dados/mattpocock-skills.json'), commit: sha, versao: '99.0.0' };
   const versoes = m.gravarDecisao(d, decisao, { 'mattpocock-skills': retrato });
   assert.equal(ler('kit/.claude-plugin/plugin.json').version, versoes.kit);
-  assert.match(fs.readFileSync(path.join(d, 'README.md'), 'utf8'), new RegExp(`rea-agents@${decisao.rea.para.replaceAll('.', '\\.')}`));
+  assert.match(fs.readFileSync(path.join(d, 'wiki', 'Kit.md'), 'utf8'), new RegExp(`rea-agents@${decisao.rea.para.replaceAll('.', '\\.')}`));
   const arquivos = fs.readdirSync(path.join(d, 'test')).filter((n) => /^(kit-(?!robo-simulado)|rea-).*\.test\.js$/.test(n)).map((n) => path.join('test', n));
   const r = spawnSync(process.execPath, ['--test', ...arquivos], { cwd: d, encoding: 'utf8', timeout: 170_000 });
   assert.equal(r.status, 0, r.stdout.split('\n').filter((l) => /^(not ok|✖)|message:|expected|actual/.test(l.trim())).join('\n'));

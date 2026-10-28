@@ -119,7 +119,7 @@ export function montarRetrato({ repo, commit, versao, skills }) {
   return { fonte: `github.com/${repo}`, commit, versao, skills: lista };
 }
 
-// A versão do rea-agents citada nos textos (README, SECURITY, plugin.json,
+// A versão do rea-agents citada nos textos (wiki/Kit, SECURITY, plugin.json,
 // comentário do lançador): rea-agents@x e "rea-agents x".
 export function aplicarVersaoRea(texto, de, para) {
   const v = de.replaceAll('.', '\\.');
@@ -226,7 +226,7 @@ export function gravarDecisao(raiz, decisao, retratos) {
     versoes.rea = subirPatch(JSON.parse(lerArq('rea/.claude-plugin/plugin.json')).version);
     fs.writeFileSync(arq('rea/lancar.mjs'), aplicarLancar(lerArq('rea/lancar.mjs'), decisao.rea.para));
     fs.writeFileSync(arq('rea/.claude-plugin/plugin.json'), aplicarPluginJson(lerArq('rea/.claude-plugin/plugin.json'), versoes.rea));
-    for (const rel of ['README.md', 'README.en.md', 'SECURITY.md', 'rea/.claude-plugin/plugin.json', 'rea/lancar.mjs']) {
+    for (const rel of ['wiki/Kit.md', 'wiki/Kit-en.md', 'SECURITY.md', 'rea/.claude-plugin/plugin.json', 'rea/lancar.mjs']) {
       fs.writeFileSync(arq(rel), aplicarVersaoRea(lerArq(rel), decisao.rea.de, decisao.rea.para));
     }
   }

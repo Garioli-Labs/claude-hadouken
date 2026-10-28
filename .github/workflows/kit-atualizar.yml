@@ -52,7 +52,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$RAMO"
-          git add .claude-plugin/marketplace.json kit/.claude-plugin/plugin.json kit/testado.json rea/.claude-plugin/plugin.json rea/lancar.mjs README.md README.en.md SECURITY.md test/dados/*.json
+          git add .claude-plugin/marketplace.json kit/.claude-plugin/plugin.json kit/testado.json rea/.claude-plugin/plugin.json rea/lancar.mjs wiki/Kit.md wiki/Kit-en.md SECURITY.md test/dados/*.json
           git commit -q -m "$TITULO"
           git push --force -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$RAMO"
 

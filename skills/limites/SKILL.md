@@ -1,6 +1,6 @@
 ---
 name: limites
-description: Mostra e muda os limites do hadouken (guarda, barra, alertas). Só o usuário usa, digitando /hadouken:limites [item valor | item padrao | padrao].
+description: Mostra e muda os limites do hadouken (guarda, barra, alertas, proteções). Só o usuário usa, digitando /hadouken:limites [item valor | item padrao | padrao].
 disable-model-invocation: true
 ---
 

@@ -154,7 +154,7 @@ test('aplicarTestado, aplicarLancar e aplicarPluginJson', () => {
 test('aplicarVersaoRea: troca rea-agents@x e "rea-agents x" e nada mais', () => {
   const t = 'npx -y rea-agents@6.1.0 mcp; pinned to rea-agents 6.1.0. Outro 6.1.0 e rea-agents@6.1.01 ficam.';
   assert.equal(aplicarVersaoRea(t, '6.1.0', '6.2.0'), 'npx -y rea-agents@6.2.0 mcp; pinned to rea-agents 6.2.0. Outro 6.1.0 e rea-agents@6.1.01 ficam.');
-  for (const rel of ['README.md', 'README.en.md', 'SECURITY.md', 'rea/.claude-plugin/plugin.json', 'rea/lancar.mjs']) {
+  for (const rel of ['wiki/Kit.md', 'wiki/Kit-en.md', 'SECURITY.md', 'rea/.claude-plugin/plugin.json', 'rea/lancar.mjs']) {
     assert.ok(ler(rel).includes(`rea-agents@${VERSAO_REA}`) || ler(rel).includes(`rea-agents ${VERSAO_REA}`), rel);
   }
 });
@@ -221,7 +221,7 @@ test('workflow: nenhum ${{ }} dentro de run', () => {
 
 test('workflow: o ramo leva os retratos e os textos com a versão do REA; recusa vira issue', () => {
   const add = /git add (.+)/.exec(WF)[1];
-  for (const a of ['kit/testado.json', 'rea/lancar.mjs', 'README.md', 'README.en.md', 'SECURITY.md', 'test/dados/*.json']) assert.ok(add.split(' ').includes(a), a);
+  for (const a of ['kit/testado.json', 'rea/lancar.mjs', 'wiki/Kit.md', 'wiki/Kit-en.md', 'SECURITY.md', 'test/dados/*.json']) assert.ok(add.split(' ').includes(a), a);
   assert.match(WF, /recusa: \$\{\{ steps\.robo\.outputs\.recusa \}\}/);
   assert.match(WF, /avisar-recusa:\n(?: {4}.*\n)*? {4}if: needs\.preparar\.outputs\.recusa != ''/);
 });

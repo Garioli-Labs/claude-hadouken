@@ -15,7 +15,7 @@ const REPO_DO = {
   'fullstack-dev-skills': 'jeffallan/claude-skills', 'ui-ux-pro-max-skill': 'nextlevelbuilder/ui-ux-pro-max-skill',
 };
 
-for (const arq of ['README.md', 'README.en.md']) {
+for (const arq of ['wiki/Kit.md', 'wiki/Kit-en.md']) {
   test(`${arq}: um marketplace add para cada marketplace da allowlist, antes do install do kit`, () => {
     const t = fs.readFileSync(path.join(repo, arq), 'utf8');
     const install = t.indexOf('claude plugin install hadouken-kit@claude-hadouken');

@@ -46,7 +46,7 @@ test('os hooks dos comandos casam com hadouken:liberar, hadouken:aprender e hado
 });
 
 test('nenhum texto do plugin cita o nome antigo como comando ou id', () => {
-  const pastas = ['src', 'skills', 'kit', 'hooks', 'rea', 'bench'];
+  const pastas = ['src', 'skills', 'kit', 'hooks', 'rea', 'bench', 'wiki'];
   const soltos = ['README.md', 'README.en.md', 'SECURITY.md', 'install.sh', 'install.ps1'];
   const arquivos = [...soltos];
   const andar = (d) => {
