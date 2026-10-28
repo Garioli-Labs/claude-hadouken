@@ -759,7 +759,10 @@ test('projecaoGuardada malicioso: projecao.json fora do formato vira memória va
     'sessão sem seven_day': { s1: { five_hour: j5 } },
     'sessão com chave a mais': { s1: { ...sessao(j5, null), nota: INSTRUCAO } },
     'as duas null': { s1: sessao(null, null) },
-    'faixa fora da lista': { s1: sessao({ resets_at: R5, faixa: '45' }, null) },
+    // v0.5.4: a faixa é o limiar configurável (5 a 180 min; 1 a 72 h).
+    'faixa abaixo da faixa': { s1: sessao({ resets_at: R5, faixa: '4' }, null) },
+    'faixa acima da faixa': { s1: sessao({ resets_at: R5, faixa: '181' }, null) },
+    'faixa de 7d acima': { s1: sessao(null, { resets_at: R7, faixa: '73h' }) },
     'faixa de 7d na 5h': { s1: sessao({ resets_at: R5, faixa: '24h' }, null) },
     'faixa de 5h na 7d': { s1: sessao(null, { resets_at: R7, faixa: '30' }) },
     'faixa da v0.1.0': { s1: sessao({ resets_at: R5, faixa: 'serializar' }, null) },

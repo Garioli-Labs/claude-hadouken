@@ -182,7 +182,7 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 
 | Subproject | What it does | Status |
 |---|---|---|
-| **A. Usage reader** | Status bar, VS Code panel, notices, guard and report. | **v0.5.1** (this one) |
+| **A. Usage reader** | Status bar, VS Code panel, notices, guard and report. | **v0.5.4** (this one) |
 | B. Router | Dynamic session launcher, fixed main agent, agents per model × effort, injected rules and a divergence check against the project's rules. | Planned |
 | C. Planner | Session and week planning from the project plan and the measured cost per task. | Planned |
 | D. GitHub guards | Guards for pushes and for CI on documentation-only changes, plus improvement suggestions. | Planned |
@@ -191,7 +191,11 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 - **v0.3.0** = the VS Code panel: 5 h, week and Fable in a status bar item, with Fable read from the official `/usage` without spending tokens, the forecast worded like claude.ai, and a lean read that uses little RAM. The terminal bar keeps only the session (model·effort, ctx and cache), and the session-start line swaps the expected value and the mode for the week's forecast sentence.
 - **v0.4.0** = the guard: instead of only notifying, hold back subagent dispatch, Fable use and the expensive dispatch when usage goes too far, with release only by the user (`/hadouken:liberar`), and protect the plugin's files and the settings fields that would turn the guard off. `/consumo` gains "Guarda (7 dias)" and "Custo dos hooks (7 dias)"; the notices gain the floor reading, the reset in minutes, the return time and the week's pace; the bar redraws every minute while the session is idle; and resuming an idle session shows the cache tokens to be rewritten. Plus optional local learning: hadouken learns from Claude Code's OpenTelemetry, on this machine only and with no tokens, adjusts comfort within fixed limits, only tightens the guard by itself, and leaves loosening and model switches as suggestions.
 - **v0.5.0** = hadouken-kit and hadouken-rea, optional in the same marketplace: the kit installs and pins the workflow skills (superpowers, Matt Pocock, yu-ux-web-expert, graphify and others), tells Claude the moment for each one and warns when a dependency ships a new major version; the REA turns on the reverse engineering MCP server. Plus the minor fixes from the v0.4.0 review.
-- **v0.5.1** (this one) = follows mattpocock-skills 1.3.1 (27 skills), makes the REA start under a junction or link and say so when Node is too old, and has the weekly check read the superpowers the official marketplace installs, without reopening issues or passing third-party text along.
+- **v0.5.1** = follows mattpocock-skills 1.3.1 (27 skills), makes the REA start under a junction or link and say so when Node is too old, and has the weekly check read the superpowers the official marketplace installs, without reopening issues or passing third-party text along.
+- **v0.5.2** = the one-command installer (Windows, Mac and Linux), the kit's third parties pinned in the marketplace itself with automatic updates, the kit's weekly robot, and the plugin renamed to `hadouken`.
+- **v0.5.4** (this one) = the hadouken window in VS Code, with every setting, Save and Undo; `/hadouken:limites`; model and effort routing, with ready-made agents and the optimizations; four protections the user can turn off, and no more mistaken blocks of commands that mention the project folder; the new-version notice with an Update button; local learning on by default (`--sem-aprender` to go without); and the documentation in this wiki.
+- **v0.5.5** = security, stability, compatibility and RAM use.
+- **v0.5.6** = the Pro or Max plan in the estimates, idle agents and fewer tokens per session.
 - **v0.6.0** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
 - **v1.0** = A + B + C + D.
 
