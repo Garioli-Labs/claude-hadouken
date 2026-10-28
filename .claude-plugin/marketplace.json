@@ -1,6 +1,7 @@
 {
   "name": "claude-hadouken",
   "owner": { "name": "Garioli Labs" },
+  "description": "hadouken: usage-aware pacing and guard for Claude Code, its daily skill kit, and the REA reverse-engineering server.",
   "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     { "name": "hadouken", "source": "./", "description": "Usage-aware pacing for Claude Code.", "version": "0.5.4" },
