@@ -207,6 +207,15 @@ rodarHook(async (entrada) => {
     });
     if (typeof aviso === 'string') aoUsuario.push(aviso);
   } catch { /* sem o aviso nesta sessão */ }
+  // Spec v0.5.5 §6.J: o resumo de economia, no primeiro SessionStart da
+  // semana ISO, ao usuário.
+  try {
+    const linha = await tetos.rodar('economia', async () => {
+      const { configSaude } = await import('../config/ler.js');
+      return (await import('../saude/economia.js')).linhaDaSemana({ dir, agoraMs, config: configSaude(dir) });
+    });
+    if (typeof linha === 'string') aoUsuario.push(linha);
+  } catch { /* sem o resumo nesta sessão */ }
   // O teto que desligou o aprendizado ou o coletor neste hook avisa já; o do
   // painel, que roda depois da saída, fica no evento 'reparo' e no
   // /hadouken:saude.

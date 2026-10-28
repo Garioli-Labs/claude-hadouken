@@ -64,9 +64,10 @@ export const LINHA_MODO_NORMAL = 'hadouken: modo leve encerrado; ritmo normal de
 
 // Spec §6.F: o aviso único ao usuário quando o teto desliga uma parte.
 const ROTULO_PARTE = Object.freeze({
-  aprendizado: 'o aprendizado', versao: 'a consulta de versão', painel: 'a instalação do painel', previsao: 'a previsão de estouro',
-  coletor: 'o disparo do coletor de saúde', 'roteamento-otimizacoes': 'as sugestões do roteamento',
+  aprendizado: 'o aprendizado', versao: 'a conferência de versões e conflitos', painel: 'a instalação do painel', previsao: 'a previsão de estouro',
+  coletor: 'o disparo do coletor de saúde', 'roteamento-otimizacoes': 'as sugestões do roteamento', economia: 'o resumo semanal de economia',
 });
+// "fica fora": a frase não depende do gênero do rótulo.
 export const linhaTetoDesligado = (nome) => (ROTULO_PARTE[nome]
-  ? `hadouken: ${ROTULO_PARTE[nome]} ficou lenta nos hooks e foi desligada por 24 h, para não atrasar seus prompts. /hadouken:saude mostra os detalhes.`
+  ? `hadouken: lentidão nos hooks; ${ROTULO_PARTE[nome]} fica fora por 24 h, para não atrasar seus prompts. /hadouken:saude mostra os detalhes.`
   : null);

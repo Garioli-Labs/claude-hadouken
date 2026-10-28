@@ -12,7 +12,7 @@ import { anexarEvento } from '../guarda/registros.js';
 // por hook e gravado uma vez, no fechar, só se mudou.
 
 export const ARQ_TETOS = 'tetos.json';
-export const PARTES = Object.freeze(['aprendizado', 'versao', 'painel', 'previsao', 'coletor', 'roteamento-otimizacoes']);
+export const PARTES = Object.freeze(['aprendizado', 'versao', 'painel', 'previsao', 'coletor', 'roteamento-otimizacoes', 'economia']);
 const JANELA = 10;
 const ESTOUROS = 3;
 const DESLIGA_MS = 86_400_000;

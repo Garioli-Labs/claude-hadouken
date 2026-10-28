@@ -376,16 +376,30 @@
   - Texto: `hadouken na semana: ${n} despachos perguntados ou negados, ${m} rebaixamentos do roteamento` e, só com base medida, `; estimativa: ~${k} mil tokens poupados`.
   - Sem nada a contar, `texto: null`.
 
-- [ ] **Step 1: Write failing tests**:
+- [x] **Step 1: Write failing tests**:
   - `conta só eventos dos últimos 7 dias`;
   - `sem base medida: sem tokens`;
   - `com base: texto traz estimativa`;
   - `nada a contar: null`;
   - `segunda sessão da semana não repete`.
-- [ ] **Step 2: Run.** Expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run.** Expected: PASS.
-- [ ] **Step 5: Commit** `feat(saude): resumo semanal de economia`.
+- [x] **Step 2: Run.** Expected: FAIL.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run.** Expected: PASS.
+- [x] **Step 5: Commit** `feat(saude): resumo semanal de economia`.
+
+**Decisões da execução (Task 11):**
+- **Interface.** `resumoEconomia({ dir, agoraMs, respostasSubagente })` devolve `{ texto, contagens: { guarda, trocas, rebaixamentos }, tokensEstimados }`, e `linhaDaSemana({ dir, agoraMs, config })` serve o SessionStart.
+- **Contagens.**
+  - Guarda: `negado` + `perguntado`.
+  - Trocas: `troca-bloqueada` sai à parte, como "trocas de modelo seguradas".
+  - `disparo` fica fora: é a trava que dispara e se repete nos negados, e contaria a mesma coisa duas vezes.
+  - Rebaixamentos do roteamento: `negar` (exigido) + `avisar` (sugerido).
+  - Só entram as partes acima de zero, com singular e plural.
+- **Texto.** Sempre começa por `hadouken na semana (estimativa): …`, porque a spec manda o texto sempre dizer "estimativa". Os tokens (`; ~k mil tokens poupados`) só aparecem com base medida: o `custoEvitado` do resumo do roteamento (mediana das respostas de Haiku × negados N1/N2, com no mínimo 5 respostas).
+- **Base de tokens.** O SessionStart não lê o índice de transcripts, para caber no orçamento, e por isso mostra só as contagens. Quem passa as `respostasSubagente` e mostra a estimativa é o `/hadouken:saude` (Task 12).
+- **Uma vez por semana ISO, no fuso local.** O registro fica em `economia-semana.json { v, semana }` e não em `saude-avisos.json`, que descarta chaves desconhecidas. A semana sem nada a contar também conta como vista. Se a gravação falha, não fala.
+- **Teto e configuração.** Parte nova `economia` no teto (`PARTES`), com aviso próprio; respeita `saude.ligado` e `saude.economia`.
+- **Correção de texto antigo.** O aviso do teto dizia "o aprendizado ficou lenta"; agora a frase é neutra em gênero ("…fica fora por 24 h"), com teste que cobre todas as partes. O rótulo de `versao` passa a "a conferência de versões e conflitos".
 
 ### Task 12: `/hadouken:saude`
 

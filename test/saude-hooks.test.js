@@ -107,6 +107,17 @@ test('session-start com conflitos.json: o aviso vai ao usuário uma vez, nunca a
   assert.doesNotMatch(s2.usuario, /outro/);
 });
 
+test('session-start: o resumo de economia vai ao usuário no primeiro da semana, nunca ao contexto', () => {
+  const home = novoHome();
+  fs.writeFileSync(path.join(home, 'guarda-eventos.json'), JSON.stringify({ v: 1, eventos: [{ at: new Date(Date.now() - 3_600_000).toISOString(), tipo: 'negado', detalhe: null }] }));
+  const entrada = (id) => ({ session_id: id, source: 'startup', hook_event_name: 'SessionStart' });
+  const s1 = saida(rodar('hooks/session-start.js', entrada('sessao-e1'), home));
+  assert.match(s1.usuario, /hadouken na semana \(estimativa\): 1 despacho perguntado ou negado pela guarda\./);
+  assert.doesNotMatch(s1.contexto, /na semana/);
+  const s2 = saida(rodar('hooks/session-start.js', entrada('sessao-e2'), home));
+  assert.doesNotMatch(s2.usuario, /na semana/);
+});
+
 test('session-start com o modo leve ligado: a orientação vai ao contexto', () => {
   const home = novoHome();
   fs.writeFileSync(path.join(home, 'saude-modo.json'), JSON.stringify({ v: 1, leve: true, ateMs: Date.now() + 3_600_000 }));

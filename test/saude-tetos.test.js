@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { abrirTetos, ARQ_TETOS, PARTES } from '../src/saude/tetos.js';
+import { linhaTetoDesligado } from '../src/saude/mensagens.js';
 
 // Spec v0.5.5 §6.F: parte opcional de hook que passa do teto em 3 das
 // últimas 10 execuções fica desligada por 24 h. O hook nunca espera por ela.
@@ -31,9 +32,16 @@ async function execucoes(d, agoraMs, duracoes, nome = 'previsao') {
 }
 
 test('nomes fixos: nome fora da lista é erro de programação', async () => {
-  assert.deepEqual(PARTES, ['aprendizado', 'versao', 'painel', 'previsao', 'coletor', 'roteamento-otimizacoes']);
+  assert.deepEqual(PARTES, ['aprendizado', 'versao', 'painel', 'previsao', 'coletor', 'roteamento-otimizacoes', 'economia']);
   const tetos = abrirTetos(novoDir(), AGORA, { config: CONFIG });
   await assert.rejects(() => tetos.rodar('inventada', () => 1), /parte desconhecida/);
+});
+
+test('toda parte tem aviso próprio, e a frase não depende do gênero do rótulo', () => {
+  for (const nome of PARTES) {
+    assert.match(linhaTetoDesligado(nome), /^hadouken: lentidão nos hooks; .+ fica fora por 24 h, para não atrasar seus prompts\./, nome);
+  }
+  assert.equal(linhaTetoDesligado('inventada'), null);
 });
 
 test('3 estouros em 10 desligam por 24 h', async () => {
