@@ -83,6 +83,10 @@ test('encerraveis só pega hadouken com trava, cmd batendo e 3× o prazo', () =>
   ];
   assert.deepEqual(encerraveis(lista, travas, agora), [500]);
   assert.deepEqual(encerraveis(lista, null, agora), []);
+  // Sem a linha de comando (como fica em saude.json), vale o `script` guardado.
+  assert.deepEqual(lista.map((x) => x.script ?? null), ['coletor-main', null, 'coletor-main', 'aprender']);
+  const semCmd = lista.map(({ cmd, ...resto }) => resto);
+  assert.deepEqual(encerraveis(semCmd, travas, agora), [500]);
 });
 
 test('nome com controle ou gigante é saneado em 60', () => {

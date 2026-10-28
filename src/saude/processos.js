@@ -44,7 +44,10 @@ const VSCODE = /^(code|code - insiders|code-insiders|codium|vscodium|cursor|wind
 const NODE_DEV = /^(node|bun|deno|npm|npx|pnpm|yarn|esbuild|vite|tsc|java|python3?|dotnet|go|cargo|rustc|gradle)$/;
 // Script do plugin: o cache (…/claude-hadouken/hadouken/<versão>/src/…) ou um clone do repositório.
 const SCRIPT_HADOUKEN = /[\\/]claude-hadouken[\\/](.*[\\/])?src[\\/]/i;
-const CLI_CLAUDE = /[\\/]claude(\.cmd|\.exe)?(["'\s]|$)|@anthropic-ai[\\/]claude-code/i;
+// O nome do script (sem extensão), para a confirmação dupla sem guardar a
+// linha de comando, que pode ter segredo.
+const NOME_SCRIPT = /[\\/]src[\\/](?:[^\\/"'\s]+[\\/])*([a-z0-9-]{1,40})\.[cm]?js\b/i;
+const CLI_CLAUDE =/[\\/]claude(\.cmd|\.exe)?(["'\s]|$)|@anthropic-ai[\\/]claude-code/i;
 
 function classeDe(pid, k, cmd) {
   if (pid <= 4) return 'sistema';
@@ -67,15 +70,18 @@ export function classificar(lista) {
     if (p === null || typeof p !== 'object' || !inteiroNaoNeg(p.pid) || typeof p.nome !== 'string') continue;
     const nome = sanearNome(p.nome);
     const cmd = typeof p.cmd === 'string' ? p.cmd : '';
-    saida.push({
+    const classe = classeDe(p.pid, chave(nome), cmd);
+    const item = {
       pid: p.pid,
       ppid: inteiroNaoNeg(p.ppid) ? p.ppid : 0,
       nome,
       cmd,
       rssBytes: Number.isFinite(p.rssBytes) && p.rssBytes > 0 ? p.rssBytes : 0,
       cpuPct: Number.isFinite(p.cpuPct) && p.cpuPct > 0 ? p.cpuPct : 0,
-      classe: classeDe(p.pid, chave(nome), cmd),
-    });
+      classe,
+    };
+    if (classe === 'hadouken') item.script = cmd.match(NOME_SCRIPT)?.[1].toLowerCase() ?? null;
+    saida.push(item);
   }
   return saida;
 }
@@ -128,8 +134,8 @@ export function sugerirFechar(lista, { pidSessao } = {}) {
 }
 
 // Confirmação dupla: o pid da trava ainda é um processo hadouken e a linha
-// de comando dele aponta para o script da trava. Só então, e com 3× o prazo
-// estourado, o pid pode ser encerrado.
+// de comando dele aponta para o script da trava (`script`, de classificar).
+// Só então, e com 3× o prazo estourado, o pid pode ser encerrado.
 export function encerraveis(lista, travas, agoraMs) {
   if (!Array.isArray(lista) || !Array.isArray(travas) || !Number.isFinite(agoraMs)) return [];
   const porPid = new Map(lista.map((p) => [p.pid, p]));
@@ -141,7 +147,7 @@ export function encerraveis(lista, travas, agoraMs) {
     if (!Number.isFinite(inicioMs) || !Number.isFinite(prazoMs) || prazoMs <= 0) continue;
     if (agoraMs - inicioMs <= PRAZOS_PENDURADO * prazoMs) continue;
     const p = porPid.get(pid);
-    if (p?.classe !== 'hadouken' || !p.cmd.includes(script)) continue;
+    if (p?.classe !== 'hadouken' || p.script !== script) continue;
     if (!pids.includes(pid)) pids.push(pid);
   }
   return pids;
