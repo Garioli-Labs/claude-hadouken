@@ -30,6 +30,8 @@
 // ESM do plugin entra por import() dinâmico.
 
 const vscode = require('vscode');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -100,6 +102,41 @@ const apiDe = (m) => ({
 
 // Chama m[nome]() se a API tem o nome; null em qualquer falha. Nunca rejeita.
 const chamar = (m, nome) => Promise.resolve().then(() => (typeof m[nome] === 'function' ? m[nome]() : null)).catch(() => null);
+
+// Spec vscode §4.4: só esta lista de mensagens da janela, cada uma com a forma
+// conferida; o resto é ignorado.
+const TIPOS_MENSAGEM = new Set(['pronto', 'salvar', 'voltarPadrao', 'desfazer', 'atualizarUso', 'atualizarHadouken', 'ligarAprendizado', 'desligarAprendizado']);
+const CHAVE_CONFIG = /^[a-zA-Z0-9.]{1,60}$/;
+const VERSAO_CONFIG = /^([0-9a-f]{16}|ausente)$/;
+const MAX_CHAVES = 40;
+const DESFAZER_MS = 15_000;
+const objetoSimples = (o) => o !== null && typeof o === 'object' && !Array.isArray(o) && Object.getPrototypeOf(o) === Object.prototype;
+
+// A mensagem da janela numa forma limpa, ou null.
+function mensagemValida(msg) {
+  if (!objetoSimples(msg) || typeof msg.tipo !== 'string' || !TIPOS_MENSAGEM.has(msg.tipo)) return null;
+  if (msg.tipo === 'salvar') {
+    const m = msg.mudancas;
+    if (!objetoSimples(m) || typeof msg.versao !== 'string' || !VERSAO_CONFIG.test(msg.versao)) return null;
+    const chaves = Object.keys(m);
+    if (chaves.length === 0 || chaves.length > MAX_CHAVES) return null;
+    if (!chaves.every((k) => CHAVE_CONFIG.test(k) && (Number.isSafeInteger(m[k]) || typeof m[k] === 'boolean'))) return null;
+    return { tipo: 'salvar', mudancas: Object.fromEntries(chaves.map((k) => [k, m[k]])), versao: msg.versao };
+  }
+  if (msg.tipo === 'voltarPadrao') {
+    const ids = msg.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_CHAVES || typeof msg.versao !== 'string' || !VERSAO_CONFIG.test(msg.versao)) return null;
+    if (!ids.every((k) => typeof k === 'string' && CHAVE_CONFIG.test(k))) return null;
+    return { tipo: 'voltarPadrao', ids: [...ids], versao: msg.versao };
+  }
+  return { tipo: msg.tipo };
+}
+
+// Os erros de validação do plugin, só com id e texto curtos.
+const errosLimpos = (erros) => (Array.isArray(erros) ? erros : [])
+  .filter((e) => e !== null && typeof e === 'object' && typeof e.texto === 'string')
+  .slice(0, MAX_CHAVES)
+  .map((e) => ({ id: typeof e.id === 'string' ? e.id.slice(0, 60) : null, texto: e.texto.slice(0, 200) }));
 
 const pctValido = (p) => p === null || (typeof p === 'number' && Number.isFinite(p) && p >= 0 && p <= 1000);
 const completo = (p) => typeof p === 'string' && (process.platform === 'win32' ? COMPLETO_WIN.test(p) : p.startsWith('/'));
@@ -207,6 +244,11 @@ function activate(ctx) {
     let animacao = null;
     let animarLigado = true;
     let versaoNova = null;
+    let versaoInstalada = null;
+    // A janela (§4): uma só; o token de desfazer fica aqui, nunca na página.
+    let janela = null;
+    let tokenDesfazer = null;
+    let terminal = null;
 
     const animar = () => {
       animando = true;
@@ -231,6 +273,7 @@ function activate(ctx) {
       ]);
       if (!ativo) return;
       versaoNova = ver !== null && typeof ver === 'object' && typeof ver.nova === 'string' && VERSAO.test(ver.nova) ? ver.nova : null;
+      versaoInstalada = ver !== null && typeof ver === 'object' && typeof ver.instalada === 'string' && VERSAO.test(ver.instalada) ? ver.instalada : null;
       const itens = cfg !== null && typeof cfg === 'object' && Array.isArray(cfg.itens) ? cfg.itens : [];
       animarLigado = itens.find((i) => i !== null && typeof i === 'object' && i.id === 'painel.animarLogo')?.valor !== false;
       const em = ev !== null && typeof ev === 'object' && Number.isSafeInteger(ev.em) ? ev.em : null;
@@ -280,6 +323,136 @@ function activate(ctx) {
       }
     };
 
+    const postar = (msg) => {
+      try {
+        if (janela !== null) Promise.resolve(janela.webview.postMessage(msg)).catch(() => {});
+      } catch {
+        // painel já descartado
+      }
+    };
+
+    // O estado inteiro para a janela. Nunca rejeita.
+    const enviarEstado = async (m) => {
+      if (janela === null || m === null) return;
+      try {
+        const [config, roteamento] = await Promise.all([chamar(m, 'lerConfiguracao'), chamar(m, 'resumoRoteamento7d')]);
+        const e = estadoValido(m.estadoPainel(ultimoMotivo === undefined ? {} : { ultimoMotivo }));
+        postar({
+          tipo: 'estado',
+          painel: { pcts: e.pcts, texto: e.texto, nivel: e.nivel, dica: e.dica },
+          config,
+          versaoNova,
+          versaoInstalada,
+          roteamento,
+          movimentoReduzido: movimentoReduzido(),
+        });
+      } catch {
+        // a janela fica com o estado anterior
+      }
+    };
+
+    const recusar = (motivo, extra) => postar({ tipo: 'recusado', motivo, ...extra });
+
+    // Salvar e voltar ao padrão: as chaves só podem ser as da tabela do
+    // plugin (os ids que o lerConfiguracao devolve); config mudada em outro
+    // lugar volta com a config nova (foco 2).
+    const gravar = async (m, nome, argumento, versao) => {
+      const cfg = await chamar(m, 'lerConfiguracao');
+      const ids = new Set(cfg !== null && typeof cfg === 'object' && Array.isArray(cfg.itens) ? cfg.itens.map((i) => i?.id) : []);
+      const chaves = Array.isArray(argumento) ? argumento : Object.keys(argumento);
+      if (!chaves.every((k) => ids.has(k))) {
+        recusar('invalido', { erros: [{ id: null, texto: 'item desconhecido' }] });
+        return;
+      }
+      const r = await Promise.resolve().then(() => m[nome](argumento, { versao })).catch(() => null);
+      if (r !== null && typeof r === 'object' && r.ok === true) {
+        tokenDesfazer = r.desfazer !== undefined ? { token: r.desfazer, ate: Date.now() + DESFAZER_MS } : null;
+        postar({ tipo: 'salvo', desfazerAte: Date.now() + DESFAZER_MS });
+        await enviarEstado(m);
+        return;
+      }
+      const motivo = r !== null && typeof r === 'object' && typeof r.motivo === 'string' ? r.motivo : 'erro';
+      if (motivo === 'mudou') recusar('mudou', { config: await chamar(m, 'lerConfiguracao') });
+      else if (motivo === 'invalido') recusar('invalido', { erros: errosLimpos(r.erros) });
+      else recusar('erro');
+    };
+
+    const atualizarHadouken = async (m) => {
+      if (terminal !== null && terminal.exitStatus === undefined) {
+        terminal.show();
+        return;
+      }
+      const c = await Promise.resolve().then(() => m.comandoAtualizar(process.platform)).catch(() => null);
+      if (c === null || typeof c !== 'object' || typeof c.texto !== 'string') return;
+      terminal = vscode.window.createTerminal(process.platform === 'win32' ? { name: 'hadouken', shellPath: 'powershell.exe' } : { name: 'hadouken' });
+      terminal.sendText(c.texto);
+      terminal.show();
+    };
+
+    const tratarMensagem = async (bruta) => {
+      try {
+        const msg = mensagemValida(bruta);
+        if (msg === null) return;
+        const m = await carregar(false);
+        if (m === null || !apiDe(m).janela) return;
+        switch (msg.tipo) {
+          case 'pronto': break;
+          case 'salvar': await gravar(m, 'gravarConfiguracao', msg.mudancas, msg.versao); return;
+          case 'voltarPadrao': await gravar(m, 'voltarAoPadrao', msg.ids, msg.versao); return;
+          case 'desfazer': {
+            const t = tokenDesfazer;
+            tokenDesfazer = null;
+            if (t === null || Date.now() > t.ate) {
+              recusar('mudou', { config: await chamar(m, 'lerConfiguracao') });
+              return;
+            }
+            const r = await Promise.resolve().then(() => m.desfazer(t.token)).catch(() => null);
+            if (r === null || typeof r !== 'object' || r.ok !== true) recusar(r?.motivo === 'mudou' ? 'mudou' : 'erro', { config: await chamar(m, 'lerConfiguracao') });
+            break;
+          }
+          case 'atualizarUso': await vscode.commands.executeCommand(COMANDO); break;
+          case 'atualizarHadouken': await atualizarHadouken(m); return;
+          case 'ligarAprendizado': await chamar(m, 'ligarAprendizado'); break;
+          case 'desligarAprendizado': await chamar(m, 'desligarAprendizado'); break;
+          default: return;
+        }
+        await enviarEstado(m);
+      } catch {
+        // mensagem nenhuma derruba a extensão
+      }
+    };
+
+    const montarHtml = (painel) => {
+      const base = ctx.extensionUri;
+      const uri = (...partes) => String(painel.webview.asWebviewUri(vscode.Uri.joinPath(base, ...partes)));
+      const nonce = crypto.randomBytes(18).toString('base64');
+      const fonte = painel.webview.cspSource;
+      const csp = `default-src 'none'; img-src ${fonte} data:; style-src ${fonte}; script-src 'nonce-${nonce}'; font-src ${fonte}`;
+      const modelo = fs.readFileSync(path.join(base.fsPath, 'janela', 'index.html'), 'utf8');
+      const trocas = { csp, nonce, css: uri('janela', 'janela.css'), js: uri('janela', 'janela.js'), bola: uri('janela', 'bola.svg') };
+      return modelo.replace(/\{\{(csp|nonce|css|js|bola)\}\}/g, (_, k) => trocas[k]);
+    };
+
+    const abrirJanela = async () => {
+      try {
+        if (janela !== null) {
+          janela.reveal(vscode.ViewColumn.Beside);
+          return;
+        }
+        const painel = vscode.window.createWebviewPanel('claudeHadouken.janela', 'hadouken', vscode.ViewColumn.Beside, {
+          enableScripts: true,
+          retainContextWhenHidden: false,
+          localResourceRoots: [vscode.Uri.joinPath(ctx.extensionUri, 'janela'), vscode.Uri.joinPath(ctx.extensionUri, 'icones')],
+        });
+        janela = painel;
+        painel.onDidDispose(() => { if (janela === painel) janela = null; });
+        painel.webview.onDidReceiveMessage((msg) => tratarMensagem(msg));
+        painel.webview.html = montarHtml(painel);
+      } catch {
+        // sem janela; a barra continua
+      }
+    };
+
     // Uma leitura por vez nesta janela: quem pede durante uma leitura recebe a
     // mesma promessa. Guarda o motivo e redesenha no fim. Nunca rejeita.
     const ler = (m, opcoes) => {
@@ -303,6 +476,7 @@ function activate(ctx) {
         .then(async (m) => {
           if (m !== null) await lerExtras(m);
           redesenhar(m);
+          if (m !== null && janela !== null && janela.visible !== false && apiDe(m).janela) enviarEstado(m);
           if (m !== null && leitura === null && ativo && Date.now() >= proximoPedidoEm) {
             proximoPedidoEm = Date.now() + PEDIDO_MIN_MS;
             ler(m, {});
@@ -319,6 +493,8 @@ function activate(ctx) {
         ativo = false;
         clearInterval(esteRelogio);
         if (animacao !== null) clearTimeout(animacao);
+        try { janela?.dispose(); } catch { /* já fechada */ }
+        janela = null;
         if (relogio === esteRelogio) relogio = null;
       },
     });
@@ -335,6 +511,7 @@ function activate(ctx) {
         // o comando nunca lança
       }
     }));
+    ctx.subscriptions.push(vscode.commands.registerCommand(COMANDO_JANELA, abrirJanela));
     tique();
   } catch {
     // a extensão nunca lança

@@ -26,8 +26,12 @@ export function estadoPainel(o) { g().desenhos++; return { texto: '5h 55% · sem
 export async function talvezAtualizar(o) { g().leituras.push(o); return { feito: false, motivo: 'recente' }; }
 export async function ultimoEvento() { await g().portao; const em = g().ems.length > 0 ? g().ems.shift() : g().em; return em === null ? null : { tipo: 'leitura', urgencia: 'calma', em }; }
 export async function estadoVersao() { return { nova: g().nova, instalada: '0.5.4' }; }
-export async function lerConfiguracao() { return { itens: [{ id: 'painel.animarLogo', valor: g().animarLogo }] }; }
-export async function gravarConfiguracao() { return { ok: true }; }
+export async function lerConfiguracao() { return { versao: g().versaoCfg, itens: [{ id: 'painel.animarLogo', valor: g().animarLogo }, { id: 'barra.ctx.amarelo', valor: 70 }] }; }
+export async function gravarConfiguracao(m, o) { g().gravacoes.push([m, o]); return g().respostaGravar; }
+export async function voltarAoPadrao(ids, o) { g().gravacoes.push([ids, o]); return g().respostaGravar; }
+export async function desfazer(t) { g().desfeitos.push(t); return { ok: true }; }
+export async function comandoAtualizar(p) { return { shell: p === 'win32' ? 'powershell' : 'posix', texto: 'atualizar-' + p }; }
+export async function resumoRoteamento7d() { return null; }
 `;
 const PAINEL_VELHO = `const g = () => globalThis.hdk;
 export function estadoPainel(o) { g().desenhos++; return { texto: '5h 25% · sem 41% · Fable 57%', nivel: 'ok', dica: '' }; }
@@ -42,7 +46,10 @@ async function esperar(cond, voltas = 20_000) {
 // Ativa a extensão com o shim dado e o relógio falso. Devolve os dois itens e
 // um `fim` para o finally.
 async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off' } = {}) {
-  globalThis.hdk = { desenhos: 0, leituras: [], nivel: 'ok', pcts: { h5: 55, d7: null, fable: null }, em: 1, ems: [], portao: null, nova: null, animarLogo: true, ...hdk };
+  globalThis.hdk = {
+    desenhos: 0, leituras: [], nivel: 'ok', pcts: { h5: 55, d7: null, fable: null }, em: 1, ems: [], portao: null, nova: null, animarLogo: true,
+    versaoCfg: 'ausente', gravacoes: [], desfeitos: [], respostaGravar: { ok: true, desfazer: { antes: {}, versaoDepois: 'v', ate: 1 } }, ...hdk,
+  };
   const { api, estado } = criar();
   estado.reduceMotion = reduceMotion;
   const cargaOriginal = Module._load;
@@ -54,7 +61,7 @@ async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off' } 
   process.env.HADOUKEN_HOME = home;
   delete requireDaqui.cache[requireDaqui.resolve(ARQ_EXTENSAO)];
   const ext = requireDaqui(ARQ_EXTENSAO);
-  const ctx = { subscriptions: [] };
+  const ctx = { subscriptions: [], extensionUri: api.Uri.file(path.join(repo, 'vscode')) };
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   ext.activate(ctx);
   const fim = () => {
@@ -222,5 +229,143 @@ test('versão nova: o item de uso termina com a seta e a versão', async (t) => 
     assert.doesNotMatch(m.uso.text, /seta/);
   } finally {
     m.fim();
+  }
+});
+
+// --- a janela (Task 10) ---------------------------------------------------------
+
+// Abre a janela e espera o primeiro estado que ela recebe depois do 'pronto'.
+async function abrir(m) {
+  await m.api.commands.executeCommand('claudeHadouken.abrirJanela');
+  const painel = m.estado.paineis[0];
+  await painel.receber({ tipo: 'pronto' });
+  assert.ok(await esperar(() => painel.enviadas.some((x) => x.tipo === 'estado')));
+  return painel;
+}
+
+test('janela: dois cliques dão um painel e um reveal; HTML com nonce e a CSP da spec', async (t) => {
+  const m = await montar(t);
+  try {
+    await m.api.commands.executeCommand('claudeHadouken.abrirJanela');
+    await m.api.commands.executeCommand('claudeHadouken.abrirJanela');
+    assert.equal(m.estado.criacoesDePainel, 1);
+    const painel = m.estado.paineis[0];
+    assert.equal(painel.revelado, 1);
+    assert.equal(painel.coluna, m.api.ViewColumn.Beside);
+    assert.equal(painel.opcoes.enableScripts, true);
+    const raizes = painel.opcoes.localResourceRoots.map((u) => u.fsPath.replace(/\\/g, '/'));
+    assert.equal(raizes.length, 2);
+    assert.ok(raizes[0].endsWith('vscode/janela'), raizes[0]);
+    assert.ok(raizes[1].endsWith('vscode/icones'), raizes[1]);
+    const html = painel.webview.html;
+    const nonce = /<script nonce="([A-Za-z0-9+/=]+)"/.exec(html)?.[1];
+    assert.ok(nonce && nonce.length >= 24, nonce);
+    assert.ok(html.includes(`content="default-src 'none'; img-src vscode-resource: data:; style-src vscode-resource:; script-src 'nonce-${nonce}'; font-src vscode-resource:"`));
+    assert.doesNotMatch(html, /\{\{/);
+    // Fechar e abrir de novo cria outro painel, com outro nonce.
+    painel.dispose();
+    await m.api.commands.executeCommand('claudeHadouken.abrirJanela');
+    assert.equal(m.estado.criacoesDePainel, 2);
+    assert.notEqual(/<script nonce="([^"]+)"/.exec(m.estado.paineis[1].webview.html)[1], nonce);
+  } finally {
+    m.fim();
+  }
+});
+
+test('janela: o estado leva painel, config, versão e movimento reduzido', async (t) => {
+  const m = await montar(t, { reduceMotion: 'on', hdk: { nova: '0.5.9' } });
+  try {
+    const painel = await abrir(m);
+    const e = painel.enviadas.find((x) => x.tipo === 'estado');
+    assert.equal(e.movimentoReduzido, true);
+    assert.equal(e.versaoNova, '0.5.9');
+    assert.equal(e.versaoInstalada, '0.5.4');
+    assert.deepEqual(e.painel.pcts, { h5: 55, d7: null, fable: null });
+    assert.equal(e.config.versao, 'ausente');
+    assert.equal(e.roteamento, null);
+    // O tique de 5 s manda de novo.
+    const antes = painel.enviadas.length;
+    await tique(t);
+    assert.ok(await esperar(() => painel.enviadas.length > antes));
+  } finally {
+    m.fim();
+  }
+});
+
+test('janela: mensagem fora da lista ou com forma errada não grava; chave desconhecida é recusada', async (t) => {
+  const m = await montar(t);
+  try {
+    const painel = await abrir(m);
+    const ruins = [
+      { tipo: 'xyz' }, null, 'salvar',
+      { tipo: 'salvar', mudancas: { 'barra.ctx.amarelo': 'x' }, versao: 'ausente' },
+      { tipo: 'salvar', mudancas: { 'barra.ctx.amarelo': 60 }, versao: '../x' },
+      { tipo: 'salvar', mudancas: { 'a b': 1 }, versao: 'ausente' },
+    ];
+    for (const ruim of ruins) await painel.receber(ruim);
+    await painel.receber({ tipo: 'salvar', mudancas: { 'nao.existe': 1 }, versao: 'ausente' });
+    assert.deepEqual(globalThis.hdk.gravacoes, []);
+    const recusas = painel.enviadas.filter((x) => x.tipo === 'recusado');
+    assert.equal(recusas.length, 1);
+    assert.equal(recusas[0].motivo, 'invalido');
+  } finally {
+    m.fim();
+  }
+});
+
+test('janela: salvar válido grava com a versão, guarda o desfazer na extensão e manda salvo', async (t) => {
+  const m = await montar(t);
+  try {
+    const painel = await abrir(m);
+    await painel.receber({ tipo: 'salvar', mudancas: { 'barra.ctx.amarelo': 60 }, versao: 'ausente' });
+    assert.deepEqual(globalThis.hdk.gravacoes, [[{ 'barra.ctx.amarelo': 60 }, { versao: 'ausente' }]]);
+    const salvo = painel.enviadas.find((x) => x.tipo === 'salvo');
+    assert.ok(Number.isFinite(salvo.desfazerAte));
+    assert.equal(JSON.stringify(painel.enviadas).includes('versaoDepois'), false, 'o token não vai para a página');
+    await painel.receber({ tipo: 'desfazer' });
+    assert.deepEqual(globalThis.hdk.desfeitos, [{ antes: {}, versaoDepois: 'v', ate: 1 }]);
+    // Um segundo desfazer não tem mais token.
+    await painel.receber({ tipo: 'desfazer' });
+    assert.equal(globalThis.hdk.desfeitos.length, 1);
+    await painel.receber({ tipo: 'voltarPadrao', ids: ['barra.ctx.amarelo'], versao: 'ausente' });
+    assert.deepEqual(globalThis.hdk.gravacoes.at(-1), [['barra.ctx.amarelo'], { versao: 'ausente' }]);
+  } finally {
+    m.fim();
+  }
+});
+
+test('janela: config mudada em outro lugar volta como recusado com a config nova', async (t) => {
+  const m = await montar(t, { hdk: { respostaGravar: { ok: false, motivo: 'mudou' } } });
+  try {
+    const painel = await abrir(m);
+    globalThis.hdk.versaoCfg = '0123456789abcdef';
+    await painel.receber({ tipo: 'salvar', mudancas: { 'barra.ctx.amarelo': 60 }, versao: 'ausente' });
+    const r = painel.enviadas.find((x) => x.tipo === 'recusado');
+    assert.equal(r.motivo, 'mudou');
+    assert.equal(r.config.versao, '0123456789abcdef');
+  } finally {
+    m.fim();
+  }
+});
+
+test('janela: atualizarHadouken abre o terminal "hadouken" com o comando do plugin; o segundo só mostra', async (t) => {
+  const plataforma = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  const m = await montar(t);
+  try {
+    const painel = await abrir(m);
+    await painel.receber({ tipo: 'atualizarHadouken', comando: 'rm -rf /' });
+    assert.equal(m.estado.terminais.length, 1);
+    const term = m.estado.terminais[0];
+    assert.deepEqual(term.opcoes, { name: 'hadouken', shellPath: 'powershell.exe' });
+    assert.deepEqual(term.enviados, ['atualizar-win32']);
+    term.mostrado = false;
+    await painel.receber({ tipo: 'atualizarHadouken' });
+    assert.equal(m.estado.terminais.length, 1);
+    assert.deepEqual(term.enviados, ['atualizar-win32']);
+    assert.equal(term.mostrado, true);
+  } finally {
+    m.fim();
+    Object.defineProperty(process, 'platform', plataforma);
   }
 });

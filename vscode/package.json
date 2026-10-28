@@ -9,7 +9,7 @@
   "main": "./extension.cjs",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
-    "commands": [{ "command": "claudeHadouken.atualizarUso", "title": "Claude Hadouken: atualizar uso agora" }],
+    "commands": [{ "command": "claudeHadouken.atualizarUso", "title": "Claude Hadouken: atualizar uso agora" }, { "command": "claudeHadouken.abrirJanela", "title": "Claude Hadouken: abrir a janela" }],
     "icons": {
       "hadouken-0": { "description": "hadouken: parado", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E001" } },
       "hadouken-1": { "description": "hadouken: carga", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E002" } },

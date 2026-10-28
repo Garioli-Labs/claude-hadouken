@@ -213,7 +213,13 @@ test('vscode/package.json: o manifesto do plano, sem dependências', () => {
     main: './extension.cjs',
     activationEvents: ['onStartupFinished'],
     // Os ícones (v0.5.4) são conferidos no teste da fonte, mais abaixo.
-    contributes: { commands: [{ command: 'claudeHadouken.atualizarUso', title: 'Claude Hadouken: atualizar uso agora' }], icons: p.contributes.icons },
+    contributes: {
+      commands: [
+        { command: 'claudeHadouken.atualizarUso', title: 'Claude Hadouken: atualizar uso agora' },
+        { command: 'claudeHadouken.abrirJanela', title: 'Claude Hadouken: abrir a janela' },
+      ],
+      icons: p.contributes.icons,
+    },
   });
   assert.doesNotMatch(PACOTE, /\r/);
 });

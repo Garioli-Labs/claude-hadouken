@@ -1,0 +1,179 @@
+/* Janela do hadouken (spec v0.5.3 VS Code §4): paleta do hadouken, estilo
+   8 bits (§4.5). A fonte pixel vale só em títulos, botões, abas e números
+   grandes; o resto usa a fonte do VS Code. O #2563EB (--feixe-de) só aparece
+   em fundo, borda e preenchimento, nunca em texto (contraste, §4.3). */
+
+@font-face {
+  font-family: 'Pixel';
+  /* Relativo a este arquivo: a CSP não deixa estilo inline para a extensão
+     trocar um marcador, e o caminho relativo já cai em janela/pixel.woff2. */
+  src: url('pixel.woff2') format('woff2');
+  font-display: swap;
+}
+
+:root {
+  --fundo: #111A2E;
+  --texto: #E6F7FF;
+  --destaque: #38BDF8;
+  --feixe-de: #2563EB;
+  --feixe-ate: #38BDF8;
+  --atencao: #FACC15;
+  --urgente: #F87171;
+  --painel: #1B2742;
+  --borda: #000000;
+  --degrau: 4px 0 0 0 var(--borda), -4px 0 0 0 var(--borda), 0 4px 0 0 var(--borda), 0 -4px 0 0 var(--borda);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 16px;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1, h2, button, [role=tab], .numero-grande {
+  font-family: 'Pixel', var(--vscode-font-family, monospace);
+  font-weight: 400;
+}
+
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 13px; margin: 24px 0 12px; color: var(--destaque); }
+
+section { margin: 0 4px 24px; }
+
+.cabecalho {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--painel);
+  box-shadow: var(--degrau);
+  margin: 4px 4px 24px;
+  overflow: hidden;
+}
+
+/* Linhas de varredura (CRT), leves: no máximo 6% de opacidade. */
+.cabecalho::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, #000 0 1px, transparent 1px 3px);
+  opacity: 0.06;
+}
+
+.bola { width: 64px; height: 64px; image-rendering: pixelated; }
+.bola.disparo { animation: disparo 500ms steps(5) 1; }
+
+@keyframes disparo {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(12px) scale(1.15); }
+  100% { transform: translateX(0); }
+}
+
+.feixe { margin-bottom: 16px; }
+.feixe-rotulo { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.feixe-trilho {
+  height: 16px;
+  margin: 6px 4px;
+  background: var(--fundo);
+  box-shadow: var(--degrau);
+}
+.feixe-cheio {
+  height: 100%;
+  background: repeating-linear-gradient(90deg, var(--feixe-de) 0 6px, transparent 6px 8px);
+}
+.feixe[data-urgencia=atencao] .feixe-cheio { background: repeating-linear-gradient(90deg, var(--atencao) 0 6px, transparent 6px 8px); }
+.feixe[data-urgencia=urgente] .feixe-cheio { background: repeating-linear-gradient(90deg, var(--urgente) 0 6px, transparent 6px 8px); }
+.feixe-cheio.acende { animation: acende 400ms steps(4) 1; }
+.feixe-detalhe { font-size: 13px; }
+
+@keyframes acende {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(1.8); }
+  100% { filter: brightness(1); }
+}
+
+button {
+  font-size: 11px;
+  padding: 10px 14px;
+  margin: 8px 8px 8px 4px;
+  color: var(--fundo);
+  background: var(--destaque);
+  border: 0;
+  box-shadow: var(--degrau);
+  cursor: pointer;
+}
+button:disabled { background: var(--painel); color: var(--texto); cursor: not-allowed; }
+button.carregando { background: repeating-linear-gradient(90deg, var(--destaque) 0 6px, var(--feixe-de) 6px 8px); animation: carrega 600ms steps(4) infinite; }
+
+@keyframes carrega {
+  0% { background-position: 0 0; }
+  100% { background-position: 32px 0; }
+}
+
+:focus-visible { outline: 2px solid var(--destaque); outline-offset: 2px; }
+
+[role=tablist] { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+[role=tab] {
+  font-size: 10px;
+  color: var(--texto);
+  background: var(--painel);
+  margin: 4px;
+}
+[role=tab][aria-selected=true] { color: var(--fundo); background: var(--destaque); }
+
+[role=tabpanel] { padding: 12px; background: var(--painel); box-shadow: var(--degrau); margin: 4px; }
+
+.campo { margin-bottom: 16px; }
+.campo label { display: block; font-weight: 600; }
+.campo input[type=number] {
+  width: 7em;
+  margin: 4px 0;
+  padding: 6px;
+  font: inherit;
+  color: var(--texto);
+  background: var(--fundo);
+  border: 2px solid var(--feixe-de);
+}
+.campo input[aria-invalid=true] { border-color: var(--urgente); }
+.dica { font-size: 13px; margin: 0; }
+.erro { color: var(--urgente); font-weight: 600; margin: 2px 0 0; }
+.frouxo { color: var(--atencao); margin: 2px 0 0; }
+
+button[role=switch] { color: var(--texto); background: var(--painel); }
+button[role=switch][aria-checked=true] { color: var(--fundo); background: var(--destaque); }
+
+#motivo-salvar { font-size: 13px; }
+
+table { border-collapse: collapse; margin-top: 8px; }
+th, td { text-align: left; padding: 4px 12px 4px 0; }
+
+[hidden] { display: none !important; }
+
+/* Movimento reduzido: nada anima, e as linhas de varredura saem. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .cabecalho::after { display: none; }
+}
+
+/* Alto contraste: a janela deixa o tema próprio e usa o do VS Code. */
+body.vscode-high-contrast, body.vscode-high-contrast-light {
+  --fundo: var(--vscode-editor-background);
+  --texto: var(--vscode-editor-foreground);
+  --destaque: var(--vscode-focusBorder);
+  --feixe-de: var(--vscode-contrastBorder);
+  --feixe-ate: var(--vscode-contrastBorder);
+  --atencao: var(--vscode-editorWarning-foreground);
+  --urgente: var(--vscode-errorForeground);
+  --painel: var(--vscode-editor-background);
+  --borda: var(--vscode-contrastBorder);
+}
+body.vscode-high-contrast .cabecalho::after, body.vscode-high-contrast-light .cabecalho::after { display: none; }
+body.vscode-high-contrast button, body.vscode-high-contrast-light button { border: 1px solid var(--vscode-contrastBorder); }

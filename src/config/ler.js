@@ -100,14 +100,14 @@ export function lerConfiguracao(dir) {
     const aperto = lerAperto(dir);
     const itens = ITENS.map((i) => ({
       id: i.id, grupo: i.grupo, rotulo: i.rotulo, unidade: i.unidade, tipo: i.tipo,
-      min: i.min ?? null, max: i.max ?? null, padrao: i.padrao, valor: valores[i.id],
+      min: i.min ?? null, max: i.max ?? null, padrao: i.padrao, valor: valores[i.id], frouxo: i.frouxo ?? null,
       aperto: Object.hasOwn(CHAVE_APERTO, i.id) && Number.isInteger(aperto[CHAVE_APERTO[i.id]]) ? aperto[CHAVE_APERTO[i.id]] : null,
     }));
     return { itens, versao: a.versao, avisos: [...a.avisos, ...avisos] };
   } catch {
     const itens = ITENS.map((i) => ({
       id: i.id, grupo: i.grupo, rotulo: i.rotulo, unidade: i.unidade, tipo: i.tipo,
-      min: i.min ?? null, max: i.max ?? null, padrao: i.padrao, valor: i.padrao, aperto: null,
+      min: i.min ?? null, max: i.max ?? null, padrao: i.padrao, valor: i.padrao, frouxo: i.frouxo ?? null, aperto: null,
     }));
     return { itens, versao: 'ilegivel', avisos: ['config.json ilegível: usando os padrões'] };
   }

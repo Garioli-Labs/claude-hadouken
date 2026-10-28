@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="{{csp}}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{css}}">
+<title>hadouken</title>
+</head>
+<body>
+<header class="cabecalho"><img class="bola" src="{{bola}}" alt="" aria-hidden="true"><h1>hadouken <span id="versao"></span></h1></header>
+<section aria-labelledby="t-uso"><h2 id="t-uso">Uso</h2><div id="feixes"></div><button id="atualizar-uso" type="button">Atualizar uso agora</button></section>
+<section id="faixa-versao" hidden><p id="texto-versao"></p><button id="atualizar-hadouken" type="button">Atualizar</button></section>
+<section aria-labelledby="t-config"><h2 id="t-config">Configuração</h2>
+  <div role="tablist" aria-label="Grupos de configuração" id="abas"></div>
+  <div id="paineis"></div>
+  <div class="acoes"><button id="padrao" type="button">Voltar ao padrão</button><button id="salvar" type="button" aria-describedby="motivo-salvar">Salvar</button><span id="motivo-salvar"></span></div>
+  <div id="desfazer-barra" role="status" aria-live="polite" hidden><span>Salvo.</span> <button id="desfazer" type="button">Desfazer</button></div>
+</section>
+<script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>
