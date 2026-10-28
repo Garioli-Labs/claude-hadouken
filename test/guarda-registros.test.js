@@ -266,8 +266,8 @@ test('liberacao-escopo é um tipo de evento; EVENTOS_MAX exportado', () => {
   // Desde a Task 19b, 'config-bloqueada' vem depois dele; desde a v0.5.2,
   // 'guarda-ligada' (liberar off | on); desde a v0.5.3, os dois do roteamento
   // (spec roteamento §6); desde a v0.5.4, 'perguntado' (guarda.perguntar) e
-  // 'projecao-solta' (Emenda 5).
-  assert.deepEqual(TIPOS_EVENTO.slice(-7), ['liberacao-escopo', 'config-bloqueada', 'guarda-ligada', 'roteamento-negado', 'roteamento-aviso', 'perguntado', 'projecao-solta']);
+  // 'projecao-solta' (Emenda 5); desde a v0.5.5, 'reparo' (saúde §6.C).
+  assert.deepEqual(TIPOS_EVENTO.slice(-8), ['liberacao-escopo', 'config-bloqueada', 'guarda-ligada', 'roteamento-negado', 'roteamento-aviso', 'perguntado', 'projecao-solta', 'reparo']);
   assert.equal(EVENTOS_MAX, 200);
   const d = novo();
   assert.deepEqual(anexarEvento(d, 'liberacao-escopo', '3h:180:fable:caro', agora), { ok: true });

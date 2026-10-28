@@ -48,6 +48,10 @@ export const TIPOS_EVENTO = Object.freeze([
   // Emenda 5: a trava de projeção (G1, G2) caiu porque a projeção deixou de
   // valer; o detalhe é a janela (five_hour ou seven_day).
   'projecao-solta',
+  // v0.5.5 (saúde §6.B e §6.C): um JSON de estado foi para quarentena (o
+  // detalhe é o nome do arquivo) ou um processo do próprio hadouken pendurado
+  // foi encerrado (o detalhe é 'encerrado:<script>').
+  'reparo',
 ]);
 const DETALHE_MAX = 40;
 const DETALHE = new RegExp(`^[A-Za-z0-9:._-]{0,${DETALHE_MAX}}$`);
@@ -102,7 +106,7 @@ export function lerEventos(dir, agoraMs) {
 // VS Code §2.1): um ponto só, no lugar dos seis hooks da guarda.
 const TIPOS_ATENCAO = Object.freeze([
   'negado', 'prompt-bloqueado', 'troca-bloqueada', 'liberacao-recusada', 'filha-negada', 'arquivo-negado',
-  'config-bloqueada', 'roteamento-negado', 'roteamento-aviso', 'perguntado',
+  'config-bloqueada', 'roteamento-negado', 'roteamento-aviso', 'perguntado', 'reparo',
 ]);
 
 export function anexarEvento(dir, tipo, detalhe, agoraMs) {

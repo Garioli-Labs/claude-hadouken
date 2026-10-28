@@ -58,7 +58,7 @@ test('arquivo com valor fora das listas: null', () => {
 test('anexarEvento: negar ou pedir anima como guarda; os outros tipos não', () => {
   const atencao = [
     'negado', 'prompt-bloqueado', 'troca-bloqueada', 'liberacao-recusada', 'filha-negada', 'arquivo-negado',
-    'config-bloqueada', 'roteamento-negado', 'roteamento-aviso', 'perguntado',
+    'config-bloqueada', 'roteamento-negado', 'roteamento-aviso', 'perguntado', 'reparo',
   ];
   for (const tipo of TIPOS_EVENTO) {
     const d = novo();
