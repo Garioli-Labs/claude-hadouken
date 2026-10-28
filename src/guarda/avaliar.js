@@ -5,7 +5,7 @@ import { preverEstouro } from '../previsao.js';
 import { lerUso } from '../uso/ler-uso.js';
 import { lerConfigGuarda, PADRAO_GUARDA } from './config.js';
 import { avaliarGatilhos } from './gatilhos.js';
-import { CHAVES_TRAVA, lerTravas, gravarTravas, unirTravas } from './travas.js';
+import { CHAVES_TRAVA, lerTravas, gravarTravas, unirTravas, limparTravas } from './travas.js';
 import { lerLiberacao, coberturaAtual } from './liberacao.js';
 import { despachosFableRecentes, ultimoLimiteFable, modeloDaSessao, anexarEvento } from './registros.js';
 
@@ -42,6 +42,32 @@ export function modeloNoEstado(estado, sessionId) {
   return typeof sessao?.model === 'string' && sessao.model.length > 0 ? sessao.model : null;
 }
 
+// Emenda 5 (v0.5.4): a trava de projeção (G1, G2) cai quando a projeção
+// deixa de valer, em vez de ficar até o reset da janela. Antes, um G2 que
+// disparava com a semana em 37% travava por dias. Só com leitura fresca e
+// com folga (a projeção ausente ou além de 1,5 × o horizonte), para a trava
+// não piscar na borda. Os tetos (G3, G4) só sobem dentro da janela: ficam.
+// Muda `travas` no lugar e grava; falha de gravação mantém a trava em disco,
+// e a próxima avaliação tenta de novo.
+const FOLGA_PROJECAO = 1.5;
+function soltarProjecoes(dir, travas, disparos, leituras, previsao, config, agoraMs) {
+  const soltas = [];
+  for (const [k, gatilho, horizonteMs] of [
+    ['five_hour', 'G1', config.horizonte5hMin * 60_000],
+    ['seven_day', 'G2', config.horizonte7dH * 3_600_000],
+  ]) {
+    if (travas[k]?.gatilho !== gatilho || disparos[k] || leituras[k]?.fresca !== true) continue;
+    const quando = previsao?.[k];
+    if (numeroFinito(quando) && quando - agoraMs <= FOLGA_PROJECAO * horizonteMs) continue;
+    soltas.push(k);
+  }
+  if (soltas.length === 0 || !limparTravas(dir, soltas, agoraMs).ok) return;
+  for (const k of soltas) {
+    travas[k] = null;
+    anexarEvento(dir, 'projecao-solta', k, agoraMs);
+  }
+}
+
 export function avaliarGuarda({ dir, agoraMs, sessionId } = {}) {
   try {
     if (typeof dir !== 'string' || !numeroFinito(agoraMs)) return vazia('erro');
@@ -62,6 +88,7 @@ export function avaliarGuarda({ dir, agoraMs, sessionId } = {}) {
     const cobertura = coberturaAtual(liberacao, agoraMs, leituras.seven_day?.used_percentage);
     const lidas = lerTravas(dir, agoraMs);
     let ilegivel = lidas.estado === 'ilegivel';
+    if (lidas.estado === 'ok') soltarProjecoes(dir, lidas.travas, disparos, leituras, previsao, config, agoraMs);
     const desde = new Date(agoraMs).toISOString();
     const novas = {};
     for (const k of CHAVES_TRAVA) {

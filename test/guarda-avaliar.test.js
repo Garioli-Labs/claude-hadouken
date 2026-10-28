@@ -62,6 +62,39 @@ test('G4 dispara, grava a trava e o evento uma vez; a trava fica mesmo com a con
   assert.equal(depois.motivos[0].dados, null);
 });
 
+// Emenda 5 (v0.5.4): a trava de projeção cai quando a projeção deixa de
+// valer, com leitura fresca e folga de 1,5 × o horizonte. O G4 acima fica.
+const travaG2 = (d) => gravarTravas(d, { seven_day: { resets_at: agoraS + 4 * 86_400, gatilho: 'G2', desde: iso(agora - 3 * H) } }, agora);
+const serie7d = (pts) => pts.map(([min, v]) => ({ at: iso(agora + min * 60_000), h5: null, d7: v }));
+
+test('Emenda 5: trava G2 cai com leitura fresca sem projeção; registra projecao-solta', () => {
+  const d = novo();
+  travaG2(d);
+  gravarEstado(d, { u7: 37 });
+  const g = avaliarGuarda({ dir: d, agoraMs: agora, sessionId: 's' });
+  assert.deepEqual(g.ativas, []);
+  assert.equal(g.status, 'armada');
+  assert.equal(lerTravas(d, agora).travas.seven_day, null);
+  assert.deepEqual(lerEventos(d, agora).filter((e) => e.tipo === 'projecao-solta').map((e) => e.detalhe), ['seven_day']);
+});
+
+test('Emenda 5: trava G2 fica com leitura velha ou com a projeção dentro da folga', () => {
+  const velha = novo();
+  travaG2(velha);
+  gravarEstado(velha, { u7: 37, lidoHa: 2 * H });
+  assert.deepEqual(avaliarGuarda({ dir: velha, agoraMs: agora, sessionId: 's' }).ativas, ['seven_day']);
+  // 66% subindo 3,4 pontos em 3 h: 100% em 30 h, além das 24 h do horizonte
+  // (não dispara de novo) e dentro de 36 h (1,5 ×): a trava fica.
+  const perto = novo();
+  travaG2(perto);
+  // Dez pontos (REGRAS_JANELA.seven_day), a cada 20 min, em linha reta.
+  gravarEstado(perto, { u7: 66, historico: serie7d(Array.from({ length: 10 }, (_, i) => [-180 + 20 * i, 62.6 + (3.4 * 20 * i) / 180])) });
+  const g = avaliarGuarda({ dir: perto, agoraMs: agora, sessionId: 's' });
+  assert.deepEqual(g.ativas, ['seven_day']);
+  assert.equal(g.motivos[0].gatilho, 'G2');
+  assert.equal(lerEventos(perto, agora).filter((e) => e.tipo === 'projecao-solta').length, 0);
+});
+
 test('guarda.json corrompido: disparada com ilegivel; apagar só volta a avaliar a condição', () => {
   const d = novo();
   gravarEstado(d, { u7: 86 });

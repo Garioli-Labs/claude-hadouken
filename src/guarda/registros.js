@@ -45,6 +45,9 @@ export const TIPOS_EVENTO = Object.freeze([
   // v0.5.4, guarda.perguntar: a trava pediu a aprovação do usuário (P1, P3)
   // ou deixou passar o prompt com aviso (P2); o detalhe é o ponto e as travas.
   'perguntado',
+  // Emenda 5: a trava de projeção (G1, G2) caiu porque a projeção deixou de
+  // valer; o detalhe é a janela (five_hour ou seven_day).
+  'projecao-solta',
 ]);
 const DETALHE_MAX = 40;
 const DETALHE = new RegExp(`^[A-Za-z0-9:._-]{0,${DETALHE_MAX}}$`);

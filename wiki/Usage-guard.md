@@ -25,6 +25,8 @@ Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch,
 
 The numbers can be tuned under the `guarda` key of `config.json` (the Fable 90% is `guarda.fable.tetoPct`). Loosening the configuration does not lift a lock that has already tripped.
 
+Since v0.5.4, a projection lock (G1, G2) lifts on its own when the projection no longer holds: with a fresh reading, no forecast of reaching 100%, or one beyond 1.5 times the horizon (135 min for G1, 36 h for G2). Before, a G2 tripped with the week at 37% stayed until the weekly reset. The ceilings (G3, G4) still last until the reset, because usage does not go down within the window. Each lift becomes a `projecao-solta` event.
+
 When the official Fable reset cannot be read, a G7 lock has no set end: it stays until `/hadouken:liberar fable`.
 
 **The config P5 (`ConfigChange` hook).** At the first start of each session, hadouken takes a photo of the three fields (`disableAllHooks`, `enabledPlugins` and `hooks`) of those three files: hashes only, in `config-base.json`. When Claude Code reports that one of them changed, the hook compares the file with its own session's photo and, if one of the three fields changed, holds the change for this session; other fields (`model`, `permissions` and the rest) pass. Claude receives:

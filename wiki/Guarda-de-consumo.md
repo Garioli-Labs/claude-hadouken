@@ -25,6 +25,8 @@ Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subage
 
 Os números são ajustáveis na chave `guarda` do `config.json` (o 90% do Fable é `guarda.fable.tetoPct`). Afrouxar a configuração não solta uma trava que já disparou.
 
+Desde a v0.5.4, a trava de projeção (G1, G2) cai sozinha quando a projeção deixa de valer: com uma leitura fresca, sem previsão de chegar a 100% ou com ela além de 1,5 vez o horizonte (135 min no G1, 36 h no G2). Antes, um G2 disparado com a semana em 37% ficava até o reset semanal. Os tetos (G3, G4) continuam até o reset, porque o uso não desce dentro da janela. Cada queda vira o evento `projecao-solta`.
+
 Quando o reset oficial do Fable não se lê, a trava do G7 não tem fim marcado: fica até `/hadouken:liberar fable`.
 
 **A P5 de config (hook `ConfigChange`).** No primeiro início de cada sessão, o hadouken tira uma foto dos três campos (`disableAllHooks`, `enabledPlugins` e `hooks`) daqueles três arquivos: só hashes, em `config-base.json`. Quando o Claude Code avisa que um deles mudou, o hook compara o arquivo com a foto da própria sessão e, se um dos três campos mudou, segura a mudança nesta sessão; os outros campos (`model`, `permissions` e o resto) passam. O Claude recebe:
