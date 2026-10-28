@@ -20,6 +20,8 @@ function chave(nome) {
   const base = nome.startsWith('/') ? nome.slice(nome.lastIndexOf('/') + 1) : nome;
   return base.toLowerCase().replace(/\.exe$/, '');
 }
+// O app para somar e mostrar: sem .exe e sem os "Helper (…)" do macOS.
+const nomeDoApp = (nome) => nome.replace(/\.exe$/i, '').replace(/ Helper( \(.*\))?$/i, '');
 
 const SISTEMA = new Set([
   // Windows
@@ -29,6 +31,8 @@ const SISTEMA = new Set([
   'shellexperiencehost', 'textinputhost', 'audiodg', 'conhost', 'dllhost', 'wmiprvse', 'msmpeng', 'nissrv',
   'mpdefendercoreservice', 'securityhealthservice', 'securityhealthsystray', 'wudfhost', 'dashost', 'smartscreen',
   'applicationframehost', 'lockapp', 'widgets', 'widgetservice',
+  // Componente de outros apps (Teams, Widgets…): o usuário não o fecha sozinho.
+  'msedgewebview2',
   // Linux
   'init', 'kthreadd', 'dbus-daemon', 'dbus-broker', 'xorg', 'xwayland', 'gnome-shell', 'kwin_x11', 'kwin_wayland',
   'plasmashell', 'pipewire', 'pipewire-pulse', 'pulseaudio', 'wireplumber', 'networkmanager', 'sshd', 'cron',
@@ -122,8 +126,9 @@ export function sugerirFechar(lista, { pidSessao } = {}) {
   }
   const apps = new Map();
   for (const p of candidatos) {
-    const k = chave(p.nome);
-    const app = apps.get(k) ?? { nome: p.nome.replace(/\.exe$/i, ''), rssBytes: 0 };
+    const nome = nomeDoApp(p.nome);
+    const k = nome.toLowerCase();
+    const app = apps.get(k) ?? { nome, rssBytes: 0 };
     app.rssBytes += p.rssBytes;
     apps.set(k, app);
   }

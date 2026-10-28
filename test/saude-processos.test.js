@@ -15,7 +15,7 @@ test('classifica navegador, vscode, claude e sistema nas três plataformas', () 
     p(10, 'chrome.exe'), p(11, 'msedge.exe'), p(12, 'firefox.exe'), p(13, 'Code.exe'),
     p(14, 'claude.exe'), p(15, 'svchost.exe'), p(16, 'node.exe', 10, { cmd: 'node.exe C:\\proj\\node_modules\\vite\\bin\\vite.js' }),
     p(17, 'node.exe', 10, { cmd: '"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\x\\.claude\\plugins\\cache\\claude-hadouken\\hadouken\\0.5.5\\src\\saude\\coletor-main.js"' }),
-    p(18, 'notepad.exe'), p(4, 'System'),
+    p(18, 'notepad.exe'), p(4, 'System'), p(19, 'msedgewebview2.exe'),
     // Linux
     p(20, 'chrome'), p(21, 'code'), p(22, 'systemd'), p(23, 'kworker/0:1'), p(24, 'claude'),
     p(25, 'node', 10, { cmd: 'node /home/x/.claude/plugins/cache/claude-hadouken/hadouken/0.5.5/src/aprendizado/aprender.js' }),
@@ -25,7 +25,7 @@ test('classifica navegador, vscode, claude e sistema nas três plataformas', () 
   ]);
   assert.deepEqual(c, {
     10: 'navegador', 11: 'navegador', 12: 'navegador', 13: 'vscode', 14: 'claude', 15: 'sistema', 16: 'node-dev',
-    17: 'hadouken', 18: 'outro', 4: 'sistema',
+    17: 'hadouken', 18: 'outro', 4: 'sistema', 19: 'sistema',
     20: 'navegador', 21: 'vscode', 22: 'sistema', 23: 'sistema', 24: 'claude', 25: 'hadouken',
     30: 'navegador', 31: 'vscode', 32: 'sistema', 33: 'sistema', 34: 'navegador', 35: 'claude',
   });
@@ -55,6 +55,13 @@ test('sugerirFechar soma por app, tira sistema e a sessão, no máximo 5', () =>
     { nome: 'Code', rssBytes: 450 * MB },
     { nome: 'Spotify', rssBytes: 450 * MB },
   ]);
+});
+
+test('sugerirFechar junta os Helper do macOS no app', () => {
+  const s = sugerirFechar(classificar([
+    p(11, 'Google Chrome', 100), p(12, 'Google Chrome Helper (Renderer)', 300), p(13, 'Google Chrome Helper', 50),
+  ]), {});
+  assert.deepEqual(s, [{ nome: 'Google Chrome', rssBytes: 450 * MB }]);
 });
 
 test('sugerirFechar sem pidSessao e com lista vazia', () => {
