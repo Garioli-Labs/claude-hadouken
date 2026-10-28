@@ -100,6 +100,7 @@ Clique no logo do hadouken na barra de status do VS Code, ou rode o comando `Cla
 | Painel | O aviso de versão nova e a animação do logo. |
 | Roteamento | As regras do [roteamento de modelo e effort](Guarda-de-consumo#roteamento-de-modelo-e-effort). |
 | Proteções | Os quatro bloqueios que o senhor pode desligar (veja [Proteções](Limites#proteções)). |
+| Saúde | As faixas da [saúde do PC](Saude-do-PC#faixas) e o liga-desliga de cada peça. |
 
 - **Salvar** só liga quando há mudança válida; desligado, ele diz por quê. Um número fora da faixa é avisado ao sair do campo.
 - **Desfazer:** depois de salvar, uma barra oferece desfazer por 15 segundos.
@@ -107,5 +108,17 @@ Clique no logo do hadouken na barra de status do VS Code, ou rode o comando `Cla
 - **Mudou em outro lugar:** se a configuração mudou enquanto a janela estava aberta (pelo `/hadouken:limites`, por outra janela), os valores novos são carregados e o seu rascunho fica.
 - **Versão nova:** quando sai uma versão do hadouken, o VS Code avisa uma vez, com o botão **Atualizar**, que abre um terminal com o comando de atualização. Desligue na aba Painel.
 - **Movimento:** o logo anima ao abrir; com "reduzir movimento" no sistema, ou com a animação desligada na aba Painel, ele fica parado.
+
+### PC agora
+
+Desde a v0.5.5, logo abaixo da seção Uso, a janela mostra a [saúde do PC](Saude-do-PC):
+
+- uma barra para cada medida: RAM, GPU, CPU e disco, mais a bateria quando houver. As cores de urgência são as mesmas das barras de uso, e a urgência também vem escrita (`perto do limite`, `acima do limite`). Uma medida sem leitura diz "não disponível neste PC";
+- a idade da leitura e a etiqueta `LEVE` enquanto o modo leve vale;
+- na faixa vermelha da RAM, o quadro "Fechar libera memória", com os aplicativos que mais liberam. Quem fecha é o senhor;
+- o botão "Ligar modo leve (4 h)" ou "Voltar ao normal", que só aparece com algo em alerta ou com o modo ligado;
+- no fim, uma linha com o resumo dos hooks, dos reparos, da compatibilidade e dos conflitos. O detalhe está no `/hadouken:saude`.
+
+Na barra de status do VS Code, o item ganha o segmento `PC: RAM 94%` ou `PC: GPU 89°C` enquanto a medida estiver na faixa, e `leve` com o modo ligado. A janela só lê `saude.json`: abri-la não dispara coleta nenhuma.
 
 ---

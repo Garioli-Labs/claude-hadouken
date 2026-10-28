@@ -21,7 +21,8 @@
 - each session's **context** and **cache** in the Claude Code status line;
 - notices to Claude when the pace will run the window out, and a **guard** that holds expensive dispatches until you release it;
 - a **VS Code window** with every setting: ceilings, bands, alerts, routing, learning and protections;
-- the `/hadouken:consumo` report, with tokens per project, per model·effort and GitHub Actions.
+- the `/hadouken:consumo` report, with tokens per project, per model·effort and GitHub Actions;
+- **PC health** (`/hadouken:saude`): RAM, temperatures, battery and disk, with a notice, a suggestion of what to close and a light mode that steers Claude toward lighter work.
 
 ## Install
 
@@ -47,7 +48,7 @@ When a new version comes out, VS Code tells you with an **Atualizar** (update) b
 
 - [Status bar](https://github.com/Garioli-Labs/claude-hadouken/wiki/Status-bar) · [VS Code panel and window](https://github.com/Garioli-Labs/claude-hadouken/wiki/VS-Code-panel-and-window) · [Warnings and alerts](https://github.com/Garioli-Labs/claude-hadouken/wiki/Warnings-and-alerts)
 - [Usage guard and routing](https://github.com/Garioli-Labs/claude-hadouken/wiki/Usage-guard) · [Limits and protections](https://github.com/Garioli-Labs/claude-hadouken/wiki/Limits) · [Commands](https://github.com/Garioli-Labs/claude-hadouken/wiki/Commands)
-- [Usage report](https://github.com/Garioli-Labs/claude-hadouken/wiki/Usage-report) · [Learning](https://github.com/Garioli-Labs/claude-hadouken/wiki/Learning)
+- [Usage report](https://github.com/Garioli-Labs/claude-hadouken/wiki/Usage-report) · [Learning](https://github.com/Garioli-Labs/claude-hadouken/wiki/Learning) · [PC health](https://github.com/Garioli-Labs/claude-hadouken/wiki/PC-health)
 - [hadouken-kit](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit-en) · [REA](https://github.com/Garioli-Labs/claude-hadouken/wiki/REA-en) · [Troubleshooting](https://github.com/Garioli-Labs/claude-hadouken/wiki/Troubleshooting)
 - [Releases](https://github.com/Garioli-Labs/claude-hadouken/releases) · [Security](SECURITY.md)
 

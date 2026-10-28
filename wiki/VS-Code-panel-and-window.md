@@ -102,6 +102,7 @@ Click the hadouken logo in the VS Code status bar, or run the command `Claude Ha
 | Painel | The new-version notice and the logo animation. |
 | Roteamento | The [model and effort routing](Usage-guard#model-and-effort-routing) rules. |
 | Proteções | The four blocks you can turn off (see [Protections](Limits#protections)). |
+| Saúde | The [PC health](PC-health#bands) bands and the on/off switch of each piece. |
 
 - **Salvar** (save) is enabled only when there is a valid change; when disabled, it says why. A number out of range is flagged when you leave the field.
 - **Desfazer** (undo): after saving, a bar offers undo for 15 seconds.
@@ -109,5 +110,17 @@ Click the hadouken logo in the VS Code status bar, or run the command `Claude Ha
 - **Changed elsewhere:** if the configuration changed while the window was open (through `/hadouken:limites` or another window), the new values are loaded and your draft stays.
 - **New version:** when a hadouken release comes out, VS Code tells you once, with an **Atualizar** button that opens a terminal with the update command. Turn it off in the Painel tab.
 - **Motion:** the logo animates on opening; with "reduce motion" in the system, or with the animation off in the Painel tab, it stays still.
+
+### PC now
+
+Since v0.5.5, right below the Uso section, the window shows the [PC health](PC-health) in a section titled "PC agora":
+
+- one bar per measure: RAM, GPU, CPU and disk, plus the battery when there is one. The urgency colours are the same as the usage bars, and the urgency is also written out. A measure with no reading says it is not available on this PC;
+- the age of the reading, and a `LEVE` tag while light mode is on;
+- in the red RAM band, a box listing the apps whose closing frees the most memory. You are the one who closes them;
+- a button to turn light mode on for 4 h, or back off. It shows only when something is in alert or the mode is on;
+- at the end, a one-line summary of hooks, repairs, compatibility and conflicts. The details are in `/hadouken:saude`.
+
+In the VS Code status bar, the item gains a `PC: RAM 94%` or `PC: GPU 89°C` segment while that measure is in its band, and `leve` while light mode is on. The window only reads `saude.json`, so opening it never starts a collection.
 
 ---

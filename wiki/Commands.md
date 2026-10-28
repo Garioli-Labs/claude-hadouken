@@ -10,7 +10,8 @@ All of them answer through a hook, before the model: they spend no tokens. The o
 |---|---|---|
 | `/hadouken:consumo` | Usage report: 5-hour and 7-day limits with pace, tokens per project and per model·effort, cache and GitHub Actions. Claude also calls it when you ask. | [Usage report](Usage-report) |
 | `/hadouken:liberar [Nh \| janela] [fable] [caro]` | Releases the guard for a while; `off` and `on` turn the guard off and back on. | [How to release](Usage-guard#how-to-release) |
-| `/hadouken:limites [item value \| item padrao \| padrao]` | Shows and changes the limits of the guard, the status bar, the alerts and the protections. | [The /hadouken:limites command](Limits#the-hadoukenlimites-command) |
+| `/hadouken:limites [item value \| item padrao \| padrao]` | Shows and changes the limits of the guard, the status bar, the alerts, the protections and PC health. | [The /hadouken:limites command](Limits#the-hadoukenlimites-command) |
+| `/hadouken:saude [leve \| normal]` | PC health and hadouken's own health: RAM, temperatures, battery, disk, hooks, repairs, compatibility, conflicts, data and savings; `leve` and `normal` turn light mode on (4 h) and off. | [PC health](PC-health#the-hadoukensaude-command) |
 | `/hadouken:aprender [status \| ligar \| desligar \| desfazer \| aprovar \| recusar]` | Local learning. | [Learning](Learning#commands) |
 | `/hadouken:instalar` | Adds the status bar to `settings.json`, showing the change and asking for confirmation. | [Home](Home-en#what-hadoukeninstalar-changes-and-how-to-undo-it) |
 

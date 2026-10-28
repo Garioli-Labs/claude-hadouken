@@ -63,4 +63,8 @@ Since v0.5.4, the four blocks below can be turned off, in the Proteções tab of
 
 No protection blocks a command just for mentioning the project folder: a command with the repository path (for example `node` or `grep` inside `claude-hadouken`) goes through, and so does a quoted absolute path with a `Claude …` folder in it (`"C:/Projetos DEV/Claude Hadouken/x"`), even outside the session's folder. Before v0.5.4, that was blocked by mistake.
 
+## PC health
+
+Since v0.5.5, the table also has the `saude.*` items: the RAM, GPU, CPU, battery and disk bands, and the on/off switch of each PC health piece. They are also in the window's Saúde tab. The defaults and what each one does are in [PC health](PC-health#bands).
+
 ---

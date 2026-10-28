@@ -498,13 +498,13 @@
 - Peso medido: pacote com 2 349 663 bytes, teto 1,25×. Grafo estático: prompt-submit 4, session-start 4, guarda-despacho 4, guarda-filha 5, teto de cada um o medido + 4. Um terceiro teste confere que o contador de imports enxerga `comum.js`, para o regex quebrado não deixar o teto sempre verde. Sem git, o teste do pacote é pulado.
 - Bench: o env ganhou `HADOUKEN_SAUDE_DISPARAR=0`. Antes, um prompt sem saude.json subiria o coletor de verdade no meio da medição. As duas linhas de prompt registrado passam a ler um saude.json fresco de PC bem, que é o caso comum, e fazem de "prompt com saude.json". A linha nova, `prompt fires collector`, acha um saude.json de 2 min e confere o marcador do disparo.
 
-- [ ] **Step 1: Write failing tests**:
+- [x] **Step 1: Write failing tests**:
   - `entrada hostil`: cada hook de `hooks/hooks.json` com stdin vazio, `{`, `[]`, `{"session_id":5}` e 1 MB de texto sai com 0. Ou sem saída, ou com a decisão que já dava na 0.5.4 para a mesma entrada (snapshot do comportamento atual, gerado antes de mudar).
   - `peso`: o tamanho do pacote sem `venv`, `node_modules`, `.git`, `test`, `bench`, `docs` e `wiki` fica abaixo de 1,25× o medido no início da tarefa (fixar o número no teste). Os módulos que o `prompt-submit` carrega sem aviso ficam ≤ o medido + 4.
-- [ ] **Step 2: Run.** Expected: os de entrada hostil podem já passar; o de peso FAIL até o número ser fixado.
-- [ ] **Step 3: Fix** o que a entrada hostil quebrar e fixe os números de peso.
-- [ ] **Step 4: Run** a suíte inteira e os benches. Expected: PASS, p95 dentro do orçamento.
-- [ ] **Step 5: Commit** `test: entrada hostil nos hooks e orçamento de peso`.
+- [x] **Step 2: Run.** Expected: os de entrada hostil podem já passar; o de peso FAIL até o número ser fixado.
+- [x] **Step 3: Fix** o que a entrada hostil quebrar e fixe os números de peso.
+- [x] **Step 4: Run** a suíte inteira e os benches. Expected: PASS, p95 dentro do orçamento.
+- [x] **Step 5: Commit** `test: entrada hostil nos hooks e orçamento de peso`.
 
 ### Task 15: Documentação, versão e verificação final
 
@@ -513,8 +513,16 @@
 - Modify: `wiki/_Sidebar.md`, `wiki/Comandos.md`, `wiki/Commands.md`, `wiki/Limites.md`, `wiki/Limits.md`, `wiki/Painel-e-janela-do-VS-Code.md`, `wiki/VS-Code-panel-and-window.md`, `wiki/pares.json`, `README.md`, `README.en.md`, `SECURITY.md` (entradas novas: saídas de `ps`/PowerShell/`nvidia-smi`, nomes de processo, `hooks.json` de outros plugins; o encerramento restrito aos próprios processos), `.claude-plugin/plugin.json` e `package.json` (versão `0.5.5`), `vscode/package.json` (versão)
 - Test: os testes de wiki, README e versões que já existem (`kit-readme`, pares da wiki etc.)
 
-- [ ] **Step 1: Write** as páginas (o que faz, o que nunca faz, comandos, faixas, "não disponível neste PC", modo leve) e atualize os pares.
-- [ ] **Step 2: Bump** da versão nos três manifestos.
-- [ ] **Step 3: Run** a suíte inteira no Windows (`--test-concurrency=2`) e no Linux (WSL, Node 20 e 24, com o script da sessão), mais os dois benches. Expected: 0 falhas nos três.
-- [ ] **Step 4: Review** do branch inteiro com `mattpocock-skills:code-review` antes de pedir merge; corrija os achados com teste.
-- [ ] **Step 5: Commit** `docs: v0.5.5 na wiki, README e SECURITY; versão 0.5.5` e escreva as notas da release no scratchpad. Merge, tag, push, release e wiki só com autorização do Sr. Garioli, um de cada vez.
+**Decisões da execução (Task 15 e revisão do branch):**
+- `vscode/package.json` fica em `0.0.0` de propósito: a versão é preenchida no build do `.vsix`. A versão vale em `package.json`, `plugin.json`, `marketplace.json` e `kit/testado.json` (o `kit-manifestos` exige testado igual ao plugin).
+- Corrigido pela revisão, com teste: (1) o aviso único do autorreparo (§6.E) — `repararDados` guarda os nomes em `reparos-avisar.json` e o SessionStart seguinte avisa o usuário uma vez e apaga; `config.json` tem texto próprio; (2) gravação de `saude.json` que falha não faz cada hook subir outro coletor — `adiarProxima` anda o mtime (ou cria um vazio); (3) `resumoCurto` da janela ganhou Dados (sem os maiores) e Economia (sem ler o índice, sem tokens), como pede §6.J/§6.L; (4) a lista de partes do teto na wiki; (5) comentário de `indexarTranscripts` de volta ao lugar; (6) `encerraveis` aceita dígitos no nome do script, como o resto; (7) `gbInteiro` só em `faixas.js`.
+- Aceitos, sem mudança: leitura de `/sys` sem teto de bytes (atributo do sysfs tem no máximo uma página, e o `fs` é injetado nos testes); o ramo de teste em `dispararDoHook` (`HADOUKEN_SAUDE_DISPARAR`); a corrida de dois coletores em `pegarTravaSaude` no instante exato da trava vencida (o pior caso é uma coleta a mais); `hhmm` e `ehObjeto` repetidos para manter os hooks leves; `barra.js` com as constantes copiadas (já conferido por teste); `aprendizado/registro.js` importando `saude/trava-pid.js`; o teto de 20 sessões nos episódios.
+- Risco aceito, a rever com dado real: o teto de 40 ms conta o `import()` frio no SessionStart; num disco lento a parte pode se desligar por 24 h sem ser lenta de verdade. O aviso é único e o `/hadouken:saude` mostra.
+- Verificação final: suíte Windows 1908 pass / 0 fail; Linux Node 20 e 24, 1937 pass / 0 fail cada; benches verdes no Linux. No Windows o p95 absoluto oscilou demais (o `node -e ""` vazio chegou a 208 ms), então main e v0.5.5 rodaram alternados, 3 × 15 rodadas: as medianas ficaram 3–32 ms acima nos hooks que a v0.5.5 não tocou (grafo estático de imports idêntico ao da main: ruído) e ~50 ms acima no SessionStart (saúde, economia e aviso de reparo, cada parte sob o teto de 40 ms, uma vez por sessão). O p95 da v0.5.5 saiu menor que o da main em 8 de 10 linhas. O bench da statusline passou a rodar com `HADOUKEN_SAUDE_DISPARAR=0`: no WSL, com 3 GB livres, a leitura real punha "PC: disco 3 GB" na barra.
+- A pasta `Microsoft/` na raiz do repo não vem de nenhum teste isolado (bisseção) e não apareceu na suíte inteira depois do `cwd` do PowerShell ir para o tmpdir.
+
+- [x] **Step 1: Write** as páginas (o que faz, o que nunca faz, comandos, faixas, "não disponível neste PC", modo leve) e atualize os pares.
+- [x] **Step 2: Bump** da versão nos três manifestos.
+- [x] **Step 3: Run** a suíte inteira no Windows (`--test-concurrency=2`) e no Linux (WSL, Node 20 e 24, com o script da sessão), mais os dois benches. Expected: 0 falhas nos três.
+- [x] **Step 4: Review** do branch inteiro com `mattpocock-skills:code-review` antes de pedir merge; corrija os achados com teste.
+- [x] **Step 5: Commit** `docs: v0.5.5 na wiki, README e SECURITY; versão 0.5.5` e escreva as notas da release no scratchpad. Merge, tag, push, release e wiki só com autorização do Sr. Garioli, um de cada vez.

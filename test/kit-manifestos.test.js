@@ -123,8 +123,8 @@ test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node',
     command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/lancar.mjs'] } } });
 });
 
-test('hadouken: plugin.json, package.json e marketplace em 0.5.4', () => {
-  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.4');
-  assert.equal(ler('package.json').version, '0.5.4');
-  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken').version, '0.5.4');
+test('hadouken: plugin.json, package.json e marketplace em 0.5.5', () => {
+  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.5');
+  assert.equal(ler('package.json').version, '0.5.5');
+  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken').version, '0.5.5');
 });

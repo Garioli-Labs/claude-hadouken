@@ -63,4 +63,8 @@ Desde a v0.5.4, os quatro bloqueios abaixo podem ser desligados, na aba Proteç�
 
 Nenhuma proteção bloqueia comandos só por citarem a pasta do projeto: um comando com o caminho do repositório (por exemplo `node` ou `grep` dentro de `claude-hadouken`) passa, e um caminho absoluto entre aspas com uma pasta `Claude …` no meio (`"C:/Projetos DEV/Claude Hadouken/x"`) também passa, mesmo fora da pasta da sessão. Antes da v0.5.4, isso era bloqueado por engano.
 
+## Saúde do PC
+
+Desde a v0.5.5, a tabela tem também os itens `saude.*`: as faixas de RAM, GPU, CPU, bateria e disco, e o liga-desliga de cada peça da saúde. Eles também ficam na aba Saúde da janela. Os padrões e o que cada um faz estão em [Saúde do PC](Saude-do-PC#faixas).
+
 ---
