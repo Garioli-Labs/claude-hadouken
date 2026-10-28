@@ -413,3 +413,11 @@ Risco declarado no SECURITY.md: nos modos de permissão que aprovam sozinhos, o 
 Pedido do Sr. Garioli: "O hadouken não pode atrapalhar, a função dele é o Claude não fazer doideras e comer a cota à toa." Os eventos dele mostravam G2 disparando com o 7d em 37% (6 vezes desde 21/10) e a trava presa até o reset semanal, dias depois, mesmo com a projeção desfeita.
 
 Em `avaliarGuarda`, antes de unir as travas: uma trava gravada por G1 (five_hour) ou G2 (seven_day) é limpa (`limparTravas`) quando, ao mesmo tempo, o gatilho da janela não dispara agora, a leitura da janela é fresca e a previsão é nula ou passa de 1,5 × o horizonte (folga contra o pisca-pisca na borda). Evento `projecao-solta` com a janela. Leitura velha ou guarda.json ilegível: a trava fica (fail-closed). G3 e G4 ficam até o reset, porque o uso só sobe dentro da janela. Falha ao gravar mantém a trava; a avaliação seguinte tenta de novo.
+
+## 15. Emenda 6 (2026-10-28): acrescentar ganchos ao settings de projeto pergunta
+
+Pedido da sessão Metrô SP, decidido pelo Sr. Garioli ("perguntar com o diff"): toda trava mecânica nova de um projeto dependia de o usuário editar o JSON à mão, e um erro de cópia deixava o gancho mudo.
+
+Na P5, ramo settings-projeto, depois de `mexeNaGuarda`: se `soAcrescentaGanchos` (src/guarda/caminho.js) e `guarda.perguntar` e `protecoes.arquivos` estão ligados, a P5 responde `ask` com P5_GANCHOS_PERGUNTA, e o usuário decide vendo o diff do Claude Code. Evento `perguntado` `P5:ganchos`.
+
+Só acrescenta quando: o arquivo atual (ou ausente) e o resultado simulado são JSON de objeto; disableAllHooks e enabledPlugins não mudam; os ganchos mudam; nenhum evento some; cada grupo de antes tem um grupo no mesmo evento com todos os ganchos dele (iguais) e um matcher igual ou mais largo (as alternativas por | contêm as de antes; sem matcher, '' e '*' casam tudo); e nenhum gancho novo cita o hadouken. Qualquer outra mudança nos ganchos, ou dúvida, nega como antes. A P5 do ConfigChange segura a mudança na sessão em curso: o gancho novo vale a partir da próxima sessão. Settings do usuário e o plugin seguem negados sempre.

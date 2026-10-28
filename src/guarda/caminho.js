@@ -276,6 +276,75 @@ export function mexeNaGuarda(input, lerAtual, ferramenta) {
   }
 }
 
+// Emenda 6 (v0.5.4, pedido do Metrô SP): a edição de settings de projeto que
+// só ACRESCENTA ganchos vira pergunta ao usuário (com o diff do Claude Code)
+// em vez de negação. Só acrescenta quando o arquivo atual (ou ausente) e o
+// resultado da simulação são JSON de objeto; disableAllHooks e enabledPlugins
+// não mudam; cada grupo de ganchos que existia sobrevive num grupo do mesmo
+// evento com todos os ganchos dele e um matcher igual ou mais largo (as
+// alternativas separadas por | contêm as de antes); e nenhum gancho novo cita
+// o hadouken. Remover, desligar, estreitar ou mexer no hadouken: false, e a
+// P5 nega como antes. Nunca lança: na dúvida, false.
+// Sem matcher, '' e '*' casam tudo; outro valor que não é texto não se lê.
+const casaTudo = (m) => m === undefined || m === '' || m === '*';
+function matcherCobre(antes, depois) {
+  if (casaTudo(depois)) return casaTudo(antes) || typeof antes === 'string';
+  if (typeof antes !== 'string' || typeof depois !== 'string' || casaTudo(antes)) return false;
+  const d = new Set(depois.split('|'));
+  return antes.split('|').every((x) => d.has(x));
+}
+function grupoCobre(velho, novo) {
+  if (!ehObj(velho) || !ehObj(novo) || !matcherCobre(velho.matcher, novo.matcher)) return false;
+  const hv = Array.isArray(velho.hooks) ? velho.hooks : [];
+  const hn = Array.isArray(novo.hooks) ? novo.hooks : [];
+  return hv.every((h) => hn.some((n) => igualJson(h, n)));
+}
+const ehObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+export function soAcrescentaGanchos(input, lerAtual, ferramenta) {
+  try {
+    if (!ehObj(input) || typeof lerAtual !== 'function') return false;
+    const atual = lerAtual();
+    let texto;
+    if (atual?.ok === true && typeof atual.texto === 'string') texto = atual.texto;
+    else if (atual?.motivo === 'ausente') texto = '';
+    else return false;
+    const depois = simular(texto, input, ferramenta);
+    if (depois === null) return false;
+    const a = texto.trim() === '' ? { ok: true, valor: {} } : lerJsonTexto(texto);
+    const d = lerJsonTexto(depois);
+    if (!a.ok || !d.ok || !ehObj(a.valor) || !ehObj(d.valor)) return false;
+    for (const k of ['disableAllHooks', 'enabledPlugins']) if (!igualJson(chaveDe(a.valor, k), chaveDe(d.valor, k))) return false;
+    const ha = chaveDe(a.valor, 'hooks') ?? {};
+    const hd = chaveDe(d.valor, 'hooks') ?? {};
+    if (!ehObj(ha) || !ehObj(hd)) return false;
+    if (igualJson(ha, hd)) return false; // nada de gancho mudou: não é este caso
+    for (const evento of Object.keys(hd)) {
+      const gd = hd[evento];
+      if (!Array.isArray(gd)) return false;
+      const gv = Object.hasOwn(ha, evento) ? ha[evento] : [];
+      if (!Array.isArray(gv)) return false;
+      const usados = new Set();
+      for (const g of gv) {
+        const i = gd.findIndex((n, j) => !usados.has(j) && grupoCobre(g, n));
+        if (i < 0) return false;
+        usados.add(i);
+      }
+      // Gancho que entrou de novo não pode citar o hadouken.
+      const antigos = gv.flatMap((g) => (ehObj(g) && Array.isArray(g.hooks) ? g.hooks : []));
+      for (const n of gd) {
+        if (!ehObj(n) || !Array.isArray(n.hooks)) return false;
+        for (const h of n.hooks) {
+          if (!antigos.some((v) => igualJson(v, h)) && /hadouken/i.test(desfazEscapesJson(JSON.stringify(h)))) return false;
+        }
+      }
+    }
+    for (const evento of Object.keys(ha)) if (!Object.hasOwn(hd, evento)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // --- Onde o comando abre claude (P4) ---------------------------------------
 // Um leitor de comando pequeno, só texto e linear: separa segmentos (; && ||
 // | & ( ) e quebra de linha, e também $( ) e, no bash, a crase, que rodam

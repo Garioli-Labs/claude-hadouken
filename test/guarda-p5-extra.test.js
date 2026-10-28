@@ -262,6 +262,58 @@ test('P5: settings de projeto: a edição simulada que muda disableAllHooks, ena
   assert.deepEqual(detalhes(c), Array(negados.length).fill('P5:settings-projeto'));
 });
 
+// Emenda 6 (v0.5.4, pedido do Metrô SP): só acrescentar ganchos ao settings
+// de projeto vira pergunta (ask, com o diff do Claude Code); remover, desligar,
+// estreitar ou citar o hadouken segue negado. Com guarda.perguntar desligado,
+// nega como antes.
+test('Emenda 6: acrescentar ganchos ao settings de projeto pergunta; remover, estreitar ou desligar nega', () => {
+  const c = cenario();
+  const gancho = (arq) => ({ type: 'command', command: `node "C:/Metrô SP/.claude/hooks/${arq}.js"` });
+  const base = { permissions: { allow: [] }, hooks: {
+    SessionStart: [{ matcher: 'compact', hooks: [gancho('vigente_injeta')] }],
+    PreToolUse: [{ matcher: 'Bash|PowerShell', hooks: [gancho('cota99')] }],
+  } };
+  const proj = (nome, valor) => {
+    const d = path.join(c.raiz, nome, '.claude');
+    fs.mkdirSync(d, { recursive: true });
+    const f = path.join(d, 'settings.local.json');
+    if (valor !== undefined) fs.writeFileSync(f, JSON.stringify(valor, null, 2));
+    return f;
+  };
+  const com = (mudar) => { const v = structuredClone(base); mudar(v); return JSON.stringify(v, null, 2); };
+  const PERGUNTA = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: msg.P5_GANCHOS_PERGUNTA } };
+  const metro = proj('metro', base);
+  const perguntados = [
+    // O conserto do Metrô: o matcher compact vira startup|resume|clear|compact.
+    ferramenta('Edit', { file_path: metro, old_string: '"matcher": "compact"', new_string: '"matcher": "startup|resume|clear|compact"' }),
+    // Um gancho novo num grupo que existe, e um evento novo.
+    ferramenta('Write', { file_path: metro, content: com((v) => { v.hooks.PreToolUse[0].hooks.push(gancho('piloto_lote')); v.hooks.Stop = [{ hooks: [gancho('despacho_secoes')] }]; }) }),
+    // Arquivo que ainda não existe, criado com ganchos.
+    ferramenta('Write', { file_path: proj('novo'), content: JSON.stringify({ hooks: { SessionStart: [{ hooks: [gancho('x')] }] } }) }),
+  ];
+  for (const e of perguntados) assert.deepEqual(saida(rodar(c, e)), PERGUNTA, JSON.stringify(e.tool_input).slice(0, 200));
+  const negados = [
+    // Remover um gancho, estreitar um matcher, apagar um evento.
+    ferramenta('Write', { file_path: metro, content: com((v) => { v.hooks.PreToolUse[0].hooks = []; }) }),
+    ferramenta('Edit', { file_path: metro, old_string: '"matcher": "Bash|PowerShell"', new_string: '"matcher": "Bash"' }),
+    ferramenta('Write', { file_path: metro, content: com((v) => { delete v.hooks.SessionStart; v.hooks.Stop = [{ hooks: [gancho('y')] }]; }) }),
+    // Trocar o comando de um gancho que existe.
+    ferramenta('Write', { file_path: metro, content: com((v) => { v.hooks.PreToolUse[0].hooks[0].command = 'exit 0'; }) }),
+    // Acrescentar gancho e desligar os ganchos, ou mexer nos plugins.
+    ferramenta('Write', { file_path: metro, content: com((v) => { v.hooks.Stop = [{ hooks: [gancho('y')] }]; v.disableAllHooks = true; }) }),
+    ferramenta('Write', { file_path: metro, content: com((v) => { v.hooks.Stop = [{ hooks: [gancho('y')] }]; v.enabledPlugins = { 'hadouken@claude-hadouken': false }; }) }),
+    // Gancho novo que cita o hadouken.
+    ferramenta('Write', { file_path: metro, content: com((v) => { v.hooks.Stop = [{ hooks: [{ type: 'command', command: 'rm -rf ~/.claude/hadouken' }] }]; }) }),
+    // Resultado fora do JSON.
+    ferramenta('Edit', { file_path: metro, old_string: '"matcher": "compact"', new_string: '"matcher": "startup|compact",' }),
+  ];
+  for (const e of negados) assert.deepEqual(saida(rodar(c, e)), negacao(msg.P5_SETTINGS_PROJETO_TEXTO), JSON.stringify(e.tool_input).slice(0, 200));
+  assert.deepEqual(lerEventos(c.dados, Date.now()).filter((e) => e.tipo === 'perguntado').map((e) => e.detalhe), Array(perguntados.length).fill('P5:ganchos'));
+  // guarda.perguntar desligado: o mesmo conserto é negado.
+  fs.writeFileSync(path.join(c.dados, 'config.json'), JSON.stringify({ guarda: { perguntar: false } }));
+  assert.deepEqual(saida(rodar(c, perguntados[0])), negacao(msg.P5_SETTINGS_PROJETO_TEXTO));
+});
+
 // A simulação, direto na função, nos limites: hooks aninhado 100 mil níveis
 // (a comparação não usa recursão, então não estoura a pilha), a chave com
 // escape \u no arquivo, o replace_all que explodiria o tamanho e o

@@ -93,6 +93,8 @@ export const A3_CLAUDE = 'hadouken (aviso): muitos despachos curtos em 10 min. F
 // hooks ou nos plugins. O texto nunca ecoa o pedido: o Claude mostra o trecho
 // na conversa por conta própria.
 export const P5_PROTEGIDO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude editar este arquivo (settings do Claude Code ou o próprio plugin). Mostre a mudança na conversa; o usuário a aplica à mão.';
+// Emenda 6: a edição só acrescenta ganchos; quem decide é o usuário, no diff.
+export const P5_GANCHOS_PERGUNTA = 'hadouken: o Claude quer acrescentar ganchos ao settings do projeto, sem remover, desligar nem estreitar nenhum. Confira o diff: aprove ou recuse. Vale a partir da próxima sessão.';
 export const P5_SETTINGS_PROJETO_TEXTO = 'hadouken: bloqueado: o hadouken não deixa o Claude mexer em hooks, disableAllHooks, enabledPlugins nem no hadouken nos settings do projeto. Mostre a mudança na conversa; o usuário a aplica à mão. O resto do arquivo segue editável.';
 // Stdin da P5 acima de 1 MiB que cita settings ou hadouken (rodada 3 da
 // revisão da Task 0): o JSON não é lido; a edição menor passa pela

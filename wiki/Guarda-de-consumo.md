@@ -29,6 +29,8 @@ Desde a v0.5.4, a trava de projeção (G1, G2) cai sozinha quando a projeção d
 
 Quando o reset oficial do Fable não se lê, a trava do G7 não tem fim marcado: fica até `/hadouken:liberar fable`.
 
+**Ganchos novos no settings de projeto (v0.5.4).** Quando a edição só acrescenta ganchos (um gancho novo, um evento novo, ou um matcher mais largo como `compact` → `startup|resume|clear|compact`), sem remover, desligar, estreitar nem trocar nenhum e sem citar o hadouken, a P5 pergunta em vez de negar: o senhor confere o diff e aprova. O gancho vale a partir da próxima sessão. Com "Perguntar em vez de bloquear" desligado, nega como antes.
+
 **A P5 de config (hook `ConfigChange`).** No primeiro início de cada sessão, o hadouken tira uma foto dos três campos (`disableAllHooks`, `enabledPlugins` e `hooks`) daqueles três arquivos: só hashes, em `config-base.json`. Quando o Claude Code avisa que um deles mudou, o hook compara o arquivo com a foto da própria sessão e, se um dos três campos mudou, segura a mudança nesta sessão; os outros campos (`model`, `permissions` e o resto) passam. O Claude recebe:
 
 ```text

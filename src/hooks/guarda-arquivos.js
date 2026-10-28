@@ -77,6 +77,33 @@ async function negar(chave, reserva, dir, tipo, detalhe, agoraMs) {
   } catch { /* o deny já saiu */ }
 }
 
+// Emenda 6: guarda.perguntar do config.json; na dúvida (import ou leitura que
+// falha), false, e a P5 nega como antes.
+async function perguntarLigado(dir) {
+  try {
+    return (await import('../guarda/config.js')).lerConfigGuarda(dir).config.perguntar === true;
+  } catch {
+    return false;
+  }
+}
+
+// O usuário vê o diff no pedido do Claude Code e decide. Sem o texto de
+// mensagens.js, nega com o de reserva (fail-closed).
+async function perguntarGanchos(dir, agoraMs) {
+  let razao;
+  try {
+    razao = (await import('../guarda/mensagens.js')).P5_GANCHOS_PERGUNTA;
+  } catch { /* abaixo */ }
+  if (typeof razao !== 'string') {
+    await negar('P5_SETTINGS_PROJETO_TEXTO', P5_PROTEGIDO_RESERVA, dir, 'arquivo-negado', 'P5:settings-projeto', agoraMs);
+    return;
+  }
+  emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: razao } });
+  try {
+    (await import('../guarda/registros.js')).anexarEvento(dir, 'perguntado', 'P5:ganchos', agoraMs);
+  } catch { /* o ask já saiu */ }
+}
+
 // O alvo como caminho absoluto (rodada 1 da revisão da Task 16): '~', '~/'
 // e '~\' viram a casa do usuário, e um caminho relativo se resolve no cwd da
 // entrada, ou no do processo quando ela não traz um cwd absoluto. As
@@ -118,7 +145,14 @@ rodarHook(async (entrada, leitura) => {
           await negar('P5_PROTEGIDO_TEXTO', P5_PROTEGIDO_RESERVA, dir, 'erro', 'P5:arquivo.js', agoraMs);
           return;
         }
-        if (!caminho.mexeNaGuarda(entrada.tool_input, () => arquivo.lerTextoSemLink(alvo, TETO_SETTINGS), entrada.tool_name)) return;
+        const lerAtual = () => arquivo.lerTextoSemLink(alvo, TETO_SETTINGS);
+        if (!caminho.mexeNaGuarda(entrada.tool_input, lerAtual, entrada.tool_name)) return;
+        // Emenda 6: só acrescenta ganchos e guarda.perguntar ligado: pergunta.
+        if (caminho.soAcrescentaGanchos(entrada.tool_input, lerAtual, entrada.tool_name) && await perguntarLigado(dir)
+          && await protecaoLigada('protecoes.arquivos')) {
+          await perguntarGanchos(dir, agoraMs);
+          return;
+        }
         texto = 'P5_SETTINGS_PROJETO_TEXTO';
       } else {
         texto = 'P5_PROTEGIDO_TEXTO';

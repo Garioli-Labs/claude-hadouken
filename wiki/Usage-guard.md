@@ -29,6 +29,8 @@ Since v0.5.4, a projection lock (G1, G2) lifts on its own when the projection no
 
 When the official Fable reset cannot be read, a G7 lock has no set end: it stays until `/hadouken:liberar fable`.
 
+**New hooks in project settings (v0.5.4).** When the edit only adds hooks (a new hook, a new event, or a wider matcher such as `compact` → `startup|resume|clear|compact`), without removing, disabling, narrowing or replacing any and without naming hadouken, P5 asks instead of denying: you check the diff and approve. The hook takes effect from the next session. With "Perguntar em vez de bloquear" (Ask instead of block) off, it denies as before.
+
 **The config P5 (`ConfigChange` hook).** At the first start of each session, hadouken takes a photo of the three fields (`disableAllHooks`, `enabledPlugins` and `hooks`) of those three files: hashes only, in `config-base.json`. When Claude Code reports that one of them changed, the hook compares the file with its own session's photo and, if one of the three fields changed, holds the change for this session; other fields (`model`, `permissions` and the rest) pass. Claude receives:
 
 ```text
