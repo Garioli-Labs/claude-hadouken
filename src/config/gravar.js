@@ -142,8 +142,43 @@ function soltarApertos(dir, ids, agoraMs) {
   }
 }
 
-// O núcleo: confere a versão, aplica, faz o backup e grava.
+// Um gravador por vez (a janela, o /hadouken:limites e o desfazer): sem a
+// trava, dois liam a mesma versão e o segundo apagava o primeiro (revisão do
+// branch, achado 18). Arquivo criado com 'wx'; vencido em 10 s.
+const ARQ_TRAVA_CONFIG = 'config.json.lock';
+const TRAVA_CONFIG_VENCIDA_MS = 10_000;
+function pegarTravaConfig(dir, agoraMs) {
+  const arquivo = path.join(dir, ARQ_TRAVA_CONFIG);
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    try {
+      fs.closeSync(fs.openSync(arquivo, 'wx'));
+      return () => fs.rmSync(arquivo, { force: true });
+    } catch (e) {
+      if (e?.code !== 'EEXIST' || tentativa > 0) return null;
+      try {
+        const info = fs.lstatSync(arquivo);
+        if (!info.isFile() || Math.abs(agoraMs - info.mtimeMs) <= TRAVA_CONFIG_VENCIDA_MS) return null;
+        fs.rmSync(arquivo, { force: true });
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+// O núcleo: confere a versão, aplica, faz o backup e grava, com a trava.
 function gravarOps(dir, ops, versao, agoraMs, afrouxou) {
+  const soltar = pegarTravaConfig(dir, agoraMs);
+  if (soltar === null) return { ok: false, motivo: 'mudou' };
+  try {
+    return gravarOpsTravado(dir, ops, versao, agoraMs, afrouxou);
+  } finally {
+    soltar();
+  }
+}
+
+function gravarOpsTravado(dir, ops, versao, agoraMs, afrouxou) {
   const arquivo = path.join(dir, ARQ_CONFIG);
   const bruto = lerBruto(arquivo);
   if (bruto === null) return { ok: false, motivo: 'erro' };
@@ -196,6 +231,11 @@ export function desfazer(dir, token, opcoes) {
     if (!opcoesValidas(dir, opcoes) || !ehObjeto(token) || !ehObjeto(token.antes)) return { ok: false, motivo: 'erro' };
     if (typeof token.versaoDepois !== 'string' || !Number.isFinite(token.ate) || opcoes.agoraMs > token.ate) return { ok: false, motivo: 'mudou' };
     if (!Object.keys(token.antes).every(conhecido)) return { ok: false, motivo: 'erro' };
+    // O token vem da janela: o valor que volta passa pelo validar como
+    // qualquer outro (null volta ao padrão; revisão do branch, achado 18).
+    const valores = Object.fromEntries(Object.entries(token.antes).map(([id, v]) => [id, v === null ? ITEM[id].padrao : v]));
+    const v = validar(valores, lerConfiguracao(dir));
+    if (!v.ok) return { ok: false, motivo: 'invalido', erros: v.erros };
     return gravarOps(dir, { ...token.antes }, token.versaoDepois, opcoes.agoraMs, []);
   } catch {
     return { ok: false, motivo: 'erro' };

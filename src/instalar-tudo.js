@@ -168,9 +168,12 @@ async function passoPainel({ dir, raizPlugin, agoraMs, ambiente, instalar }) {
 // Ligado por padrão, sem perguntar (spec v0.5.3 VS Code §7). Não liga com
 // --sem-aprender nem quando o usuário já desligou (o marcador que o desligar
 // grava na pasta de dados).
+// Antes da v0.5.4, o desligar não gravava o marcador: a pasta otel/ sem o
+// ligado.json é de quem já ligou e desligou (revisão do branch, achado 5).
 function desligadoPeloUsuario(dir) {
   try {
-    return fs.existsSync(path.join(dir, ARQ_DESLIGADO));
+    if (fs.existsSync(path.join(dir, ARQ_DESLIGADO))) return true;
+    return fs.existsSync(path.join(dir, 'otel')) && !fs.existsSync(path.join(dir, 'otel', 'ligado.json'));
   } catch {
     return false;
   }

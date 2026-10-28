@@ -13,6 +13,8 @@ test('N1: busca com Opus/Fable ou effort xhigh/max é negada', () => {
   assert.deepEqual(av({ perfil: perfil('Explore', 'desconhecido', 'xhigh') }), { decisao: 'negar', regra: 'N1' });
   assert.deepEqual(av({ perfil: perfil('hadouken:busca', 'haiku', 'max') }), { decisao: 'negar', regra: 'N1' });
   assert.deepEqual(av({ perfil: perfil('Explore', 'sonnet', 'high') }).decisao, 'passar');
+  // Revisão do branch, achado 6: o effort só da sessão não nega.
+  assert.notEqual(av({ perfil: { ...perfil('Explore', 'haiku', 'xhigh'), effortDaSessao: true } }).regra, 'N1');
 });
 
 test('N2: busca/mecanico com modelo forte no parâmetro', () => {

@@ -18,7 +18,7 @@ The account limits (5-hour session, week and Fable) are the same in every sessio
 
 - **Percentages are rounded down.** A window with no reliable reading shows as `—` (for example, `Fable —` before the first official reading); with none at all, the item says `Hadouken: sem leitura` (no reading).
 - **The colour follows the worst window:** no colour below 75 %, warning background (yellow) from 75 % to 89 % and error background (red) from 90 % on. These bands are the panel's own; the notices to Claude follow theirs (see [The notices Claude receives](Warnings-and-alerts#the-notices-claude-receives)).
-- **Click** the item, or run the `Claude Hadouken: atualizar uso agora` (update usage now) command, to read right away. A manual read still respects the lock between windows, the RAM pause and the cost block (see [No tokens, little RAM](#no-tokens-little-ram)).
+- **Click** the item (or the logo) to open the hadouken window. To read usage right away, run the `Claude Hadouken: atualizar uso agora` (update usage now) command or use the window's button; before v0.5.3, the click read directly. A manual read still respects the lock between windows, the RAM pause and the cost block (see [No tokens, little RAM](#no-tokens-little-ram)).
 
 ![Six states of the panel item in the VS Code status bar: 5h 42% · sem 59% · Fable 71%, no colour; 5h 78% · sem 59% · Fable 71%, yellow background; 5h 42% · sem 59% · Fable 92%, red background; 5h 42% · sem 59% · Fable —, before the first official reading; Hadouken: sem leitura; and Hadouken: abra uma sessão do Claude Code, when no session has started with the plugin on this machine](https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/docs/imagens/painel-estados.svg)
 
@@ -77,7 +77,7 @@ This sentence is not the projection in the notices to Claude. The projection use
 
 - **Only when useful.** One read every 30 s, only while some Claude Code session was active in the last 5 minutes, and one at a time across all VS Code windows: a file lock (`uso-oficial.lock`) is only considered abandoned after 90 s, and a read less than 25 s old makes the next one unnecessary. After a read that ran past the deadline or the output cap, came in an unexpected format or failed, the next one waits 15 min; 5 h and the week keep coming from the status line meanwhile. On average about 45 MB, with 270 MB peaks for 5 s.
 - **Memory pause.** With less than 1.5 GiB of free RAM, the read is skipped, even a manual one, and the tooltip says `Leitura pausada: pouca RAM livre.`
-- **The rest is file reading.** Every 5 s the extension redraws the item by reading `estado.json` and `uso-oficial.json`. No webview and no dependencies; the logic lives in the plugin (`src/uso/painel.js`), loaded through a stable script in the data folder (`bin/painel.mjs`).
+- **The rest is file reading.** Every 5 s the extension redraws the item by reading `estado.json` and `uso-oficial.json`. The window is a webview loaded only when you open it; no dependencies; the logic lives in the plugin (`src/uso/painel.js`), loaded through a stable script in the data folder (`bin/painel.mjs`).
 
 ### Install, turn off and remove
 

@@ -102,7 +102,7 @@ export function lerEventos(dir, agoraMs) {
 // VS Code §2.1): um ponto só, no lugar dos seis hooks da guarda.
 const TIPOS_ATENCAO = Object.freeze([
   'negado', 'prompt-bloqueado', 'troca-bloqueada', 'liberacao-recusada', 'filha-negada', 'arquivo-negado',
-  'config-bloqueada', 'roteamento-negado', 'roteamento-aviso',
+  'config-bloqueada', 'roteamento-negado', 'roteamento-aviso', 'perguntado',
 ]);
 
 export function anexarEvento(dir, tipo, detalhe, agoraMs) {

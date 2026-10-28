@@ -11,10 +11,13 @@ const CONFIG_MAX_BYTES = 64 * 1024;
 export const PADRAO_ROTEAMENTO = Object.freeze({
   negarN1: true, negarN2: true, avisos: true, sugerirSessao: true,
   otimizacoes: Object.freeze({ leiturasRepetidas: true, saidaGrande: true, mcpOciosos: true, contextoFixo: true, compactar: true }),
+  subir: Object.freeze({}),
 });
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const proprio = (o, k) => (ehObjeto(o) && Object.hasOwn(o, k) ? o[k] : undefined);
-const copia = () => ({ ...PADRAO_ROTEAMENTO, otimizacoes: { ...PADRAO_ROTEAMENTO.otimizacoes } });
+const copia = () => ({ ...PADRAO_ROTEAMENTO, otimizacoes: { ...PADRAO_ROTEAMENTO.otimizacoes }, subir: {} });
+const AGENTE_SUBIDA = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,63}$/;
+const FAMILIAS_SUBIDA = new Set(['haiku', 'sonnet', 'opus']);
 
 export function roteamentoDaConfig(valor) {
   const config = copia();
@@ -37,6 +40,14 @@ export function roteamentoDaConfig(valor) {
         if (v === undefined) continue;
         if (typeof v === 'boolean') config.otimizacoes[k] = v;
         else avisos.push(`config.json: roteamento.otimizacoes.${k} inválido, usando true`);
+      }
+    }
+    // As subidas aprovadas (gravarSubida): só agente de nome conhecido e
+    // família conhecida; o resto é ignorado em silêncio (revisão, achado 13).
+    const s = proprio(r, 'subir');
+    if (ehObjeto(s)) {
+      for (const [agente, familia] of Object.entries(s)) {
+        if (AGENTE_SUBIDA.test(agente) && FAMILIAS_SUBIDA.has(familia)) config.subir[agente] = familia;
       }
     }
     return { config, avisos };

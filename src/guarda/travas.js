@@ -91,9 +91,12 @@ export function gravarTravas(dir, novas, agoraMs) {
 
 // Só a liberação chama: zera as chaves pedidas e regrava, mesmo sobre um
 // arquivo ilegível (que vira vazio mais o que era legível, isto é, nada).
-export function limparTravas(dir, chaves, agoraMs) {
+// soSeLegivel: só grava sobre um guarda.json lido ok; a soltura automática da
+// Emenda 5 nunca reescreve um arquivo ilegível (revisão do branch, achado 8).
+export function limparTravas(dir, chaves, agoraMs, { soSeLegivel = false } = {}) {
   try {
     const lido = lerTravas(dir, agoraMs);
+    if (soSeLegivel && lido.estado !== 'ok') return { ok: false };
     const t = lido.estado === 'ok' ? { ...lido.travas } : travasVazias();
     for (const k of Array.isArray(chaves) ? chaves : []) if (CHAVES_TRAVA.includes(k)) t[k] = null;
     return { ok: gravarJsonAtomico(path.join(dir, ARQ_GUARDA), { v: VERSAO, travas: t }).ok };

@@ -135,6 +135,19 @@ test('painel.avisarVersaoNova false: desligado, sem buscar', async () => {
   const { buscar, chamadas } = buscarFalso(release('v0.5.9'));
   assert.deepEqual(await talvezConsultarVersao({ ...c, agoraMs: AGORA, buscar, forcar: true }), { motivo: 'desligado' });
   assert.equal(chamadas.length, 0);
+  // Revisão do branch, achado 10: com o aviso desligado, nunca há versão nova.
+  fs.writeFileSync(arq(c.dir), JSON.stringify({ versao: '0.5.9', consultadaEm: AGORA }));
+  assert.deepEqual(estadoVersao(c), { nova: null, instalada: '0.5.3' });
+});
+
+test('revisão do branch, achado 9: a consulta que falha espera 1 h para tentar de novo', async () => {
+  const c = novo();
+  const falha = async () => { throw new Error('rede'); };
+  assert.deepEqual(await talvezConsultarVersao({ ...c, agoraMs: AGORA, buscar: falha }), { motivo: 'falhou' });
+  const { buscar, chamadas } = buscarFalso(release('v0.5.9'));
+  assert.deepEqual(await talvezConsultarVersao({ ...c, agoraMs: AGORA + 10 * 60_000, buscar }), { motivo: 'recente' });
+  assert.equal(chamadas.length, 0);
+  assert.deepEqual(await talvezConsultarVersao({ ...c, agoraMs: AGORA + 2 * H, buscar }), { motivo: 'consultou' });
 });
 
 test('compararVersoes', () => {

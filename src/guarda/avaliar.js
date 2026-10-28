@@ -61,7 +61,7 @@ function soltarProjecoes(dir, travas, disparos, leituras, previsao, config, agor
     if (numeroFinito(quando) && quando - agoraMs <= FOLGA_PROJECAO * horizonteMs) continue;
     soltas.push(k);
   }
-  if (soltas.length === 0 || !limparTravas(dir, soltas, agoraMs).ok) return;
+  if (soltas.length === 0 || !limparTravas(dir, soltas, agoraMs, { soSeLegivel: true }).ok) return;
   for (const k of soltas) {
     travas[k] = null;
     anexarEvento(dir, 'projecao-solta', k, agoraMs);

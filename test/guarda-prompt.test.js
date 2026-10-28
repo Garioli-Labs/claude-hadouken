@@ -42,7 +42,12 @@ test('guarda.perguntar (padrão v0.5.4): o prompt digitado passa com o aviso e r
   const r = decidirPrompt({ dir: d, sessionId: 's1', prompt: 'continue', agoraMs: agora });
   assert.equal(r.bloquear, null);
   assert.match(r.linha, /^hadouken: guarda ativa \(trava do Fable desde .+\) e esta sessão está no Fable\. O usuário decidiu seguir/);
-  assert.deepEqual(lerEventos(d, agora).filter((e) => e.tipo === 'perguntado').map((e) => e.detalhe), ['P2:fable']);
+  assert.deepEqual(lerEventos(d, agora).filter((e) => e.tipo === 'perguntado').map((e) => e.detalhe), ['P2:s1:fable']);
+  // Revisão do branch, achado 12: uma vez por sessão; outra sessão avisa de novo.
+  assert.deepEqual(decidirPrompt({ dir: d, sessionId: 's1', prompt: 'e agora', agoraMs: agora + 60_000 }), { bloquear: null, linha: null });
+  gravarModeloSessao(d, 's2', 'claude-fable-5-1', agora);
+  assert.match(decidirPrompt({ dir: d, sessionId: 's2', prompt: 'oi', agoraMs: agora + 60_000 }).linha, /^hadouken: guarda ativa/);
+  assert.equal(lerEventos(d, agora + 60_000).filter((e) => e.tipo === 'perguntado').length, 2);
 });
 
 test('foco 1: turno automático <task-notification> e comando do hadouken passam', () => {

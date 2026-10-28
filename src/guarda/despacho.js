@@ -144,8 +144,11 @@ export function perfilRoteamento({ toolInput, cwd, dirConfigClaude: dirCfg, env,
     if (agente === null) return vazio;
     const fm = frontmatterRoteamento(agente, cwd, dirCfg, raizPlugin);
     const doArquivo = fm === null ? null : { model: fm.model, effort: fm.effort };
-    const effort = effortValido(ti.effort) ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
-    const r = (familia, origem) => ({ agente, familia, effort, origem, doArquivo });
+    const proprio = effortValido(ti.effort) ?? effortValido(fm?.effort);
+    const effort = proprio ?? effortValido(env?.CLAUDE_EFFORT);
+    // effortDaSessao: o effort veio só da sessão (CLAUDE_EFFORT); a N1 não o
+    // usa (revisão do branch, achado 6).
+    const r = (familia, origem) => ({ agente, familia, effort, origem, doArquivo, ...(proprio === null && effort !== null ? { effortDaSessao: true } : {}) });
     if (agente === 'fork') return r(familiaDoModelo(modeloSessao), ehTexto(modeloSessao) ? 'sessao' : 'desconhecido');
     if (ehTexto(ti.model) && ti.model !== 'inherit') return r(familiaDoModelo(ti.model), 'parametro');
     if (fm !== null && ehTexto(fm.model) && fm.model !== 'inherit') return r(familiaDoModelo(fm.model), 'frontmatter');

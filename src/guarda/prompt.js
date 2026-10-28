@@ -3,7 +3,9 @@ import { ARQ_ESTADO, lerJson, validarEstado, leiturasComPiso } from '../estado.j
 import { avaliarGuarda, modeloNoEstado } from './avaliar.js';
 import { lerConfigGuarda } from './config.js';
 import { lerLiberacao, coberturaAtual, gravarLiberacao } from './liberacao.js';
-import { marcarSessao, anexarEvento, modeloDaSessao } from './registros.js';
+import { marcarSessao, anexarEvento, lerEventos, modeloDaSessao } from './registros.js';
+
+const AVISO_P2_MS = 5 * 3_600_000;
 import { p2Aviso, p2Usuario, posLiberacao } from './mensagens.js';
 
 // Decisão do UserPromptSubmit (spec v0.4.0 §4.2 P2 e §6.1). Numa sessão cujo
@@ -81,8 +83,12 @@ export function decidirPrompt({ dir, sessionId, prompt, agoraMs, avaliar = avali
     }
     if (g.ativas.length > 0) {
       // guarda.perguntar: o prompt foi digitado pelo usuário; passa com aviso.
+      // Uma vez por sessão e conjunto de travas a cada 5 h, não a cada prompt
+      // (revisão do branch, achado 12).
       if (g.config?.perguntar) {
-        anexarEvento(dir, 'perguntado', `P2:${g.ativas.join(':')}`, agoraMs);
+        const detalhe = `P2:${String(sessionId).replace(/[^A-Za-z0-9]/g, '').slice(0, 8)}:${g.ativas.join(':')}`.slice(0, 40);
+        if (lerEventos(dir, agoraMs).some((e) => e.tipo === 'perguntado' && e.detalhe === detalhe && agoraMs - Date.parse(e.at) < AVISO_P2_MS)) return { ...NADA };
+        anexarEvento(dir, 'perguntado', detalhe, agoraMs);
         return { bloquear: null, linha: p2Aviso(g.motivos, agoraMs) };
       }
       anexarEvento(dir, 'prompt-bloqueado', g.ativas.join(':'), agoraMs);

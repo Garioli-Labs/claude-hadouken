@@ -95,6 +95,20 @@ test('Emenda 5: trava G2 fica com leitura velha ou com a projeção dentro da fo
   assert.equal(lerEventos(perto, agora).filter((e) => e.tipo === 'projecao-solta').length, 0);
 });
 
+test('Emenda 5 (revisão do branch, achado 17): trava G1 cai igual; ilegível não é reescrito', () => {
+  const d = novo();
+  gravarTravas(d, { five_hour: { resets_at: agoraS + 3 * 3600, gatilho: 'G1', desde: iso(agora - H) } }, agora);
+  gravarEstado(d, { u5: 20 });
+  assert.deepEqual(avaliarGuarda({ dir: d, agoraMs: agora, sessionId: 's' }).ativas, []);
+  assert.equal(lerTravas(d, agora).travas.five_hour, null);
+  assert.deepEqual(lerEventos(d, agora).filter((e) => e.tipo === 'projecao-solta').map((e) => e.detalhe), ['five_hour']);
+  // G3 (teto) não é projeção: fica.
+  const g3 = novo();
+  gravarTravas(g3, { five_hour: { resets_at: agoraS + 3 * 3600, gatilho: 'G3', desde: iso(agora - H) } }, agora);
+  gravarEstado(g3, { u5: 20 });
+  assert.deepEqual(avaliarGuarda({ dir: g3, agoraMs: agora, sessionId: 's' }).ativas, ['five_hour']);
+});
+
 test('guarda.json corrompido: disparada com ilegivel; apagar só volta a avaliar a condição', () => {
   const d = novo();
   gravarEstado(d, { u7: 86 });

@@ -121,6 +121,20 @@ test('desfazer: volta os valores (inclusive a ausência); de novo ou vencido dá
   assert.deepEqual(desfazer(d, r2.desfazer, { agoraMs: AGORA + 15 * 60_000 + 1 }), { ok: false, motivo: 'mudou' });
 });
 
+test('revisão do branch, achado 18: desfazer valida; a trava segura o segundo gravador', () => {
+  const d = novo({ barra: { ctx: { amarelo: 60 } } });
+  const r = gravarConfiguracao(d, { 'barra.ctx.amarelo': 65 }, { versao: versao(d), agoraMs: AGORA });
+  const forjado = { ...r.desfazer, antes: { 'barra.ctx.amarelo': 5000 } };
+  assert.equal(desfazer(d, forjado, { agoraMs: AGORA + 1000 }).motivo, 'invalido');
+  assert.equal(lerArq(d).barra.ctx.amarelo, 65);
+  fs.writeFileSync(path.join(d, 'config.json.lock'), '');
+  fs.utimesSync(path.join(d, 'config.json.lock'), AGORA / 1000, AGORA / 1000);
+  assert.deepEqual(gravarConfiguracao(d, { 'barra.ctx.amarelo': 66 }, { versao: versao(d), agoraMs: AGORA + 1000 }), { ok: false, motivo: 'mudou' });
+  // Vencida (mais de 10 s), é tomada.
+  assert.equal(gravarConfiguracao(d, { 'barra.ctx.amarelo': 66 }, { versao: versao(d), agoraMs: AGORA + 60_000 }).ok, true);
+  assert.equal(fs.existsSync(path.join(d, 'config.json.lock')), false);
+});
+
 test('config.json pasta, link ou quebrado: erro, sem lançar e sem sobrescrever', () => {
   const pasta = novo();
   fs.mkdirSync(arq(pasta));

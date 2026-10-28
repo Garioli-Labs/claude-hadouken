@@ -16,6 +16,10 @@ export const URL_RELEASE = 'https://api.github.com/repos/Garioli-Labs/claude-had
 export const ARQ_VERSAO = 'versao-nova.json';
 export const ARQ_TRAVA_VERSAO = 'versao-nova.lock';
 export const INTERVALO_VERSAO_MS = 6 * 3_600_000;
+// A última tentativa, mesmo a que falhou: sem ela, uma rede fora repetia a
+// consulta a cada abertura do painel (revisão do branch, achado 9).
+export const ARQ_TENTATIVA_VERSAO = 'versao-nova-tentativa.json';
+export const INTERVALO_TENTATIVA_MS = 3_600_000;
 const TRAVA_VENCIDA_MS = 30_000;
 const RESPOSTA_MAX_BYTES = 256 * 1024;
 const TAG = /^v(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/;
@@ -57,9 +61,20 @@ function lerGuardada(dir) {
 
 export function estadoVersao({ dir, raizPlugin } = {}) {
   const instalada = versaoInstalada(raizPlugin);
-  const guardada = typeof dir === 'string' ? lerGuardada(dir) : null;
+  // painel.avisarVersaoNova desligado: nunca há versão nova (achado 10).
+  const guardada = typeof dir === 'string' && avisoLigado(dir) ? lerGuardada(dir) : null;
   const nova = instalada !== null && guardada !== null && compararVersoes(guardada.versao, instalada) > 0 ? guardada.versao : null;
   return { nova, instalada };
+}
+
+function tentouHaPouco(dir, agoraMs) {
+  try {
+    const l = lerJson(path.join(dir, ARQ_TENTATIVA_VERSAO), 256);
+    const em = l.ok && ehObjeto(l.valor) ? l.valor.em : null;
+    return Number.isFinite(em) && agoraMs - em >= 0 && agoraMs - em < INTERVALO_TENTATIVA_MS;
+  } catch {
+    return false;
+  }
 }
 
 function avisoLigado(dir) {
@@ -122,8 +137,10 @@ export async function talvezConsultarVersao({ forcar = false, agoraMs = Date.now
     if (forcar !== true && guardada !== null && agoraMs - guardada.consultadaEm >= 0 && agoraMs - guardada.consultadaEm < INTERVALO_VERSAO_MS) {
       return { motivo: 'recente' };
     }
+    if (forcar !== true && tentouHaPouco(dir, agoraMs)) return { motivo: 'recente' };
     trava = pegarTrava(dir, agoraMs);
     if (trava === null) return { motivo: 'travado' };
+    gravarJsonAtomico(path.join(dir, ARQ_TENTATIVA_VERSAO), { em: agoraMs });
     const r = await consultar(buscar);
     if (r.falhou) return { motivo: 'falhou' };
     if (r.versao === null) return { motivo: 'consultou' };

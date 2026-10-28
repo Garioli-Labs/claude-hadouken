@@ -171,6 +171,13 @@ rodarHook(async (entrada) => {
   try {
     saida.push(...(await import('../roteamento/regra.js')).LINHAS_REGRA);
   } catch { /* sem a regra nesta sessão */ }
+  // As subidas de agente aprovadas pelo usuário (roteamento.subir): o Claude
+  // passa o model no despacho, e a N2 não o nega.
+  try {
+    const { subir } = (await import('../roteamento/config.js')).lerConfigRoteamento(dir).config;
+    const pares = Object.entries(subir).map(([a, f]) => `${a} com model: ${f}`);
+    if (pares.length > 0) saida.push(`hadouken: o usuário subiu estes agentes; despache-os assim: ${pares.join('; ')}.`);
+  } catch { /* sem a linha nesta sessão */ }
   if (aoUsuario.length === 0) emitirContexto('SessionStart', saida.join('\n'));
   else emitirJson({ systemMessage: aoUsuario.join('\n'), hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: saida.join('\n') } });
   if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await dispararPainel(dir, agoraMs);

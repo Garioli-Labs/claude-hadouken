@@ -114,7 +114,7 @@ A extensão confere os nomes como faz hoje. Se faltar algum dos novos, a extens�
    - **Quadros:** parado, carga, disparo, bola saindo e bola longe. São 5 glifos: `$(hadouken-0)` … `$(hadouken-4)`.
    - **Animação:** quando o `ultimoEvento().em` muda, a extensão troca os quadros a cada ~120 ms, cerca de 0,6 s, e para no quadro parado. Um evento que chega durante uma animação não começa outra.
    - **Cor (`item.color`) pela urgência:** `charts.blue` na calma, `charts.yellow` na atenção, `charts.red` na urgência. São cores do tema do VS Code, que continuam legíveis em tema claro e escuro.
-   - **Movimento reduzido:** com `workbench.reduceMotion` = `on`, ou `auto` com o sistema pedindo movimento reduzido, não há animação, só a cor.
+   - **Movimento reduzido:** com `workbench.reduceMotion` = `on` não há animação, só a cor. Com `auto`, a extensão não lê o sistema e a logo anima; a janela respeita `prefers-reduced-motion` por CSS (ver §16).
    - Com `painel.animarLogo` = `false`, também não há animação.
 2. **Números com o tema:** as barrinhas de 5 h, semana e Fable viram **segmentos de energia**, glifos da mesma fonte (`$(hadouken-seg-cheio)`, `$(hadouken-seg-meio)`, `$(hadouken-seg-vazio)`) no lugar dos caracteres de hoje. O texto e as porcentagens não mudam. O fundo de aviso e de erro de hoje (`statusBarItem.warningBackground` e `errorBackground`) continua, para a urgência não depender só da cor.
    - Com versão nova, o item ganha no fim a marca `$(hadouken-seta) 0.5.x`.
@@ -200,7 +200,7 @@ Não há animação de entrada em cada elemento nem brilho permanente. Com movim
 ### 4.4 Segurança da janela
 
 - **CSP:** `default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource}; script-src 'nonce-<aleatório>'; font-src ${webview.cspSource}`. Nada é carregado da internet.
-- `localResourceRoots` aponta só para a pasta `janela/` da extensão.
+- `localResourceRoots` aponta só para as pastas `janela/` e `icones/` da extensão (os ícones da janela; ver §16).
 - **Mensagens da janela para a extensão:** só uma lista fixa (`salvar`, `voltarPadrao`, `desfazer`, `atualizarUso`, `atualizarHadouken`, `ligarAprendizado`, `desligarAprendizado`, `pronto`).
   - A extensão confere o tipo e a forma de cada mensagem. O que não conhece, ela ignora.
   - As chaves de `salvar` só podem ser as da tabela de `src/config/`.
@@ -421,3 +421,19 @@ Pedido da sessão Metrô SP, decidido pelo Sr. Garioli ("perguntar com o diff"):
 Na P5, ramo settings-projeto, depois de `mexeNaGuarda`: se `soAcrescentaGanchos` (src/guarda/caminho.js) e `guarda.perguntar` e `protecoes.arquivos` estão ligados, a P5 responde `ask` com P5_GANCHOS_PERGUNTA, e o usuário decide vendo o diff do Claude Code. Evento `perguntado` `P5:ganchos`.
 
 Só acrescenta quando: o arquivo atual (ou ausente) e o resultado simulado são JSON de objeto; disableAllHooks e enabledPlugins não mudam; os ganchos mudam; nenhum evento some; cada grupo de antes tem um grupo no mesmo evento com todos os ganchos dele (iguais) e um matcher igual ou mais largo (as alternativas por | contêm as de antes; sem matcher, '' e '*' casam tudo); e nenhum gancho novo cita o hadouken. Qualquer outra mudança nos ganchos, ou dúvida, nega como antes. A P5 do ConfigChange segura a mudança na sessão em curso: o gancho novo vale a partir da próxima sessão. Settings do usuário e o plugin seguem negados sempre.
+
+## 16. Rodada de correções da revisão do branch (2026-10-28)
+
+Revisão Opus do branch inteiro; cada achado com teste.
+
+- **P4 (achados 1 e 2):** o cwd com metacaractere de shell não é trocado; um caminho absoluto entre aspas com uma pasta `Claude …` no meio, que não termina em `claude`, sem opção, sem `liberar`/`aprender` e fora de `-c`, `/c`, `-Command` ou `eval`, não conta como claude, mesmo fora do cwd (residual no R1 do SECURITY).
+- **G7 com pergunta (3):** o despacho Fable perguntado conta para o G7 na hora do `ask`, aprovado ou não.
+- **Aprendizado (4 e 5):** a janela mostra o `otel/ligado.json`, não a chave do config.json; a atualização não religa quem tem `otel/` sem `ligado.json` (desligado antes da v0.5.4).
+- **N1 (6):** o effort que só vem da sessão (`CLAUDE_EFFORT`) não conta; vale o do parâmetro ou do frontmatter.
+- **Tabela (7, 14, 15):** `margemReset5hMin` afrouxa para cima; o rótulo do cache é "amarelo a partir de"; `/hadouken:limites padrao` cita as proteções.
+- **Emenda 5 (8):** a soltura automática só reescreve um guarda.json lido ok.
+- **Versão (9, 10):** a tentativa fica em `versao-nova-tentativa.json` e a seguinte espera 1 h; com `painel.avisarVersaoNova` desligado, `estadoVersao` não dá versão nova.
+- **Atenção e P2 (11, 12):** `perguntado` anima a logo; a P2 avisa uma vez por sessão e conjunto de travas a cada 5 h (detalhe `P2:<sessão>:<travas>`).
+- **Subir agente (13):** `roteamento.subir` é lido (agente de nome válido; haiku, sonnet ou opus); a N2 não nega a subida aprovada, e o SessionStart lista as subidas.
+- **Gravação (18):** `config.json.lock` (`wx`, vencida em 10 s) serializa os gravadores; o desfazer passa pelo `validar`.
+- **Spec (19):** §2 e §4 acima seguem o código (`icones/` e `reduceMotion` `auto`).

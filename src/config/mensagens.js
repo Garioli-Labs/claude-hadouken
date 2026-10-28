@@ -8,7 +8,7 @@ export const RECUSADO_ORIGEM = 'hadouken: nada mudado. /hadouken:limites só val
 export const INVALIDO = `hadouken: nada mudado. ${USO}`;
 export const MUDOU = 'hadouken: nada mudado. O config.json mudou durante a gravação; rode o comando de novo.';
 export const NAO_GRAVADO = 'hadouken: nada mudado. A configuração não pôde ser gravada.';
-export const PADRAO_TUDO = 'hadouken: guarda, barra e alertas voltaram ao padrão.';
+export const PADRAO_TUDO = 'hadouken: guarda, barra, alertas e proteções voltaram ao padrão.';
 export const AFROUXADO = 'Afrouxado: vale agora e desfaz o aperto do aprendizado neste item.';
 
 const valorTexto = (item, v) => (item.tipo === 'booleano' ? (v ? 'ligada' : 'desligada') : `${v} ${item.unidade}`);

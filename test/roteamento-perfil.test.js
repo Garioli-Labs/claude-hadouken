@@ -28,6 +28,8 @@ test('agente do plugin hadouken:x resolve pelo agents/ do plugin (foco 1)', () =
   assert.deepEqual(p({ subagent_type: 'hadouken:busca' }), { agente: 'hadouken:busca', familia: 'haiku', effort: 'low', origem: 'frontmatter', doArquivo: { model: 'haiku', effort: 'low' } });
   assert.equal(p({ subagent_type: 'hadouken:busca', model: 'opus' }).familia, 'opus');
   assert.equal(p({ subagent_type: 'hadouken:busca', model: 'opus' }).origem, 'parametro');
+  assert.equal(p({ subagent_type: 'hadouken:busca' }, { env: { CLAUDE_EFFORT: 'max' } }).effortDaSessao, undefined);
+  assert.equal(p({ subagent_type: 'Explore' }, { env: { CLAUDE_EFFORT: 'xhigh' } }).effortDaSessao, true);
   assert.equal(p({ subagent_type: 'hadouken:nao-existe' }).familia, 'desconhecido');
   assert.equal(p({ subagent_type: 'hadouken:../../x' }).agente, null);
 });

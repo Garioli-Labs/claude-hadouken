@@ -17,9 +17,17 @@ const RAIZ_PLUGIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const ERRO = Object.freeze({ ok: false, motivo: 'erro' });
 const erro = () => ({ ...ERRO });
 
+// O interruptor do aprendizado mostra o estado real (ligado.json), não a
+// chave do config.json, que o ligar e o desligar não gravam.
 export async function lerConfiguracao() {
   try {
-    return (await import('../config/ler.js')).lerConfiguracao(dirDados());
+    const dir = dirDados();
+    const lido = (await import('../config/ler.js')).lerConfiguracao(dir);
+    try {
+      const ligado = dir !== null && (await import('../aprendizado/arquivos.js')).ligadoExiste(dir);
+      for (const i of lido.itens) if (i.id === 'aprendizado.ligado') i.valor = ligado;
+    } catch { /* fica o valor do config.json */ }
+    return lido;
   } catch {
     return null;
   }

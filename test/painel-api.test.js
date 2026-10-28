@@ -47,6 +47,18 @@ test('sem argumento, lê e grava na pasta do HADOUKEN_HOME', async () => {
   assert.notEqual(await m.resumoRoteamento7d(), undefined);
 });
 
+test('revisão do branch, achado 4: o interruptor do aprendizado mostra o ligado.json', async () => {
+  const m = await import('../src/uso/painel-api.js');
+  const valor = async () => (await m.lerConfiguracao()).itens.find((i) => i.id === 'aprendizado.ligado').valor;
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ aprendizado: { ligado: true } }));
+  assert.equal(await valor(), false);
+  fs.mkdirSync(path.join(home, 'otel'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'otel', 'ligado.json'), '{}');
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ aprendizado: { ligado: false } }));
+  assert.equal(await valor(), true);
+  fs.rmSync(path.join(home, 'otel'), { recursive: true, force: true });
+});
+
 test('desligar grava o marcador de desligado pelo usuário', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk desligar ç '));
   try {

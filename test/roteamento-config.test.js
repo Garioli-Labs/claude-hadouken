@@ -37,3 +37,13 @@ test('JSON quebrado ou roteamento não-objeto: padrões com um aviso; __proto__ 
   const r = lerConfigRoteamento(com('{"roteamento":{"__proto__":{"negarN1":false}}}'));
   assert.equal(r.config.negarN1, true);
 });
+
+test('revisão do branch, achado 13: roteamento.subir é lido e a N2 respeita a subida', async () => {
+  const { avaliarRoteamento } = await import('../src/roteamento/regras.js');
+  const r = lerConfigRoteamento(com({ roteamento: { subir: { 'hadouken:mecanico': 'opus', 'x y': 'opus', 'hadouken:busca': 'gpt' } } }));
+  assert.deepEqual(r.config.subir, { 'hadouken:mecanico': 'opus' });
+  const perfil = (familia) => ({ agente: 'hadouken:mecanico', familia, effort: 'low', origem: 'parametro', doArquivo: null });
+  const av = (familia) => avaliarRoteamento({ perfil: perfil(familia), descricao: '', prompt: 'x'.repeat(1000), recentes: [], config: r.config, liberado: false, agoraMs: 0 });
+  assert.notEqual(av('opus').regra, 'N2');
+  assert.equal(av('fable').regra, 'N2');
+});

@@ -407,6 +407,14 @@ test('perguntar (padrão v0.5.4): P1 e G5 na thread principal pedem ask sem para
   assert.match(g5.hookSpecificOutput.permissionDecisionReason, /^hadouken: despacho caro: effort max\. Aprove para seguir agora/);
   assert.equal(Object.hasOwn(g5, 'continue'), false);
   assert.deepEqual(eventos(caro, 'perguntado').map((e) => e.detalhe), ['G5']);
+
+  // Revisão do branch, achado 3: o Fable perguntado já conta para o G7.
+  const fab = novoHome(true);
+  registrar(fab, 's1');
+  gravarEstado(fab);
+  const f = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose', model: 'fable' }), fab, { CLAUDE_EFFORT: 'max' }));
+  assert.equal(f.hookSpecificOutput.permissionDecision, 'ask');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(fab, ARQ_DESPACHOS), 'utf8')).at.length, 1);
 });
 
 test('perguntar (padrão v0.5.4): P2 deixa o prompt passar com aviso; P3 pede ask', () => {

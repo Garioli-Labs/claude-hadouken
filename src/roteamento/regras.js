@@ -18,8 +18,11 @@ export function avaliarRoteamento({ perfil, descricao, prompt, recentes, config,
   try {
     if (perfil === null || typeof perfil !== 'object' || perfil.agente === null) return PASSA;
     const { agente, familia, effort, origem, doArquivo } = perfil;
-    if (!liberado && config.negarN1 && BUSCA.has(agente) && (FORTES.has(familia) || EFFORT_ALTO.has(effort))) return { decisao: 'negar', regra: 'N1' };
-    if (!liberado && config.negarN2 && BARATOS.has(agente) && origem === 'parametro' && FORTES.has(familia)) return { decisao: 'negar', regra: 'N2' };
+    // N1: o effort que só veio da sessão não conta; o Explore não o escolheu.
+    if (!liberado && config.negarN1 && BUSCA.has(agente) && (FORTES.has(familia) || (EFFORT_ALTO.has(effort) && perfil.effortDaSessao !== true))) return { decisao: 'negar', regra: 'N1' };
+    // N2: a subida que o usuário aprovou para este agente não é negada.
+    const subiu = config.subir !== null && typeof config.subir === 'object' && Object.hasOwn(config.subir, agente) && config.subir[agente] === familia;
+    if (!liberado && config.negarN2 && BARATOS.has(agente) && origem === 'parametro' && FORTES.has(familia) && !subiu) return { decisao: 'negar', regra: 'N2' };
     if (!config.avisos) return PASSA;
     // A1: Fable ou effort max fora do revisor-crítico. Um agente cujo próprio
     // arquivo declara Fable ou max foi escolhido de propósito: passa.

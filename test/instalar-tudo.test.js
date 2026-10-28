@@ -222,6 +222,12 @@ test('aprendizado: --sem-aprender e o marcador do usuário não ligam; já ligad
     { nome: 'aprendizado', estado: 'pulado', detalhe: 'desligado por você; para ligar, na janela ou /hadouken:aprender ligar' });
   assert.equal(apr.chamadas.length, 0);
   assert.equal(aprendizadoDe(await rodarTudo(cenario(), { deps: { aprendizado: aprendizadoFalso({ ligado: true }) } })).estado, 'igual');
+  // Revisão do branch, achado 5: desligado antes da v0.5.4 (otel/ sem ligado.json).
+  apr = aprendizadoFalso();
+  const antigo = cenario();
+  fs.mkdirSync(path.join(process.env.HADOUKEN_HOME, 'otel'), { recursive: true });
+  assert.equal(aprendizadoDe(await rodarTudo(antigo, { deps: { aprendizado: apr } })).estado, 'pulado');
+  assert.equal(apr.chamadas.length, 0);
 });
 
 test('aprendizado: falha do ligar é ✗ sem derrubar; nenhum texto diz opcional', async () => {

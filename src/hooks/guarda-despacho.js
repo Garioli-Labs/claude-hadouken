@@ -65,6 +65,8 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
     if (!noSubagente && g.config.perguntar) {
       perguntar(msg.p1Perguntar(motivos, agoraMs));
       reg.anexarEvento(dir, 'perguntado', `P1:${chaves.join(':')}`, agoraMs);
+      // O hook não sabe a resposta: conta o Fable já (G7), a favor da cota.
+      if (perfil.modelo === 'fable') reg.registrarDespachoFable(dir, agoraMs);
       return;
     }
     negar(
@@ -78,6 +80,7 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
     if (!noSubagente && g.config.perguntar) {
       perguntar(msg.caroPerguntar(perfil));
       reg.anexarEvento(dir, 'perguntado', 'G5', agoraMs);
+      if (perfil.modelo === 'fable') reg.registrarDespachoFable(dir, agoraMs);
       return;
     }
     negar(noSubagente ? msg.caroSubagente(perfil) : msg.caroClaude(perfil), noSubagente ? null : msg.caroUsuario(perfil));

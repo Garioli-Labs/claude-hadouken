@@ -10,7 +10,7 @@ import { PADRAO_ROTEAMENTO } from '../roteamento/config.js';
 const GUARDA = Object.freeze({
   teto5h: ['Teto da janela de 5 h', '%', 'maior'],
   horizonte5hMin: ['Horizonte da projeção de 5 h', 'min', 'menor'],
-  margemReset5hMin: ['Margem antes do reset de 5 h', 'min', 'menor'],
+  margemReset5hMin: ['Margem antes do reset de 5 h', 'min', 'maior'],
   teto7d: ['Teto da semana', '%', 'maior'],
   horizonte7dH: ['Horizonte da projeção da semana', 'h', 'menor'],
   fableDespachosMax: ['Despachos Fable por janela', 'despachos', 'maior'],
@@ -37,7 +37,7 @@ export const ITENS = Object.freeze([
   }),
   inteiro('barra.ctx.amarelo', ['barra', 'ctx', 'amarelo'], 'barra', 'Contexto: amarelo a partir de', '%', 30, 95, 70, 'maior'),
   inteiro('barra.ctx.vermelho', ['barra', 'ctx', 'vermelho'], 'barra', 'Contexto: vermelho a partir de', '%', 40, 99, 85, 'maior'),
-  inteiro('barra.cache.amarelo', ['barra', 'cache', 'amarelo'], 'barra', 'Cache: amarelo abaixo de', '%', 10, 90, 50, 'menor'),
+  inteiro('barra.cache.amarelo', ['barra', 'cache', 'amarelo'], 'barra', 'Cache: amarelo a partir de', '%', 10, 90, 50, 'menor'),
   inteiro('barra.cache.verde', ['barra', 'cache', 'verde'], 'barra', 'Cache: verde a partir de', '%', 20, 99, 80, 'menor'),
   inteiro('alertas.projecao5hMin.0', ['alertas', 'projecao5hMin', 0], 'alertas', 'Projeção de 5 h: primeiro aviso', 'min', 10, 180, 60, 'menor'),
   inteiro('alertas.projecao5hMin.1', ['alertas', 'projecao5hMin', 1], 'alertas', 'Projeção de 5 h: segundo aviso', 'min', 5, 120, 30, 'menor'),

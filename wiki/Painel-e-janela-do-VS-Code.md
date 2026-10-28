@@ -18,7 +18,7 @@ Os limites da conta (sessão de 5 horas, semana e Fable) são os mesmos em todas
 
 - **Percentuais arredondados para baixo.** Janela sem leitura confiável aparece como `—` (por exemplo, `Fable —` antes da primeira leitura oficial); sem nenhuma, o item diz `Hadouken: sem leitura`.
 - **A cor segue a pior janela:** sem cor abaixo de 75 %, fundo de aviso (amarelo) de 75 % a 89 % e fundo de erro (vermelho) de 90 % em diante. Essas faixas são só do painel; os avisos ao Claude seguem as deles (veja [Os avisos que o Claude recebe](Avisos-e-alertas#os-avisos-que-o-claude-recebe)).
-- **Clique** no item, ou rode o comando `Claude Hadouken: atualizar uso agora`, para ler na hora. A leitura manual respeita a trava entre janelas, a pausa por RAM e o bloqueio por custo (veja [Sem gastar tokens, com pouca RAM](#sem-gastar-tokens-com-pouca-ram)).
+- **Clique** no item (ou na logo) para abrir a janela do hadouken. Para ler o uso na hora, rode o comando `Claude Hadouken: atualizar uso agora` ou use o botão da janela; antes da v0.5.3, o clique lia direto. A leitura manual respeita a trava entre janelas, a pausa por RAM e o bloqueio por custo (veja [Sem gastar tokens, com pouca RAM](#sem-gastar-tokens-com-pouca-ram)).
 
 ![Seis estados do item do painel na barra de status do VS Code: 5h 42% · sem 59% · Fable 71%, sem cor; 5h 78% · sem 59% · Fable 71%, com fundo amarelo; 5h 42% · sem 59% · Fable 92%, com fundo vermelho; 5h 42% · sem 59% · Fable —, antes da primeira leitura oficial; Hadouken: sem leitura; e Hadouken: abra uma sessão do Claude Code, quando nenhuma sessão abriu com o plugin nesta máquina](https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/docs/imagens/painel-estados.svg)
 
@@ -75,7 +75,7 @@ Essa frase não é a projeção dos avisos ao Claude. A projeção usa o ritmo d
 
 - **Só quando serve.** Uma leitura a cada 30 s, só com alguma sessão do Claude Code ativa nos últimos 5 minutos, e uma por vez entre todas as janelas do VS Code: uma trava de arquivo (`uso-oficial.lock`) só é dada como abandonada depois de 90 s, e uma leitura de menos de 25 s dispensa a próxima. Depois de uma leitura que estourou o prazo ou o teto de saída, veio num formato inesperado ou falhou, a próxima espera 15 min; o 5 h e a semana seguem vindo da statusline nesse meio-tempo. Na média, uns 45 MB, com picos de 270 MB por 5 s.
 - **Pausa por memória.** Com menos de 1,5 GiB de RAM livre, a leitura é pulada, mesmo a manual, e a dica diz `Leitura pausada: pouca RAM livre.`
-- **O resto é leitura de arquivo.** A cada 5 s, a extensão redesenha o item lendo `estado.json` e `uso-oficial.json`. Sem webview e sem dependências; a lógica mora no plugin (`src/uso/painel.js`), carregada por um script estável da pasta de dados (`bin/painel.mjs`).
+- **O resto é leitura de arquivo.** A cada 5 s, a extensão redesenha o item lendo `estado.json` e `uso-oficial.json`. A janela é uma webview só aberta quando o senhor a abre; sem dependências; a lógica mora no plugin (`src/uso/painel.js`), carregada por um script estável da pasta de dados (`bin/painel.mjs`).
 
 ### Instalar, desligar e remover
 
