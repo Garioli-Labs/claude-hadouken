@@ -492,6 +492,12 @@
 
 **Interfaces:** nenhuma nova.
 
+**Decisões da execução (Task 14):**
+- Retrato tirado antes de escrever o teste: os 15 hooks, com as 5 entradas, saem com 0 e sem nada em stdout e stderr. O teste fixa exatamente isso (mais forte que "vazio ou JSON"). A lista de hooks vem do `hooks.json`, e um teste à parte confere os 15 nomes, para que um hook novo não entre sem passar pela lista.
+- Cada execução recebe uma pasta de dados própria (com espaço e `ç` no nome), roda com cwd no tmpdir, com `HADOUKEN_SAUDE_DISPARAR=0` e sem painel.
+- Peso medido: pacote com 2 349 663 bytes, teto 1,25×. Grafo estático: prompt-submit 4, session-start 4, guarda-despacho 4, guarda-filha 5, teto de cada um o medido + 4. Um terceiro teste confere que o contador de imports enxerga `comum.js`, para o regex quebrado não deixar o teto sempre verde. Sem git, o teste do pacote é pulado.
+- Bench: o env ganhou `HADOUKEN_SAUDE_DISPARAR=0`. Antes, um prompt sem saude.json subiria o coletor de verdade no meio da medição. As duas linhas de prompt registrado passam a ler um saude.json fresco de PC bem, que é o caso comum, e fazem de "prompt com saude.json". A linha nova, `prompt fires collector`, acha um saude.json de 2 min e confere o marcador do disparo.
+
 - [ ] **Step 1: Write failing tests**:
   - `entrada hostil`: cada hook de `hooks/hooks.json` com stdin vazio, `{`, `[]`, `{"session_id":5}` e 1 MB de texto sai com 0. Ou sem saída, ou com a decisão que já dava na 0.5.4 para a mesma entrada (snapshot do comportamento atual, gerado antes de mudar).
   - `peso`: o tamanho do pacote sem `venv`, `node_modules`, `.git`, `test`, `bench`, `docs` e `wiki` fica abaixo de 1,25× o medido no início da tarefa (fixar o número no teste). Os módulos que o `prompt-submit` carrega sem aviso ficam ≤ o medido + 4.

@@ -45,6 +45,10 @@
 //     when it changes).
 //   Each row plants both files before the timed spawn and checks afterwards
 //   that each one was left alone, or rewritten, as it claims.
+//   Both read a fresh saude.json of a PC that is fine (v0.5.5).
+// - prompt hook registered, "fires collector" (v0.5.5): as "unchanged", but
+//   saude.json is 2 min old, so the hook asks for a collection after its
+//   output (a marker file under HADOUKEN_SAUDE_DISPARAR=0).
 // - prompt hook unregistered: gate only; loads neither estado.js nor alerta.js.
 // - SessionStart: register, shim sync, state line.
 // - SessionEnd registered (gate, read state, append one history line) and
@@ -97,6 +101,7 @@ try {
   const { sincronizarShims } = await importar('shim.js');
   const { ARQ_ALERTAS, ARQ_PROJECAO, PROJECAO_MAX } = await importar('hooks/alertas-gravados.js');
   const { ARQ_HISTORICO } = await importar('hooks/historico.js');
+  const { ARQ_SAUDE, MARCA_DISPARO } = await importar('saude/ler.js');
 
   const agora = Date.now();
   const s = Math.floor(agora / 1000);
@@ -187,7 +192,9 @@ try {
   // fable-max.md; CLAUDE_EFFORT pins the session effort, and a
   // CLAUDE_CODE_SUBAGENT_MODEL from the caller's shell would override the
   // agent's model, so it is dropped.
-  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1', CLAUDE_CONFIG_DIR: path.join(home, 'cfg'), CLAUDE_EFFORT: 'high', CLAUDE_CODE_ENTRYPOINT: 'cli' };
+  // HADOUKEN_SAUDE_DISPARAR=0 (v0.5.5): a prompt that finds saude.json older
+  // than 1 min writes a marker instead of spawning the real health collector.
+  const env = { ...process.env, HADOUKEN_HOME: home, CLAUDE_PLUGIN_ROOT: repo, HADOUKEN_SEM_PAINEL: '1', HADOUKEN_SAUDE_DISPARAR: '0', CLAUDE_CONFIG_DIR: path.join(home, 'cfg'), CLAUDE_EFFORT: 'high', CLAUDE_CODE_ENTRYPOINT: 'cli' };
   delete env.CLAUDE_CODE_SUBAGENT_MODEL;
   // One untimed prompt settles the alert memory to what this fixture
   // evaluates to (the 7d band of the seeded memory differs from the reading,
@@ -263,7 +270,32 @@ try {
   // announces a fresh release once (the post-release line), which would break
   // the "unchanged" row's no-output check. The two registered prompt rows
   // start without a release, as they did before this scenario existed.
-  const semLiberacaoE = (plantar) => () => { semLiberacao(); plantar(); };
+  // v0.5.5: the registered prompt rows read a saude.json of a PC that is fine
+  // (the common case: nothing to announce, collector ran under 1 min ago); the
+  // "fires collector" row finds it 2 min old, so the hook also asks for a
+  // collection after its output (the marker, see env above).
+  const arqSaude = path.join(home, ARQ_SAUDE);
+  const arqMarca = path.join(home, MARCA_DISPARO);
+  const plantarSaude = (idadeMs) => {
+    const em = Date.now() - idadeMs;
+    fs.writeFileSync(arqSaude, JSON.stringify({
+      versao: 1, em,
+      ram: { totalBytes: 16 * 2 ** 30, livreBytes: 8 * 2 ** 30, usadaPct: 50 },
+      cpu: { cargaPct: 12, tempC: null },
+      gpu: { nome: null, tempC: null, usoPct: null },
+      bateria: null,
+      disco: { dadosLivreBytes: 200 * 2 ** 30, projetoLivreBytes: 200 * 2 ** 30 },
+      processos: [],
+      fontes: { processos: 'ok', cpuCarga: 'ok', cpuTemp: 'na', gpu: 'na', bateria: 'na', disco: 'ok' },
+    }));
+    fs.utimesSync(arqSaude, new Date(em), new Date(em));
+    fs.rmSync(arqMarca, { force: true });
+  };
+  const semLiberacaoE = (plantar, idadeSaudeMs = 0) => () => { semLiberacao(); plantar(); plantarSaude(idadeSaudeMs); };
+  const disparou = (nome, espera) => (out) => {
+    memoriaGravada(nome, false)(out);
+    if (fs.existsSync(arqMarca) !== espera) throw new Error(`${nome}: collector ${espera ? 'not ' : ''}requested`);
+  };
 
   const cenarios = [
     {
@@ -272,7 +304,16 @@ try {
       argv: [hook('prompt-submit.js')],
       stdin: stdinPrompt,
       preparar: semLiberacaoE(plantarMemoria(60_000, projecaoEstavel)),
-      conferir: memoriaGravada('prompt reg. unchanged', false),
+      conferir: disparou('prompt reg. unchanged', false),
+      alvo: true,
+    },
+    {
+      id: 'prompt-dispara-coletor',
+      nome: 'prompt fires collector',
+      argv: [hook('prompt-submit.js')],
+      stdin: stdinPrompt,
+      preparar: semLiberacaoE(plantarMemoria(60_000, projecaoEstavel), 2 * 60_000),
+      conferir: disparou('prompt fires collector', true),
       alvo: true,
     },
     {
