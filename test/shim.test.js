@@ -15,7 +15,7 @@ import { semVersao } from './versao-barra.js';
 
 // Shims estáveis (spec 8.1, S6): <dirDados>/bin/statusline.mjs e cli.mjs, uma
 // linha cada, `await import("<file URL do alvo>").catch(...)`, e painel.mjs
-// (emenda E4), `export * from "<file URL de src/uso/painel.js>"`, que a
+// (emenda E4), `export * from "<file URL de src/uso/painel-api.js>"`, que a
 // extensão do VS Code carrega. O settings.json aponta para os dois primeiros
 // e o SessionStart regrava os três a cada sessão, desfazendo adulteração.
 // Alvo sumido (plugin atualizado, versão velha apagada): a barra sai 0
@@ -23,7 +23,7 @@ import { semVersao } from './versao-barra.js';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SHIMS = ['statusline.mjs', 'cli.mjs', 'painel.mjs'];
-const ALVO = { 'statusline.mjs': 'statusline.js', 'cli.mjs': 'cli.js', 'painel.mjs': path.join('uso', 'painel.js') };
+const ALVO = { 'statusline.mjs': 'statusline.js', 'cli.mjs': 'cli.js', 'painel.mjs': path.join('uso', 'painel-api.js') };
 // O marcador que cada alvo sintético de criarRaiz imprime.
 const MARCADOR = { 'statusline.mjs': 'alvo-statusline', 'cli.mjs': 'alvo-cli', 'painel.mjs': 'alvo-painel' };
 const LINHA_CLI = 'hadouken: plugin files not found - open a new session';
@@ -84,7 +84,7 @@ function criarRaiz(raiz) {
   fs.writeFileSync(path.join(raiz, 'src', 'statusline.js'), "process.stdout.write('alvo-statusline ' + import.meta.url);\n");
   fs.writeFileSync(path.join(raiz, 'src', 'cli.js'), "process.stdout.write('alvo-cli ' + import.meta.url);\n");
   fs.mkdirSync(path.join(raiz, 'src', 'uso'));
-  fs.writeFileSync(path.join(raiz, 'src', 'uso', 'painel.js'), "process.stdout.write('alvo-painel ' + import.meta.url);\nexport const marca = 1;\n");
+  fs.writeFileSync(path.join(raiz, 'src', 'uso', 'painel-api.js'), "process.stdout.write('alvo-painel ' + import.meta.url);\nexport const marca = 1;\n");
   return raiz;
 }
 
@@ -133,9 +133,9 @@ test('cria shims apontando para a raiz do plugin e é idempotente', () => {
   const url = (alvo) => JSON.stringify(pathToFileURL(path.join(raiz, 'src', alvo)).href);
   assert.equal(ler(arqShim('statusline.mjs')), `await import(${url('statusline.js')}).catch(() => {});\n`);
   assert.equal(ler(arqShim('cli.mjs')), `import { fileURLToPath } from "node:url"; const u = ${url('cli.js')}; await import(u).catch(${CATCH_CLI});\n`);
-  // Alvo em subpasta (src/uso/painel.js): a URL leva /uso/painel.js.
-  assert.equal(ler(arqShim('painel.mjs')), `export * from ${url(path.join('uso', 'painel.js'))};\n`);
-  assert.ok(ler(arqShim('painel.mjs')).endsWith('/src/uso/painel.js";\n'));
+  // Alvo em subpasta (src/uso/painel-api.js): a URL leva /uso/painel-api.js.
+  assert.equal(ler(arqShim('painel.mjs')), `export * from ${url(path.join('uso', 'painel-api.js'))};\n`);
+  assert.ok(ler(arqShim('painel.mjs')).endsWith('/src/uso/painel-api.js";\n'));
   for (const nome of SHIMS) {
     assert.equal(ler(arqShim(nome)).split('\n').length, 2, `${nome}: uma linha só`);
     assert.match(ler(arqShim(nome)), /^[\x20-\x7e]+\n$/, `${nome}: ASCII imprimível`);
@@ -483,7 +483,7 @@ test('shim executa a statusline de verdade para sessão registrada (caminho com 
 
 // E4: a extensão do VS Code carrega <dirDados>/bin/painel.mjs por import()
 // dinâmico. Num processo filho, como a extensão: o shim reexporta a lógica de
-// src/uso/painel.js da versão em uso, e estadoPainel({}) lê o HADOUKEN_HOME.
+// src/uso/painel-api.js da versão em uso, e estadoPainel({}) lê o HADOUKEN_HOME.
 test('painel.mjs de verdade exporta estadoPainel e talvezAtualizar (caminho com espaço)', () => {
   assert.equal(sincronizarShims(repo).ok, true);
   const url = pathToFileURL(arqShim('painel.mjs')).href;
@@ -1283,4 +1283,16 @@ test('raiz UNC com o nome da máquina em maiúsculas continua aceita (Windows)',
   const p = rodarShim('statusline.mjs');
   assert.equal(p.status, 0, p.stderr);
   assert.ok(p.stdout.startsWith(`alvo-statusline file://${os.hostname().toLowerCase()}/`), p.stdout);
+});
+
+// v0.5.4: o alvo do painel.mjs passou de src/uso/painel.js para
+// src/uso/painel-api.js. Um shim antigo é corrigido na sincronização seguinte.
+test('painel.mjs antigo, apontando para uso/painel.js, é corrigido', () => {
+  const raiz = criarRaiz(path.join(home, 'Plugin Dir'));
+  fs.writeFileSync(path.join(raiz, 'src', 'uso', 'painel.js'), 'export const velho = 1;\n');
+  assert.equal(sincronizarShims(raiz).ok, true);
+  fs.writeFileSync(arqShim('painel.mjs'), `export * from ${JSON.stringify(pathToFileURL(path.join(raiz, 'src', 'uso', 'painel.js')).href)};\n`);
+  assert.deepEqual(sincronizarShims(raiz), { ok: true, alterados: ['painel.mjs'] });
+  assert.equal(ler(arqShim('painel.mjs')), esperado(raiz, 'painel.mjs'));
+  assert.ok(ler(arqShim('painel.mjs')).endsWith('/src/uso/painel-api.js";\n'));
 });

@@ -29,6 +29,9 @@ import { aplicarDesligar, aplicarLigar, CHAVES_LIGAR, consultarDesligar, consult
 // de settings-env.js: pasta e arquivo absolutos, agoraMs inteiro seguro não
 // negativo; fora disso, 'argumentos' sem tocar em nada. Nenhuma função lança.
 
+// Marcador de "desligado pelo usuário" (spec v0.5.3 VS Code §6), em
+// <dirDados>: o desligar grava, o ligar apaga.
+export const ARQ_DESLIGADO_USUARIO = 'aprendizado-desligado-pelo-usuario';
 const ALCANCES = Object.freeze(['nada', 'dados', 'tudo']);
 const DADOS = Object.freeze(['aprendizado', 'ajustes', 'sugestoes', 'cursor', 'eventos']);
 // Sobras de um ligar que o timeout do hook (600 s, R5) cortou no meio, sem
@@ -208,6 +211,8 @@ export async function ligar(opcoes) {
     /* fica para a retomada da trava vencida */
   }
   if (feito.tarGz !== null) apagar(feito.tarGz);
+  // Religado pelo usuário: o marcador do desligar sai.
+  if (r?.ok === true && caminhoValido(opcoes?.dir)) apagar(path.join(opcoes.dir, ARQ_DESLIGADO_USUARIO));
   return r;
 }
 
@@ -395,6 +400,9 @@ export function desligar(opcoes) {
     // Nada rodando (sem-pid, morto, outro-processo) ou saída confirmada: false.
     // É o que a mensagem usa para avisar; `parado` segue como era.
     const coletorPendente = vivo === true;
+    // Spec v0.5.3 VS Code §6: quem desligou fica desligado; o instalador não
+    // religa com o marcador presente. Falha ao gravar só perde o marcador.
+    gravarJsonAtomico(path.join(dir, ARQ_DESLIGADO_USUARIO), { v: 1, em: new Date(agoraMs).toISOString() });
     return {
       ok: true, removidas, backup, parado, coletorPendente, apagou, pasta: caminhos(dir).otel, ligadoInvalido, registroFicou,
     };

@@ -38,7 +38,8 @@ export const DIR_BIN = 'bin';
 // escrever. String.raw: o \n fica como os dois caracteres \ e n, e o shim
 // continua uma linha só, toda ASCII.
 const CATCH_CLI = String.raw`(e) => { let m = "internal error (unknown)"; try { const s = (v) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : ""); if (e?.code === "ERR_MODULE_NOT_FOUND" && (e.url === u || (e.url === undefined && typeof e.message === "string" && e.message.startsWith("Cannot find module '" + fileURLToPath(u) + "'")))) m = "plugin files not found - open a new session"; else m = "internal error (" + (s(e?.code) || s(e?.name) || "unknown") + ")"; } catch {} process.exitCode = 1; try { process.stderr.write("hadouken: " + m + "\n"); } catch {} }`;
-// O do painel (emenda E4) só reexporta a lógica de src/uso/painel.js: a
+// O do painel (emenda E4) só reexporta a lógica de src/uso/painel-api.js
+// (v0.5.4; antes, src/uso/painel.js, que ela ainda reexporta inteira): a
 // extensão do VS Code o carrega por import() dinâmico e trata a rejeição
 // (alvo sumido) ela mesma. O alvo em subpasta entra pelo path.join de
 // sincronizarShims, como os outros.
@@ -48,7 +49,7 @@ const SHIMS = Object.freeze({
     alvo: 'cli.js',
     modelo: (url) => `import { fileURLToPath } from "node:url"; const u = ${url}; await import(u).catch(${CATCH_CLI});\n`,
   },
-  'painel.mjs': { alvo: 'uso/painel.js', modelo: (url) => `export * from ${url};\n` },
+  'painel.mjs': { alvo: 'uso/painel-api.js', modelo: (url) => `export * from ${url};\n` },
 });
 // A raiz só é aceita se este arquivo existir nela como arquivo regular.
 const ALVO_OBRIGATORIO = 'statusline.js';
