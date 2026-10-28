@@ -93,6 +93,9 @@ function movimentoReduzido() {
   }
 }
 
+const CHAVE_AVISADA = 'claudeHadouken.versaoAvisada';
+const CONSULTA_VERSAO_TIQUES = 120; // 10 min com o relógio de 5 s
+
 // O que o shim tem além dos dois nomes de sempre.
 const apiDe = (m) => ({
   janela: typeof m.lerConfiguracao === 'function' && typeof m.gravarConfiguracao === 'function',
@@ -249,6 +252,7 @@ function activate(ctx) {
     let janela = null;
     let tokenDesfazer = null;
     let terminal = null;
+    let tiquesDeConsulta = 0;
 
     const animar = () => {
       animando = true;
@@ -377,7 +381,9 @@ function activate(ctx) {
       else recusar('erro');
     };
 
-    const atualizarHadouken = async (m) => {
+    // Um terminal "hadouken" só, para a janela e para a notificação: vivo,
+    // só mostra; senão, cria e manda o comando fixo do plugin.
+    const abrirTerminalAtualizar = async (m) => {
       if (terminal !== null && terminal.exitStatus === undefined) {
         terminal.show();
         return;
@@ -411,7 +417,7 @@ function activate(ctx) {
             break;
           }
           case 'atualizarUso': await vscode.commands.executeCommand(COMANDO); break;
-          case 'atualizarHadouken': await atualizarHadouken(m); return;
+          case 'atualizarHadouken': await abrirTerminalAtualizar(m); return;
           case 'ligarAprendizado': await chamar(m, 'ligarAprendizado'); break;
           case 'desligarAprendizado': await chamar(m, 'desligarAprendizado'); break;
           default: return;
@@ -471,10 +477,40 @@ function activate(ctx) {
       return leitura;
     };
 
+    // Spec §5 (Task 11): a versão nova avisa uma vez por versão, em todas as
+    // janelas (globalState); "Depois" só grava, e a marca no item continua.
+    const avisarVersao = (m) => {
+      try {
+        const v = versaoNova;
+        if (v === null || !ctx.globalState || ctx.globalState.get(CHAVE_AVISADA) === v) return;
+        Promise.resolve(ctx.globalState.update(CHAVE_AVISADA, v)).catch(() => {});
+        Promise.resolve(vscode.window.showInformationMessage(`hadouken ${v} disponível`, 'Atualizar', 'Depois'))
+          .then((r) => (r === 'Atualizar' && ativo ? abrirTerminalAtualizar(m) : undefined))
+          .catch(() => {});
+      } catch {
+        // sem aviso; a marca no item fica
+      }
+    };
+
+    // A consulta em si decide as 6 h (talvezConsultarVersao); aqui só não
+    // chama a cada 5 s.
+    // Conta tiques (120 de 5 s = 10 min), não o relógio de parede.
+    const talvezConsultar = (m) => {
+      if (typeof m.talvezConsultarVersao !== 'function') return;
+      const vez = tiquesDeConsulta;
+      tiquesDeConsulta = (tiquesDeConsulta + 1) % CONSULTA_VERSAO_TIQUES;
+      if (vez !== 0) return;
+      Promise.resolve().then(() => m.talvezConsultarVersao({})).catch(() => {});
+    };
+
     const tique = () => {
       carregar(false)
         .then(async (m) => {
-          if (m !== null) await lerExtras(m);
+          if (m !== null) {
+            talvezConsultar(m);
+            await lerExtras(m);
+            avisarVersao(m);
+          }
           redesenhar(m);
           if (m !== null && janela !== null && janela.visible !== false && apiDe(m).janela) enviarEstado(m);
           if (m !== null && leitura === null && ativo && Date.now() >= proximoPedidoEm) {

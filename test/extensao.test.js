@@ -32,6 +32,7 @@ export async function voltarAoPadrao(ids, o) { g().gravacoes.push([ids, o]); ret
 export async function desfazer(t) { g().desfeitos.push(t); return { ok: true }; }
 export async function comandoAtualizar(p) { return { shell: p === 'win32' ? 'powershell' : 'posix', texto: 'atualizar-' + p }; }
 export async function resumoRoteamento7d() { return null; }
+export async function talvezConsultarVersao(o) { g().consultas.push(o); return null; }
 `;
 const PAINEL_VELHO = `const g = () => globalThis.hdk;
 export function estadoPainel(o) { g().desenhos++; return { texto: '5h 25% · sem 41% · Fable 57%', nivel: 'ok', dica: '' }; }
@@ -45,13 +46,14 @@ async function esperar(cond, voltas = 20_000) {
 
 // Ativa a extensão com o shim dado e o relógio falso. Devolve os dois itens e
 // um `fim` para o finally.
-async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off' } = {}) {
+async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', globalState = new Map(), respostas = [] } = {}) {
   globalThis.hdk = {
     desenhos: 0, leituras: [], nivel: 'ok', pcts: { h5: 55, d7: null, fable: null }, em: 1, ems: [], portao: null, nova: null, animarLogo: true,
-    versaoCfg: 'ausente', gravacoes: [], desfeitos: [], respostaGravar: { ok: true, desfazer: { antes: {}, versaoDepois: 'v', ate: 1 } }, ...hdk,
+    versaoCfg: 'ausente', gravacoes: [], desfeitos: [], respostaGravar: { ok: true, desfazer: { antes: {}, versaoDepois: 'v', ate: 1 } }, consultas: [], ...hdk,
   };
   const { api, estado } = criar();
   estado.reduceMotion = reduceMotion;
+  estado.respostas.push(...respostas);
   const cargaOriginal = Module._load;
   Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
   const homeAntes = process.env.HADOUKEN_HOME;
@@ -61,7 +63,10 @@ async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off' } 
   process.env.HADOUKEN_HOME = home;
   delete requireDaqui.cache[requireDaqui.resolve(ARQ_EXTENSAO)];
   const ext = requireDaqui(ARQ_EXTENSAO);
-  const ctx = { subscriptions: [], extensionUri: api.Uri.file(path.join(repo, 'vscode')) };
+  const ctx = {
+    subscriptions: [], extensionUri: api.Uri.file(path.join(repo, 'vscode')),
+    globalState: { get: (k) => globalState.get(k), update: async (k, v) => { globalState.set(k, v); } },
+  };
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   ext.activate(ctx);
   const fim = () => {
@@ -77,7 +82,7 @@ async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off' } 
   const logo = estado.itens.find((i) => i.id === 'claudeHadouken.logo');
   // O primeiro tique desenha (e só guarda o `em`, sem animar).
   assert.ok(await esperar(() => globalThis.hdk.desenhos > 0), 'o primeiro tique não desenhou');
-  return { ext, api, estado, uso, logo, fim };
+  return { ext, api, estado, uso, logo, fim, globalState };
 }
 
 // Um tique do relógio de 5 s, esperando o desenho que ele faz.
@@ -367,5 +372,71 @@ test('janela: atualizarHadouken abre o terminal "hadouken" com o comando do plug
   } finally {
     m.fim();
     Object.defineProperty(process, 'platform', plataforma);
+  }
+});
+
+// Task 11: o aviso de versão nova na extensão (spec §5).
+const avisos = (m) => m.estado.mensagens.filter((a) => typeof a[0] === 'string' && a[0].startsWith('hadouken '));
+
+test('versão nova: consulta no máximo a cada 10 min; avisa uma vez por versão', async (t) => {
+  const m = await montar(t, { hdk: { nova: '0.5.9' } });
+  try {
+    assert.equal(globalThis.hdk.consultas.length, 1, 'o primeiro tique consulta');
+    assert.deepEqual(globalThis.hdk.consultas[0], {});
+    assert.ok(await esperar(() => avisos(m).length === 1));
+    assert.deepEqual(avisos(m)[0], ['hadouken 0.5.9 disponível', 'Atualizar', 'Depois']);
+    assert.equal(m.globalState.get('claudeHadouken.versaoAvisada'), '0.5.9');
+    await tique(t);
+    await tique(t);
+    assert.equal(avisos(m).length, 1, 'a mesma versão não avisa de novo');
+    assert.equal(globalThis.hdk.consultas.length, 1, 'menos de 10 min: sem consulta');
+    t.mock.timers.tick(10 * 60_000);
+    assert.ok(await esperar(() => globalThis.hdk.consultas.length === 2));
+    globalThis.hdk.nova = '0.6.0';
+    await tique(t);
+    assert.ok(await esperar(() => avisos(m).length === 2));
+    assert.equal(avisos(m)[1][0], 'hadouken 0.6.0 disponível');
+  } finally {
+    m.fim();
+  }
+});
+
+test('versão nova: já avisada em outra janela não avisa; "Atualizar" abre o terminal', async (t) => {
+  const m1 = await montar(t, { hdk: { nova: '0.5.9' }, globalState: new Map([['claudeHadouken.versaoAvisada', '0.5.9']]) });
+  try {
+    await tique(t);
+    assert.equal(avisos(m1).length, 0);
+    assert.match(m1.uso.text, /\$\(hadouken-seta\) 0\.5\.9$/, 'a marca no item continua');
+  } finally {
+    m1.fim();
+  }
+  t.mock.timers.reset();
+  const m2 = await montar(t, { hdk: { nova: '0.5.9' }, respostas: ['Atualizar'] });
+  try {
+    assert.ok(await esperar(() => m2.estado.terminais.length === 1));
+    assert.deepEqual(m2.estado.terminais[0].enviados, [`atualizar-${process.platform}`]);
+  } finally {
+    m2.fim();
+  }
+});
+
+test('versão nova: "Depois" só grava; plugin velho não consulta nem lança', async (t) => {
+  const m = await montar(t, { hdk: { nova: '0.5.9' }, respostas: ['Depois'] });
+  try {
+    assert.ok(await esperar(() => avisos(m).length === 1));
+    await tique(t);
+    assert.equal(m.estado.terminais.length, 0);
+    assert.equal(m.globalState.get('claudeHadouken.versaoAvisada'), '0.5.9');
+  } finally {
+    m.fim();
+  }
+  t.mock.timers.reset();
+  const v = await montar(t, { shim: PAINEL_VELHO });
+  try {
+    await tique(t);
+    assert.equal(avisos(v).length, 0);
+    assert.equal(globalThis.hdk.consultas.length, 0);
+  } finally {
+    v.fim();
   }
 });
