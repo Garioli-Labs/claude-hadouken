@@ -866,6 +866,47 @@ Em `test/extensao.test.js`, os casos da janela:
 - [ ] **Commit:** apague `Microsoft/` e faça `commit.sh 'chore: versão 0.5.3' .claude-plugin CHANGELOG.md`.
 - **Fica com o Sr. Garioli:** o merge, a tag, o release e a publicação da wiki, cada um com uma autorização separada.
 
+### Task 15: falso positivo do caminho e interruptores de proteção (Emenda 3, spec §12; executar antes da Task 13)
+
+**Arquivos:**
+- **Criar:** `src/guarda/protecoes.js`.
+- **Mudar:**
+  - `src/guarda/caminho.js`;
+  - os hooks `src/hooks/guarda-filha.js`, `guarda-arquivos.js`, `guarda-config.js` e `guarda-agenda.js`;
+  - `src/config/tabela.js` e `src/config/pedido.js`;
+  - `vscode/janela/janela.js`.
+- **Testes:**
+  - `test/guarda-caminho.test.js` (ou um arquivo novo, `test/guarda-cwd.test.js`);
+  - `test/protecoes.test.js`;
+  - os testes de config e de janela que listam os grupos.
+
+- [ ] **Teste falhando, caminho.** Estes casos ainda não passam:
+  - `chamaClaude('node "C:/Projetos DEV/Claude Hadouken/claude-hadouken/x.mjs"', {cwd})` deve dar `false`;
+  - o mesmo vale com `\`, com `/c/projetos dev/...` e com o comando em maiúsculas;
+  - `claudeComLiberar('node "<cwd>/x.mjs" $HOME', {cwd})` deve dar `false`.
+
+  Estes já passam e precisam continuar passando:
+  - `chamaClaude('"<cwd>/claude.exe" -p', {cwd})` dá `true`;
+  - `chamaClaude('C:/x/claude -p', {cwd:'C:/x/claude'})` dá `true`;
+  - um `cwd` raiz ou relativo não neutraliza nada;
+  - sem `cwd`, o comportamento é o de antes.
+- [ ] **Implementação, caminho.** Crie `semCwd(comando, cwd)` e chame-o no começo de `chamaClaude` e de `claudeComLiberar` quando o segundo argumento trouxer `cwd`. Em seguida, `guarda-filha.js` passa `{ cwd: entrada.cwd }`.
+- [ ] **Teste falhando, interruptores.** Os casos:
+  - `protecaoLigada(dir, id)` dá `true` sem `config.json`, com o arquivo ilegível ou com um item ausente;
+  - dá `false` quando o item está gravado como `false`.
+
+  Os hooks, rodados como processo com `HADOUKEN_DATA_DIR` de teste e o item desligado, não emitem deny nos casos que hoje negam:
+  - P4 com o texto do liberar;
+  - P5 num arquivo do dir de dados;
+  - ConfigChange;
+  - CronCreate com `/hadouken:liberar`.
+- [ ] **Implementação, interruptores.**
+  - Inclua os itens na tabela, num grupo novo `protecoes`, e o grupo em `GRUPOS_LIMITES`.
+  - Cada hook verifica o seu item antes de qualquer outra coisa (ou logo depois de resolver o `dir`).
+- [ ] **Janela.** Crie a aba `['protecoes', 'Proteções']`, com switches de rascunho e, sob cada um, uma linha `consequencia`. Inclua o teste em `test/janela.test.js` ou em `test/extensao.test.js`.
+- [ ] **Testes leves:** `tn.sh` com os arquivos tocados.
+- [ ] **Commit:** `fecha.sh vsc 15 ...`.
+
 ---
 
 ## Autorrevisão (feita)

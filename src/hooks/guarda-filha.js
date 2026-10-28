@@ -1,4 +1,4 @@
-import { rodarHook, emitirJson, falharAberto } from './comum.js';
+import { rodarHook, emitirJson, falharAberto, protecaoLigada } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva } from '../ativas.js';
 import { chamaClaude, claudeComLiberar } from '../guarda/caminho.js';
@@ -87,18 +87,25 @@ async function avaliarFilha(tool, dir, sessionId, agoraMs) {
   reg.anexarEvento(dir, 'filha-negada', tool, agoraMs);
 }
 
+// Emenda 3 (§12): o interruptor protecoes.sessaoFilha desligado deixa tudo
+// passar, até a regra fixa; ele só é lido quando a P4 iria agir. O cwd do
+// stdin não conta como claude (§12.1).
+const SESSAO_FILHA = 'protecoes.sessaoFilha';
+
 rodarHook(async (entrada, leitura) => {
   if (leitura?.casou === true) {
-    await negarLiberacao();
+    if (await protecaoLigada(SESSAO_FILHA)) await negarLiberacao();
     return;
   }
   if (entrada === null || !FERRAMENTAS.has(entrada.tool_name)) return;
   const comando = entrada.tool_input?.command;
-  if (claudeComLiberar(comando)) {
-    await negarLiberacao();
+  const opcoes = { cwd: entrada.cwd };
+  if (claudeComLiberar(comando, opcoes)) {
+    if (await protecaoLigada(SESSAO_FILHA)) await negarLiberacao();
     return;
   }
-  if (!chamaClaude(comando)) return;
+  if (!chamaClaude(comando, opcoes)) return;
+  if (!(await protecaoLigada(SESSAO_FILHA))) return;
   const sessionId = entrada.session_id;
   if (!idValido(sessionId)) return;
   const dir = dirDados();

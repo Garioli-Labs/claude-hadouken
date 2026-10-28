@@ -48,6 +48,11 @@ export const ITENS = Object.freeze([
   booleano('roteamento.negarN2', ['roteamento', 'negarN2'], 'roteamento', 'Roteamento: negar N2', PADRAO_ROTEAMENTO.negarN2),
   booleano('roteamento.avisos', ['roteamento', 'avisos'], 'roteamento', 'Roteamento: avisos', PADRAO_ROTEAMENTO.avisos),
   booleano('roteamento.sugerirSessao', ['roteamento', 'sugerirSessao'], 'roteamento', 'Roteamento: sugerir sessão', PADRAO_ROTEAMENTO.sugerirSessao),
+  // Emenda 3 (§12.2): os interruptores das proteções fixas (guarda/protecoes.js).
+  booleano('protecoes.sessaoFilha', ['protecoes', 'sessaoFilha'], 'protecoes', 'Bloquear sessão claude filha', true, 'desligar'),
+  booleano('protecoes.arquivos', ['protecoes', 'arquivos'], 'protecoes', 'Proteger os arquivos do hadouken', true, 'desligar'),
+  booleano('protecoes.hooks', ['protecoes', 'hooks'], 'protecoes', 'Segurar mudança de hooks', true, 'desligar'),
+  booleano('protecoes.agenda', ['protecoes', 'agenda'], 'protecoes', 'Bloquear liberar por tarefa agendada', true, 'desligar'),
 ]);
 
 // Pares que precisam de ordem: [menor, maior, estrito]. Um par incoerente no

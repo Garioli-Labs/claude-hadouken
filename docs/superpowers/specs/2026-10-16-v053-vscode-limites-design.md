@@ -8,6 +8,10 @@ Emenda de 2026-10-16: a janela ganha a aba Roteamento (§4.1), aprovada no desen
 
 Emenda 2 de 2026-10-16: o pedido do Sr. Garioli foi "As aparências do hadouken podem ser algo bem '8 bits/vintage'". A logo, os segmentos e a janela passam a ter o estilo 8 bits descrito na §4.5.
 
+Emenda 3 de 2026-10-28: o pedido do Sr. Garioli foi "o hadouken tá mto chato; trava tudo toda hora. Quero que, dentro dessa interface, o usuário possa mudar todas as configurações dele". Isso traz duas mudanças, descritas na §12:
+- a correção do falso positivo do caminho na P4;
+- quatro interruptores de proteção, mostrados na janela e no `/hadouken:limites`.
+
 ## 1. O que o Sr. Garioli pediu
 
 Tudo o que está entre aspas abaixo são palavras dele.
@@ -342,3 +346,48 @@ Para quem não usa VS Code, e para quem prefere o terminal.
 - O tema da barra inteira do VS Code (`workbench.colorCustomizations`): recusado.
 - A revisão de segurança, estabilidade e compatibilidade: v0.5.4.
 - Os minors adiados da v0.5.2 (7, 8, 10, 11 e 12) não estão aqui. O 8, a linha do painel repetida para quem não tem VS Code, encosta na parte 3 desta spec, e o plano pode absorvê-lo se for barato.
+
+## 12. Emenda 3 (2026-10-28): menos travas falsas, e cada proteção com um interruptor
+
+### 12.1 O falso positivo do caminho na P4
+
+A P4 confunde o caminho deste repositório com uma chamada ao claude. O `chamaClaude` (`src/guarda/caminho.js`) procura `claude` como nome de comando. O caminho `C:/Projetos DEV/Claude Hadouken/...` tem um segmento `Claude` logo depois de um espaço, e o teste o toma por comando. Com a guarda disparada, a P4 negava qualquer `node`, `bash` ou outro lançador que citasse um arquivo do projeto.
+
+O `claudeComLiberar` negava mesmo com a guarda calma. O culpado é o teste (b), que dispara com três coisas juntas: a palavra claude, o texto `hadouken` e um `$` ou `*`.
+
+**A correção.** Os dois testes recebem o `cwd` do stdin do hook. Antes de procurar, trocam por `.` cada ocorrência do `cwd` no comando:
+- sem diferenciar maiúsculas;
+- com `/` ou com `\` como separador;
+- também na forma `/c/...` do bash do Git.
+
+A troca obedece a três limites:
+- só vale quando o `cwd` vem seguido de separador, aspa, espaço ou fim;
+- nunca vale quando o último segmento do `cwd` é `claude` (com `.exe`, `.cmd` ou `.ps1` opcionais), porque aí o próprio `cwd` poderia ser o executável;
+- um `cwd` que não é absoluto, ou que é só a raiz, não troca nada.
+
+O resto do comando continua conferido. Por exemplo, `C:/x/claude.exe -p` com `cwd` `C:/x` vira `./claude.exe -p`, que continua contando como claude.
+
+### 12.2 Os interruptores
+
+Os quatro itens são booleanos do grupo `protecoes`, com padrão `true` e `frouxo: 'desligar'`.
+
+| id | rótulo | quem obedece |
+|---|---|---|
+| `protecoes.sessaoFilha` | Bloquear sessão claude filha | `guarda-filha.js` (P4), inclusive a regra fixa do texto do liberar |
+| `protecoes.arquivos` | Proteger os arquivos do hadouken | `guarda-arquivos.js` (P5) |
+| `protecoes.hooks` | Segurar mudança de hooks | `guarda-config.js` (ConfigChange) |
+| `protecoes.agenda` | Bloquear liberar por tarefa agendada | `guarda-agenda.js` |
+
+Cada hook lê o seu item com `protecaoLigada(id)`, em `src/guarda/protecoes.js`.
+- **Item desligado:** o hook passa sem saída e sem evento.
+- **Leitura com erro:** o item conta como ligado. É falha fechada, porque desligar é afrouxar.
+
+O Claude não consegue desligar um item editando o `config.json`, porque a P5 ligada protege esse arquivo. O usuário desliga por um destes dois caminhos:
+- na janela, na aba **Proteções**;
+- com `/hadouken:limites protecoes.<x> desliga`. Para isso, o grupo `protecoes` entra em `GRUPOS_LIMITES`.
+
+Na aba, cada interruptor tem embaixo uma linha dizendo o que se perde ao desligá-lo. Não há diálogo de confirmação: a mudança é reversível, tem Desfazer por 15 s e mostra o aviso de afrouxar.
+
+O risco fica declarado no SECURITY.md e no README (Task 13):
+- com a P5 desligada, o Claude pode editar a configuração e os settings;
+- com a P4 desligada, uma sessão filha pode tentar o liberar, mas o `liberar.js` ainda recusa qualquer origem que não seja o comando digitado.

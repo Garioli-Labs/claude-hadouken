@@ -448,8 +448,54 @@ function lancamentoDe(texto) {
 // da Task 18 deixa o git commit fora da P4. O claudeComLiberar tira esse
 // trailer antes do teste (b): ver TRAILER abaixo.
 const CLAUDE = /(?:^|[\s;&|(:])(?:[^\s;&|()"']*[\\/])?claude(?:\.exe|\.cmd|\.ps1)?(?=\s|$|["'<>])/i;
-export function chamaClaude(comando) {
-  if (typeof comando !== 'string') return false;
+
+// Emenda 3 (spec v0.5.3 VS Code §12.1): o cwd do hook, no comando, vira '.'
+// antes dos testes. O caminho 'C:/Projetos DEV/Claude Hadouken/...' tinha um
+// 'Claude' depois de espaço, e a P4 negava todo node ou bash que citasse um
+// arquivo do projeto. Troca só o cwd inteiro (sem diferenciar maiúsculas, com
+// / ou \, e na forma /c/... do bash do Git) seguido de separador, aspa,
+// espaço ou fim; o resto do comando continua conferido. Não troca nada com
+// um cwd relativo, só raiz, ou cujo último segmento é claude (com .exe, .cmd
+// ou .ps1 opcionais: o próprio cwd poderia ser o executável). Devolve o texto em minúsculas, que
+// os dois testes já comparam assim.
+const FIM_DO_CWD = /^(?:[\\/"'\s]|$)/;
+function formasDoCwd(cwd) {
+  if (typeof cwd !== 'string' || cwd.length > 4096) return [];
+  const limpo = cwd.toLowerCase().replace(/[\\/]+$/, '');
+  const segs = limpo.split(/[\\/]+/).filter(Boolean);
+  const absoluto = /^[a-z]:[\\/]/.test(cwd.toLowerCase()) || cwd.startsWith('/') || cwd.startsWith('\\\\');
+  const raiz = segs.length === 0 || (segs.length === 1 && /^[a-z]:$/.test(segs[0]));
+  if (!absoluto || raiz || /^claude(?:\.exe|\.cmd|\.ps1)?$/.test(segs[segs.length - 1])) return [];
+  const barra = limpo.replace(/\\/g, '/');
+  const formas = new Set([barra, barra.replace(/\//g, '\\')]);
+  const drive = /^([a-z]):\/(.*)$/.exec(barra);
+  if (drive) formas.add(`/${drive[1]}/${drive[2]}`);
+  return [...formas].sort((a, b) => b.length - a.length);
+}
+export function semCwd(comando, cwd) {
+  let texto = comando.toLowerCase();
+  for (const forma of formasDoCwd(cwd)) {
+    let saida = '';
+    let i = 0;
+    for (let j = texto.indexOf(forma); j !== -1; j = texto.indexOf(forma, j + 1)) {
+      if (j < i || !FIM_DO_CWD.test(texto.slice(j + forma.length, j + forma.length + 1))) continue;
+      saida += `${texto.slice(i, j)}.`;
+      i = j + forma.length;
+    }
+    texto = saida + texto.slice(i);
+  }
+  return texto;
+}
+const comCwd = (comando, opcoes) => (typeof comando === 'string' && typeof opcoes?.cwd === 'string' ? semCwd(comando, opcoes.cwd) : comando);
+
+export function chamaClaude(comandoBruto, opcoes) {
+  if (typeof comandoBruto !== 'string') return false;
+  let comando;
+  try {
+    comando = comCwd(comandoBruto, opcoes);
+  } catch {
+    return true;
+  }
   if (CLAUDE.test(comando)) return true;
   try {
     return lancamentoDe(comando.toLowerCase()) === CLAUDE_LANCADO;
@@ -555,9 +601,10 @@ const semEscapeDe = (t) => t.replace(/\\/g, '');
 const TRAILER = /(?<=^|\n)[ \t]*co-authored-by:[ \t]*claude[^;&|()$`'"\\\n<]*<noreply@anthropic\.com>(?=[ \t]*(?:\r?\n|$|["']))/gi;
 const semTrailer = (t) => t.replace(TRAILER, ' ');
 
-export function claudeComLiberar(comando) {
+export function claudeComLiberar(comandoBruto, opcoes) {
   try {
-    if (typeof comando !== 'string') return false;
+    if (typeof comandoBruto !== 'string') return false;
+    const comando = comCwd(comandoBruto, opcoes);
     const bruto = comando.toLowerCase();
     const grande = comando.length > LIMITE;
     if (grande && bruto.includes('liberar')) return true;

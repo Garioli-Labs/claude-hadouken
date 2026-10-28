@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { rodarHook, emitirJson, falharAberto } from './comum.js';
+import { rodarHook, emitirJson, falharAberto, protecaoLigada } from './comum.js';
 import { dirDados } from '../base.js';
 // Só comum.js e base.js entram estáticos: um deles que não carrega derruba o
 // processo com código 1, e o Claude Code trata essa saída como erro que não
@@ -62,7 +62,10 @@ const P5_PROTEGIDO_RESERVA = 'hadouken: bloqueado: o hadouken não deixa o Claud
 // (chave) ou, se ele não carrega, o de reserva; o evento vem depois e nunca o
 // impede. registros.js importa arquivo.js: com arquivo.js quebrado, o deny sai
 // sem evento (R2). Nunca lança.
+// Com o interruptor protecoes.arquivos desligado (Emenda 3, §12.2), passa
+// calado.
 async function negar(chave, reserva, dir, tipo, detalhe, agoraMs) {
+  if (!(await protecaoLigada('protecoes.arquivos'))) return;
   let razao = reserva;
   try {
     const msg = await import('../guarda/mensagens.js');

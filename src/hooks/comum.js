@@ -38,6 +38,17 @@ export function emitirJson(valor) {
   process.stdout.write(JSON.stringify(valor));
 }
 
+// Interruptor da proteção (Emenda 3 da spec v0.5.3 VS Code, §12.2), por
+// import dinâmico como o registro abaixo. Falha fechada: sem o módulo, a
+// proteção vale.
+export async function protecaoLigada(id) {
+  try {
+    return (await import('../guarda/protecoes.js')).protecaoLigada(dirDados(), id);
+  } catch {
+    return true;
+  }
+}
+
 // Fail-open visível dos hooks da guarda (spec v0.4.0 §4.5): qualquer exceção
 // em fn (import que falha, avaliação, perfil, mensagem, escrita) deixa o hook
 // passar e registra o evento 'erro' com o detalhe do hook (rótulo fixo, ex.

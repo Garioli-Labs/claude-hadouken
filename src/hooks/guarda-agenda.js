@@ -1,4 +1,4 @@
-import { rodarHook, emitirJson, avisarLeituraFalha } from './comum.js';
+import { rodarHook, emitirJson, avisarLeituraFalha, protecaoLigada } from './comum.js';
 import { dirDados } from '../base.js';
 import { pedeLiberacao, desfazEscapesJson } from '../guarda/caminho.js';
 
@@ -59,8 +59,10 @@ function algumTextoPede(valor) {
   return false;
 }
 
-// O deny sai primeiro; o evento vem depois e nunca o impede.
+// O deny sai primeiro; o evento vem depois e nunca o impede. Com o
+// interruptor protecoes.agenda desligado (Emenda 3, §12.2), passa calado.
 async function negar(detalhe) {
+  if (!(await protecaoLigada('protecoes.agenda'))) return;
   let razao = AGENDA_LIBERAR_RESERVA;
   try {
     const msg = await import('../guarda/mensagens.js');

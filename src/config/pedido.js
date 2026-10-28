@@ -2,11 +2,12 @@ import { ITEM } from './tabela.js';
 
 // A gramática de /hadouken:limites (spec v0.5.3 VS Code §2.2), fechada:
 // nada, `padrao`, `<item> padrao` ou `<item> <valor>`. Só os itens da
-// guarda, da barra e dos alertas; o aprendizado e o roteamento têm comandos
-// próprios. Valor: inteiro de até 4 dígitos, ou liga/desliga para
-// guarda.ligada. A faixa de cada item quem confere é validar (ler.js).
+// guarda, da barra, dos alertas e das proteções (Emenda 3, §12.2); o
+// aprendizado e o roteamento têm comandos próprios. Valor: inteiro de até 4
+// dígitos, ou liga/desliga para os booleanos. A faixa de cada item quem
+// confere é validar (ler.js).
 
-export const GRUPOS_LIMITES = Object.freeze(['guarda', 'barra', 'alertas']);
+export const GRUPOS_LIMITES = Object.freeze(['guarda', 'barra', 'alertas', 'protecoes']);
 const INVALIDO = Object.freeze({ acao: 'invalido' });
 
 export function lerPedidoLimites(args) {

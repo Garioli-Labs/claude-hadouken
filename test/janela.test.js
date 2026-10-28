@@ -111,3 +111,10 @@ test('pixel.woff2 (Press Start 2P) e OFL.txt na pasta da janela', () => {
   assert.match(ler('OFL.txt'), /Press Start 2P/);
   assert.match(ler('bola.svg'), /^<svg [^>]*shape-rendering="crispEdges"/);
 });
+
+test('Emenda 3 §12.2: aba Proteções com a consequência de cada interruptor', async () => {
+  const { PROTECOES } = await import('../src/guarda/protecoes.js');
+  assert.match(JS, /\['protecoes', 'Proteções'\]/);
+  for (const id of PROTECOES) assert.match(JS, new RegExp(`'${id.replace('.', '\\.')}': 'Desligado: `));
+  assert.match(JS, /consequencia-\$\{i\.id\}/);
+});

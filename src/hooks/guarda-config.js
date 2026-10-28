@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { rodarHook, emitirJson, falharAberto } from './comum.js';
+import { rodarHook, emitirJson, falharAberto, protecaoLigada } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 import { sessaoAtiva } from '../ativas.js';
 
@@ -53,7 +53,10 @@ function pastaExiste(dir) {
   }
 }
 
+// Com o interruptor protecoes.hooks desligado (Emenda 3, §12.2), passa
+// calado.
 async function bloquear(dir, detalhe, agoraMs) {
+  if (!(await protecaoLigada('protecoes.hooks'))) return;
   const msg = await import('../guarda/mensagens.js');
   emitirJson({ decision: 'block', reason: msg.CONFIG_BLOQUEADA_TEXTO });
   try {

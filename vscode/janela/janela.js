@@ -13,7 +13,16 @@
   const GRUPOS = [
     ['guarda', 'Guarda'], ['barra', 'Barra'], ['alertas', 'Alertas'],
     ['aprendizado', 'Aprendizado'], ['painel', 'Painel'], ['roteamento', 'Roteamento'],
+    ['protecoes', 'Proteções'],
   ];
+  // Emenda 3 (§12.2): o que se perde ao desligar cada proteção, na linha
+  // abaixo do switch. Sem diálogo: a mudança tem Desfazer e o aviso de afrouxar.
+  const CONSEQUENCIA = {
+    'protecoes.sessaoFilha': 'Desligado: o Claude pode abrir outra sessão claude (claude -p, plugin install) mesmo com a guarda disparada.',
+    'protecoes.arquivos': 'Desligado: o Claude pode editar a configuração do hadouken e os settings do Claude Code.',
+    'protecoes.hooks': 'Desligado: mudanças em hooks, plugins e disableAllHooks nos settings valem na hora.',
+    'protecoes.agenda': 'Desligado: tarefas agendadas, loops e rotinas podem pedir o liberar e o aprender (o liberar ainda recusa o que não foi digitado).',
+  };
   // [menor, maior, estrito], os mesmos pares de src/config/tabela.js.
   const PARES = [
     ['barra.ctx.amarelo', 'barra.ctx.vermelho', true],
@@ -186,7 +195,7 @@
     const ligado = atual(i) === true;
     const botao = criar('button', {
       type: 'button', role: 'switch', id: `campo-${i.id}`, 'aria-checked': String(ligado),
-      'aria-describedby': `dica-${i.id} frouxo-${i.id}`,
+      'aria-describedby': `dica-${i.id}${CONSEQUENCIA[i.id] ? ` consequencia-${i.id}` : ''} frouxo-${i.id}`,
     }, `${i.rotulo}: ${ligado ? 'ligado' : 'desligado'}`);
     botao.addEventListener('click', () => {
       const novo = botao.getAttribute('aria-checked') !== 'true';
@@ -196,6 +205,7 @@
     });
     caixa.append(botao);
     caixa.append(criar('p', { id: `dica-${i.id}`, class: 'dica' }, `padrão ${i.padrao ? 'ligado' : 'desligado'}`));
+    if (CONSEQUENCIA[i.id]) caixa.append(criar('p', { id: `consequencia-${i.id}`, class: 'dica' }, CONSEQUENCIA[i.id]));
     const aviso = criar('p', { id: `frouxo-${i.id}`, class: 'frouxo' });
     aviso.hidden = true;
     caixa.append(aviso);
