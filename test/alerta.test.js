@@ -541,3 +541,19 @@ test('linha econômica com piso: sem a parte do ritmo', () => {
   });
   assert.deepEqual(r.linhas, ['7d ≥ 61% (leitura de 2 h) vs 50% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação.']);
 });
+
+// v0.5.4 (spec VS Code §2.1): limiares de projeção do config.json. O nome da
+// faixa vem da tabela (limiaresAlertas), nunca do arquivo; o texto do aviso
+// fica o mesmo.
+test('projeção 7d com limiar de 12 h: 13 h não avisa, 11 h avisa e guarda a faixa 12h', () => {
+  const limiares = { five_hour: [['60', 60 * MIN], ['30', 30 * MIN]], seven_day: [['12h', 12 * 60 * MIN]] };
+  assert.deepEqual(projetar({ seven_day: agora + 13 * 60 * MIN }, ALERTAS_VAZIO, { limiares }).linhas, []);
+  const q11 = agora + 11 * 60 * MIN;
+  const r = projetar({ seven_day: q11 }, ALERTAS_VAZIO, { limiares });
+  assert.deepEqual(r.linhas, [linha7(q11)]);
+  assert.equal(r.novos.projecao.s1.seven_day.faixa, '12h');
+  // Sem limiares, a tabela de sempre: 13 h avisa (24 h).
+  assert.equal(projetar({ seven_day: agora + 13 * 60 * MIN }).linhas.length, 1);
+  // Limiares fora do formato: a tabela de sempre.
+  assert.equal(projetar({ seven_day: agora + 13 * 60 * MIN }, ALERTAS_VAZIO, { limiares: { seven_day: 'x' } }).linhas.length, 1);
+});

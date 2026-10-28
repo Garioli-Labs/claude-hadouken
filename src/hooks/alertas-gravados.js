@@ -84,9 +84,13 @@ const FAIXAS = Object.freeze({
   five_hour: new Set(['ok', 'atencao', 'serializar', 'fechar']),
   seven_day: new Set(['normal', 'folga', 'economico', 'so-leitura']),
 });
+// v0.5.4: os limiares de projeção vêm do config.json (limiaresAlertas), e o
+// nome da faixa é o valor: minutos na 5h, horas com 'h' na semana, nas
+// faixas de src/config/tabela.js.
+const nomeFaixa = (re, min, max) => ({ has: (f) => typeof f === 'string' && re.test(f) && Number.parseInt(f, 10) >= min && Number.parseInt(f, 10) <= max });
 const FAIXAS_PROJECAO = Object.freeze({
-  five_hour: new Set(['60', '30']),
-  seven_day: new Set(['24h']),
+  five_hour: nomeFaixa(/^\d{1,3}$/, 5, 180),
+  seven_day: nomeFaixa(/^\d{1,2}h$/, 1, 72),
 });
 const CHAVES = new Set(['at', 'five_hour', 'seven_day', 'sem_leitura']);
 const INVALIDO = Symbol('invalido');

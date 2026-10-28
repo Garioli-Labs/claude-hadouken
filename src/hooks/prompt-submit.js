@@ -95,9 +95,14 @@ rodarHook(async (entrada) => {
   const arqProjecao = join(dir, ARQ_PROJECAO);
   const lidoProjecao = lerJson(arqProjecao, ALERTAS_MAX_BYTES);
   const projecaoLida = lidoProjecao.ok ? lidoProjecao.valor : null;
+  // v0.5.4: limiares de projeção do config.json; uma falha deixa os de sempre.
+  let limiares;
+  try {
+    limiares = (await import('../config/ler.js')).limiaresAlertas(dir);
+  } catch { /* limiares de sempre */ }
   const { linhas, novos } = avaliarAlertas({
     limites, leituras, ultima, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
-    previsao,
+    previsao, limiares,
     ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs }),
     sessoesAtivas: ativas,
   });

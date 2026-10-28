@@ -176,12 +176,16 @@ export function faixasBarra(dir) {
   };
 }
 
-// No formato de FAIXAS_PROJECAO (alerta.js). Os nomes das faixas ficam os
-// de sempre ('60', '30', '24h'): são a chave de "já avisou" no estado.
+// No formato de FAIXAS_PROJECAO (alerta.js). O nome de cada faixa sai do
+// valor desta tabela ('60', '30', '24h' nos padrões, como sempre), nunca do
+// arquivo: é a chave de "já avisou" em projecao.json.
 export function limiaresAlertas(dir) {
   const v = valoresDoDir(dir);
+  const m0 = v['alertas.projecao5hMin.0'];
+  const m1 = v['alertas.projecao5hMin.1'];
+  const h = v['alertas.projecao7dH'];
   return {
-    five_hour: [['60', v['alertas.projecao5hMin.0'] * MIN_MS], ['30', v['alertas.projecao5hMin.1'] * MIN_MS]],
-    seven_day: [['24h', v['alertas.projecao7dH'] * HORA_MS]],
+    five_hour: [[String(m0), m0 * MIN_MS], [String(m1), m1 * MIN_MS]],
+    seven_day: [[`${h}h`, h * HORA_MS]],
   };
 }

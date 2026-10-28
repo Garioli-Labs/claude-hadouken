@@ -16,8 +16,13 @@ const COR = { verde: '\x1b[32m', amarelo: '\x1b[33m', vermelho: '\x1b[31m', fim:
 // contradizer o número. Casa única (test/casa-unica.test.js).
 const FAIXAS_CTX = Object.freeze({ amarelo: 70, vermelho: 85 });
 const FAIXAS_CACHE = Object.freeze({ amarelo: 50, verde: 80 });
-const corCtx = (n) => (n >= FAIXAS_CTX.vermelho ? 'vermelho' : n >= FAIXAS_CTX.amarelo ? 'amarelo' : 'verde');
-const corCache = (n) => (n >= FAIXAS_CACHE.verde ? 'verde' : n >= FAIXAS_CACHE.amarelo ? 'amarelo' : 'vermelho');
+const corCtx = (n, f = FAIXAS_CTX) => (n >= f.vermelho ? 'vermelho' : n >= f.amarelo ? 'amarelo' : 'verde');
+const corCache = (n, f = FAIXAS_CACHE) => (n >= f.verde ? 'verde' : n >= f.amarelo ? 'amarelo' : 'vermelho');
+// v0.5.4: faixas do config.json (faixasBarra, src/config/ler.js), que já as
+// valida; aqui só a forma, e o par fora de ordem fica com as de sempre.
+const parValido = (o, a, b) => ehObjeto(o) && noIntervalo(o[a], 0, 100) && noIntervalo(o[b], 0, 100) && o[a] < o[b];
+const faixasCtx = (f) => (ehObjeto(f) && parValido(f.ctx, 'amarelo', 'vermelho') ? f.ctx : FAIXAS_CTX);
+const faixasCache = (f) => (ehObjeto(f) && parValido(f.cache, 'amarelo', 'verde') ? f.cache : FAIXAS_CACHE);
 const MAX_MODELO = 40;
 const SEM_VALOR = '—';
 const SEPARADOR = ' │ ';
@@ -59,7 +64,7 @@ export const MARCAS_VALIDAS = Object.freeze(['↓ effort medium', '↓ sonnet', 
 // saneado; vazio não muda nada.
 export function formatarBarra(opcoes) {
   try {
-    const { entrada, cor, guarda, versao, marca } = opcoes ?? {};
+    const { entrada, cor, guarda, versao, marca, faixas } = opcoes ?? {};
     const e = ehObjeto(entrada) ? entrada : {};
     const ligado = cor === true;
 
@@ -73,7 +78,7 @@ export function formatarBarra(opcoes) {
 
     const ctx = ehObjeto(e.context_window) ? e.context_window.used_percentage : undefined;
     partes.push(noIntervalo(ctx, 0, 100)
-      ? pinta(indicador('ctx', ctx, pct(ctx)), corCtx(Math.floor(ctx)), ligado)
+      ? pinta(indicador('ctx', ctx, pct(ctx)), corCtx(Math.floor(ctx), faixasCtx(faixas)), ligado)
       : `ctx ${SEM_VALOR}`);
 
     // V1 (2026-09-25): a statusline não traz tokens acumulados da sessão; o
@@ -81,7 +86,7 @@ export function formatarBarra(opcoes) {
     const hr = ehObjeto(e.prompt_cache) ? e.prompt_cache.hit_ratio : undefined;
     if (noIntervalo(hr, 0, 1)) {
       const pontos = emPontos(hr);
-      partes.push(pinta(indicador('cache', pontos, pct(pontos)), corCache(Math.floor(pontos)), ligado));
+      partes.push(pinta(indicador('cache', pontos, pct(pontos)), corCache(Math.floor(pontos), faixasCache(faixas)), ligado));
     } else {
       partes.push(`cache ${SEM_VALOR}`);
     }

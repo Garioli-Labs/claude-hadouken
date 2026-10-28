@@ -89,7 +89,12 @@ async function principal() {
   // deste script; formatarBarra valida o formato e a põe no canto direito.
   const plugin = lerJson(fileURLToPath(new URL('../.claude-plugin/plugin.json', import.meta.url)), 64 * 1024);
   const versao = plugin.ok && plugin.valor !== null && typeof plugin.valor === 'object' ? plugin.valor.version : undefined;
-  process.stdout.write(formatarBarra({ entrada, cor, guarda, versao, marca }));
+  // v0.5.4: faixas da barra do config.json; uma falha deixa as de sempre.
+  let faixas;
+  try {
+    faixas = (await import('./config/ler.js')).faixasBarra(dirDados());
+  } catch { /* faixas de sempre */ }
+  process.stdout.write(formatarBarra({ entrada, cor, guarda, versao, marca, faixas }));
 }
 
 principal().catch(() => {}).finally(() => { process.exitCode = 0; });

@@ -184,13 +184,25 @@ function linha7d(faixa, f7, esperado, agoraMs, ritmoH) {
 
 // A faixa de projeção de uma janela para a distância `faltaMs` (> 0) até o
 // estouro: a mais funda cujo limite a contém, ou null.
-function faixaProjecao(janela, faltaMs) {
+function faixaProjecao(tabela, faltaMs) {
   let faixa = null;
-  for (const [nome, limite] of FAIXAS_PROJECAO[janela]) if (faltaMs <= limite) faixa = nome;
+  for (const [nome, limite] of tabela) if (faltaMs <= limite) faixa = nome;
   return faixa;
 }
 
-const profundidade = (janela, faixa) => FAIXAS_PROJECAO[janela].findIndex(([nome]) => nome === faixa);
+const profundidade = (tabela, faixa) => tabela.findIndex(([nome]) => nome === faixa);
+
+// v0.5.4: limiares do config.json (limiaresAlertas, src/config/ler.js). Aqui
+// só a forma: lista não vazia de [nome curto, ms > 0], do mais raso para o
+// mais fundo; o que não passa usa a tabela de sempre.
+const NOME_FAIXA = /^\d{1,3}h?$/;
+function tabelaProjecao(limiares, janela) {
+  const t = limiares !== null && typeof limiares === 'object' ? limiares[janela] : undefined;
+  const ok = Array.isArray(t) && t.length >= 1 && t.length <= 4
+    && t.every((f, i) => Array.isArray(f) && typeof f[0] === 'string' && NOME_FAIXA.test(f[0])
+      && numeroFinito(f[1]) && f[1] > 0 && (i === 0 || f[1] < t[i - 1][1]));
+  return ok ? t : FAIXAS_PROJECAO[janela];
+}
 
 // A linha fixa do aviso de projeção: só rótulos do código, horários
 // formatados e o número de sessões ativas (spec v0.2.0 §12.7). 5h com a hora
@@ -212,7 +224,7 @@ function linhaProjecao(janela, quandoMs, resetsAt, sessoes, agoraMs) {
 // guardada na mesma janela, então sair de faixa e voltar não repete o aviso.
 // Devolve { linhas, memoria }, com memoria null quando as duas janelas ficam
 // sem faixa.
-function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs }) {
+function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs, limiares }) {
   const linhas = [];
   const memoria = { five_hour: guardada?.five_hour ?? null, seven_day: guardada?.seven_day ?? null };
   const p = previsao !== null && typeof previsao === 'object' ? previsao : {};
@@ -223,8 +235,9 @@ function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs }
     const mesma = mesmaJanela(anterior, f.resets_at);
     const quando = p[janela];
     const antesDoReset = numeroFinito(quando) && numeroFinito(agoraMs) && quando > agoraMs && quando < f.resets_at * 1000;
-    const faixa = antesDoReset ? faixaProjecao(janela, quando - agoraMs) : null;
-    if (faixa !== null && (!mesma || profundidade(janela, faixa) > profundidade(janela, anterior.faixa))) {
+    const tabela = tabelaProjecao(limiares, janela);
+    const faixa = antesDoReset ? faixaProjecao(tabela, quando - agoraMs) : null;
+    if (faixa !== null && (!mesma || profundidade(tabela, faixa) > profundidade(tabela, anterior.faixa))) {
       linhas.push(linhaProjecao(janela, quando, f.resets_at, sessoesAtivas, agoraMs));
       memoria[janela] = { resets_at: f.resets_at, faixa };
     } else if (!mesma) {
@@ -254,7 +267,7 @@ export function avaliarAlertas(entrada) {
   }
 }
 
-function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH }) {
+function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH, limiares }) {
   const ant = anteriores ?? ALERTAS_VAZIO;
   const novos = {
     five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura }, projecao: { ...ant.projecao },
@@ -311,7 +324,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
   // memória da sessão como estava; os avisos de faixa acima saem igual.
   try {
     const guardada = Object.hasOwn(novos.projecao, sessionId) ? novos.projecao[sessionId] : null;
-    const projecao = avaliarProjecao({ limites: ehObjeto(limites) ? limites : {}, guardada, previsao, sessoesAtivas, agoraMs });
+    const projecao = avaliarProjecao({ limites: ehObjeto(limites) ? limites : {}, guardada, previsao, sessoesAtivas, agoraMs, limiares });
     // Só mexe na memória quando ela muda: a sessão alterada vai para o fim da
     // ordem, de onde projecaoParaGravar (hooks/alertas-gravados.js) corta o teto.
     if (JSON.stringify(projecao.memoria) !== JSON.stringify(guardada)) {

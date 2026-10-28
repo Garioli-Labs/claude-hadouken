@@ -438,11 +438,12 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   // barra avalia a guarda (spec §8.3 e §11): os módulos dela e previsao.js
   // (G1 e G2) entram, também só depois do gate, com o aperto aprendido
   // (guarda/aperto.js e o módulo leve aprendizado/arquivos.js, Task 6).
-  // Desde a v0.5.3, roteamento/fila.js, para a marca da sugestão.
+  // Desde a v0.5.3, roteamento/fila.js, para a marca da sugestão; desde a
+  // v0.5.4, config/ler.js e config/tabela.js, para as faixas da barra.
   assert.deepEqual(dentro.nomes, [
     'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js',
-    'fila.js', 'formato.js', 'gatilhos.js', 'ler-uso.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'registros.js',
-    'statusline.js', 'travas.js', 'util.js',
+    'fila.js', 'formato.js', 'gatilhos.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'registros.js',
+    'statusline.js', 'tabela.js', 'travas.js', 'util.js',
   ]);
 });
 

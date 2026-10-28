@@ -278,3 +278,15 @@ test('marca do roteamento: só da lista fixa, antes da versão', () => {
     assert.equal(formatarBarra({ entrada, cor: false, marca: m }), LINHA);
   }
 });
+
+// v0.5.4 (spec VS Code §2.1): faixas da barra vindas do config.json; sem
+// `faixas`, ou com faixas fora do formato, as de sempre.
+test('faixas configuradas: ctx 55 com amarelo 50 e vermelho 60 fica amarelo', () => {
+  const e = { ...entrada, context_window: { used_percentage: 55 } };
+  const faixas = { ctx: { amarelo: 50, vermelho: 60 }, cache: { amarelo: 50, verde: 80 } };
+  assert.match(formatarBarra({ entrada: e, cor: true, faixas }), /\x1b\[33mctx /);
+  assert.match(formatarBarra({ entrada: e, cor: true }), /\x1b\[32mctx /);
+  assert.match(formatarBarra({ entrada: e, cor: true, faixas: { ctx: { amarelo: 'x' } } }), /\x1b\[32mctx /);
+  const cache = { ...entrada, prompt_cache: { hit_ratio: 0.6 } };
+  assert.match(formatarBarra({ entrada: cache, cor: true, faixas: { ctx: { amarelo: 70, vermelho: 85 }, cache: { amarelo: 50, verde: 55 } } }), /\x1b\[32mcache /);
+});
