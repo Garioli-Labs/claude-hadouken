@@ -212,7 +212,8 @@ test('vscode/package.json: o manifesto do plano, sem dependências', () => {
     engines: { vscode: '^1.90.0' },
     main: './extension.cjs',
     activationEvents: ['onStartupFinished'],
-    contributes: { commands: [{ command: 'claudeHadouken.atualizarUso', title: 'Claude Hadouken: atualizar uso agora' }] },
+    // Os ícones (v0.5.4) são conferidos no teste da fonte, mais abaixo.
+    contributes: { commands: [{ command: 'claudeHadouken.atualizarUso', title: 'Claude Hadouken: atualizar uso agora' }], icons: p.contributes.icons },
   });
   assert.doesNotMatch(PACOTE, /\r/);
 });
@@ -356,4 +357,73 @@ test('extensão: HADOUKEN_HOME relativo não carrega nada (a mesma regra de base
     if (homeAntes === undefined) delete process.env.HADOUKEN_HOME;
     else process.env.HADOUKEN_HOME = homeAntes;
   }
+});
+
+// v0.5.4 (spec VS Code §4.5): a fonte de ícones do hadouken e os extras do .vsix.
+const ICONES = [
+  'hadouken-0', 'hadouken-1', 'hadouken-2', 'hadouken-3', 'hadouken-4',
+  'hadouken-seg-cheio', 'hadouken-seg-meio', 'hadouken-seg-vazio', 'hadouken-seta',
+];
+
+test('package.json: os 9 ícones na fonte hadouken.woff, de \\E001 a \\E009 na ordem', () => {
+  const icones = JSON.parse(PACOTE).contributes.icons;
+  assert.deepEqual(Object.keys(icones), ICONES);
+  ICONES.forEach((id, i) => {
+    assert.deepEqual(icones[id].default, { fontPath: './icones/hadouken.woff', fontCharacter: `\\E00${i + 1}` }, id);
+    assert.equal(typeof icones[id].description, 'string', id);
+  });
+  const cp = JSON.parse(fs.readFileSync(path.join(repo, 'scripts', 'fonte.json'), 'utf8')).codepoints;
+  assert.deepEqual(Object.entries(cp), ICONES.map((id, i) => [id, 0xe001 + i]));
+});
+
+test('vscode/icones/hadouken.woff existe e começa com wOFF', () => {
+  const woff = fs.readFileSync(path.join(repo, 'vscode', 'icones', 'hadouken.woff'));
+  assert.equal(woff.subarray(0, 4).toString('latin1'), 'wOFF');
+});
+
+test('SVGs dos ícones: pixel art 16x16, só <rect> com atributos inteiros', () => {
+  const pasta = path.join(repo, 'vscode', 'icones', 'svg');
+  assert.deepEqual(fs.readdirSync(pasta).sort(), ICONES.map((id) => `${id}.svg`).sort());
+  for (const nome of fs.readdirSync(pasta)) {
+    const t = fs.readFileSync(path.join(pasta, nome), 'utf8').trim();
+    const m = /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">(.*)<\/svg>$/.exec(t);
+    assert.ok(m, nome);
+    const rects = m[1].match(/<rect [^>]*\/>/g) ?? [];
+    assert.ok(rects.length > 0, nome);
+    assert.equal(rects.join(''), m[1], `${nome}: só <rect>`);
+    for (const r of rects) assert.match(r, /^<rect x="\d+" y="\d+" width="\d+" height="\d+"\/>$/, nome);
+  }
+});
+
+test('montarVsix com extras: todos no zip, depois dos dois de sempre', () => {
+  const extras = [
+    { nome: 'extension/icones/hadouken.woff', dados: Buffer.from('wOFFxyz', 'latin1') },
+    { nome: 'extension/janela/index.html', dados: Buffer.from('<p>oi</p>') },
+    { nome: 'extension/janela/janela.css', dados: Buffer.from('p{}') },
+    { nome: 'extension/janela/janela.js', dados: Buffer.from('1') },
+    { nome: 'extension/janela/logo.svg', dados: Buffer.from('<svg/>') },
+    { nome: 'extension/janela/pixel.woff2', dados: Buffer.from('wOF2') },
+    { nome: 'extension/janela/OFL.txt', dados: Buffer.from('licença') },
+  ];
+  const lidas = lerZip(montarVsix({ versao: '1.2.3', packageJson: PACOTE, extensionCjs: EXTENSAO, extras }));
+  assert.deepEqual(lidas.map((e) => e.nome).slice(4), extras.map((e) => e.nome));
+  for (const e of extras) assert.ok(lidas.find((l) => l.nome === e.nome).dados.equals(e.dados), e.nome);
+  const tipos = lidas.find((e) => e.nome === '[Content_Types].xml').dados.toString('utf8');
+  for (const ext of ['.js', '.html', '.css', '.svg', '.woff', '.woff2', '.txt']) assert.ok(tipos.includes(`<Default Extension="${ext}" `), ext);
+});
+
+test('montarVsix: extra com ../, de outra pasta, outra extensão ou sem Buffer devolve null', () => {
+  const base = { versao: '1.2.3', packageJson: PACOTE, extensionCjs: EXTENSAO };
+  for (const extra of [
+    { nome: 'extension/janela/../extension.cjs', dados: Buffer.from('x') },
+    { nome: 'extension/janela/a.exe', dados: Buffer.from('x') },
+    { nome: 'extension/janela/Index.html', dados: Buffer.from('x') },
+    { nome: 'extension/outra/a.js', dados: Buffer.from('x') },
+    { nome: 'extension/icones/outra.woff', dados: Buffer.from('x') },
+    { nome: 'extension/package.json', dados: Buffer.from('{}') },
+    { nome: 'extension/janela/a.js', dados: 'texto' },
+    null,
+  ]) assert.equal(montarVsix({ ...base, extras: [extra] }), null, JSON.stringify(extra));
+  assert.equal(montarVsix({ ...base, extras: 'x' }), null);
+  assert.ok(Buffer.isBuffer(montarVsix({ ...base, extras: [] })));
 });

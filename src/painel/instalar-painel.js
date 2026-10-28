@@ -229,6 +229,42 @@ function lerFonte(arquivo) {
   }
 }
 
+// Bytes de um arquivo regular do plugin, até MAX_FONTE_BYTES; senão null.
+function lerBytes(arquivo) {
+  try {
+    const info = fs.statSync(arquivo);
+    if (!info.isFile() || info.size > MAX_FONTE_BYTES) return null;
+    const bytes = fs.readFileSync(arquivo);
+    return bytes.length <= MAX_FONTE_BYTES ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+// Os extras do .vsix (v0.5.4): a fonte de ícones, obrigatória (sem ela a
+// logo não desenha: 'fonte-ausente'), e os arquivos de vscode/janela/ com os
+// nomes que montarVsix aceita; os outros ficam de fora. Um da janela que não
+// se lê: 'extensao-invalida'.
+const ARQ_JANELA = /^([a-z-]{1,20}\.(html|css|js|svg)|pixel\.woff2|OFL\.txt)$/;
+function extrasDoPainel(raizPlugin) {
+  const woff = lerBytes(path.join(raizPlugin, 'vscode', 'icones', 'hadouken.woff'));
+  if (woff === null || woff.subarray(0, 4).toString('latin1') !== 'wOFF') return { motivo: 'fonte-ausente' };
+  const extras = [{ nome: 'extension/icones/hadouken.woff', dados: woff }];
+  const pasta = path.join(raizPlugin, 'vscode', 'janela');
+  let nomes = [];
+  try {
+    nomes = fs.readdirSync(pasta).filter((n) => ARQ_JANELA.test(n)).sort();
+  } catch {
+    /* sem janela: só a fonte */
+  }
+  for (const n of nomes) {
+    const dados = lerBytes(path.join(pasta, n));
+    if (dados === null) return { motivo: 'extensao-invalida' };
+    extras.push({ nome: `extension/janela/${n}`, dados });
+  }
+  return { extras };
+}
+
 // Escrita atômica de bytes: temporário de nome sorteado criado com 'wx' na
 // mesma pasta e rename, com a política de retentativa de base.js. Falhou: o
 // temporário sai e o destino antigo fica. Devolve true ou false.
@@ -274,7 +310,7 @@ function rodar(executar, exe, args, opcoes) {
 }
 
 // Instala a extensão do painel (os passos no topo do arquivo). Motivos:
-// 'sem-pasta', 'argumentos', 'escrita', 'plugin-invalido', 'extensao-invalida',
+// 'sem-pasta', 'argumentos', 'escrita', 'plugin-invalido', 'fonte-ausente', 'extensao-invalida',
 // 'sem-vscode', 'caminho-inseguro', 'tempo' e 'erro'; sucesso é
 // { ok: true, motivo: 'ok' }. `achar`, `executar`, `plataforma`, `pathEnv` e
 // `existe` existem para os testes. Nunca rejeita.
@@ -298,7 +334,9 @@ export async function instalarPainel(opcoes) {
     if (versao === null) return falhou('plugin-invalido');
     const packageJson = lerFonte(path.join(raizPlugin, 'vscode', 'package.json'));
     const extensionCjs = lerFonte(path.join(raizPlugin, 'vscode', 'extension.cjs'));
-    const bytes = packageJson === null || extensionCjs === null ? null : montarVsix({ versao, packageJson, extensionCjs });
+    const ex = extrasDoPainel(raizPlugin);
+    if (ex.motivo !== undefined) return falhou(ex.motivo);
+    const bytes = packageJson === null || extensionCjs === null ? null : montarVsix({ versao, packageJson, extensionCjs, extras: ex.extras });
     if (bytes === null) return falhou('extensao-invalida');
     const pasta = path.join(dir, DIR_PAINEL);
     const vsix = path.join(pasta, `${ID_EXTENSAO}-${versao}.vsix`);

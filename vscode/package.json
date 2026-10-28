@@ -9,6 +9,17 @@
   "main": "./extension.cjs",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
-    "commands": [{ "command": "claudeHadouken.atualizarUso", "title": "Claude Hadouken: atualizar uso agora" }]
+    "commands": [{ "command": "claudeHadouken.atualizarUso", "title": "Claude Hadouken: atualizar uso agora" }],
+    "icons": {
+      "hadouken-0": { "description": "hadouken: parado", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E001" } },
+      "hadouken-1": { "description": "hadouken: carga", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E002" } },
+      "hadouken-2": { "description": "hadouken: disparo", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E003" } },
+      "hadouken-3": { "description": "hadouken: bola saindo", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E004" } },
+      "hadouken-4": { "description": "hadouken: bola longe", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E005" } },
+      "hadouken-seg-cheio": { "description": "hadouken: segmento cheio", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E006" } },
+      "hadouken-seg-meio": { "description": "hadouken: segmento pela metade", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E007" } },
+      "hadouken-seg-vazio": { "description": "hadouken: segmento vazio", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E008" } },
+      "hadouken-seta": { "description": "hadouken: seta", "default": { "fontPath": "./icones/hadouken.woff", "fontCharacter": "\\E009" } }
+    }
   }
 }

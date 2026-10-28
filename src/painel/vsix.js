@@ -158,6 +158,13 @@ const TIPOS = `<?xml version="1.0" encoding="utf-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension=".json" ContentType="application/json" />
   <Default Extension=".cjs" ContentType="application/javascript" />
+  <Default Extension=".js" ContentType="application/javascript" />
+  <Default Extension=".html" ContentType="text/html" />
+  <Default Extension=".css" ContentType="text/css" />
+  <Default Extension=".svg" ContentType="image/svg+xml" />
+  <Default Extension=".woff" ContentType="font/woff" />
+  <Default Extension=".woff2" ContentType="font/woff2" />
+  <Default Extension=".txt" ContentType="text/plain" />
   <Default Extension=".vsixmanifest" ContentType="text/xml" />
   <Default Extension=".xml" ContentType="text/xml" />
 </Types>
@@ -194,12 +201,15 @@ function manifesto(versao, nome, descricao) {
 // ordem de antes) e extension/extension.cjs como veio. `versao` fora de N.N.N,
 // package.json que não é objeto JSON ou de outra extensão (name e publisher
 // têm de ser os da identidade), fonte que não é texto ou zip acima do teto:
-// null. Nunca lança.
+// null. `extras` (v0.5.4): [{ nome, dados: Buffer }] da janela e da fonte de
+// ícones, só com os nomes de NOME_EXTRA; qualquer outro, null. Nunca lança.
+const NOME_EXTRA = /^extension\/(janela\/[a-z-]{1,20}\.(html|css|js|svg)|janela\/pixel\.woff2|janela\/OFL\.txt|icones\/hadouken\.woff)$/;
 export function montarVsix(opcoes) {
   try {
     if (!ehObjeto(opcoes)) return null;
-    const { versao, packageJson, extensionCjs } = opcoes;
+    const { versao, packageJson, extensionCjs, extras = [] } = opcoes;
     if (!versaoValida(versao) || typeof packageJson !== 'string' || typeof extensionCjs !== 'string') return null;
+    if (!Array.isArray(extras) || !extras.every((e) => ehObjeto(e) && typeof e.nome === 'string' && NOME_EXTRA.test(e.nome) && Buffer.isBuffer(e.dados))) return null;
     let pacote;
     try {
       pacote = JSON.parse(packageJson);
@@ -215,6 +225,7 @@ export function montarVsix(opcoes) {
       { nome: '[Content_Types].xml', dados: Buffer.from(TIPOS, 'utf8') },
       { nome: 'extension/package.json', dados: Buffer.from(final, 'utf8') },
       { nome: 'extension/extension.cjs', dados: Buffer.from(extensionCjs, 'utf8') },
+      ...extras.map((e) => ({ nome: e.nome, dados: e.dados })),
     ]);
   } catch {
     return null;

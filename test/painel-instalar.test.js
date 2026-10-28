@@ -45,14 +45,17 @@ const lerJsonArq = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const arqPainel = (dir, nome) => path.join(dir, DIR_PAINEL, nome);
 const nomeVsix = (versao) => `claude-hadouken-painel-${versao}.vsix`;
 
-// Raiz de plugin falsa: plugin.json com a versão pedida e os dois arquivos de
-// vscode/ copiados do repo.
+// Raiz de plugin falsa: plugin.json com a versão pedida, os dois arquivos de
+// vscode/ copiados do repo e uma fonte de ícones falsa (só o começo wOFF, que
+// é o que instalarPainel confere).
+const WOFF_FALSO = Buffer.from('wOFF\x00\x01\x00\x00fonte falsa', 'latin1');
 function raizFalsa(versao = '9.8.7') {
   const raiz = novoTmp('hdk raiz ç ');
   fs.mkdirSync(path.join(raiz, '.claude-plugin'));
   fs.writeFileSync(path.join(raiz, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'claude-hadouken', version: versao }));
-  fs.mkdirSync(path.join(raiz, 'vscode'));
+  fs.mkdirSync(path.join(raiz, 'vscode', 'icones'), { recursive: true });
   for (const f of ['package.json', 'extension.cjs']) fs.copyFileSync(path.join(repo, 'vscode', f), path.join(raiz, 'vscode', f));
+  fs.writeFileSync(path.join(raiz, 'vscode', 'icones', 'hadouken.woff'), WOFF_FALSO);
   return raiz;
 }
 
@@ -257,7 +260,10 @@ test('instalarPainel win32: a linha de comando do cmd.exe exatamente como no pla
   const bytes = fs.readFileSync(vsix);
   assert.equal(bytes.readUInt32LE(0), 0x04034b50, 'zip');
   const lerFonte = (f) => fs.readFileSync(path.join(raiz, 'vscode', f), 'utf8');
-  const esperado = montarVsix({ versao: '9.8.7', packageJson: lerFonte('package.json'), extensionCjs: lerFonte('extension.cjs') });
+  const esperado = montarVsix({
+    versao: '9.8.7', packageJson: lerFonte('package.json'), extensionCjs: lerFonte('extension.cjs'),
+    extras: [{ nome: 'extension/icones/hadouken.woff', dados: WOFF_FALSO }],
+  });
   assert.ok(Buffer.isBuffer(esperado) && bytes.equals(esperado), 'o .vsix de montarVsix com a versão do plugin');
   assert.equal(precisaInstalar({ dir, versao: '9.8.7', agoraMs: agora + 2 * H }), false, 'instalado');
   // Nenhum temporário sobra na pasta.
@@ -318,6 +324,31 @@ test('instalarPainel: falha do CLI do VS Code é erro, prazo estourado é tempo,
     const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' });
     assert.deepEqual(r, { ok: false, motivo }, motivo);
     assert.equal(fs.existsSync(arqPainel(dir, ARQ_INSTALADO)), false, motivo);
+  }
+});
+
+test('instalarPainel: a janela e a fonte vão no .vsix; sem a fonte, fonte-ausente', async () => {
+  const raiz = raizFalsa('9.8.7');
+  const janela = path.join(raiz, 'vscode', 'janela');
+  fs.mkdirSync(janela);
+  for (const n of ['index.html', 'janela.css', 'janela.js', 'logo.svg', 'OFL.txt', 'LEIAME.md']) fs.writeFileSync(path.join(janela, n), `conteúdo de ${n}`);
+  fs.writeFileSync(path.join(janela, 'pixel.woff2'), Buffer.from('wOF2fonte', 'latin1'));
+  const { executar } = executarFalso();
+  const dir = novoTmp();
+  assert.deepEqual(await instalarPainel({ dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' }), { ok: true, motivo: 'ok' });
+  const bytes = fs.readFileSync(arqPainel(dir, nomeVsix('9.8.7')));
+  for (const n of ['icones/hadouken.woff', 'janela/index.html', 'janela/janela.css', 'janela/janela.js', 'janela/logo.svg', 'janela/OFL.txt', 'janela/pixel.woff2']) {
+    assert.ok(bytes.includes(Buffer.from(`extension/${n}`)), n);
+  }
+  assert.ok(!bytes.includes(Buffer.from('LEIAME.md')), 'nome fora da lista fica de fora');
+  for (const corrompida of [null, Buffer.from('nada disso')]) {
+    const semFonte = raizFalsa();
+    const woff = path.join(semFonte, 'vscode', 'icones', 'hadouken.woff');
+    if (corrompida === null) fs.rmSync(woff);
+    else fs.writeFileSync(woff, corrompida);
+    const d = novoTmp();
+    assert.deepEqual(await instalarPainel({ dir: d, raizPlugin: semFonte, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' }), { ok: false, motivo: 'fonte-ausente' });
+    assert.equal(fs.existsSync(arqPainel(d, nomeVsix('9.8.7'))), false);
   }
 });
 
