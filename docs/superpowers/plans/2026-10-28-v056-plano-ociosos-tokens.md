@@ -26,6 +26,7 @@
 1. **Spec §5, leitura repetida: fica fora desta versão.** A spec supôs um PostToolUse de Read "que já existe para a P5"; não existe (`hooks/hooks.json` tem PreToolUse só de Agent/Task/Workflow, Bash, PowerShell, Write, Edit, MultiEdit, NotebookEdit e agenda). Um hook novo em todo Read custaria um `node` (~100–150 ms no Windows) por leitura, o que fere "o hadouken não pode atrapalhar". Volta numa versão futura só se couber sem hook novo (por exemplo, contado no coletor a partir do transcript).
 2. **Spec §4, ociosa só pela CPU.** No Windows o `cwd` de outro processo não é legível sem privilégio (spec §8.2), então não há ligação segura processo ↔ transcript. Ociosa = processo de classe `claude`, fora da árvore da sessão atual, com CPU < 1% em todas as leituras de um intervalo contínuo ≥ 30 min. Sem projeto no aviso (a linha de comando não o traz com segurança); vai a contagem e a RAM.
 3. **Spec §3, calibração.** Os limites dos planos seguem a proporção pública 1 : 5 : 20 (Pro, Max 5x, Max 20x). As fronteiras entre faixas ficam nas médias geométricas, √5 ≈ 2,24 e 10 vezes a unidade do Pro. A unidade sai de uma medida de referência na conta do Sr. Garioli (Task 1). Sem medida estável (coeficiente de variação > 0,35 entre janelas), `auto` devolve `desconhecido` e só o valor manual vale.
+3a. **Fonte principal do plano: `organizationRateLimitTier` do `~/.claude.json`** (achado na escrita do plano; o Sr. Garioli confirmou: Max 20x, campo `default_claude_max_20x`). É o arquivo de configuração do Claude Code, não o de credenciais, então não fere a spec §2. Só o coletor o lê (nunca um hook), com teto de 8 MB, e só guarda esse campo: mapeia `*_max_20x` → `max20`, `*_max_5x` → `max5`, `*pro*` → `pro`; qualquer outro valor → segue para a inferência. A inferência por tokens/ponto vira o plano B (arquivo ausente, campo ausente, formato novo). Nenhum outro campo do arquivo (e-mail, conta, projetos) é lido para fora da função.
 4. **Spec §3, uso 3 (folga do roteamento): só a conversão para pontos.** O roteamento não tem limiar em tokens hoje (`guarda/config.js`), então não há limiar a "subir". O ganho do plano aparece na mensagem: o custo em % da semana.
 5. **Spec §6.1, aviso único: na agenda, não no prompt.** O gasto da noite do Metrô SP veio de cada volta do `/loop`. A linha vai no `ScheduleWakeup`/`CronCreate` com trava ativa (`guarda-agenda.js`, que já roda nessas ferramentas): diz até quando vale o reset da janela travada e sugere esperar até lá. Nada é negado por isso.
 6. **Spec §7, painel em outro PC: no `/hadouken:saude` e na wiki.** O painel se instala sozinho no SessionStart; não há saída de instalador para o usuário ler. O caminho do `.vsix` (`<dados>/painel/claude-hadouken-painel-<versão>.vsix`) vai na seção Compat do `/hadouken:saude` e nas duas páginas do painel da wiki.
@@ -52,7 +53,7 @@
 
 - [ ] **Step 1:** Escreva o script: para cada janela de 5 h fechada com variação de `h5` ≥ 10 pontos, some os tokens das respostas da janela por três métricas e divida pela variação. Saída: por métrica, n, mediana e coeficiente de variação.
 - [ ] **Step 2: Run** `node bench/tokens-por-ponto.mjs` na conta do Sr. Garioli. Expected: n ≥ 3 janelas.
-- [ ] **Step 3:** Escolha a métrica de menor coeficiente de variação. Peça ao Sr. Garioli o plano dele (Pro, Max 5x ou Max 20x), em uma pergunta só, e derive `UNIDADE_PRO = mediana / multiplicador`. Registre n, mediana, CV e a métrica no plano. Coeficiente > 0,35 em todas: registre e siga com `auto` desligado (decisão 3).
+- [ ] **Step 3:** Escolha a métrica de menor coeficiente de variação. O plano de referência é Max 20x (confirmado pelo Sr. Garioli, decisão 3a); derive `UNIDADE_PRO = mediana / 20`. Registre n, mediana, CV e a métrica no plano. Coeficiente > 0,35 em todas: registre e siga com `auto` desligado (decisão 3).
 - [ ] **Step 4: Commit** `chore(bench): medida de tokens por ponto do limite`.
 
 ### Task 2: Plano da conta (`src/conta/plano.js`) e item `conta.plano`
@@ -65,7 +66,8 @@
 - Consumes: `UNIDADE_PRO` e a métrica da Task 1.
 - Produces:
   - `inferirPlano(janelas: Array<{ tokens: number, pontos: number }>) → { plano: 'pro'|'max5'|'max20'|'desconhecido', tokensPorPonto: number|null }`
-  - `planoEfetivo(dir: string, config) → { plano, fonte: 'manual'|'inferido'|null }` (manual vence; lê `conta-plano.json`; nunca lança)
+  - `planoDoClaude(texto: string) → 'pro'|'max5'|'max20'|null` (só o campo `organizationRateLimitTier` do `~/.claude.json`; decisão 3a)
+  - `planoEfetivo(dir: string, config) → { plano, fonte: 'manual'|'claude'|'inferido'|null }` (manual vence, depois o do Claude Code, depois a inferência; lê `conta-plano.json`; nunca lança)
   - `pontosDeTokens(tokens: number, plano) → number|null` (pontos de 7d; null com plano desconhecido)
   - item `conta.plano`: enum `auto | pro | max5 | max20`, padrão `auto`, rótulo "Plano da conta".
 
@@ -75,6 +77,8 @@
   - pontos ≤ 0, tokens não finitos ou negativos saem da conta.
   - `planoEfetivo` com `conta.plano: 'pro'` e arquivo dizendo `max20` → `{ plano: 'pro', fonte: 'manual' }`; com `auto` → `{ plano: 'max20', fonte: 'inferido' }`; arquivo corrompido → `{ plano: 'desconhecido', fonte: null }`.
   - `pontosDeTokens(UNIDADE_PRO * 20, 'max20')` → `1`; plano `desconhecido` → `null`.
+  - `planoDoClaude` com `"organizationRateLimitTier": "default_claude_max_20x"` → `max20`; `..._max_5x` → `max5`; valor desconhecido, campo ausente, JSON quebrado ou texto > 8 MB → `null`; o retorno nunca contém outro campo do arquivo.
+  - `planoEfetivo` com `conta-plano.json` trazendo `{ plano: 'max20', fonte: 'claude' }` e `auto` → `{ plano: 'max20', fonte: 'claude' }`.
 - [ ] **Step 2: Run** `node --test test/conta-plano.test.js`. Expected: FAIL (módulo não existe).
 - [ ] **Step 3: Implement.** Faixas pela decisão 3; CV > 0,35 → `desconhecido`. `conta-plano.json` = `{ v: 1, plano, tokensPorPonto, em }`, gravado atômico pelo coletor no máximo uma vez por 24 h; inclua-o em `ARQUIVOS_ESTADO` do autorreparo.
 - [ ] **Step 4: Run** com a suíte de config: `node --test --test-concurrency=2 test/conta-plano.test.js test/config-*.test.js test/configuracao.test.js test/saude-reparo.test.js test/saude-coletor-main.test.js`. Expected: PASS. Atualize os testes que contam itens.
