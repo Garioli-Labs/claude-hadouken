@@ -6,7 +6,8 @@
 set -euo pipefail
 
 raiz="$(cd "$(dirname "$0")/.." && pwd)"
-versao="$(node -p "require('$raiz/package.json').version")"
+# Caminho relativo: no Git Bash o pwd dá /c/..., que o node do Windows não acha.
+versao="$(cd "$raiz" && node -p "require('./package.json').version")"
 url="${HADOUKEN_WIKI_URL:-https://github.com/Garioli-Labs/claude-hadouken.wiki.git}"
 
 echo "Vai publicar ${raiz}/wiki/*.md em ${url} (v${versao})."
@@ -26,6 +27,8 @@ if git diff --cached --quiet; then
   echo 'A wiki já está igual. Nada publicado.'
   exit 0
 fi
-git commit -m "docs: wiki da v${versao}"
+# O clone temporário não herda o autor do repo; sem config global, o commit falharia.
+git -c user.name="$(git -C "$raiz" config user.name)" -c user.email="$(git -C "$raiz" config user.email)" \
+  commit -m "docs: wiki da v${versao}"
 git push
 echo "Wiki publicada (v${versao})."
