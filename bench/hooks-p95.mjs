@@ -49,7 +49,7 @@
 // - SessionStart: register, shim sync, state line.
 // - SessionEnd registered (gate, read state, append one history line) and
 //   unregistered.
-// - guard (v0.4.0): P1 denying a fable-max dispatch (the fixture's 7d forecast trips G2), P3 denying a switch to Fable, P5 denying a write in the data folder.
+// - guard (v0.4.0): P1 on a fable-max dispatch (the fixture's 7d forecast trips G2) and P3 on a switch to Fable, both asking since v0.5.4 (guarda.perguntar on by default); P5 denying a write in the data folder.
 // - /liberar 2h (v0.4.0 part 2): the release hook, writing liberacao.json and the two events.
 // - a bare `node -e ""` as the floor of any Node script.
 //
@@ -301,7 +301,7 @@ try {
       argv: [hook('guarda-despacho.js')],
       preparar: semLiberacao,
       stdin: JSON.stringify({ ...comum(uuid(0), 'PreToolUse'), tool_name: 'Agent', tool_input: { subagent_type: 'fable-max', description: 'review', prompt: 'x' } }),
-      conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'deny') throw new Error(`P1: expected deny, got ${out}`); },
+      conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'ask') throw new Error(`P1: expected ask, got ${out}`); },
       alvo: true,
     },
     {
@@ -310,7 +310,7 @@ try {
       argv: [hook('guarda-modelo.js')],
       preparar: semLiberacao,
       stdin: JSON.stringify({ ...comum(uuid(0), 'PreModelSwitch'), from_model: 'claude-opus-5-5', to_model: 'claude-fable-5-1' }),
-      conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'deny') throw new Error(`P3: expected deny, got ${out}`); },
+      conferir: (out) => { if (JSON.parse(out).hookSpecificOutput?.permissionDecision !== 'ask') throw new Error(`P3: expected ask, got ${out}`); },
       alvo: true,
     },
     {

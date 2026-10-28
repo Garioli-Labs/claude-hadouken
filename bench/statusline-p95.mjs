@@ -144,8 +144,10 @@ try {
   // The caller's NO_COLOR decides whether the bar is coloured; the check strips
   // the only escapes the bar may carry (the fixed colour codes). E6: the bar is
   // the session line only; since v0.4.0 it ends with the guard segment, which
-  // the fixture's 7d forecast (from estado.json) sets to "guarda: 7d" (G2).
-  const LINHA_BARRA = 'Opus 5.5\u00b7high \u2502 ctx \u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 31% \u2502 cache \u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b1 97% \u2502 guarda: 7d';
+  // the fixture's 7d forecast (from estado.json) sets to "guarda: 7d" (G2);
+  // since v0.5.3 the plugin version from plugin.json closes the line.
+  const versao = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'plugin.json'), 'utf8')).version;
+  const LINHA_BARRA = `Opus 5.5\u00b7high \u2502 ctx \u25b0\u25b0\u25b1\u25b1\u25b1\u25b1\u25b1\u25b1 31% \u2502 cache \u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b0\u25b1 97% \u2502 guarda: 7d \u2502 hadouken ${versao}`;
   const CORES_FIXAS = /\x1b\[(?:3[123]|0)m/g;
   let barra = '';
   const barraCerta = (nome) => (out) => {

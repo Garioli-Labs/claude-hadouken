@@ -354,10 +354,12 @@ test('janela: config mudada em outro lugar volta como recusado com a config nova
 });
 
 test('janela: atualizarHadouken abre o terminal "hadouken" com o comando do plugin; o segundo só mostra', async (t) => {
-  const plataforma = Object.getOwnPropertyDescriptor(process, 'platform');
-  Object.defineProperty(process, 'platform', { value: 'win32' });
+  // win32 só depois de montar: antes, no Linux e no macOS, o HADOUKEN_HOME
+  // posix deixaria de ser caminho completo e o shim não carregaria.
   const m = await montar(t);
+  const plataforma = Object.getOwnPropertyDescriptor(process, 'platform');
   try {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
     const painel = await abrir(m);
     await painel.receber({ tipo: 'atualizarHadouken', comando: 'rm -rf /' });
     assert.equal(m.estado.terminais.length, 1);
