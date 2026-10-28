@@ -2,18 +2,12 @@
 // v0.5.5 §6.B). Puro: recebe a lista pronta do coletor e nunca lê o sistema.
 // O hadouken só encerra processo dele mesmo; o resto é sugestão ao usuário.
 
-const NOME_MAX = 60;
+import { sanearNome } from './faixas.js';
+
+export { sanearNome };
+
 const SUGESTOES_MAX = 5;
 const PRAZOS_PENDURADO = 3;
-
-// Controle C0/C1 e marcas de direção (bidi), que trocariam a ordem do texto
-// mostrado ao usuário.
-const CONTROLE = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
-
-export function sanearNome(nome) {
-  if (typeof nome !== 'string') return '';
-  return nome.replace(CONTROLE, '').trim().slice(0, NOME_MAX);
-}
 
 // No macOS o `ps -o comm=` traz o caminho inteiro; no Windows vem o .exe.
 function chave(nome) {

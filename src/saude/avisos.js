@@ -1,5 +1,6 @@
 import { sugerirFechar } from './processos.js';
-import { avisoUsuario, barraTipo, linhaClaude, linhaModoLeve, LINHA_MODO_NORMAL, resumoUsuario } from './mensagens.js';
+import { avisoUsuario, linhaClaude, linhaModoLeve, LINHA_MODO_NORMAL, resumoUsuario } from './mensagens.js';
+import { medidasNaFaixa, montarBarra, porGravidade, sid, sidValido, TIPOS } from './faixas.js';
 
 // A decisão dos avisos da saúde (spec v0.5.5 §6.B, §6.C e §9.1 item 2).
 // Puro: os hooks leem a leitura, o registro e o modo, chamam isto e gravam o
@@ -11,21 +12,13 @@ import { avisoUsuario, barraTipo, linhaClaude, linhaModoLeve, LINHA_MODO_NORMAL,
 // vermelho no mesmo episódio, os dois são avisados de novo (a orientação
 // muda); a volta ao amarelo não repete nada.
 
-export const TIPOS = Object.freeze(['ram', 'gpu', 'cpu', 'disco', 'bateria']);
+export { TIPOS };
 const ESFRIAR_MS = 30 * 60_000;
 const SESSOES_MAX = 20;
 const MODO_SESSOES_MAX = 50;
-const SID = /^[A-Za-z0-9-]{1,16}$/;
-const BARRA_MAX = 24;
-const GB = 1024 ** 3;
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const finito = Number.isFinite;
-
-function sid(sessao) {
-  const s = typeof sessao === 'string' ? sessao.slice(0, 16) : '';
-  return SID.test(s) ? s : 'sem-sessao';
-}
 
 function episodioValido(e) {
   if (!ehObjeto(e) || !finito(e.inicioMs)) return null;
@@ -34,7 +27,7 @@ function episodioValido(e) {
     fimAbaixoMs: finito(e.fimAbaixoMs) ? e.fimAbaixoMs : null,
     avisadoUsuario: e.avisadoUsuario === true,
     nivel: e.nivel === 1 ? 1 : 2,
-    sessoes: Array.isArray(e.sessoes) ? e.sessoes.filter((s) => typeof s === 'string' && SID.test(s)).slice(-SESSOES_MAX) : [],
+    sessoes: Array.isArray(e.sessoes) ? e.sessoes.filter(sidValido).slice(-SESSOES_MAX) : [],
   };
 }
 
@@ -50,37 +43,11 @@ function registroValido(r) {
     }
     if (ehObjeto(r.modoAnunciado)) {
       for (const [s, m] of Object.entries(r.modoAnunciado).slice(-MODO_SESSOES_MAX)) {
-        if (SID.test(s) && (m === 'leve' || m === 'normal')) modoAnunciado[s] = m;
+        if (sidValido(s) && (m === 'leve' || m === 'normal')) modoAnunciado[s] = m;
       }
     }
   }
   return { episodios, modoAnunciado };
-}
-
-// { tipo: { nivel, valor } } das medidas na faixa agora.
-function medidasNaFaixa(l, c) {
-  const fora = {};
-  const ram = l.ram?.usadaPct;
-  if (finito(ram) && ram >= c.ram.vermelho) fora.ram = { nivel: 2, valor: ram };
-  else if (finito(ram) && ram >= c.ram.amarelo) fora.ram = { nivel: 1, valor: ram };
-  if (finito(l.gpu?.tempC) && l.gpu.tempC >= c.gpuMax) fora.gpu = { nivel: 2, valor: l.gpu.tempC };
-  if (finito(l.cpu?.tempC) && l.cpu.tempC >= c.cpuMax) fora.cpu = { nivel: 2, valor: l.cpu.tempC };
-  const livres = [l.disco?.dadosLivreBytes, l.disco?.projetoLivreBytes].filter(finito);
-  if (livres.length > 0 && Math.min(...livres) < c.discoMinGB * GB) fora.disco = { nivel: 2, valor: Math.min(...livres) };
-  const b = l.bateria;
-  if (ehObjeto(b) && b.naTomada === false && finito(b.pct) && b.pct <= c.bateriaMin) fora.bateria = { nivel: 2, valor: b.pct };
-  return fora;
-}
-
-// Vermelho antes de amarelo; no mesmo nível, a ordem de TIPOS.
-const porGravidade = (fora) => TIPOS.filter((t) => fora[t]).sort((a, b) => fora[b].nivel - fora[a].nivel);
-
-function montarBarra(tipo, fora, leve) {
-  const partes = [];
-  if (tipo !== undefined) partes.push(barraTipo(tipo, fora[tipo].valor));
-  if (leve) partes.push('leve');
-  const barra = partes.join(' · ');
-  return barra === '' ? null : barra.slice(0, BARRA_MAX);
 }
 
 export function decidirAvisos({ leitura, config, registro, modo, sessao, agoraMs, pidSessao } = {}) {
@@ -143,7 +110,7 @@ export function decidirAvisos({ leitura, config, registro, modo, sessao, agoraMs
   return {
     usuario,
     claude: linhas.length > 0 ? linhas.join('\n') : null,
-    barra: montarBarra(porGravidade(fora)[0], fora, leve),
+    barra: montarBarra(fora, leve),
     registro: reg,
   };
 }

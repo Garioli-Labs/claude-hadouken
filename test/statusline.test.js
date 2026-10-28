@@ -439,12 +439,22 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   // (G1 e G2) entram, também só depois do gate, com o aperto aprendido
   // (guarda/aperto.js e o módulo leve aprendizado/arquivos.js, Task 6).
   // Desde a v0.5.3, roteamento/fila.js, para a marca da sugestão; desde a
-  // v0.5.4, config/ler.js e config/tabela.js, para as faixas da barra.
+  // v0.5.4, config/ler.js e config/tabela.js, para as faixas da barra; desde
+  // a v0.5.5, o segmento da saúde, pelo caminho leve (saude/barra.js,
+  // faixas.js e modo.js). Aqui não há saude.json, então o disparo do coletor
+  // carrega também o ler.js da saúde (e trava-pid.js), depois da barra
+  // escrita; com saude.json fresco, não (teste abaixo).
   assert.deepEqual(dentro.nomes, [
-    'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js', 'eventos.js',
-    'fila.js', 'formato.js', 'gatilhos.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'previsao.js', 'registros.js',
-    'statusline.js', 'tabela.js', 'travas.js', 'util.js',
+    'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'barra.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js',
+    'eventos.js', 'faixas.js', 'fila.js', 'formato.js', 'gatilhos.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'modo.js',
+    'previsao.js', 'registros.js', 'statusline.js', 'tabela.js', 'trava-pid.js', 'travas.js', 'util.js',
   ]);
+  // Com saude.json fresco, o caminho leve só: nada de trava-pid.js.
+  fs.writeFileSync(path.join(home, 'saude.json'), JSON.stringify({ versao: 1, em: Date.now(), ram: { usadaPct: 50 } }));
+  const fresco = modulosCarregados(home, JSON.stringify(entradaValida()));
+  assert.equal(fresco.r.status, 0, fresco.r.stderr);
+  assert.deepEqual(fresco.nomes.filter((n) => !dentro.nomes.includes(n)), []);
+  assert.deepEqual(dentro.nomes.filter((n) => !fresco.nomes.includes(n)), ['trava-pid.js']);
 });
 
 // Sessões simultâneas de ponta a ponta (spec v0.2.0 §12.3 e §12.4): duas

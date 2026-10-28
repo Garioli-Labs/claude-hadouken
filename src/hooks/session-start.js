@@ -155,17 +155,32 @@ rodarHook(async (entrada) => {
     apr = await import('../aprendizado/arquivos.js');
   } catch { /* sem aprendizado nesta sessão */ }
   const aprendizadoLigado = apr !== null && apr.ligadoExiste(dir);
+  // Spec v0.5.5 §6.F: as partes opcionais passam pelo teto de tempo. Sem o
+  // módulo, roda tudo como antes.
+  let tetos = { rodar: async (_nome, fn) => fn(), fechar: () => {}, novas: () => [] };
+  try {
+    tetos = (await import('../saude/tetos.js')).abrirTetos(dir, agoraMs);
+  } catch { /* sem teto nesta sessão */ }
   let aprendizado = [];
   if (aprendizadoLigado) {
     try {
-      aprendizado = (await import('../aprendizado/passo.js')).linhasDoInicio({ dir, agoraMs });
+      aprendizado = (await tetos.rodar('aprendizado', async () => (await import('../aprendizado/passo.js')).linhasDoInicio({ dir, agoraMs }))) ?? [];
     } catch { /* sem linha do aprendizado nesta sessão */ }
   }
+  // Spec v0.5.5 §6.B e §6.C: avisos da saúde e, com o modo leve ligado, a
+  // orientação de trabalho leve; o coletor é disparado depois da saída.
+  let saude = { claude: null, usuario: null, depois: () => {} };
+  let hookSaude = null;
+  try {
+    hookSaude = await import('../saude/hook.js');
+    saude = await hookSaude.saudeNoHook({ dir, sessionId, agoraMs, tetos, dirProjeto: typeof entrada.cwd === 'string' ? entrada.cwd : undefined });
+  } catch { /* sem saúde nesta sessão */ }
+  if (saude.claude !== null) saida.push(saude.claude);
   // Ao usuário, fora do contexto do Claude (systemMessage): a linha de
   // retomada (spec v0.4.0 §10, item 11: ao retomar com o cache expirado) e
   // as do aprendizado (R13).
   const retomada = linhas.linhaRetomada(entrada);
-  const aoUsuario = [retomada, ...aprendizado].filter((x) => typeof x === 'string' && x.length > 0);
+  const aoUsuario = [retomada, ...aprendizado, saude.usuario].filter((x) => typeof x === 'string' && x.length > 0);
   // Spec roteamento §2: a regra curta vai sempre, por último; um import que
   // falha só a tira.
   try {
@@ -178,9 +193,15 @@ rodarHook(async (entrada) => {
     const pares = Object.entries(subir).map(([a, f]) => `${a} com model: ${f}`);
     if (pares.length > 0) saida.push(`hadouken: o usuário subiu estes agentes; despache-os assim: ${pares.join('; ')}.`);
   } catch { /* sem a linha nesta sessão */ }
+  // O teto que desligou o aprendizado ou o coletor neste hook avisa já; o do
+  // painel, que roda depois da saída, fica no evento 'reparo' e no
+  // /hadouken:saude.
+  if (hookSaude !== null) aoUsuario.push(...await hookSaude.avisosDoTeto(tetos));
   if (aoUsuario.length === 0) emitirContexto('SessionStart', saida.join('\n'));
   else emitirJson({ systemMessage: aoUsuario.join('\n'), hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: saida.join('\n') } });
-  if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await dispararPainel(dir, agoraMs);
+  if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await tetos.rodar('painel', () => dispararPainel(dir, agoraMs));
+  tetos.fechar();
+  await saude.depois();
   if (aprendizadoLigado) {
     try {
       (await import('../aprendizado/passo.js')).depoisDoInicio({ dir, sessionId, source: entrada.source, agoraMs });
@@ -190,4 +211,4 @@ rodarHook(async (entrada) => {
       (await import('../aprendizado/passo.js')).pararSemLigado({ dir, agoraMs });
     } catch { /* melhor esforço: a próxima sessão tenta de novo */ }
   }
-});
+}, undefined, undefined, undefined, { prazoMs: 4000 });

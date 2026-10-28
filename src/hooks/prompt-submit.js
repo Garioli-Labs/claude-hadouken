@@ -67,6 +67,12 @@ rodarHook(async (entrada) => {
   ]);
   const dir = dirDados();
   if (dir === null) return;
+  // Spec v0.5.5 §6.F: as partes opcionais passam pelo teto de tempo. Sem o
+  // módulo, roda tudo como antes.
+  let tetos = { rodar: async (_nome, fn) => fn(), fechar: () => {}, novas: () => [] };
+  try {
+    tetos = (await import('../saude/tetos.js')).abrirTetos(dir, agoraMs);
+  } catch { /* sem teto neste prompt */ }
   const lidoEstado = lerJson(join(dir, ARQ_ESTADO));
   const estado = lidoEstado.ok ? validarEstado(lidoEstado.valor, agoraMs) : null;
   const limites = limitesValidos(estado, agoraMs);
@@ -82,11 +88,11 @@ rodarHook(async (entrada) => {
   let perfil = null;
   try {
     const { ligadoExiste } = await import('../aprendizado/arquivos.js');
-    if (ligadoExiste(dir)) perfil = (await import('../aprendizado/registro.js')).perfilDaPrevisao(dir, agoraMs);
+    if (ligadoExiste(dir)) perfil = (await tetos.rodar('aprendizado', async () => (await import('../aprendizado/registro.js')).perfilDaPrevisao(dir, agoraMs))) ?? null;
   } catch {
     perfil = null;
   }
-  const previsao = preverEstouro({ historico: estado?.historico, limites, agoraMs, perfil });
+  const previsao = (await tetos.rodar('previsao', () => preverEstouro({ historico: estado?.historico, limites, agoraMs, perfil }))) ?? null;
   const ativas = sessoesAtivas(estado, agoraMs, sessionId);
   const arqAlertas = join(dir, ARQ_ALERTAS);
   const lidoAlertas = lerJson(arqAlertas, ALERTAS_MAX_BYTES);
@@ -127,17 +133,32 @@ rodarHook(async (entrada) => {
     const { config } = (await import('../roteamento/config.js')).lerConfigRoteamento(dir);
     const s = estado?.sessoes?.[sessionId] ?? null;
     if (typeof entrada.transcript_path === 'string' && (config.sugerirSessao || Object.values(config.otimizacoes).some(Boolean))) {
-      const [{ lerTrecho }, { sugerirSessao }, { otimizacoesDaSessao }, { escolher }] = await Promise.all([
-        import('../roteamento/trecho.js'), import('../roteamento/sessao.js'), import('../roteamento/otimizacoes.js'), import('../roteamento/fila.js'),
-      ]);
-      const respostas = await lerTrecho(entrada.transcript_path, {});
-      const candidatas = [
-        ...(config.sugerirSessao ? [sugerirSessao({ respostas, modelo: s?.model ?? null, effort: s?.effort ?? null })].filter(Boolean) : []),
-        ...otimizacoesDaSessao({ respostas, sessaoEstado: s, faixas: undefined, otimizacoes: config.otimizacoes, agoraMs }),
-      ];
-      linhaRoteamento = escolher({ dir, sessionId, candidatas, agoraMs })?.linha ?? null;
+      linhaRoteamento = (await tetos.rodar('roteamento-otimizacoes', async () => {
+        const [{ lerTrecho }, { sugerirSessao }, { otimizacoesDaSessao }, { escolher }] = await Promise.all([
+          import('../roteamento/trecho.js'), import('../roteamento/sessao.js'), import('../roteamento/otimizacoes.js'), import('../roteamento/fila.js'),
+        ]);
+        const respostas = await lerTrecho(entrada.transcript_path, {});
+        const candidatas = [
+          ...(config.sugerirSessao ? [sugerirSessao({ respostas, modelo: s?.model ?? null, effort: s?.effort ?? null })].filter(Boolean) : []),
+          ...otimizacoesDaSessao({ respostas, sessaoEstado: s, faixas: undefined, otimizacoes: config.otimizacoes, agoraMs }),
+        ];
+        return escolher({ dir, sessionId, candidatas, agoraMs })?.linha ?? null;
+      })) ?? null;
     }
   } catch { /* sem sugestão neste prompt */ }
-  const todas = [...linhas, p2.linha, linhaRoteamento].filter((x) => typeof x === 'string' && x.length > 0);
-  emitirContexto('UserPromptSubmit', todas.join('\n'));
-}, undefined, undefined, 'P2');
+  // Spec v0.5.5 §6.B e §6.C: a orientação ao Claude e o aviso único ao
+  // usuário, só de saude.json; o coletor é disparado depois da saída.
+  let saude = { claude: null, usuario: null, depois: () => {} };
+  let hookSaude = null;
+  try {
+    hookSaude = await import('../saude/hook.js');
+    saude = await hookSaude.saudeNoHook({ dir, sessionId, agoraMs, tetos, dirProjeto: typeof entrada.cwd === 'string' ? entrada.cwd : undefined });
+  } catch { /* sem saúde neste prompt */ }
+  const todas = [...linhas, p2.linha, linhaRoteamento, saude.claude].filter((x) => typeof x === 'string' && x.length > 0);
+  const aoUsuario = [saude.usuario, ...(hookSaude === null ? [] : await hookSaude.avisosDoTeto(tetos))].filter((x) => typeof x === 'string' && x.length > 0);
+  if (aoUsuario.length === 0) emitirContexto('UserPromptSubmit', todas.join('\n'));
+  else if (todas.length === 0) emitirJson({ systemMessage: aoUsuario.join('\n') });
+  else emitirJson({ systemMessage: aoUsuario.join('\n'), hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: todas.join('\n') } });
+  tetos.fechar();
+  await saude.depois();
+}, undefined, undefined, 'P2', { prazoMs: 8000 });

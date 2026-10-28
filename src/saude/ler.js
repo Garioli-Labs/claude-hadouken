@@ -1,11 +1,10 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lerJson } from '../estado.js';
 import { configSaude } from '../config/ler.js';
 import { lerTravaPid } from './trava-pid.js';
-import { sanearNome } from './processos.js';
+import { sanearNome } from './faixas.js';
 
 // O lado dos hooks da saúde (spec v0.5.5 §6.A). Eles só leem saude.json e,
 // quando ele está velho, disparam o coletor desanexado (coletor-main.js):
@@ -104,7 +103,8 @@ export function talvezColetar(dir, agoraMs, { disparar = dispararColetor, ligado
     const m = mtimeMs(path.join(dir, ARQ_SAUDE));
     if (m !== null && m <= agoraMs && agoraMs - m < INTERVALO_COLETA_MS) return false;
     if (travaViva(dir, agoraMs)) return false;
-    disparar(dirProjeto === undefined ? {} : { dirProjeto });
+    const p = disparar(dirProjeto === undefined ? {} : { dirProjeto });
+    if (typeof p?.catch === 'function') p.catch(() => {});
     return true;
   } catch {
     return false;
@@ -114,11 +114,27 @@ export function talvezColetar(dir, agoraMs, { disparar = dispararColetor, ligado
 const COLETOR_MAIN = path.join(path.dirname(fileURLToPath(import.meta.url)), 'coletor-main.js');
 
 // O adaptador real: o mesmo jeito de dispararPainel (session-start.js), sem
-// janela nem saída, solto do hook.
-export function dispararColetor({ dirProjeto } = {}) {
+// janela nem saída, solto do hook. child_process só carrega aqui, uma vez por
+// minuto no máximo, e não em cada hook.
+export async function dispararColetor({ dirProjeto } = {}) {
+  const { spawn } = await import('node:child_process');
   const args = [COLETOR_MAIN];
   if (typeof dirProjeto === 'string' && dirProjeto !== '') args.push(dirProjeto);
   const filho = spawn(process.execPath, args, { cwd: path.dirname(COLETOR_MAIN), detached: true, stdio: 'ignore', windowsHide: true });
   filho.on('error', () => {});
   filho.unref();
+}
+
+export const MARCA_DISPARO = 'saude-disparo.marca';
+
+// O disparo dos hooks e da barra. Nenhum coletor de verdade sobe dos testes:
+// com HADOUKEN_SAUDE_DISPARAR=0 o disparo vira um marcador na pasta de dados
+// (o teste confere); sob node --test (NODE_TEST_CONTEXT, herdado pelos hooks
+// que os testes rodam), nada. HADOUKEN_SAUDE_DISPARAR=1 força o real.
+export async function dispararDoHook(dir, pedido) {
+  try {
+    const v = process.env.HADOUKEN_SAUDE_DISPARAR;
+    if (v === '0') fs.writeFileSync(path.join(dir, MARCA_DISPARO), String(Date.now()));
+    else if (v === '1' || process.env.NODE_TEST_CONTEXT === undefined) await dispararColetor(pedido);
+  } catch { /* sem coleta agora; o próximo hook tenta */ }
 }

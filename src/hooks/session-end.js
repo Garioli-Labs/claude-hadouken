@@ -43,4 +43,4 @@ rodarHook(async (entrada) => {
     const { ligadoExiste } = await import('../aprendizado/arquivos.js');
     if (ligadoExiste(dir)) (await import('../aprendizado/passo.js')).depoisDoFim({ dir, sessionId, agoraMs });
   } catch { /* o histórico já foi gravado; o passo fica para a próxima sessão */ }
-});
+}, undefined, undefined, undefined, { prazoMs: 4000 });

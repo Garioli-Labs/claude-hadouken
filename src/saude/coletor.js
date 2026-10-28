@@ -86,7 +86,7 @@ function lerGpu(r) {
   // Uma GPU só, a primeira. O separador do csv é ", "; a vírgula decimal fica.
   const campos = linhas(r.stdout)[0].split(/,\s+/);
   if (campos.length < 3) return vazio;
-  const nome = campos[0].replace(/[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/g, '').trim().slice(0, 60);
+  const nome = campos[0].replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '').trim().slice(0, 60);
   return { nome: nome === '' ? null : nome, tempC: naFaixa(numero(campos[1]), 0, 130), usoPct: naFaixa(numero(campos[2]), 0, 100) };
 }
 

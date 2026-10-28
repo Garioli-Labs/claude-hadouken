@@ -41,9 +41,11 @@ test('3 estouros em 10 desligam por 24 h', async () => {
   const { saidas, tetos } = await execucoes(d, AGORA, [10, 50, 10, 60, 10, 70, 10]);
   assert.deepEqual(saidas, ['ok', 'ok', 'ok', 'ok', 'ok', 'ok', undefined]);
   assert.deepEqual(tetos.desligadas(), [{ nome: 'previsao', ateMs: AGORA + DIA }]);
-  // outra execução do hook, mais tarde, continua pulando
+  assert.deepEqual(tetos.novas(), ['previsao']);
+  // outra execução do hook, mais tarde, continua pulando, sem aviso novo
   const r2 = await execucoes(d, AGORA + 1000, [10]);
   assert.deepEqual(r2.saidas, [undefined]);
+  assert.deepEqual(r2.tetos.novas(), []);
   const eventos = fs.readFileSync(path.join(d, 'guarda-eventos.json'), 'utf8');
   assert.match(eventos, /teto:previsao/);
 });
@@ -88,6 +90,12 @@ test('fn assíncrona é medida até resolver', async () => {
   const tetos = abrirTetos(d, AGORA, { relogio: r.relogio, config: CONFIG });
   for (let i = 0; i < 3; i++) await tetos.rodar('painel', async () => { await null; r.passar(100); return 1; });
   assert.deepEqual(tetos.desligadas().map((x) => x.nome), ['painel']);
+});
+
+test('execuções rápidas não gravam tetos.json (o prompt comum não cria arquivo)', async () => {
+  const d = novoDir();
+  await execucoes(d, AGORA, [10, 10, 10]);
+  assert.equal(fs.existsSync(path.join(d, ARQ_TETOS)), false);
 });
 
 test('fechar sem mudança não grava', async () => {

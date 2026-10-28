@@ -510,10 +510,14 @@ test('prompt-submit: sessão não registrada não carrega estado.js nem alerta.j
   registrar(home, 's1');
   const dentro = modulosCarregados('prompt-submit.js', home, prompt());
   assert.match(contexto(dentro.r, 'UserPromptSubmit'), LINHA_SERIALIZAR);
+  // v0.5.5: a saúde, só depois do gate (saude/tetos.js, hook.js, faixas.js,
+  // modo.js, ler.js e, por ler.js, trava-pid.js). Sem nada a dizer, nem
+  // avisos.js nem processos.js.
   assert.deepEqual(dentro.nomes, [
     'alerta.js', 'alertas-gravados.js', 'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'base.js',
-    'comum.js', 'config.js', 'estado.js', 'eventos.js', 'gatilhos.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'previsao.js',
-    'prompt-submit.js', 'prompt.js', 'registros.js', 'ritmo.js', 'tabela.js', 'travas.js', 'util.js',
+    'comum.js', 'config.js', 'estado.js', 'eventos.js', 'faixas.js', 'gatilhos.js', 'hook.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js',
+    'modo.js', 'previsao.js', 'prompt-submit.js', 'prompt.js', 'registros.js', 'ritmo.js', 'tabela.js', 'tetos.js',
+    'trava-pid.js', 'travas.js', 'util.js',
   ]);
 });
 

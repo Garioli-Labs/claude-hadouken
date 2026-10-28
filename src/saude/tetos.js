@@ -41,17 +41,25 @@ export function abrirTetos(dir, agoraMs, { relogio = () => performance.now(), co
   let partes = {};
   try { if (ligado) partes = lerPartes(dir, agoraMs); } catch { partes = {}; }
   let mudou = false;
+  const novas = [];
 
   const desligada = (nome) => partes[nome]?.desligadaAteMs != null;
 
+  // Janela sem estouro nenhum vale o mesmo que vazia: guardada como [], para
+  // que o hook rápido de todo dia não regrave tetos.json (o prompt comum não
+  // cria nem renomeia arquivo, M2 da v0.1.0).
   function anotar(nome, ms) {
     const p = partes[nome] ?? { execucoes: [], desligadaAteMs: null };
+    const antes = JSON.stringify(p);
     p.execucoes = [...p.execucoes, ms > cfg.ms].slice(-JANELA);
+    if (!p.execucoes.includes(true)) p.execucoes = [];
     if (p.execucoes.filter(Boolean).length >= ESTOUROS) {
       p.desligadaAteMs = agoraMs + DESLIGA_MS;
       p.execucoes = [];
+      novas.push(nome);
       anexarEvento(dir, 'reparo', `teto:${nome}`, agoraMs);
     }
+    if (JSON.stringify(p) === antes) return;
     partes[nome] = p;
     mudou = true;
   }
@@ -85,6 +93,10 @@ export function abrirTetos(dir, agoraMs, { relogio = () => performance.now(), co
     desligadas() {
       if (!ligado) return [];
       return PARTES.filter(desligada).map((nome) => ({ nome, ateMs: partes[nome].desligadaAteMs }));
+    },
+    // As desligadas por este hook: o aviso único ao usuário (spec §6.F).
+    novas() {
+      return [...novas];
     },
   };
 }

@@ -128,7 +128,7 @@ test('modo leve: linha ao Claude só quando muda; barra mostra leve', () => {
   assert.equal(r1.barra, 'leve');
   const r2 = decidir({ leitura: leitura({ ram: 94 }), modo: leve, registro: r1.registro, agoraMs: AGORA + MIN });
   assert.doesNotMatch(r2.claude, /modo leve/);
-  assert.equal(r2.barra, 'PC: RAM 94% · leve');
+  assert.equal(r2.barra, 'PC: RAM 94%, leve');
   const r3 = decidir({ leitura: leitura(), modo: NORMAL, registro: r2.registro, agoraMs: AGORA + 2 * MIN });
   assert.equal(r3.claude, 'hadouken: modo leve encerrado; ritmo normal de trabalho.');
   const r4 = decidir({ leitura: leitura(), modo: NORMAL, registro: r3.registro, agoraMs: AGORA + 3 * MIN });
@@ -161,4 +161,39 @@ test('registro corrompido ou de outro formato começa vazio', () => {
     assert.notEqual(r.usuario, null);
     assert.deepEqual(Object.keys(r.registro.modoAnunciado), []);
   }
+});
+
+// O atalho dos hooks (faixas.js): quando semNovidade diz true, a decisão
+// completa não diria nada nem abriria, mudaria ou fecharia episódio algum.
+test('semNovidade: true só quando decidirAvisos não teria nada a dizer nem a mudar', async () => {
+  const { semNovidade } = await import('../src/saude/faixas.js');
+  const LEVE = { leve: true, ateMs: AGORA + 60 * MIN };
+  const ep = { inicioMs: AGORA - 5 * MIN, fimAbaixoMs: null, avisadoUsuario: true, nivel: 2, sessoes: ['sessao-aaaa-1111'] };
+  const casos = [
+    { leitura: leitura(), esperado: true },
+    { leitura: null, esperado: true },
+    { leitura: leitura({ ram: 86 }), esperado: false },
+    { leitura: leitura({ gpu: 90 }), esperado: false },
+    { leitura: leitura({ discoGB: 1 }), esperado: false },
+    { leitura: leitura({ bateria: { pct: 5, naTomada: false } }), esperado: false },
+    { leitura: leitura({ bateria: { pct: 5, naTomada: true } }), esperado: true },
+    { leitura: leitura(), registro: { episodios: { ram: ep } }, esperado: false },
+    { leitura: null, registro: { episodios: { ram: ep } }, esperado: false },
+    { leitura: leitura(), registro: { episodios: {}, modoAnunciado: {} }, esperado: true },
+    { leitura: leitura(), registro: 'lixo', esperado: false },
+    { leitura: leitura(), modo: LEVE, esperado: false },
+    { leitura: leitura(), modo: LEVE, registro: { episodios: {}, modoAnunciado: { 'sessao-aaaa-1111': 'leve' } }, esperado: true },
+    { leitura: leitura(), registro: { episodios: {}, modoAnunciado: { 'sessao-aaaa-1111': 'leve' } }, esperado: false },
+    { leitura: leitura(), registro: { episodios: {}, modoAnunciado: { 'sessao-aaaa-1111': 'normal' } }, esperado: true },
+  ];
+  for (const [i, c] of casos.entries()) {
+    const o = { leitura: c.leitura, config: CONFIG, registro: c.registro, modo: c.modo ?? NORMAL, sessao: 'sessao-aaaa-1111' };
+    assert.equal(semNovidade(o), c.esperado, `caso ${i}`);
+    if (!c.esperado) continue;
+    const r = decidirAvisos({ ...o, agoraMs: AGORA });
+    assert.equal(r.claude, null, `caso ${i}`);
+    assert.equal(r.usuario, null, `caso ${i}`);
+    assert.deepEqual(r.registro.episodios, {}, `caso ${i}`);
+  }
+  assert.equal(semNovidade({ leitura: leitura(), config: { ...CONFIG, ligado: false }, modo: NORMAL, sessao: 'x' }), false);
 });

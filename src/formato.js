@@ -27,6 +27,7 @@ const MAX_MODELO = 40;
 const SEM_VALOR = '—';
 const SEPARADOR = ' │ ';
 const GUARDA_MAX = 120;
+const SAUDE_MAX = 24;
 const VERSAO = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 const noIntervalo = (n, min, max) => numeroFinito(n) && n >= min && n <= max;
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -64,7 +65,7 @@ export const MARCAS_VALIDAS = Object.freeze(['↓ effort medium', '↓ sonnet', 
 // saneado; vazio não muda nada.
 export function formatarBarra(opcoes) {
   try {
-    const { entrada, cor, guarda, versao, marca, faixas } = opcoes ?? {};
+    const { entrada, cor, guarda, versao, marca, faixas, saude } = opcoes ?? {};
     const e = ehObjeto(entrada) ? entrada : {};
     const ligado = cor === true;
 
@@ -95,6 +96,12 @@ export function formatarBarra(opcoes) {
     // fim e só quando há algo a dizer. Texto do código, saneado mesmo assim (S3).
     const g = typeof guarda === 'string' && guarda.length > 0 ? sanear(guarda, GUARDA_MAX) : null;
     if (g) partes.push(g);
+
+    // Spec v0.5.5 §6.B e §6.C: a saúde do PC (`barra` de saude/avisos.js,
+    // como "PC: RAM 94%" ou "leve"), antes da marca do roteamento. Rótulos e
+    // números do código, saneados mesmo assim, sem os glifos da barra.
+    const s = typeof saude === 'string' && saude.length > 0 ? sanear(saude, SAUDE_MAX)?.replace(GLIFOS_BARRA, ' ').trim() : null;
+    if (s) partes.push(s);
 
     // Spec roteamento §7: a marca da sugestão em curso (roteamento/fila.js),
     // sem cor e só da lista fixa; fica antes da versão.

@@ -299,6 +299,20 @@
 - [ ] **Step 4: Run** a suíte inteira com `--test-concurrency=2` e os dois benches (`node bench/statusline-p95.mjs 20`, `node bench/hooks-p95.mjs 20`). Expected: PASS, e o p95 dentro do orçamento. Ajuste a `LINHA_BARRA` do bench só se o cenário dela tiver o segmento.
 - [ ] **Step 5: Commit** `feat(saude): avisos nos hooks e na barra, sem bloquear`.
 
+**Decisões da execução (Claude, por ordem do Sr. Garioli):**
+- O teto do `coletor` mede só a decisão de disparar; o spawn (20–100 ms num PC carregado) sai depois da saída do hook (`depois()`), fora da medida, para o teto não desligar o coletor justo quando o PC pesa.
+- A statusline também dispara o coletor (quando `saude.json` tem mais de 1 min), depois de escrever a barra.
+- Separador entre partes do segmento: `, ` (`PC: RAM 94%, leve`); o `·` é glifo da barra e seria removido.
+- Amarelo → vermelho no mesmo episódio avisa de novo; vermelho → amarelo não repete nada. Ao usuário, um aviso só (o tipo mais grave); os outros tipos novos ficam marcados.
+- Disco em GiB (1024³). `tetos.json` só é gravado quando há estouro ou mudança real.
+- Testes: `HADOUKEN_SAUDE_DISPARAR=0` troca o spawn por um marcador; sob `node --test` (`NODE_TEST_CONTEXT`) nenhum coletor real sobe; `=1` força o real.
+- O teto `aprendizado` cobre `linhasDoInicio` e o perfil do prompt, nunca `depoisDoInicio`.
+- Peso (A/B pareado contra o commit anterior, PC carregado): a primeira versão custava +35 ms no prompt e +48 ms na barra. Ficou em ~+24 ms e ~+16 ms com três cortes:
+  - `child_process` só carrega no disparo;
+  - a barra tem caminho próprio (`saude/barra.js` + `faixas.js`, folha sem imports);
+  - nos hooks, `semNovidade` (faixas.js) pula `avisos.js`/`mensagens.js` quando não há nada a dizer, com teste de equivalência contra `decidirAvisos`.
+- `sanearNome` mudou para `faixas.js` (processos.js reexporta).
+
 ### Task 10: Compatibilidade e conflitos
 
 **Files:**

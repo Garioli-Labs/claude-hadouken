@@ -58,17 +58,15 @@ export function avisoUsuario(resumo, sugestoes = []) {
   return texto.length <= USUARIO_MAX ? texto : texto.slice(0, USUARIO_MAX);
 }
 
-export function barraTipo(tipo, valor) {
-  switch (tipo) {
-    case 'ram': return `PC: RAM ${valor}%`;
-    case 'gpu':
-    case 'cpu': return `PC: ${tipo.toUpperCase()} ${valor}°C`;
-    case 'disco': return `PC: disco ${gbInteiro(valor)} GB`;
-    case 'bateria': return `PC: bateria ${valor}%`;
-    default: return null;
-  }
-}
-
 export const linhaModoLeve = (ateMs) =>
   `hadouken: modo leve até ${hhmm(ateMs)}. Um subagente por vez, effort mínimo necessário, Haiku/Sonnet para busca, sem Fable nem Workflow sem pedido explícito, testes com concorrência 1.`;
 export const LINHA_MODO_NORMAL = 'hadouken: modo leve encerrado; ritmo normal de trabalho.';
+
+// Spec §6.F: o aviso único ao usuário quando o teto desliga uma parte.
+const ROTULO_PARTE = Object.freeze({
+  aprendizado: 'o aprendizado', versao: 'a consulta de versão', painel: 'a instalação do painel', previsao: 'a previsão de estouro',
+  coletor: 'o disparo do coletor de saúde', 'roteamento-otimizacoes': 'as sugestões do roteamento',
+});
+export const linhaTetoDesligado = (nome) => (ROTULO_PARTE[nome]
+  ? `hadouken: ${ROTULO_PARTE[nome]} ficou lenta nos hooks e foi desligada por 24 h, para não atrasar seus prompts. /hadouken:saude mostra os detalhes.`
+  : null);

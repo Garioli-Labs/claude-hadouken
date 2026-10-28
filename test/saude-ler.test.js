@@ -54,14 +54,14 @@ test('lerSaude: lixo e campos fora da faixa não passam', () => {
   assert.equal(lerSaude(d, AGORA).leitura, null);
   gravar(d, leitura(AGORA, {
     ram: { totalBytes: 1, livreBytes: 1, usadaPct: 400 },
-    gpu: { nome: 'x‮y'.repeat(40), tempC: 'quente', usoPct: 50 },
+    gpu: { nome: 'x\u202ey'.repeat(40), tempC: 'quente', usoPct: 50 },
     processos: [{ pid: 1, nome: 7 }, { pid: 11, ppid: 1, nome: 'ok', rssBytes: 5, cpuPct: 0, classe: 'inventada' }],
   }));
   const l = lerSaude(d, AGORA).leitura;
   assert.equal(l.ram.usadaPct, null);
   assert.equal(l.gpu.tempC, null);
   assert.equal(l.gpu.nome.length, 60);
-  assert.ok(!l.gpu.nome.includes('‮'));
+  assert.ok(!l.gpu.nome.includes('\u202e'));
   assert.deepEqual(l.processos.map((p) => [p.pid, p.classe]), [[11, 'outro']]);
 });
 

@@ -94,7 +94,17 @@ async function principal() {
   try {
     faixas = (await import('./config/ler.js')).faixasBarra(dirDados());
   } catch { /* faixas de sempre */ }
-  process.stdout.write(formatarBarra({ entrada, cor, guarda, versao, marca, faixas }));
+  // v0.5.5 §6.B e §6.C: o segmento da saúde do PC, só de saude.json; com a
+  // leitura velha, o coletor é disparado depois da escrita da barra.
+  let saude = { barra: null, depois: async () => {} };
+  try {
+    saude = (await import('./saude/barra.js')).saudeNaBarra(dirDados(), agoraMs);
+  } catch { /* sem o segmento */ }
+  process.stdout.write(formatarBarra({ entrada, cor, guarda, versao, marca, faixas, saude: saude.barra }));
+  await saude.depois();
 }
 
+// v0.5.5 §6.F: prazo interno. A statusLine não tem timeout no hooks.json;
+// 4 s é o mesmo dos hooks de 5 s. Chegou nele, sai com 0 e sem mais nada.
+setTimeout(() => process.exit(0), 4000).unref();
 principal().catch(() => {}).finally(() => { process.exitCode = 0; });
