@@ -118,6 +118,17 @@ test('session-start: o resumo de economia vai ao usuário no primeiro da semana,
   assert.doesNotMatch(s2.usuario, /na semana/);
 });
 
+test('session-start com reparos-avisar.json: o aviso do reparo vai ao usuário uma vez, nunca ao contexto', () => {
+  const home = novoHome();
+  fs.writeFileSync(path.join(home, 'reparos-avisar.json'), JSON.stringify({ v: 1, arquivos: ['config.json'] }));
+  const entrada = (id) => ({ session_id: id, source: 'startup', hook_event_name: 'SessionStart' });
+  const s1 = saida(rodar('hooks/session-start.js', entrada('sessao-r1'), home));
+  assert.match(s1.usuario, /hadouken: config\.json estava corrompido: a configuração voltou ao padrão/);
+  assert.doesNotMatch(s1.contexto, /corrompido/);
+  const s2 = saida(rodar('hooks/session-start.js', entrada('sessao-r2'), home));
+  assert.doesNotMatch(s2.usuario, /corrompido/);
+});
+
 test('session-start com o modo leve ligado: a orientação vai ao contexto', () => {
   const home = novoHome();
   fs.writeFileSync(path.join(home, 'saude-modo.json'), JSON.stringify({ v: 1, leve: true, ateMs: Date.now() + 3_600_000 }));

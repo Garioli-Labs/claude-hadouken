@@ -216,6 +216,14 @@ rodarHook(async (entrada) => {
     });
     if (typeof linha === 'string') aoUsuario.push(linha);
   } catch { /* sem o resumo nesta sessão */ }
+  // Spec v0.5.5 §6.E: o aviso único do que o coletor reparou. No caso de
+  // sempre (nada reparado) custa um stat; o módulo só carrega quando há aviso.
+  try {
+    if (fs.existsSync(path.join(dir, 'reparos-avisar.json'))) {
+      const aviso = (await import('../saude/reparo.js')).avisoReparos(dir);
+      if (typeof aviso === 'string') aoUsuario.push(aviso);
+    }
+  } catch { /* fica para a próxima sessão */ }
   // O teto que desligou o aprendizado ou o coletor neste hook avisa já; o do
   // painel, que roda depois da saída, fica no evento 'reparo' e no
   // /hadouken:saude.

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { lerJson } from '../estado.js';
+import { gravarJsonAtomico, lerJson } from '../estado.js';
 import { anexarEvento } from '../guarda/registros.js';
 
 // Autorreparo dos JSON de estado (spec v0.5.5 §6.C). Arquivo regular que não
@@ -68,5 +68,50 @@ export function repararDados(dir, agoraMs) {
   } catch {
     // o que já foi movido fica na lista
   }
+  if (reparos.length > 0) guardarParaAvisar(dir, reparos.map((r) => r.arquivo));
   return reparos;
+}
+
+// O aviso único ao usuário (spec §6.E): o coletor não fala com ninguém, então
+// guarda os nomes em reparos-avisar.json e o SessionStart seguinte avisa uma
+// vez e apaga. Só nomes da lista fixa entram no texto.
+export const ARQ_REPAROS_AVISAR = 'reparos-avisar.json';
+
+function lerParaAvisar(dir) {
+  const r = lerJson(path.join(dir, ARQ_REPAROS_AVISAR), 4096);
+  const lista = r.ok && Array.isArray(r.valor?.arquivos) ? r.valor.arquivos : [];
+  return ARQUIVOS_ESTADO.filter((n) => lista.includes(n));
+}
+
+function guardarParaAvisar(dir, nomes) {
+  try {
+    const todos = [...new Set([...lerParaAvisar(dir), ...nomes])];
+    gravarJsonAtomico(path.join(dir, ARQ_REPAROS_AVISAR), { v: 1, arquivos: todos }, { compacto: true });
+  } catch { /* sem aviso; o /hadouken:saude ainda mostra */ }
+}
+
+const listaNomes = (n) => (n.length === 1 ? n[0] : `${n.slice(0, -1).join(', ')} e ${n.at(-1)}`);
+
+// O texto ao usuário, ou null. Só avisa se conseguiu apagar o arquivo (senão
+// avisaria em toda sessão). Nunca lança.
+export function avisoReparos(dir) {
+  try {
+    if (typeof dir !== 'string') return null;
+    const arq = path.join(dir, ARQ_REPAROS_AVISAR);
+    if (!fs.existsSync(arq)) return null;
+    const nomes = lerParaAvisar(dir);
+    fs.unlinkSync(arq);
+    const outros = nomes.filter((n) => n !== 'config.json');
+    const linhas = [];
+    if (outros.length > 0) {
+      const um = outros.length === 1;
+      linhas.push(`hadouken: ${listaNomes(outros)} ${um ? 'estava corrompido; foi posto' : 'estavam corrompidos; foram postos'} de lado (cópia .corrompido-<data> na pasta de dados) e o padrão seguro vale no lugar. /hadouken:saude mostra os detalhes.`);
+    }
+    if (nomes.includes('config.json')) {
+      linhas.push('hadouken: config.json estava corrompido: a configuração voltou ao padrão (guarda e proteções ligadas). O arquivo antigo ficou na pasta de dados como config.json.corrompido-<data>, se quiser recuperar algum ajuste.');
+    }
+    return linhas.length > 0 ? linhas.join('\n') : null;
+  } catch {
+    return null;
+  }
 }

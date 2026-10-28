@@ -142,7 +142,7 @@ export function encerraveis(lista, travas, agoraMs) {
   for (const t of travas) {
     if (t === null || typeof t !== 'object') continue;
     const { pid, script, inicioMs, prazoMs } = t;
-    if (!Number.isInteger(pid) || pid <= 4 || typeof script !== 'string' || !/^[a-z-]{1,40}$/.test(script)) continue;
+    if (!Number.isInteger(pid) || pid <= 4 || typeof script !== 'string' || !/^[a-z0-9-]{1,40}$/.test(script)) continue;
     if (!Number.isFinite(inicioMs) || !Number.isFinite(prazoMs) || prazoMs <= 0) continue;
     if (agoraMs - inicioMs <= PRAZOS_PENDURADO * prazoMs) continue;
     const p = porPid.get(pid);

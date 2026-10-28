@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rodarColetor } from '../src/saude/coletor-main.js';
-import { ARQ_SAUDE, ARQ_TRAVA_SAUDE } from '../src/saude/ler.js';
+import { ARQ_SAUDE, ARQ_TRAVA_SAUDE, talvezColetar } from '../src/saude/ler.js';
 import { conteudoTrava } from '../src/saude/trava-pid.js';
 import { caminhos } from '../src/aprendizado/arquivos.js';
 
@@ -32,6 +32,31 @@ test('coletor-main com coletar falso grava saude.json e solta a trava', async ()
   const r = await rodarColetor({ dir: d, agoraMs: AGORA, coletar: async () => leitura(), matar: () => {}, config: CONFIG });
   assert.equal(r.ok, true);
   assert.equal(lerSaudeJson(d).ram.usadaPct, 50);
+  assert.equal(fs.existsSync(path.join(d, ARQ_TRAVA_SAUDE)), false);
+});
+
+// Revisão do branch: sem isto, disco cheio ou saude.json impossível de gravar
+// fazia cada prompt e cada redesenho da barra subir um coletor novo.
+test('falha ao gravar saude.json: a próxima coleta espera o intervalo normal', async () => {
+  const d = novoDir();
+  const arq = path.join(d, ARQ_SAUDE);
+  fs.mkdirSync(arq);
+  fs.utimesSync(arq, new Date(AGORA - 600_000), new Date(AGORA - 600_000));
+  const r = await rodarColetor({ dir: d, agoraMs: AGORA, coletar: async () => leitura(), matar: () => {}, config: CONFIG });
+  assert.equal(r.ok, false);
+  let disparos = 0;
+  assert.equal(talvezColetar(d, AGORA + 5000, { ligado: true, disparar: () => { disparos++; } }), false);
+  assert.equal(talvezColetar(d, AGORA + 61_000, { ligado: true, disparar: () => { disparos++; } }), true);
+  assert.equal(disparos, 1);
+});
+
+test('erro no meio da coleta sem saude.json: um vazio segura a próxima por 1 min', async () => {
+  const d = novoDir();
+  const config = { get liberarProprios() { throw new Error('x'); } };
+  const r = await rodarColetor({ dir: d, agoraMs: AGORA, coletar: async () => leitura(), matar: () => {}, config });
+  assert.deepEqual(r, { ok: false, motivo: 'erro' });
+  assert.equal(fs.readFileSync(path.join(d, ARQ_SAUDE), 'utf8'), '');
+  assert.equal(talvezColetar(d, AGORA + 5000, { ligado: true, disparar: () => {} }), false);
   assert.equal(fs.existsSync(path.join(d, ARQ_TRAVA_SAUDE)), false);
 });
 

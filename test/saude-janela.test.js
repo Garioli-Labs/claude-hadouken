@@ -55,6 +55,9 @@ test('PC tranquilo: feixes calmos, sem sugestões, sem botão, CPU sem temperatu
   assert.equal(e.medidas.find((m) => m.chave === 'disco').valor, '212 GB livres');
   assert.equal(e.medidas.some((m) => m.chave === 'bateria'), false, 'sem bateria, sem feixe');
   assert.match(e.resumo, /^Hooks: no tempo · Reparos: nenhum · Compat: em dia \(Node .+\) · Conflitos: ainda não conferido/);
+  // Revisão do branch (spec §6.J e §6.L): dados e economia também na janela,
+  // sem os maiores arquivos e sem ler o índice dos transcripts.
+  assert.match(e.resumo, / · Dados: [\d,]+ KB de 50 MB · Economia: nada a contar$/);
 });
 
 test('RAM 94%: feixe urgente, até 5 apps para fechar, botão de ligar o leve e o segmento da barra', () => {

@@ -54,6 +54,24 @@ function soltarTravaSaude(dir, token) {
   }
 }
 
+// Sem saude.json novo (disco cheio, arquivo impossível de gravar), o mtime
+// velho faria cada hook e cada redesenho da barra subir outro coletor. Só a
+// data anda: a leitura velha continua velha pelo `em` de dentro (lerSaude).
+// Sem saude.json nenhum, um vazio faz o mesmo papel (lerSaude o lê como
+// "sem leitura").
+function adiarProxima(dir, agoraMs) {
+  const arq = path.join(dir, ARQ_SAUDE);
+  const t = new Date(agoraMs);
+  try {
+    fs.utimesSync(arq, t, t);
+  } catch {
+    try {
+      fs.writeFileSync(arq, '', { flag: 'wx' });
+      fs.utimesSync(arq, t, t);
+    } catch { /* nada a fazer; o próximo hook tenta */ }
+  }
+}
+
 async function coletarComPrazo(coletar, prazoMs, agoraMs) {
   let timer;
   const estouro = new Promise((ok) => { timer = setTimeout(() => ok(null), prazoMs); });
@@ -103,8 +121,10 @@ export async function rodarColetor({
     const g = gravarJsonAtomico(path.join(dir, ARQ_SAUDE), leitura, { compacto: true });
     // Depois do saude.json: a barra não espera pelos conflitos (uma vez em 24 h).
     const c = cfg.conflitos ? conflitos({ dir, agoraMs }) : { lido: false };
+    if (!g.ok) adiarProxima(dir, agoraMs);
     return { ok: g.ok, encerrados, reparos, cortes, conflitosLidos: c.lido };
   } catch {
+    adiarProxima(dir, agoraMs);
     return { ok: false, motivo: 'erro' };
   } finally {
     soltarTravaSaude(dir, token);

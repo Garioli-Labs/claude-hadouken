@@ -169,7 +169,10 @@ try {
     { id: 'node-vazio', nome: 'bare node -e ""', argv: ['-e', ''], stdin: '', conferir: () => {}, alvo: false },
   ];
 
-  const env = { ...process.env, HADOUKEN_HOME: home };
+  // The PC health collector stays off: a real reading (a nearly full disk, a
+  // hot GPU) would add a "PC:" segment and change LINHA_BARRA. The statusline
+  // still pays for the check that would fire it.
+  const env = { ...process.env, HADOUKEN_HOME: home, HADOUKEN_SAUDE_DISPARAR: '0' };
   function rodar(c) {
     const t0 = process.hrtime.bigint();
     const r = spawnSync(process.execPath, c.argv, { input: c.stdin, env, encoding: 'utf8' });

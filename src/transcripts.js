@@ -916,13 +916,6 @@ function difere(entradas, antigo) {
   return false;
 }
 
-// Indexa os transcripts sob `raiz` modificados desde `desdeMs` e devolve as
-// respostas com ts >= desdeMs, deduplicadas por requestId também entre
-// arquivos: { registros, linhasInvalidas, arquivos, ilegiveis, truncado }.
-// `maxArquivos` (opcional, 1..ARQUIVOS_MAX) só baixa o teto. desdeMs inválido
-// vale 0. Raiz inválida, ausente ou que não é pasta de verdade → vazio com
-// ilegiveis: 1, sem tocar no índice. Sem diretório de dados (dirDados() null)
-// lê tudo e não grava nada. Nunca rejeita.
 // Só lê o índice que já existe (nunca abre transcript): as respostas de
 // subagente com ts >= desdeMs, para a base medida da economia no
 // /hadouken:saude (spec v0.5.5 §6.J). [] sem índice válido. Nunca lança.
@@ -939,6 +932,13 @@ export function respostasSubagenteDoIndice(raiz, desdeMs, dir = dirDados(), agor
   }
 }
 
+// Indexa os transcripts sob `raiz` modificados desde `desdeMs` e devolve as
+// respostas com ts >= desdeMs, deduplicadas por requestId também entre
+// arquivos: { registros, linhasInvalidas, arquivos, ilegiveis, truncado }.
+// `maxArquivos` (opcional, 1..ARQUIVOS_MAX) só baixa o teto. desdeMs inválido
+// vale 0. Raiz inválida, ausente ou que não é pasta de verdade → vazio com
+// ilegiveis: 1, sem tocar no índice. Sem diretório de dados (dirDados() null)
+// lê tudo e não grava nada. Nunca rejeita.
 export async function indexarTranscripts(opcoes) {
   try {
     if (!ehObjeto(opcoes)) return resultadoNeutro();

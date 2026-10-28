@@ -113,14 +113,16 @@ function conflitos(dir, agoraMs, config) {
   return itens.length === 0 ? 'nenhum' : itens.map(descreverItem).join('; ');
 }
 
-function dados(dir, config) {
+function dados(dir, config, { comMaiores = true } = {}) {
   const m = medirDados(dir);
   if (m.totalBytes === null) return 'não deu para medir';
   const teto = config.limpeza?.ligada ? ` de ${config.limpeza.mb} MB` : ' (limpeza desligada)';
-  const maiores = m.maiores.length === 0 ? '' : ` (maiores: ${m.maiores.map((a) => `${a.nome} ${tamanho(a.bytes)}`).join(', ')})`;
+  const maiores = !comMaiores || m.maiores.length === 0 ? '' : ` (maiores: ${m.maiores.map((a) => `${a.nome} ${tamanho(a.bytes)}`).join(', ')})`;
   return `${tamanho(m.totalBytes)}${teto}${maiores}`;
 }
 
+// Sem dirConfig (a janela), não lê o índice dos transcripts: só as contagens,
+// sem a estimativa de tokens.
 function semana({ dir, agoraMs, dirConfig, config }) {
   if (!config.economia) return 'resumo desligado (saude.economia)';
   const respostas = typeof dirConfig === 'string' ? respostasSubagenteDoIndice(path.join(dirConfig, 'projects'), agoraMs - SEMANA_MS, dir, agoraMs) : [];
@@ -128,8 +130,9 @@ function semana({ dir, agoraMs, dirConfig, config }) {
 }
 
 // A linha de baixo da seção "PC agora" na janela do VS Code (Task 13): hooks,
-// reparos, compat e conflitos, sem ler índice nenhum (a janela pede a cada
-// 5 s). Hooks aqui são só as partes desligadas pelo teto. Nunca lança.
+// reparos, compat, conflitos, dados (sem os maiores) e economia (sem tokens),
+// sem ler índice nenhum (a janela pede a cada 5 s). Hooks aqui são só as
+// partes desligadas pelo teto. Nunca lança.
 export function resumoCurto({ dir, agoraMs = Date.now(), config, raizPlugin = null, versaoNode = process.version, versaoClaude }) {
   const ctx = { dir, agoraMs, raizPlugin, versaoNode, versaoClaude, config };
   const parte = (rotulo, fn) => {
@@ -143,6 +146,8 @@ export function resumoCurto({ dir, agoraMs = Date.now(), config, raizPlugin = nu
     parte('Reparos', () => reparos(dir, agoraMs)),
     parte('Compat', () => compat(ctx)),
     parte('Conflitos', () => conflitos(dir, agoraMs, config)),
+    parte('Dados', () => dados(dir, config, { comMaiores: false })),
+    parte('Economia', () => semana({ dir, agoraMs, dirConfig: null, config })),
   ].join(' · ');
 }
 

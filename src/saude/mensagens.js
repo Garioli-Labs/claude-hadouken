@@ -1,3 +1,5 @@
+import { gbInteiro } from './faixas.js';
+
 // Os textos fixos da saúde (spec v0.5.5 §6.B e §6.C). Ao Claude vão só
 // números já validados e estes rótulos: nome de processo nunca entra no
 // contexto dele. Ao usuário, os nomes vão saneados (processos.js) e o texto
@@ -10,7 +12,6 @@ const hhmm = (ms) => {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
-export const gbInteiro = (bytes) => Math.floor(bytes / 1024 ** 3);
 const gbDecimal = (bytes) => (bytes / 1024 ** 3).toFixed(1).replace('.', ',');
 
 // Ao Claude, por tipo e nível (2 = vermelho; 1 = amarelo, só a RAM tem).
