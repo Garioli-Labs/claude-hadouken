@@ -182,6 +182,21 @@ Subcomandos: `leve`, `normal`. Qualquer outro argumento mostra a linha de uso.
   - bench com as linhas novas: hook de prompt com `saude.json` presente e com o disparo do coletor.
 - **Windows e Linux antes de cada push:** a suíte e os benches no WSL Ubuntu com Node 20 e 24. O macOS fica coberto pela CI.
 
+### 6.L Interface na janela do VS Code (decidida no protótipo)
+
+O Sr. Garioli escolheu a **variante A, "Instrumentos no topo"** ("mais intuitiva") entre três variantes do protótipo (`mattpocock-skills:prototype`). O protótipo fica no branch local `prototipo/v055-saude`, em `vscode/janela/prototipo-saude.html`.
+
+- **Seção "PC agora"** logo abaixo da seção "Uso":
+  - a idade da leitura numa etiqueta e a etiqueta `LEVE` quando o modo estiver ligado;
+  - um feixe por medida (RAM, GPU, CPU e disco; bateria quando houver), com o mesmo componente e as mesmas cores de urgência dos feixes de uso;
+  - o valor à direita, e "não disponível neste PC" quando não há leitura.
+- **Abaixo dos feixes:**
+  - o quadro "Fechar libera memória", só na faixa vermelha, deixando claro que quem fecha é o usuário;
+  - o botão "Ligar modo leve (4 h)" ou "Voltar ao normal", que aparece só com algo em alerta ou com o modo ligado.
+- **A aba "Saúde"** da configuração guarda só os ajustes: as faixas e o liga-desliga de cada peça.
+- **Hooks, reparos, compatibilidade, conflitos, dados e economia** ficam no `/hadouken:saude` e numa linha resumida no fim da seção "PC agora", sem tela própria. É escolha do Claude, para a janela não crescer.
+- **Barra de status do VS Code:** segmento `PC: RAM 94%` ou `PC: GPU 89°C` com fundo de alerta enquanto durar, e `leve` com o modo ligado.
+
 ## 7. Configuração (tabela de limites)
 
 Itens novos, todos com padrão ligado e liga-desliga, na aba **Saúde**:
@@ -232,6 +247,25 @@ Itens novos, todos com padrão ligado e liga-desliga, na aba **Saúde**:
 6. **Canal do aviso ao usuário:** `systemMessage` do SessionStart e do UserPromptSubmit, que o `session-start.js` já usa, mais o segmento da barra enquanto durar e o item na janela do VS Code. Limite de 300 caracteres por aviso, no máximo um aviso por hook; se houver vários, sai o mais grave e os outros esperam o próximo.
 7. **Prazo interno:** é um timer `unref` que sai com 0 e sem saída. Fica **só nos hooks que não decidem nada**: session-start, prompt-submit, session-end e statusline. Os hooks da guarda (`guarda-*`, `liberar`) ficam de fora e mantêm o comportamento de hoje.
 8. **Teste no Linux:** já instalado (WSL Ubuntu 26.04, Node 20.20.2 e 24.22.2, com o script da sessão). O repositório tem git. "Antes de pedir push" quer dizer: suíte verde no Windows e no Linux sobre o commit, antes de pedir o push ao Sr. Garioli.
+
+## 9.2 Costuras de módulo (mattpocock-skills:codebase-design)
+
+Módulos fundos, com interface pequena e a E/S injetada onde varia. Tudo fica em `src/saude/`.
+
+| Módulo | Interface | Por trás dela |
+|---|---|---|
+| `coletor.js` | `coletar({ agoraMs, plataforma, executar })` → leitura | Fontes por plataforma, prazos e saneamento. `executar` é a costura: um adaptador real (spawn com prazo) e um falso nos testes. |
+| `coletor-main.js` | script desanexado, sem interface para quem chama | Trava `saude.lock` com pid, prioridade baixa, `coletar`, `repararDados`, `limparDados`, encerrar os próprios processos pendurados e gravar `saude.json`. |
+| `ler.js` | `lerSaude(dir, agoraMs)` → `{ leitura, idadeMs }` · `talvezColetar(dir, agoraMs, { disparar })` → boolean | Idade, trava e disparo desanexado. `disparar` é a costura do spawn. |
+| `avisos.js` | `decidirAvisos({ leitura, config, registro, sessao, agoraMs })` → `{ usuario, claude, barra, registro }` | **Puro.** Faixas, episódios globais e por sessão, modo leve, o mais grave primeiro e textos de orientação. Os hooks só chamam isto e gravam o `registro`. |
+| `tetos.js` | `abrirTetos(dir, agoraMs)` → `{ rodar(nome, fn), fechar() }` | Lê `tetos.json` uma vez por hook, mede depois do fato, aplica 3 de 10 e 24 h e grava no `fechar`. |
+| `processos.js` | `classificar(lista)` · `encerraveis(lista, travas, agoraMs)` | **Puro.** Classes de processo, sugestões de fechar e a regra dos 3× o prazo com dupla confirmação. |
+| `reparo.js` | `repararDados(dir, agoraMs)` → reparos | Roda só no coletor. Os hooks continuam tratando JSON inválido como ausente, que já é o padrão seguro (`lerJson` devolve `motivo: 'invalido'`); o reparo põe em quarentena e registra fora do caminho quente. |
+| `limpeza.js` | `limparDados(dir, tetos)` → relatório | Cortes, reconstruções e quarentenas velhas. |
+| `compat.js` | `conferirCompat(versoes, compat)` · `acharConflitos(settings, plugins, custos)` | **Puro.** As leituras de arquivos ficam no SessionStart, uma vez a cada 24 h. |
+| `relatorio.js` | `relatorioSaude(dir, agoraMs)` → texto | O `/hadouken:saude` inteiro, só lendo arquivos. |
+
+Teste pela interface: `avisos`, `processos` e `compat` com dados prontos; `coletor` com `executar` falso por plataforma; `tetos` e `ler` com pasta temporária e relógio falso.
 
 ## 10. Fica para quem implementa
 
