@@ -128,6 +128,41 @@ export async function desligarAprendizado() {
   }
 }
 
+// A seção "PC agora" (spec v0.5.5 §6.L): o estado já decidido, ou null com a
+// saúde desligada. Só lê saude.json; o coletor não sobe daqui, porque no
+// VS Code o process.execPath é o editor (src/saude/janela.js).
+export async function estadoSaude() {
+  try {
+    return (await import('../saude/janela.js')).estadoJanela({ dir: dirDados(), agoraMs: Date.now(), raizPlugin: RAIZ_PLUGIN });
+  } catch {
+    return null;
+  }
+}
+
+// O segmento da saúde na barra do VS Code, o mesmo da statusline ("PC: RAM
+// 94%", "leve"), ou null. Barato (faixas.js e modo.js) e sem o disparo do
+// coletor que a statusline faz.
+export async function barraSaude() {
+  try {
+    const dir = dirDados();
+    return dir === null ? null : (await import('../saude/barra.js')).saudeNaBarra(dir, Date.now()).barra;
+  } catch {
+    return null;
+  }
+}
+
+// O botão do modo leve: true liga por 4 h, false volta ao normal.
+export async function mudarModo(leve) {
+  if (typeof leve !== 'boolean') return { ok: false, motivo: 'invalido' };
+  try {
+    const dir = dirDados();
+    if (dir === null) return { ok: false, motivo: 'sem-pasta' };
+    return (await import('../saude/modo.js')).gravarModo(dir, leve, Date.now()).ok ? { ok: true } : erro();
+  } catch {
+    return erro();
+  }
+}
+
 // O resumo de 7 dias do roteamento (spec roteamento §8), como o passo do
 // aprendizado o monta; null se o módulo faltar ou falhar.
 export async function resumoRoteamento7d() {

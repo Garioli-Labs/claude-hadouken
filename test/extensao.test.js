@@ -33,6 +33,9 @@ export async function desfazer(t) { g().desfeitos.push(t); return { ok: true }; 
 export async function comandoAtualizar(p) { return { shell: p === 'win32' ? 'powershell' : 'posix', texto: 'atualizar-' + p }; }
 export async function resumoRoteamento7d() { return null; }
 export async function talvezConsultarVersao(o) { g().consultas.push(o); return null; }
+export async function estadoSaude() { return g().saude; }
+export async function barraSaude() { return g().barraSaude; }
+export async function mudarModo(leve) { g().modos.push(leve); return { ok: true }; }
 `;
 const PAINEL_VELHO = `const g = () => globalThis.hdk;
 export function estadoPainel(o) { g().desenhos++; return { texto: '5h 25% · sem 41% · Fable 57%', nivel: 'ok', dica: '' }; }
@@ -49,7 +52,8 @@ async function esperar(cond, voltas = 20_000) {
 async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', globalState = new Map(), respostas = [] } = {}) {
   globalThis.hdk = {
     desenhos: 0, leituras: [], nivel: 'ok', pcts: { h5: 55, d7: null, fable: null }, em: 1, ems: [], portao: null, nova: null, animarLogo: true,
-    versaoCfg: 'ausente', gravacoes: [], desfeitos: [], respostaGravar: { ok: true, desfazer: { antes: {}, versaoDepois: 'v', ate: 1 } }, consultas: [], ...hdk,
+    versaoCfg: 'ausente', gravacoes: [], desfeitos: [], respostaGravar: { ok: true, desfazer: { antes: {}, versaoDepois: 'v', ate: 1 } }, consultas: [],
+    saude: null, barraSaude: null, modos: [], ...hdk,
   };
   const { api, estado } = criar();
   estado.reduceMotion = reduceMotion;
@@ -292,6 +296,79 @@ test('janela: o estado leva painel, config, versão e movimento reduzido', async
     const antes = painel.enviadas.length;
     await tique(t);
     assert.ok(await esperar(() => painel.enviadas.length > antes));
+  } finally {
+    m.fim();
+  }
+});
+
+// --- saúde do PC (v0.5.5, Task 13) ---------------------------------------------
+
+const SAUDE = {
+  idadeMs: 12_000, leve: false, ateMs: null,
+  medidas: [
+    { chave: 'ram', rotulo: 'RAM', pct: 94, valor: '94% de 16 GB', urgencia: 'urgente' },
+    { chave: 'gpu', rotulo: 'GPU', pct: null, valor: 'não disponível neste PC', urgencia: 'calma' },
+  ],
+  sugestoes: [{ nome: '<img src=x onerror=alert(1)>', rssBytes: 3 * 1024 ** 3 }],
+  acaoLeve: 'ligar', barra: 'PC: RAM 94%', resumo: 'Hooks: no tempo · Reparos: nenhum',
+};
+
+test('janela: o estado traz a saúde conferida; forma estranha cai fora', async (t) => {
+  const estranha = {
+    ...SAUDE, idadeMs: -5, acaoLeve: 'apagar',
+    medidas: [...SAUDE.medidas, { chave: 'xyz', rotulo: 'X', pct: 5, valor: 'v', urgencia: 'calma' }, { chave: 'cpu', rotulo: 'CPU', pct: 900, valor: 'v', urgencia: 'calma' }],
+    sugestoes: [...SAUDE.sugestoes, { nome: 5, rssBytes: 1 }],
+  };
+  const m = await montar(t, { hdk: { saude: estranha } });
+  try {
+    const e = (await abrir(m)).enviadas.find((x) => x.tipo === 'estado');
+    assert.equal(e.saude.idadeMs, null);
+    assert.equal(e.saude.acaoLeve, null);
+    // Chave desconhecida sai; pct fora de 0–100 fica sem feixe (null).
+    assert.deepEqual(e.saude.medidas.map((x) => x.chave), ['ram', 'gpu', 'cpu']);
+    assert.equal(e.saude.medidas[1].pct, null);
+    assert.equal(e.saude.medidas[2].pct, null);
+    assert.deepEqual(e.saude.sugestoes, SAUDE.sugestoes, 'o nome vai como texto; a página usa textContent');
+    assert.equal(e.saude.resumo, SAUDE.resumo);
+  } finally {
+    m.fim();
+  }
+});
+
+test('janela: painel sem estadoSaude (plugin 0.5.4) manda saude null', async (t) => {
+  const semSaude = PAINEL_NOVO.split('\n').filter((l) => !/estadoSaude|barraSaude|mudarModo/.test(l)).join('\n');
+  const v = await montar(t, { shim: semSaude });
+  try {
+    const e = (await abrir(v)).enviadas.find((x) => x.tipo === 'estado');
+    assert.equal(e.saude, null);
+  } finally {
+    v.fim();
+  }
+});
+
+test('janela: ligarLeve e desligarLeve chamam mudarModo e reenviam o estado; sem mudarModo, nada', async (t) => {
+  const m = await montar(t, { hdk: { saude: SAUDE } });
+  try {
+    const painel = await abrir(m);
+    const antes = painel.enviadas.filter((x) => x.tipo === 'estado').length;
+    await painel.receber({ tipo: 'ligarLeve' });
+    await painel.receber({ tipo: 'desligarLeve' });
+    await painel.receber({ tipo: 'ligarLeve', leve: 'x' });
+    assert.deepEqual(globalThis.hdk.modos, [true, false, true]);
+    assert.ok(painel.enviadas.filter((x) => x.tipo === 'estado').length >= antes + 3);
+  } finally {
+    m.fim();
+  }
+});
+
+test('barra do VS Code: o segmento da saúde entra depois do uso; texto fora da forma não entra', async (t) => {
+  const m = await montar(t, { hdk: { barraSaude: 'PC: GPU 89°C, leve' } });
+  try {
+    await tique(t);
+    assert.ok(await esperar(() => m.uso.text.endsWith(' · PC: GPU 89°C, leve')), m.uso.text);
+    globalThis.hdk.barraSaude = '$(alert) <b>x</b>';
+    await tique(t);
+    assert.ok(await esperar(() => !m.uso.text.includes('PC:') && !m.uso.text.includes('<b>')), m.uso.text);
   } finally {
     m.fim();
   }

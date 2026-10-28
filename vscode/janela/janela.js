@@ -13,7 +13,7 @@
   const GRUPOS = [
     ['guarda', 'Guarda'], ['barra', 'Barra'], ['alertas', 'Alertas'],
     ['aprendizado', 'Aprendizado'], ['painel', 'Painel'], ['roteamento', 'Roteamento'],
-    ['protecoes', 'Proteções'],
+    ['protecoes', 'Proteções'], ['saude', 'Saúde'],
   ];
   // Emenda 3 (§12.2): o que se perde ao desligar cada proteção, na linha
   // abaixo do switch. Sem diálogo: a mudança tem Desfazer e o aviso de afrouxar.
@@ -289,6 +289,7 @@
       else {
         for (const i of itens().filter((x) => x.grupo === grupo)) painel.append(i.tipo === 'inteiro' ? campoInteiro(i) : switchDeRascunho(i));
         if (grupo === 'roteamento') tabelaRoteamento(painel);
+        if (grupo === 'saude') painel.prepend(criar('p', { class: 'dica' }, 'Aqui ficam só os ajustes: faixas de RAM e temperatura e o liga-desliga de cada peça. O estado do PC fica lá em cima, em "PC agora".'));
       }
       paineis.append(painel);
     }
@@ -349,6 +350,66 @@
     }
   }
 
+  // A seção "PC agora" (v0.5.5, variante A). Tudo já vem decidido do plugin
+  // (src/saude/janela.js); aqui só desenha. O botão fica fixo no HTML para o
+  // tique de 5 s não roubar o foco de quem está nele. A urgência vai também
+  // em texto, não só na cor (WCAG 1.4.1).
+  const AVISO_URGENCIA = { atencao: ' · perto do limite', urgente: ' · acima do limite' };
+  const hhmm = (ms) => {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  const idadeTexto = (ms) => (ms < 60000 ? `${Math.max(0, Math.round(ms / 1000))} s` : `${Math.round(ms / 60000)} min`);
+  const gb = (b) => (b / 1024 ** 3).toFixed(1).replace('.', ',');
+  let acaoLeve = null;
+
+  function montarSaude(s) {
+    const secao = $('secao-pc');
+    secao.hidden = !s || typeof s !== 'object';
+    if (secao.hidden) return;
+    const medidas = Array.isArray(s.medidas) ? s.medidas : [];
+    $('pc-idade').textContent = medidas.length > 0 && typeof s.idadeMs === 'number' ? `leitura de ${idadeTexto(s.idadeMs)}` : '';
+    $('pc-idade').hidden = $('pc-idade').textContent === '';
+    $('pc-leve').hidden = s.leve !== true;
+    const vazio = $('pc-vazio');
+    vazio.hidden = medidas.length > 0;
+    vazio.textContent = typeof s.idadeMs === 'number'
+      ? `A última leitura do PC tem ${idadeTexto(s.idadeMs)}. A próxima vem com o Claude Code aberto, que lê o PC a cada minuto.`
+      : 'A primeira leitura do PC vem com o Claude Code aberto, que lê o PC a cada minuto.';
+    const caixa = $('pc-feixes');
+    caixa.replaceChildren();
+    for (const x of medidas) {
+      const feixe = criar('div', { class: 'feixe', 'data-urgencia': x.urgencia });
+      const cab = criar('div', { class: 'feixe-rotulo' });
+      cab.append(criar('span', {}, x.rotulo), criar('span', {}, `${x.valor}${AVISO_URGENCIA[x.urgencia] || ''}`));
+      feixe.append(cab);
+      if (typeof x.pct === 'number') {
+        const trilho = criar('div', {
+          class: 'feixe-trilho', role: 'meter', 'aria-label': x.rotulo, 'aria-valuetext': x.valor,
+          'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(x.pct),
+        });
+        const cheio = criar('div', { class: 'feixe-cheio' });
+        cheio.style.width = `${Math.min(100, Math.max(0, x.pct))}%`;
+        trilho.append(cheio);
+        feixe.append(trilho);
+      }
+      caixa.append(feixe);
+    }
+    const apps = Array.isArray(s.sugestoes) ? s.sugestoes : [];
+    $('pc-sugestao').hidden = apps.length === 0;
+    $('pc-apps').replaceChildren(...apps.map((a) => criar('li', {}, `${a.nome}: ${gb(a.rssBytes)} GB`)));
+    acaoLeve = s.acaoLeve === 'ligar' || s.acaoLeve === 'desligar' ? s.acaoLeve : null;
+    const botao = $('pc-botao-leve');
+    botao.hidden = acaoLeve === null;
+    $('pc-dica-leve').hidden = acaoLeve !== 'ligar';
+    const rotulo = acaoLeve === 'desligar' ? 'Voltar ao normal' : 'Ligar modo leve (4 h)';
+    if (botao.textContent !== rotulo) botao.textContent = rotulo;
+    // Só troca o texto quando o modo muda, para o leitor de tela não repetir.
+    const modo = s.leve === true && typeof s.ateMs === 'number' ? `Modo leve até ${hhmm(s.ateMs)}: o Claude trabalha em série.` : 'Modo normal.';
+    if ($('pc-modo').textContent !== modo) $('pc-modo').textContent = modo;
+    $('pc-resumo').textContent = typeof s.resumo === 'string' ? s.resumo : '';
+  }
+
   function receberEstado(m) {
     estado = m;
     $('versao').textContent = typeof m.versaoInstalada === 'string' ? m.versaoInstalada : '';
@@ -356,6 +417,7 @@
     faixaVersao.hidden = typeof m.versaoNova !== 'string';
     $('texto-versao').textContent = typeof m.versaoNova === 'string' ? `hadouken ${m.versaoNova} disponível` : '';
     montarFeixes();
+    montarSaude(m.saude);
     if (m.config && Array.isArray(m.config.itens)) {
       const versaoAntes = versaoMontada;
       config = m.config;
@@ -436,6 +498,10 @@
   $('desfazer').addEventListener('click', () => {
     $('desfazer-barra').hidden = true;
     vscode.postMessage({ tipo: 'desfazer' });
+  });
+  $('pc-botao-leve').addEventListener('click', () => {
+    if (acaoLeve === null) return;
+    vscode.postMessage({ tipo: acaoLeve === 'ligar' ? 'ligarLeve' : 'desligarLeve' });
   });
   $('atualizar-uso').addEventListener('click', () => vscode.postMessage({ tipo: 'atualizarUso' }));
   $('atualizar-hadouken').addEventListener('click', () => vscode.postMessage({ tipo: 'atualizarHadouken' }));

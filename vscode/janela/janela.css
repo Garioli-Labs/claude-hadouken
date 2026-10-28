@@ -152,6 +152,13 @@ button[role=switch][aria-checked=true] { color: var(--fundo); background: var(--
 
 #motivo-salvar { font-size: 13px; }
 
+/* "PC agora" (v0.5.5): etiquetas da idade e do LEVE, e o quadro de sugestões. */
+.pill { font-size: 10px; padding: 2px 6px; margin: 0 4px; color: var(--texto); background: var(--painel); box-shadow: var(--degrau); }
+.sugestao { padding: 10px 12px; margin: 12px 4px; background: var(--painel); box-shadow: var(--degrau); }
+.sugestao p { margin: 0 0 4px; }
+.sugestao ul { margin: 0; padding-left: 20px; }
+#pc-modo { font-size: 13px; margin: 4px 0; }
+
 table { border-collapse: collapse; margin-top: 8px; }
 th, td { text-align: left; padding: 4px 12px 4px 0; }
 

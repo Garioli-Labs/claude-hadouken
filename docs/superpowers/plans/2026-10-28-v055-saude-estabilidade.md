@@ -456,15 +456,33 @@
   - a linha `resumo` no fim.
   - Plugin velho sem `estadoSaude`: a seção some.
 
-- [ ] **Step 1: Write failing tests**:
+- [x] **Step 1: Write failing tests**:
   - `estado traz saude quando o painel tem estadoSaude; sem ele, sem saude`;
   - `ligarLeve chama mudarModo(true) e reenvia o estado`;
   - `webview: RAM 94% mostra feixe urgente, sugestões e botão; tranquilo sem botão`;
   - `nome de app vindo do estado é texto, nunca HTML` (`textContent`).
-- [ ] **Step 2: Run** `node --test --test-concurrency=2 test/extensao.test.js` mais o da webview. Expected: FAIL.
-- [ ] **Step 3: Implement**, usando `hadouken-kit:yu-ux-web-expert` para conferir contraste 4,5:1, foco visível, leitores de tela (`role=status` nas mudanças) e movimento reduzido.
-- [ ] **Step 4: Run.** Expected: PASS. Abra a janela num servidor local no Chrome e confira os quatro cenários do protótipo.
-- [ ] **Step 5: Commit** `feat(vscode): seção PC agora e aba Saúde`.
+- [x] **Step 2: Run** `node --test --test-concurrency=2 test/extensao.test.js` mais o da webview. Expected: FAIL.
+- [x] **Step 3: Implement**, usando `hadouken-kit:yu-ux-web-expert` para conferir contraste 4,5:1, foco visível, leitores de tela (`role=status` nas mudanças) e movimento reduzido.
+- [x] **Step 4: Run.** Expected: PASS. Abra a janela num servidor local no Chrome e confira os quatro cenários do protótipo.
+- [x] **Step 5: Commit** `feat(vscode): seção PC agora e aba Saúde`.
+
+**Decisões da execução (Task 13):**
+- **A decisão fica no plugin.** O módulo novo `src/saude/janela.js` monta o estado com `estadoJanela({ dir, agoraMs, raizPlugin, versaoNode })`. Ele devolve `{ idadeMs, leve, ateMs, medidas, sugestoes, acaoLeve, barra, resumo }`, ou null com a saúde desligada.
+  - Cada medida é `{ chave, rotulo, pct, valor, urgencia }`.
+  - `acaoLeve` é `'ligar'` só com alerta, `'desligar'` com o modo ligado, e null nos outros casos.
+  - A página só desenha, e "RAM 94% → feixe urgente, sugestões e botão" fica testado em `test/saude-janela.test.js`, sem DOM falso. A página tem o teste estático (só `textContent`) e a conferência no Chrome.
+  - Isso troca o `{ leitura, idadeMs, modo, sugestoes, resumo }` do plano, para a página não repetir faixas nem regras.
+- **A janela nunca dispara o coletor.** No VS Code, `process.execPath` é o próprio editor: disparar o `coletor-main.js` com ele abriria outra janela do Code. A janela só lê `saude.json`, e quem dispara o coletor continuam sendo a barra do Claude Code e os hooks. Sem leitura, a janela diz que ela "vem com o Claude Code aberto".
+- **A barra do VS Code usa `barraSaude()`.** O segmento vem de `saudeNaBarra`, o mesmo texto da statusline, só que sem o `depois` que dispara o coletor, e entra depois do uso (`… · PC: RAM 94%`). A extensão só aceita `^[A-Za-z0-9 :%°,]{1,24}$`, o que barra ícone `$(` e marcação.
+- **O resumo é curto.** `resumoCurto` (relatorio.js) não lê índice nenhum, porque a janela pede o estado a cada 5 s. Nos hooks ele mostra só as partes desligadas pelo teto. O p95 de cada plugin fica no `/hadouken:saude`.
+- **A extensão confere a forma.** `saudeValida` aceita até 8 medidas e 5 sugestões, com os textos cortados. Uma chave desconhecida sai, e um `pct` fora de 0–100 deixa a medida sem feixe. Um plugin 0.5.4 sem `estadoSaude` manda `saude: null`, e a seção some.
+- **Acessibilidade.**
+  - A urgência também aparece em texto ("perto do limite", "acima do limite"), não só na cor (WCAG 1.4.1).
+  - O feixe é `role=meter` com `aria-valuetext`.
+  - O modo está num `role=status` que só muda o texto quando o modo muda.
+  - O botão fica fixo no HTML, para o tique de 5 s não tirar o foco de quem está nele.
+  - A fonte pixel continua só nos títulos e botões.
+- **Conferido no Chrome**, com o HTML real e um `acquireVsCodeApi` falso, nos cenários RAM apertada, GPU quente, modo leve e sem leitura. O clique no botão manda `ligarLeve`, e o rótulo vira "Voltar ao normal". Um nome de app com `<img onerror>` aparece como texto.
 
 ### Task 14: Robustez e peso
 

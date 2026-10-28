@@ -108,7 +108,7 @@ const chamar = (m, nome) => Promise.resolve().then(() => (typeof m[nome] === 'fu
 
 // Spec vscode §4.4: só esta lista de mensagens da janela, cada uma com a forma
 // conferida; o resto é ignorado.
-const TIPOS_MENSAGEM = new Set(['pronto', 'salvar', 'voltarPadrao', 'desfazer', 'atualizarUso', 'atualizarHadouken', 'ligarAprendizado', 'desligarAprendizado']);
+const TIPOS_MENSAGEM = new Set(['pronto', 'salvar', 'voltarPadrao', 'desfazer', 'atualizarUso', 'atualizarHadouken', 'ligarAprendizado', 'desligarAprendizado', 'ligarLeve', 'desligarLeve']);
 const CHAVE_CONFIG = /^[a-zA-Z0-9.]{1,60}$/;
 const VERSAO_CONFIG = /^([0-9a-f]{16}|ausente)$/;
 const MAX_CHAVES = 40;
@@ -216,6 +216,44 @@ function estadoValido(e) {
   return { texto: e.texto.slice(0, TEXTO_MAX), nivel: e.nivel, dica: typeof e.dica === 'string' ? e.dica : '', pcts };
 }
 
+// A saúde do PC (v0.5.5, Task 13) na forma que a janela desenha, ou null. O
+// plugin já decide tudo; aqui só passa o que tem a forma combinada, com os
+// textos cortados. Os nomes de app vão como texto (a página usa textContent).
+const CHAVES_SAUDE = new Set(['ram', 'gpu', 'cpu', 'disco', 'bateria']);
+const URGENCIAS = new Set(['calma', 'atencao', 'urgente']);
+const texto = (s, max) => (typeof s === 'string' ? s.slice(0, max) : null);
+const inteiroOuNull = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);
+
+function medidaValida(x) {
+  if (x === null || typeof x !== 'object' || !CHAVES_SAUDE.has(x.chave) || !URGENCIAS.has(x.urgencia)) return null;
+  const rotulo = texto(x.rotulo, 40);
+  const valor = texto(x.valor, 80);
+  if (rotulo === null || valor === null) return null;
+  const pct = typeof x.pct === 'number' && Number.isFinite(x.pct) && x.pct >= 0 && x.pct <= 100 ? x.pct : null;
+  return { chave: x.chave, rotulo, pct, valor, urgencia: x.urgencia };
+}
+
+function saudeValida(s) {
+  if (s === null || typeof s !== 'object' || Array.isArray(s)) return null;
+  const lista = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
+  return {
+    idadeMs: inteiroOuNull(s.idadeMs),
+    leve: s.leve === true,
+    ateMs: inteiroOuNull(s.ateMs),
+    medidas: lista(s.medidas, 8).map(medidaValida).filter((x) => x !== null),
+    sugestoes: lista(s.sugestoes, 5)
+      .filter((a) => a !== null && typeof a === 'object' && typeof a.nome === 'string' && inteiroOuNull(a.rssBytes) !== null)
+      .map((a) => ({ nome: a.nome.slice(0, 60), rssBytes: a.rssBytes })),
+    acaoLeve: s.acaoLeve === 'ligar' || s.acaoLeve === 'desligar' ? s.acaoLeve : null,
+    resumo: texto(s.resumo, 600) ?? '',
+  };
+}
+
+// O segmento da saúde na barra: só a forma que montarBarra produz (até 24
+// caracteres, sem "$(" de ícone nem marcação).
+const BARRA_SAUDE = /^[A-Za-z0-9 :%°,]{1,24}$/;
+const barraSaudeValida = (b) => (typeof b === 'string' && BARRA_SAUDE.test(b) ? b : null);
+
 // "5h ▮▮▮▮▯▯▯▯ 55% · sem — · Fable …", com os glifos da fonte hadouken.
 function textoComSegmentos(pcts) {
   const parte = (rotulo, p) => (p === null ? `${rotulo} —` : `${rotulo} ${segmentos(p).join('')} ${Math.floor(p)}%`);
@@ -248,6 +286,7 @@ function activate(ctx) {
     let animarLigado = true;
     let versaoNova = null;
     let versaoInstalada = null;
+    let saudeBarra = null;
     // A janela (§4): uma só; o token de desfazer fica aqui, nunca na página.
     let janela = null;
     let tokenDesfazer = null;
@@ -270,12 +309,14 @@ function activate(ctx) {
     // Evento, versão e configuração do shim novo. Nunca rejeita.
     const lerExtras = async (m) => {
       const api = apiDe(m);
-      const [ev, ver, cfg] = await Promise.all([
+      const [ev, ver, cfg, barra] = await Promise.all([
         api.evento ? chamar(m, 'ultimoEvento') : null,
         api.versao ? chamar(m, 'estadoVersao') : null,
         api.janela ? chamar(m, 'lerConfiguracao') : null,
+        chamar(m, 'barraSaude'),
       ]);
       if (!ativo) return;
+      saudeBarra = barraSaudeValida(barra);
       versaoNova = ver !== null && typeof ver === 'object' && typeof ver.nova === 'string' && VERSAO.test(ver.nova) ? ver.nova : null;
       versaoInstalada = ver !== null && typeof ver === 'object' && typeof ver.instalada === 'string' && VERSAO.test(ver.instalada) ? ver.instalada : null;
       const itens = cfg !== null && typeof cfg === 'object' && Array.isArray(cfg.itens) ? cfg.itens : [];
@@ -309,7 +350,7 @@ function activate(ctx) {
         item.command = comando;
         if (api.evento) {
           const seta = versaoNova === null ? '' : ` $(hadouken-seta) ${versaoNova}`;
-          item.text = `${e.pcts === null ? e.texto : textoComSegmentos(e.pcts)}${seta}`;
+          item.text = `${e.pcts === null ? e.texto : textoComSegmentos(e.pcts)}${saudeBarra === null ? '' : ` · ${saudeBarra}`}${seta}`;
           logo.command = comando;
           logo.color = new vscode.ThemeColor(corDaUrgencia(URGENCIA_DO_NIVEL[e.nivel]));
           logo.tooltip = e.dica === '' ? undefined : new vscode.MarkdownString(e.dica);
@@ -339,7 +380,9 @@ function activate(ctx) {
     const enviarEstado = async (m) => {
       if (janela === null || m === null) return;
       try {
-        const [config, roteamento] = await Promise.all([chamar(m, 'lerConfiguracao'), chamar(m, 'resumoRoteamento7d')]);
+        const [config, roteamento, saude] = await Promise.all([
+          chamar(m, 'lerConfiguracao'), chamar(m, 'resumoRoteamento7d'), chamar(m, 'estadoSaude'),
+        ]);
         const e = estadoValido(m.estadoPainel(ultimoMotivo === undefined ? {} : { ultimoMotivo }));
         postar({
           tipo: 'estado',
@@ -348,6 +391,7 @@ function activate(ctx) {
           versaoNova,
           versaoInstalada,
           roteamento,
+          saude: saudeValida(saude),
           movimentoReduzido: movimentoReduzido(),
         });
       } catch {
@@ -420,6 +464,10 @@ function activate(ctx) {
           case 'atualizarHadouken': await abrirTerminalAtualizar(m); return;
           case 'ligarAprendizado': await chamar(m, 'ligarAprendizado'); break;
           case 'desligarAprendizado': await chamar(m, 'desligarAprendizado'); break;
+          case 'ligarLeve':
+          case 'desligarLeve':
+            if (typeof m.mudarModo === 'function') await Promise.resolve().then(() => m.mudarModo(msg.tipo === 'ligarLeve')).catch(() => null);
+            break;
           default: return;
         }
         await enviarEstado(m);

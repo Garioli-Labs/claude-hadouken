@@ -127,6 +127,25 @@ function semana({ dir, agoraMs, dirConfig, config }) {
   return resumoEconomia({ dir, agoraMs, respostasSubagente: respostas }).texto ?? 'nada a contar';
 }
 
+// A linha de baixo da seção "PC agora" na janela do VS Code (Task 13): hooks,
+// reparos, compat e conflitos, sem ler índice nenhum (a janela pede a cada
+// 5 s). Hooks aqui são só as partes desligadas pelo teto. Nunca lança.
+export function resumoCurto({ dir, agoraMs = Date.now(), config, raizPlugin = null, versaoNode = process.version, versaoClaude }) {
+  const ctx = { dir, agoraMs, raizPlugin, versaoNode, versaoClaude, config };
+  const parte = (rotulo, fn) => {
+    try { return `${rotulo}: ${fn()}`; } catch { return `${rotulo}: não deu para ler agora`; }
+  };
+  return [
+    parte('Hooks', () => {
+      const d = abrirTetos(dir, agoraMs, { config }).desligadas();
+      return d.length === 0 ? 'no tempo' : `desligada por 24 h: ${d.map((x) => `${ROTULO_PARTE[x.nome]}, até ${hhmm(x.ateMs)}`).join('; ')}`;
+    }),
+    parte('Reparos', () => reparos(dir, agoraMs)),
+    parte('Compat', () => compat(ctx)),
+    parte('Conflitos', () => conflitos(dir, agoraMs, config)),
+  ].join(' · ');
+}
+
 // opções: dir, agoraMs, config (configSaude), raizPlugin, dirConfig (a pasta
 // do Claude Code), versaoNode, versaoClaude. Devolve o texto. Nunca lança.
 export function relatorioSaude(opcoes) {

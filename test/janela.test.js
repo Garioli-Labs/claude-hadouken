@@ -112,6 +112,21 @@ test('pixel.woff2 (Press Start 2P) e OFL.txt na pasta da janela', () => {
   assert.match(ler('bola.svg'), /^<svg [^>]*shape-rendering="crispEdges"/);
 });
 
+test('v0.5.5 Task 13: seção "PC agora" com status anunciado, botão fixo, aba Saúde e textos só por textContent', () => {
+  assert.match(HTML, /<section id="secao-pc" aria-labelledby="t-pc" hidden><h2 id="t-pc">PC agora /);
+  assert.match(HTML, /<p id="pc-modo" role="status" aria-live="polite"><\/p>/);
+  assert.match(HTML, /<button id="pc-botao-leve" type="button" aria-describedby="pc-dica-leve" hidden><\/button>/);
+  assert.match(HTML, /quem fecha é você/);
+  // A seção vem depois do Uso e antes da Configuração.
+  assert.ok(HTML.indexOf('id="t-uso"') < HTML.indexOf('id="t-pc"') && HTML.indexOf('id="t-pc"') < HTML.indexOf('id="t-config"'));
+  assert.match(JS, /\['saude', 'Saúde'\]/);
+  assert.match(JS, /tipo: acaoLeve === 'ligar' \? 'ligarLeve' : 'desligarLeve'/);
+  assert.match(JS, /montarSaude\(m\.saude\)/);
+  // A urgência também vai em texto, não só na cor.
+  assert.match(JS, /urgente: ' · acima do limite'/);
+  for (const classe of ['.pill', '.sugestao']) assert.ok(regras(CSS).some(([sel]) => sel === classe), classe);
+});
+
 test('Emenda 3 §12.2: aba Proteções com a consequência de cada interruptor', async () => {
   const { PROTECOES } = await import('../src/guarda/protecoes.js');
   assert.match(JS, /\['protecoes', 'Proteções'\]/);

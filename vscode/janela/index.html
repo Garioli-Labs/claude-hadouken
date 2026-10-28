@@ -10,6 +10,15 @@
 <body>
 <header class="cabecalho"><img class="bola" src="{{bola}}" alt="" aria-hidden="true"><h1>hadouken <span id="versao"></span></h1></header>
 <section aria-labelledby="t-uso"><h2 id="t-uso">Uso</h2><div id="feixes"></div><button id="atualizar-uso" type="button">Atualizar uso agora</button></section>
+<section id="secao-pc" aria-labelledby="t-pc" hidden><h2 id="t-pc">PC agora <span id="pc-idade" class="pill"></span><span id="pc-leve" class="pill" hidden>LEVE</span></h2>
+  <div id="pc-feixes"></div>
+  <p id="pc-vazio" class="dica" hidden></p>
+  <div id="pc-sugestao" class="sugestao" hidden><p><strong>Fechar libera memória</strong> (só sugestão; quem fecha é você):</p><ul id="pc-apps"></ul></div>
+  <button id="pc-botao-leve" type="button" aria-describedby="pc-dica-leve" hidden></button>
+  <p id="pc-dica-leve" class="dica" hidden>No modo leve, o Claude trabalha em série, um subagente por vez, e o modo acaba sozinho em 4 h.</p>
+  <p id="pc-modo" role="status" aria-live="polite"></p>
+  <p id="pc-resumo" class="dica"></p>
+</section>
 <section id="faixa-versao" hidden><p id="texto-versao"></p><button id="atualizar-hadouken" type="button">Atualizar</button></section>
 <section aria-labelledby="t-config"><h2 id="t-config">Configuração</h2>
   <div role="tablist" aria-label="Grupos de configuração" id="abas"></div>

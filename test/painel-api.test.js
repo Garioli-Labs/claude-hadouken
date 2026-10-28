@@ -20,7 +20,7 @@ after(() => {
 const NOMES = [
   'estadoPainel', 'talvezAtualizar', 'lerConfiguracao', 'validar', 'gravarConfiguracao', 'voltarAoPadrao', 'desfazer',
   'talvezConsultarVersao', 'estadoVersao', 'comandoAtualizar', 'ultimoEvento', 'ligarAprendizado', 'desligarAprendizado',
-  'resumoRoteamento7d',
+  'resumoRoteamento7d', 'estadoSaude', 'barraSaude', 'mudarModo',
 ];
 
 test('painel-api exporta os nomes da spec §2.2, todos funções', async () => {
@@ -69,4 +69,20 @@ test('desligar grava o marcador de desligado pelo usuário', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('Task 13 (v0.5.5): mudarModo liga e desliga o leve; estadoSaude mostra; argumento estranho não grava', async () => {
+  const m = await import('../src/uso/painel-api.js');
+  fs.rmSync(path.join(home, 'config.json'), { force: true });
+  assert.deepEqual(await m.mudarModo(true), { ok: true });
+  const s = await m.estadoSaude();
+  assert.equal(s.leve, true);
+  assert.equal(s.acaoLeve, 'desligar');
+  assert.equal(typeof s.resumo, 'string');
+  assert.equal(await m.barraSaude(), 'leve');
+  assert.deepEqual(await m.mudarModo(false), { ok: true });
+  assert.equal(await m.barraSaude(), null);
+  assert.equal((await m.estadoSaude()).leve, false);
+  assert.deepEqual(await m.mudarModo('sim'), { ok: false, motivo: 'invalido' });
+  assert.equal((await m.estadoSaude()).leve, false);
 });
