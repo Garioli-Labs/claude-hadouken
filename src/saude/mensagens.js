@@ -63,7 +63,7 @@ export const linhaModoLeve = (ateMs) =>
 export const LINHA_MODO_NORMAL = 'hadouken: modo leve encerrado; ritmo normal de trabalho.';
 
 // Spec §6.F: o aviso único ao usuário quando o teto desliga uma parte.
-const ROTULO_PARTE = Object.freeze({
+export const ROTULO_PARTE = Object.freeze({
   aprendizado: 'o aprendizado', versao: 'a conferência de versões e conflitos', painel: 'a instalação do painel', previsao: 'a previsão de estouro',
   coletor: 'o disparo do coletor de saúde', 'roteamento-otimizacoes': 'as sugestões do roteamento', economia: 'o resumo semanal de economia',
 });

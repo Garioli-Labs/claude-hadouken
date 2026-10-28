@@ -94,6 +94,22 @@ function totalBytes(dir) {
   return total;
 }
 
+// Para o /hadouken:saude: o total (o mesmo que o teto mede) e os 3 maiores
+// arquivos do primeiro nível. Nunca lança.
+export function medirDados(dir) {
+  try {
+    const maiores = [];
+    for (const nome of fs.readdirSync(dir).slice(0, ENTRADAS_MAX)) {
+      const bytes = tamanhoRegular(path.join(dir, nome));
+      if (bytes !== null) maiores.push({ nome, bytes });
+    }
+    maiores.sort((a, b) => b.bytes - a.bytes || (a.nome < b.nome ? -1 : 1));
+    return { totalBytes: totalBytes(dir), maiores: maiores.slice(0, 3) };
+  } catch {
+    return { totalBytes: null, maiores: [] };
+  }
+}
+
 function quarentenaVelha(nome, agoraMs) {
   if (!nome.includes(MARCA_QUARENTENA)) return false;
   const m = QUARENTENA.exec(nome);

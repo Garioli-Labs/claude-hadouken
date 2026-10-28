@@ -97,8 +97,10 @@ export function acharConflitos(entrada) {
   return r.slice(0, ITENS_MAX);
 }
 
-function parte(i) {
-  switch (i.tipo) {
+// Um item (de conferirCompat ou acharConflitos) em texto, com rótulos fixos;
+// null para tipo desconhecido. O /hadouken:saude usa o mesmo.
+export function descreverItem(i) {
+  switch (i?.tipo) {
     case 'node': return `Node ${i.atual} abaixo do suportado (${i.minimo}); atualize o Node`;
     case 'claudeCode': return `Claude Code ${i.atual} abaixo do suportado (${i.minimo}); rode claude update`;
     case 'extensao': return `extensão do VS Code ${i.atual} atrás do plugin ${i.minimo}; rode /hadouken:instalar`;
@@ -111,7 +113,7 @@ function parte(i) {
 
 // Um aviso só ao usuário, com tudo, até 300 caracteres; null sem nada.
 export function textoAviso(compat, conflitos) {
-  const partes = [...(Array.isArray(compat) ? compat : []), ...(Array.isArray(conflitos) ? conflitos : [])].map(parte).filter(Boolean);
+  const partes = [...(Array.isArray(compat) ? compat : []), ...(Array.isArray(conflitos) ? conflitos : [])].map(descreverItem).filter(Boolean);
   if (partes.length === 0) return null;
   const fim = '. O hadouken só relata; detalhes no /hadouken:saude.';
   let texto = `hadouken: ${partes[0]}`;

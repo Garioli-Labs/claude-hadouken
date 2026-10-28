@@ -78,7 +78,9 @@
       { "matcher": "hadouken:aprender",
         "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/aprender.js"], "timeout": 600 } ] },
       { "matcher": "hadouken:limites",
-        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/limites.js"], "timeout": 10 } ] }
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/limites.js"], "timeout": 10 } ] },
+      { "matcher": "hadouken:saude",
+        "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/saude.js"], "timeout": 10 } ] }
     ],
     "PreModelSwitch": [
       { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/src/hooks/guarda-modelo.js"], "timeout": 10 } ] }

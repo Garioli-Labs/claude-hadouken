@@ -416,17 +416,28 @@
     - Argumentos: vazio mostra o relatório; `leve` grava o modo e responde `hadouken: modo leve até HH:MM. O Claude passa a trabalhar em série; /hadouken:saude normal volta.`; `normal` responde `hadouken: modo normal.`.
     - Qualquer outro argumento devolve a linha de uso `uso: /hadouken:saude [leve | normal]`.
 
-- [ ] **Step 1: Write failing tests**:
+- [x] **Step 1: Write failing tests**:
   - `relatório sem saude.json diz que a primeira leitura vem em instantes`;
   - `relatório com RAM vermelha lista até 5 apps`;
   - `leve grava saude-modo.json e responde com a hora`;
   - `normal desliga`;
   - `argumento estranho: uso, nada gravado`;
   - `origem não digitada: recusado`.
-- [ ] **Step 2: Run.** Expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run.** Expected: PASS.
-- [ ] **Step 5: Commit** `feat(saude): /hadouken:saude, leve e normal`.
+- [x] **Step 2: Run.** Expected: FAIL.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run.** Expected: PASS.
+- [x] **Step 5: Commit** `feat(saude): /hadouken:saude, leve e normal`.
+
+**Decisões da execução (Task 12):**
+- **Interface.** `relatorioSaude({ dir, agoraMs, config, raizPlugin, dirConfig, versaoNode, versaoClaude })` devolve o texto. Cada seção tem seu próprio try: uma parte que falha não derruba o resto do relatório.
+- **Leitura dos índices só para ler.** Os p95 por plugin vêm de `lerItensDoIndice` (T10). A base de tokens da economia vem do `respostasSubagenteDoIndice` novo em `transcripts.js`. Nenhum dos dois reconstrói o índice, então o comando não fica pesado.
+- **Coletor depois da saída.** Com `saude.json` velho ou ausente, o relatório diz que a leitura "vem em instantes", e o hook dispara o coletor só depois de escrever a resposta. Nos testes, `HADOUKEN_SAUDE_DISPARAR=0` desliga esse disparo.
+- **Prazo.** `prazoMs: 8000`, 80% do timeout de 10 s do hooks.json, como nos hooks de sessão.
+- **Sugestão de fechar.** Só com RAM vermelha, até 5 apps, e o texto diz "só sugestão; quem fecha é você". O hadouken nunca fecha nada.
+- **Formato.** Rótulos de 6 colunas, como no terminal do protótipo. A linha do PC diz o que não dá para ler sem admin, em vez de pedir elevação.
+- **Portão.** É o mesmo do `limites.js`: `entrypointSdk` recusa `-p` e SDK, e `digitado` exige origem `plugin` com `slash_command`. Argumentos com mais de 64 caracteres, ou fora de `''`, `leve` e `normal`, recebem a linha de uso e nada é gravado.
+- **Exportações.** `ROTULO_PARTE` (mensagens) e `descreverItem` (compat) passam a ser exportadas, para o relatório usar os mesmos textos dos avisos. `medirDados` (limpeza) dá o total e os 3 maiores arquivos.
+- **Docs.** README e wiki ficam para a Task 15.
 
 ### Task 13: Janela do VS Code — "PC agora" (variante A) e aba Saúde
 

@@ -923,6 +923,22 @@ function difere(entradas, antigo) {
 // vale 0. Raiz inválida, ausente ou que não é pasta de verdade → vazio com
 // ilegiveis: 1, sem tocar no índice. Sem diretório de dados (dirDados() null)
 // lê tudo e não grava nada. Nunca rejeita.
+// Só lê o índice que já existe (nunca abre transcript): as respostas de
+// subagente com ts >= desdeMs, para a base medida da economia no
+// /hadouken:saude (spec v0.5.5 §6.J). [] sem índice válido. Nunca lança.
+export function respostasSubagenteDoIndice(raiz, desdeMs, dir = dirDados(), agoraMs = Date.now()) {
+  try {
+    if (typeof raiz !== 'string' || raiz === '' || typeof dir !== 'string' || dir === '') return [];
+    const mapa = carregarIndice(path.join(dir, ARQ_INDICE), hash48(path.resolve(raiz)), agoraMs);
+    if (mapa === null) return [];
+    const r = [];
+    for (const e of mapa.values()) for (const x of e.registros) if (x.subagente === true && x.ts >= desdeMs) r.push(x);
+    return r;
+  } catch {
+    return [];
+  }
+}
+
 export async function indexarTranscripts(opcoes) {
   try {
     if (!ehObjeto(opcoes)) return resultadoNeutro();

@@ -40,9 +40,9 @@ test('os ids e as dependências usam hadouken@claude-hadouken', () => {
   assert.match(ler('install.ps1'), /^\s*\$ID = 'hadouken@claude-hadouken'$/m);
 });
 
-test('os hooks dos comandos casam com hadouken:liberar, hadouken:aprender e hadouken:limites', () => {
+test('os hooks dos comandos casam com hadouken:liberar, hadouken:aprender, hadouken:limites e hadouken:saude', () => {
   const matchers = json('hooks/hooks.json').hooks.UserPromptExpansion.map((h) => h.matcher).sort();
-  assert.deepEqual(matchers, ['hadouken:aprender', 'hadouken:liberar', 'hadouken:limites']);
+  assert.deepEqual(matchers, ['hadouken:aprender', 'hadouken:liberar', 'hadouken:limites', 'hadouken:saude']);
 });
 
 test('nenhum texto do plugin cita o nome antigo como comando ou id', () => {

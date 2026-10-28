@@ -111,8 +111,8 @@ function entradaDe(texto) {
 // opcoes.prazoMs (spec v0.5.5 §6.F): o prazo interno, 80% do timeout do
 // hooks.json. Chegou nele, o processo sai com 0 sem mais nada, o que vale
 // como permitir; o timer é unref e não segura um hook que acabou. Só
-// session-start, prompt-submit e session-end o usam; os hooks da guarda e
-// o liberar nunca.
+// session-start, prompt-submit, session-end e saude o usam; os hooks da
+// guarda e o liberar nunca.
 export function rodarHook(fn, maxBytes, vigia, rotulo, opcoes) {
   const prazoMs = opcoes?.prazoMs;
   if (Number.isFinite(prazoMs) && prazoMs > 0) setTimeout(() => process.exit(0), prazoMs).unref();
