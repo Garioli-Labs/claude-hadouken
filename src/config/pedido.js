@@ -7,7 +7,7 @@ import { ITEM } from './tabela.js';
 // dígitos, ou liga/desliga para os booleanos. A faixa de cada item quem
 // confere é validar (ler.js).
 
-export const GRUPOS_LIMITES = Object.freeze(['guarda', 'barra', 'alertas', 'protecoes']);
+export const GRUPOS_LIMITES = Object.freeze(['guarda', 'barra', 'alertas', 'protecoes', 'saude']);
 const INVALIDO = Object.freeze({ acao: 'invalido' });
 
 export function lerPedidoLimites(args) {

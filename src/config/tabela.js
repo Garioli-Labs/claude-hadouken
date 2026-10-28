@@ -62,6 +62,22 @@ export const ITENS = Object.freeze([
   booleano('protecoes.arquivos', ['protecoes', 'arquivos'], 'protecoes', 'Proteger os arquivos do hadouken', true, 'desligar'),
   booleano('protecoes.hooks', ['protecoes', 'hooks'], 'protecoes', 'Segurar mudança de hooks', true, 'desligar'),
   booleano('protecoes.agenda', ['protecoes', 'agenda'], 'protecoes', 'Bloquear liberar por tarefa agendada', true, 'desligar'),
+  // Spec v0.5.5 §7: saúde do PC e do plugin. Tudo é orientação, nada bloqueia.
+  booleano('saude.ligado', ['saude', 'ligado'], 'saude', 'Saúde do PC ligada', true, 'desligar'),
+  inteiro('saude.ram.amarelo', ['saude', 'ram', 'amarelo'], 'saude', 'RAM: aviso a partir de', '%', 50, 98, 85, 'maior'),
+  inteiro('saude.ram.vermelho', ['saude', 'ram', 'vermelho'], 'saude', 'RAM: modo leve a partir de', '%', 55, 99, 93, 'maior'),
+  booleano('saude.liberarProprios', ['saude', 'liberarProprios'], 'saude', 'Encerrar processos órfãos do hadouken', true, 'desligar'),
+  inteiro('saude.gpu.max', ['saude', 'gpu', 'max'], 'saude', 'GPU: aviso a partir de', '°C', 60, 105, 85, 'maior'),
+  inteiro('saude.cpu.max', ['saude', 'cpu', 'max'], 'saude', 'CPU: aviso a partir de', '°C', 60, 105, 90, 'maior'),
+  inteiro('saude.bateria.min', ['saude', 'bateria', 'min'], 'saude', 'Bateria: aviso abaixo de', '%', 5, 50, 15, 'menor'),
+  inteiro('saude.disco.minGB', ['saude', 'disco', 'minGB'], 'saude', 'Disco: aviso abaixo de', 'GB', 1, 100, 5, 'menor'),
+  booleano('saude.tetoHooks', ['saude', 'tetoHooks', 'ligado'], 'saude', 'Teto de tempo dos hooks', true, 'desligar'),
+  inteiro('saude.tetoHooks.ms', ['saude', 'tetoHooks', 'ms'], 'saude', 'Teto de tempo dos hooks', 'ms', 10, 500, 40, 'maior'),
+  booleano('saude.compat', ['saude', 'compat'], 'saude', 'Checar compatibilidade', true, 'desligar'),
+  booleano('saude.conflitos', ['saude', 'conflitos'], 'saude', 'Checar conflitos com outros plugins', true, 'desligar'),
+  booleano('saude.limpeza', ['saude', 'limpeza', 'ligada'], 'saude', 'Limpeza dos dados antigos', true, 'desligar'),
+  inteiro('saude.limpeza.mb', ['saude', 'limpeza', 'mb'], 'saude', 'Limpeza: teto dos dados', 'MB', 10, 1000, 50, 'maior'),
+  booleano('saude.economia', ['saude', 'economia'], 'saude', 'Relatório de economia', true, 'desligar'),
 ]);
 
 // Pares que precisam de ordem: [menor, maior, estrito]. Um par incoerente no
@@ -71,6 +87,7 @@ export const PARES = Object.freeze([
   Object.freeze(['barra.cache.amarelo', 'barra.cache.verde', true]),
   Object.freeze(['alertas.projecao5hMin.1', 'alertas.projecao5hMin.0', true]),
   Object.freeze(['guarda.liberacao.padraoH', 'guarda.liberacao.maxH', false]),
+  Object.freeze(['saude.ram.amarelo', 'saude.ram.vermelho', true]),
 ]);
 
 export const ITEM = Object.freeze(Object.fromEntries(ITENS.map((i) => [i.id, i])));

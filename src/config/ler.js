@@ -177,6 +177,25 @@ export function faixasBarra(dir) {
   };
 }
 
+// Spec v0.5.5 §7: a configuração da saúde, já validada, para o coletor e os hooks.
+export function configSaude(dir) {
+  const v = valoresDoDir(dir);
+  return {
+    ligado: v['saude.ligado'],
+    ram: { amarelo: v['saude.ram.amarelo'], vermelho: v['saude.ram.vermelho'] },
+    gpuMax: v['saude.gpu.max'],
+    cpuMax: v['saude.cpu.max'],
+    bateriaMin: v['saude.bateria.min'],
+    discoMinGB: v['saude.disco.minGB'],
+    liberarProprios: v['saude.liberarProprios'],
+    tetoHooks: { ligado: v['saude.tetoHooks'], ms: v['saude.tetoHooks.ms'] },
+    compat: v['saude.compat'],
+    conflitos: v['saude.conflitos'],
+    limpeza: { ligada: v['saude.limpeza'], mb: v['saude.limpeza.mb'] },
+    economia: v['saude.economia'],
+  };
+}
+
 // No formato de FAIXAS_PROJECAO (alerta.js). O nome de cada faixa sai do
 // valor desta tabela ('60', '30', '24h' nos padrões, como sempre), nunca do
 // arquivo: é a chave de "já avisou" em projecao.json.
