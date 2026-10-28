@@ -139,3 +139,15 @@ test('config.json pasta, link ou quebrado: erro, sem lançar e sem sobrescrever'
   assert.deepEqual(gravarConfiguracao(link, { 'barra.ctx.amarelo': 60 }, { versao: versao(link), agoraMs: AGORA }), { ok: false, motivo: 'erro' });
   assert.equal(fs.readFileSync(alvo, 'utf8'), '{}');
 });
+
+test('otimizações do roteamento: lidas da chave aninhada e gravadas sem tocar nas irmãs', () => {
+  const d = novo({ roteamento: { negarN1: false, otimizacoes: { mcpOciosos: false } } });
+  const l = lerConfiguracao(d);
+  const v = (id) => l.itens.find((i) => i.id === id).valor;
+  assert.equal(v('roteamento.otimizacoes.mcpOciosos'), false);
+  assert.equal(v('roteamento.otimizacoes.compactar'), true);
+  assert.equal(v('roteamento.negarN1'), false);
+  const r = gravarConfiguracao(d, { 'roteamento.otimizacoes.compactar': false }, { versao: l.versao, agoraMs: AGORA });
+  assert.equal(r.ok, true);
+  assert.deepEqual(lerArq(d).roteamento, { negarN1: false, otimizacoes: { mcpOciosos: false, compactar: false } });
+});

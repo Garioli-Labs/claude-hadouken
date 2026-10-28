@@ -48,6 +48,14 @@ export const ITENS = Object.freeze([
   booleano('roteamento.negarN2', ['roteamento', 'negarN2'], 'roteamento', 'Roteamento: negar N2', PADRAO_ROTEAMENTO.negarN2),
   booleano('roteamento.avisos', ['roteamento', 'avisos'], 'roteamento', 'Roteamento: avisos', PADRAO_ROTEAMENTO.avisos),
   booleano('roteamento.sugerirSessao', ['roteamento', 'sugerirSessao'], 'roteamento', 'Roteamento: sugerir sessão', PADRAO_ROTEAMENTO.sugerirSessao),
+  // Spec do roteamento §9: as cinco otimizações, todas na aba Roteamento.
+  ...[
+    ['leiturasRepetidas', 'Otimização: arquivo lido várias vezes'],
+    ['saidaGrande', 'Otimização: comando com saída enorme'],
+    ['mcpOciosos', 'Otimização: servidores MCP parados'],
+    ['contextoFixo', 'Otimização: contexto fixo caro'],
+    ['compactar', 'Otimização: sugerir /compact'],
+  ].map(([chave, rotulo]) => booleano(`roteamento.otimizacoes.${chave}`, ['roteamento', 'otimizacoes', chave], 'roteamento', rotulo, PADRAO_ROTEAMENTO.otimizacoes[chave])),
   // Emenda 3 (§12.2): os interruptores das proteções fixas (guarda/protecoes.js).
   booleano('protecoes.sessaoFilha', ['protecoes', 'sessaoFilha'], 'protecoes', 'Bloquear sessão claude filha', true, 'desligar'),
   booleano('protecoes.arquivos', ['protecoes', 'arquivos'], 'protecoes', 'Proteger os arquivos do hadouken', true, 'desligar'),

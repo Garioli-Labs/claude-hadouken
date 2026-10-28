@@ -49,7 +49,7 @@ function valoresDe(json) {
   avisos.push(...guarda.avisos, ...roteamento.avisos);
   for (const item of ITENS) {
     if (item.grupo === 'guarda') valores[item.id] = guarda.config[CHAVE_GUARDA[item.id]];
-    else if (item.grupo === 'roteamento') valores[item.id] = roteamento.config[item.caminho[1]];
+    else if (item.grupo === 'roteamento') valores[item.id] = item.caminho.slice(1).reduce((v, parte) => v[parte], roteamento.config);
     else {
       let v = json;
       for (const parte of item.caminho) v = proprio(v, parte);
