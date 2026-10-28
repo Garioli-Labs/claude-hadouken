@@ -1,0 +1,226 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+// Spec v0.5.3 VS Code §3 (Task 9): a logo animada, a cor da urgência, os
+// segmentos de energia e a seta da versão nova, com o `vscode` falso e um
+// painel.mjs de teste na pasta de dados. O relógio é o mock.timers do
+// node:test (setTimeout e setInterval); as promessas e o import() do shim
+// andam com setImmediate, que fica de fora do mock.
+
+const requireDaqui = createRequire(import.meta.url);
+const Module = requireDaqui('node:module');
+const { criar } = requireDaqui('./vscode-falso.cjs');
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ARQ_EXTENSAO = path.join(repo, 'vscode', 'extension.cjs');
+const QUADROS = ['$(hadouken-0)', '$(hadouken-1)', '$(hadouken-2)', '$(hadouken-3)', '$(hadouken-4)'];
+
+// O painel novo lê tudo de globalThis.hdk; `portao`, quando é uma promessa,
+// segura o ultimoEvento até ela resolver, e `ems` dá um `em` por chamada.
+const PAINEL_NOVO = `const g = () => globalThis.hdk;
+export function estadoPainel(o) { g().desenhos++; return { texto: '5h 55% · sem — · Fable —', nivel: g().nivel, dica: 'dica', pcts: g().pcts }; }
+export async function talvezAtualizar(o) { g().leituras.push(o); return { feito: false, motivo: 'recente' }; }
+export async function ultimoEvento() { await g().portao; const em = g().ems.length > 0 ? g().ems.shift() : g().em; return em === null ? null : { tipo: 'leitura', urgencia: 'calma', em }; }
+export async function estadoVersao() { return { nova: g().nova, instalada: '0.5.4' }; }
+export async function lerConfiguracao() { return { itens: [{ id: 'painel.animarLogo', valor: g().animarLogo }] }; }
+export async function gravarConfiguracao() { return { ok: true }; }
+`;
+const PAINEL_VELHO = `const g = () => globalThis.hdk;
+export function estadoPainel(o) { g().desenhos++; return { texto: '5h 25% · sem 41% · Fable 57%', nivel: 'ok', dica: '' }; }
+export async function talvezAtualizar(o) { g().leituras.push(o); return { feito: true, motivo: 'ok' }; }
+`;
+
+async function esperar(cond, voltas = 20_000) {
+  for (let i = 0; i < voltas && !cond(); i++) await new Promise((r) => setImmediate(r));
+  return cond();
+}
+
+// Ativa a extensão com o shim dado e o relógio falso. Devolve os dois itens e
+// um `fim` para o finally.
+async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off' } = {}) {
+  globalThis.hdk = { desenhos: 0, leituras: [], nivel: 'ok', pcts: { h5: 55, d7: null, fable: null }, em: 1, ems: [], portao: null, nova: null, animarLogo: true, ...hdk };
+  const { api, estado } = criar();
+  estado.reduceMotion = reduceMotion;
+  const cargaOriginal = Module._load;
+  Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
+  const homeAntes = process.env.HADOUKEN_HOME;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk extensao ç '));
+  fs.mkdirSync(path.join(home, 'bin'));
+  fs.writeFileSync(path.join(home, 'bin', 'painel.mjs'), shim);
+  process.env.HADOUKEN_HOME = home;
+  delete requireDaqui.cache[requireDaqui.resolve(ARQ_EXTENSAO)];
+  const ext = requireDaqui(ARQ_EXTENSAO);
+  const ctx = { subscriptions: [] };
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  ext.activate(ctx);
+  const fim = () => {
+    for (const d of ctx.subscriptions) try { d.dispose(); } catch { /* já descartado */ }
+    try { ext.deactivate(); } catch { /* já desativada */ }
+    Module._load = cargaOriginal;
+    delete globalThis.hdk;
+    if (homeAntes === undefined) delete process.env.HADOUKEN_HOME;
+    else process.env.HADOUKEN_HOME = homeAntes;
+    fs.rmSync(home, { recursive: true, force: true });
+  };
+  const uso = estado.itens.find((i) => i.id === 'claudeHadouken.uso');
+  const logo = estado.itens.find((i) => i.id === 'claudeHadouken.logo');
+  // O primeiro tique desenha (e só guarda o `em`, sem animar).
+  assert.ok(await esperar(() => globalThis.hdk.desenhos > 0), 'o primeiro tique não desenhou');
+  return { ext, api, estado, uso, logo, fim };
+}
+
+// Um tique do relógio de 5 s, esperando o desenho que ele faz.
+async function tique(t) {
+  const antes = globalThis.hdk.desenhos;
+  t.mock.timers.tick(5_000);
+  assert.ok(await esperar(() => globalThis.hdk.desenhos > antes), 'o tique não desenhou');
+}
+
+test('_teste: quadros, cor da urgência e segmentos de energia', () => {
+  const { api } = criar();
+  const cargaOriginal = Module._load;
+  Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
+  try {
+    delete requireDaqui.cache[requireDaqui.resolve(ARQ_EXTENSAO)];
+    const { _teste } = requireDaqui(ARQ_EXTENSAO);
+    assert.deepEqual(_teste.quadros(), QUADROS);
+    assert.equal(_teste.corDaUrgencia('calma'), 'charts.blue');
+    assert.equal(_teste.corDaUrgencia('atencao'), 'charts.yellow');
+    assert.equal(_teste.corDaUrgencia('urgente'), 'charts.red');
+    assert.equal(_teste.corDaUrgencia('outra'), 'charts.blue');
+    const s = _teste.segmentos(55);
+    assert.equal(s.length, 8);
+    assert.equal(s.filter((x) => x === '$(hadouken-seg-cheio)').length, 4);
+    assert.equal(s.filter((x) => x === '$(hadouken-seg-meio)').length, 1);
+    assert.equal(s.filter((x) => x === '$(hadouken-seg-vazio)').length, 3);
+    assert.deepEqual(_teste.segmentos(0), Array(8).fill('$(hadouken-seg-vazio)'));
+    assert.deepEqual(_teste.segmentos(100), Array(8).fill('$(hadouken-seg-cheio)'));
+    assert.deepEqual(_teste.segmentos(250), Array(8).fill('$(hadouken-seg-cheio)'));
+    for (const ruim of [null, Number.NaN, '55', undefined]) assert.equal(_teste.segmentos(ruim), null, String(ruim));
+  } finally {
+    Module._load = cargaOriginal;
+  }
+});
+
+test('plugin novo: dois itens com o comando da janela, segmentos no lugar das porcentagens soltas', async (t) => {
+  const m = await montar(t, { hdk: { nivel: 'aviso' } });
+  try {
+    assert.equal(m.logo.prioridade, 101);
+    assert.equal(m.uso.prioridade, 100);
+    assert.equal(m.logo.command, 'claudeHadouken.abrirJanela');
+    assert.equal(m.uso.command, 'claudeHadouken.abrirJanela');
+    assert.ok(m.logo.visivel);
+    assert.equal(m.logo.text, '$(hadouken-0)');
+    assert.equal(m.logo.color.id, 'charts.yellow');
+    assert.equal(m.uso.backgroundColor.id, 'statusBarItem.warningBackground');
+    const segs = ['cheio', 'cheio', 'cheio', 'cheio', 'meio', 'vazio', 'vazio', 'vazio'].map((s) => `$(hadouken-seg-${s})`).join('');
+    assert.equal(m.uso.text, `5h ${segs} 55% · sem — · Fable —`);
+  } finally {
+    m.fim();
+  }
+});
+
+test('animação: o `em` muda de 1 para 2, quadros 1 a 4 e termina no 0; o mesmo `em` não anima de novo', async (t) => {
+  const m = await montar(t);
+  try {
+    // O primeiro tique só guardou o em = 1.
+    assert.deepEqual(m.logo.historico, ['$(hadouken-0)']);
+    globalThis.hdk.em = 2;
+    await tique(t);
+    assert.equal(m.logo.text, '$(hadouken-1)');
+    for (const k of [2, 3, 4, 0]) {
+      t.mock.timers.tick(120);
+      assert.equal(m.logo.text, QUADROS[k]);
+    }
+    assert.deepEqual(m.logo.historico, ['$(hadouken-0)', ...QUADROS.slice(1), QUADROS[0]]);
+    await tique(t);
+    t.mock.timers.tick(1_000);
+    assert.equal(m.logo.historico.length, 6);
+  } finally {
+    m.fim();
+  }
+});
+
+test('animação: um evento que chega no meio dela não começa outra', async (t) => {
+  const m = await montar(t);
+  try {
+    // Dois tiques presos no ultimoEvento: o primeiro vê em = 3 e anima; o
+    // segundo vê em = 4 com a animação no primeiro quadro.
+    let abrir;
+    globalThis.hdk.portao = new Promise((r) => { abrir = r; });
+    globalThis.hdk.ems = [3, 4];
+    t.mock.timers.tick(5_000);
+    t.mock.timers.tick(5_000);
+    await esperar(() => false, 200);
+    const antes = globalThis.hdk.desenhos;
+    abrir();
+    assert.ok(await esperar(() => globalThis.hdk.desenhos >= antes + 2));
+    assert.equal(m.logo.text, '$(hadouken-1)');
+    for (let i = 0; i < 4; i++) t.mock.timers.tick(120);
+    assert.deepEqual(m.logo.historico, ['$(hadouken-0)', ...QUADROS.slice(1), QUADROS[0]]);
+    // O em = 4 ficou guardado: o tique seguinte, ainda com 4, não anima.
+    globalThis.hdk.portao = null;
+    globalThis.hdk.em = 4;
+    await tique(t);
+    t.mock.timers.tick(1_000);
+    assert.equal(m.logo.historico.length, 6);
+  } finally {
+    m.fim();
+  }
+});
+
+test('movimento reduzido: a logo fica no quadro 0 e só a cor muda', async (t) => {
+  const m = await montar(t, { reduceMotion: 'on' });
+  try {
+    assert.equal(m.logo.color.id, 'charts.blue');
+    globalThis.hdk.em = 2;
+    globalThis.hdk.nivel = 'erro';
+    await tique(t);
+    t.mock.timers.tick(1_000);
+    assert.deepEqual(m.logo.historico, ['$(hadouken-0)']);
+    assert.equal(m.logo.color.id, 'charts.red');
+  } finally {
+    m.fim();
+  }
+});
+
+test('painel.animarLogo false: não anima', async (t) => {
+  const m = await montar(t, { hdk: { animarLogo: false } });
+  try {
+    globalThis.hdk.em = 2;
+    await tique(t);
+    t.mock.timers.tick(1_000);
+    assert.deepEqual(m.logo.historico, ['$(hadouken-0)']);
+  } finally {
+    m.fim();
+  }
+});
+
+test('plugin velho: um item como hoje, e o clique atualiza o uso', async (t) => {
+  const m = await montar(t, { shim: PAINEL_VELHO });
+  try {
+    assert.equal(m.uso.text, '$(pulse) 5h 25% · sem 41% · Fable 57%');
+    assert.equal(m.uso.command, 'claudeHadouken.atualizarUso');
+    assert.equal(m.logo.visivel, false);
+    await m.api.commands.executeCommand(m.uso.command);
+    assert.ok(globalThis.hdk.leituras.some((o) => o?.forcar === true));
+  } finally {
+    m.fim();
+  }
+});
+
+test('versão nova: o item de uso termina com a seta e a versão', async (t) => {
+  const m = await montar(t, { hdk: { nova: '0.5.9' } });
+  try {
+    assert.ok(m.uso.text.endsWith(' $(hadouken-seta) 0.5.9'), m.uso.text);
+    globalThis.hdk.nova = '../../x';
+    await tique(t);
+    assert.doesNotMatch(m.uso.text, /seta/);
+  } finally {
+    m.fim();
+  }
+});

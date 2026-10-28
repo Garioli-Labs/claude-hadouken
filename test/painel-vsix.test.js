@@ -283,8 +283,7 @@ test('extensão com vscode falso: desenha o item pelo painel, chama os nomes com
     ext = requireDaqui(arqExtensao);
     // Sem o shim: o aviso fixo, e nenhuma chamada ao painel.
     ext.activate(ctx);
-    const [item] = estado.itens;
-    assert.equal(item.id, 'claudeHadouken.uso');
+    const item = estado.itens.find((i) => i.id === 'claudeHadouken.uso');
     assert.equal(item.alinhamento, api.StatusBarAlignment.Right);
     assert.equal(item.prioridade, 100);
     assert.equal(item.command, 'claudeHadouken.atualizarUso');
@@ -316,7 +315,7 @@ test('extensão com vscode falso: desenha o item pelo painel, chama os nomes com
     globalThis.hdkChamadas = [];
     const ctx2 = { subscriptions: [] };
     ext.activate(ctx2);
-    const item2 = estado.itens[1];
+    const item2 = estado.itens.filter((i) => i.id === 'claudeHadouken.uso')[1];
     assert.ok(await esperarAte(() => item2.backgroundColor?.id === 'statusBarItem.errorBackground'));
     assert.ok(await esperarAte(() => globalThis.hdkChamadas.some(([n, o]) => n === 'talvezAtualizar' && JSON.stringify(o) === '{}')));
     for (const d of ctx2.subscriptions) d.dispose();

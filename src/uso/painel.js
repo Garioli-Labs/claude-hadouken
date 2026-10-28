@@ -323,6 +323,7 @@ function mesclar(barra, uso) {
 }
 
 const pctTexto = (j) => (j === null ? '—' : `${Math.floor(j.pct)}%`);
+const pctNumero = (j) => (j === null ? null : Math.floor(j.pct));
 
 function mesmoDia(a, b) {
   const x = new Date(a);
@@ -390,7 +391,10 @@ function linhaMotivo(ultimoMotivo, uso, agoraMs) {
 // - nivel: pela pior janela, 'erro' a partir da faixa vermelha (90%, ou a
 //   aprendida), 'aviso' a partir da amarela (75%, ou a aprendida), senão
 //   'ok'; sem janela nenhuma, 'sem-leitura';
-// - dica: Markdown só com rótulos fixos e números, um parágrafo por linha.
+// - dica: Markdown só com rótulos fixos e números, um parágrafo por linha;
+// - pcts (só com alguma janela): { h5, d7, fable }, o mesmo piso do texto ou
+//   null, para a extensão desenhar os segmentos de energia sem reformatar o
+//   texto (spec v0.5.3 VS Code §3).
 // 5h e semana juntam a statusline e o /usage (mesclar); o Fable vem só do
 // /usage. Nunca lança: em erro, sem leitura e dica vazia.
 export function estadoPainel(opcoes) {
@@ -408,8 +412,10 @@ export function estadoPainel(opcoes) {
     const janelas = [sessao, semana, fable].filter((j) => j !== null);
     let texto = 'Hadouken: sem leitura';
     let nivel = 'sem-leitura';
+    let pcts = null;
     if (janelas.length > 0) {
       texto = `5h ${pctTexto(sessao)} · sem ${pctTexto(semana)} · Fable ${pctTexto(fable)}`;
+      pcts = { h5: pctNumero(sessao), d7: pctNumero(semana), fable: pctNumero(fable) };
       const pior = Math.max(...janelas.map((j) => Math.floor(j.pct)));
       // Spec aprendizado R14: as faixas aprendidas mudam só este nível; sem
       // aprendizado, 75 e 90, como antes.
@@ -426,7 +432,7 @@ export function estadoPainel(opcoes) {
     const motivo = linhaMotivo(ultimoMotivo, uso, agoraMs);
     if (motivo !== null) linhas.push(motivo);
     linhas.push('Fonte: statusline do Claude Code e claude /usage, sem tokens.');
-    return { texto, nivel, dica: linhas.join('\n\n') };
+    return pcts === null ? { texto, nivel, dica: linhas.join('\n\n') } : { texto, nivel, dica: linhas.join('\n\n'), pcts };
   } catch {
     return { ...SEM_LEITURA };
   }

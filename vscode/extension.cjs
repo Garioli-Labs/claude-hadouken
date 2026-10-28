@@ -19,6 +19,12 @@
 //   Claude Code" e o import só é tentado de novo depois de 60 s; o comando
 //   manual tenta na hora (Foco 5). Um painel que lança é descartado e
 //   recarregado pela mesma regra (plugin atualizado com a janela aberta).
+// Spec v0.5.3 VS Code §3: com o shim novo (painel-api.js) vêm mais um item, a
+// logo (prioridade 101), que anima quando o último evento muda e tem a cor da
+// urgência, e o item de uso com segmentos de energia no lugar das
+// porcentagens soltas e a seta da versão nova; o clique nos dois abre a
+// janela. Um shim velho, só com estadoPainel e talvezAtualizar, segue como
+// antes: um item, `$(pulse)`, o clique atualiza o uso (foco 1).
 // Nenhum callback lança: tudo fica em try/catch, e nenhuma promessa fica sem
 // tratamento. CommonJS, porque o VS Code carrega a extensão com require; o
 // ESM do plugin entra por import() dinâmico.
@@ -50,6 +56,52 @@ const COR = Object.freeze({ __proto__: null, aviso: 'statusBarItem.warningBackgr
 // fora os caminhos de dispositivo (\\?\ e \\.\).
 const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}(?![?.][\\/])[^\\/]+[\\/]+[^\\/])/;
 
+const COMANDO_JANELA = 'claudeHadouken.abrirJanela';
+const VERSAO = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
+
+// Spec vscode §3: 5 quadros a ~120 ms quando o evento muda; uma por vez;
+// nada com movimento reduzido ou painel.animarLogo false.
+const QUADROS = Object.freeze(['$(hadouken-0)', '$(hadouken-1)', '$(hadouken-2)', '$(hadouken-3)', '$(hadouken-4)']);
+const QUADRO_MS = 120;
+const CORES = Object.freeze({ __proto__: null, calma: 'charts.blue', atencao: 'charts.yellow', urgente: 'charts.red' });
+const URGENCIA_DO_NIVEL = Object.freeze({ __proto__: null, aviso: 'atencao', erro: 'urgente' });
+const corDaUrgencia = (u) => CORES[u] ?? CORES.calma;
+const quadros = () => [...QUADROS];
+
+// Barra de vida: 8 segmentos, em meios (55% são 4 cheios, 1 meio e 3 vazios).
+const SEGMENTOS = 8;
+function segmentos(pct) {
+  if (typeof pct !== 'number' || !Number.isFinite(pct)) return null;
+  const meios = Math.round((Math.min(100, Math.max(0, pct)) / 100) * SEGMENTOS * 2);
+  const cheios = Math.floor(meios / 2);
+  const meio = meios % 2;
+  return [
+    ...Array(cheios).fill('$(hadouken-seg-cheio)'),
+    ...Array(meio).fill('$(hadouken-seg-meio)'),
+    ...Array(SEGMENTOS - cheios - meio).fill('$(hadouken-seg-vazio)'),
+  ];
+}
+
+function movimentoReduzido() {
+  try {
+    const v = vscode.workspace.getConfiguration('workbench').get('reduceMotion');
+    return v === 'on'; // 'auto' segue o sistema, que a extensão não lê: anima (ruling: o webview respeita prefers-reduced-motion por CSS)
+  } catch {
+    return false;
+  }
+}
+
+// O que o shim tem além dos dois nomes de sempre.
+const apiDe = (m) => ({
+  janela: typeof m.lerConfiguracao === 'function' && typeof m.gravarConfiguracao === 'function',
+  versao: typeof m.estadoVersao === 'function',
+  evento: typeof m.ultimoEvento === 'function',
+});
+
+// Chama m[nome]() se a API tem o nome; null em qualquer falha. Nunca rejeita.
+const chamar = (m, nome) => Promise.resolve().then(() => (typeof m[nome] === 'function' ? m[nome]() : null)).catch(() => null);
+
+const pctValido = (p) => p === null || (typeof p === 'number' && Number.isFinite(p) && p >= 0 && p <= 1000);
 const completo = (p) => typeof p === 'string' && (process.platform === 'win32' ? COMPLETO_WIN.test(p) : p.startsWith('/'));
 
 // Pasta de dados com a regra de dirDados (base.js): HADOUKEN_HOME, quando
@@ -119,7 +171,15 @@ function descartar(m) {
 // vira "sem leitura".
 function estadoValido(e) {
   if (e === null || typeof e !== 'object' || typeof e.texto !== 'string') return SEM_LEITURA;
-  return { texto: e.texto.slice(0, TEXTO_MAX), nivel: e.nivel, dica: typeof e.dica === 'string' ? e.dica : '' };
+  const p = e.pcts;
+  const pcts = p !== null && typeof p === 'object' && pctValido(p.h5) && pctValido(p.d7) && pctValido(p.fable) ? { h5: p.h5, d7: p.d7, fable: p.fable } : null;
+  return { texto: e.texto.slice(0, TEXTO_MAX), nivel: e.nivel, dica: typeof e.dica === 'string' ? e.dica : '', pcts };
+}
+
+// "5h ▮▮▮▮▯▯▯▯ 55% · sem — · Fable …", com os glifos da fonte hadouken.
+function textoComSegmentos(pcts) {
+  const parte = (rotulo, p) => (p === null ? `${rotulo} —` : `${rotulo} ${segmentos(p).join('')} ${Math.floor(p)}%`);
+  return [parte('5h', pcts.h5), parte('sem', pcts.d7), parte('Fable', pcts.fable)].join(' · ');
 }
 
 function activate(ctx) {
@@ -130,10 +190,59 @@ function activate(ctx) {
     item.text = TEXTO_SEM_MODULO;
     item.show();
     ctx.subscriptions.push(item);
+    const logo = vscode.window.createStatusBarItem('claudeHadouken.logo', vscode.StatusBarAlignment.Right, 101);
+    logo.name = 'Claude Hadouken: logo';
+    logo.command = COMANDO;
+    logo.text = QUADROS[0];
+    ctx.subscriptions.push(logo);
     let ativo = true;
     let ultimoMotivo;
     let leitura = null;
     let proximoPedidoEm = 0;
+    // Logo e versão: o primeiro evento lido só fica guardado (abrir o VS Code
+    // não anima); depois, cada `em` novo anima uma vez, nunca duas juntas.
+    let primeiroEvento = true;
+    let ultimoEm = null;
+    let animando = false;
+    let animacao = null;
+    let animarLigado = true;
+    let versaoNova = null;
+
+    const animar = () => {
+      animando = true;
+      const seq = [1, 2, 3, 4, 0];
+      const passo = (i) => {
+        animacao = null;
+        if (!ativo) return;
+        try { logo.text = QUADROS[seq[i]]; } catch { /* item já descartado */ }
+        if (i + 1 < seq.length) animacao = setTimeout(passo, QUADRO_MS, i + 1);
+        else animando = false;
+      };
+      passo(0);
+    };
+
+    // Evento, versão e configuração do shim novo. Nunca rejeita.
+    const lerExtras = async (m) => {
+      const api = apiDe(m);
+      const [ev, ver, cfg] = await Promise.all([
+        api.evento ? chamar(m, 'ultimoEvento') : null,
+        api.versao ? chamar(m, 'estadoVersao') : null,
+        api.janela ? chamar(m, 'lerConfiguracao') : null,
+      ]);
+      if (!ativo) return;
+      versaoNova = ver !== null && typeof ver === 'object' && typeof ver.nova === 'string' && VERSAO.test(ver.nova) ? ver.nova : null;
+      const itens = cfg !== null && typeof cfg === 'object' && Array.isArray(cfg.itens) ? cfg.itens : [];
+      animarLigado = itens.find((i) => i !== null && typeof i === 'object' && i.id === 'painel.animarLogo')?.valor !== false;
+      const em = ev !== null && typeof ev === 'object' && Number.isSafeInteger(ev.em) ? ev.em : null;
+      if (primeiroEvento) {
+        primeiroEvento = false;
+        ultimoEm = em;
+        return;
+      }
+      if (em === null || em === ultimoEm) return;
+      ultimoEm = em;
+      if (!animando && animarLigado && !movimentoReduzido()) animar();
+    };
 
     // Desenha com o painel `m` (null: sem módulo). Nunca lança.
     const redesenhar = (m) => {
@@ -141,18 +250,33 @@ function activate(ctx) {
       try {
         if (m === null) {
           item.text = TEXTO_SEM_MODULO;
+          item.command = COMANDO;
           item.backgroundColor = undefined;
           item.tooltip = undefined;
+          logo.hide();
           return;
         }
+        const api = apiDe(m);
         const e = estadoValido(m.estadoPainel(ultimoMotivo === undefined ? {} : { ultimoMotivo }));
-        item.text = `$(pulse) ${e.texto}`;
+        const comando = api.janela ? COMANDO_JANELA : COMANDO;
+        item.command = comando;
+        if (api.evento) {
+          const seta = versaoNova === null ? '' : ` $(hadouken-seta) ${versaoNova}`;
+          item.text = `${e.pcts === null ? e.texto : textoComSegmentos(e.pcts)}${seta}`;
+          logo.command = comando;
+          logo.color = new vscode.ThemeColor(corDaUrgencia(URGENCIA_DO_NIVEL[e.nivel]));
+          logo.tooltip = e.dica === '' ? undefined : new vscode.MarkdownString(e.dica);
+          logo.show();
+        } else {
+          item.text = `$(pulse) ${e.texto}`;
+          logo.hide();
+        }
         const cor = typeof e.nivel === 'string' ? COR[e.nivel] : undefined;
         item.backgroundColor = cor === undefined ? undefined : new vscode.ThemeColor(cor);
         item.tooltip = e.dica === '' ? undefined : new vscode.MarkdownString(e.dica);
       } catch {
         descartar(m);
-        try { item.text = TEXTO_SEM_MODULO; } catch { /* item já descartado */ }
+        try { item.text = TEXTO_SEM_MODULO; logo.hide(); } catch { /* item já descartado */ }
       }
     };
 
@@ -176,7 +300,8 @@ function activate(ctx) {
 
     const tique = () => {
       carregar(false)
-        .then((m) => {
+        .then(async (m) => {
+          if (m !== null) await lerExtras(m);
           redesenhar(m);
           if (m !== null && leitura === null && ativo && Date.now() >= proximoPedidoEm) {
             proximoPedidoEm = Date.now() + PEDIDO_MIN_MS;
@@ -193,6 +318,7 @@ function activate(ctx) {
       dispose() {
         ativo = false;
         clearInterval(esteRelogio);
+        if (animacao !== null) clearTimeout(animacao);
         if (relogio === esteRelogio) relogio = null;
       },
     });
@@ -224,4 +350,4 @@ function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, _teste: { quadros, corDaUrgencia, segmentos } };

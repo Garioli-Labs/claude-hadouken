@@ -540,7 +540,14 @@ test('estadoPainel: caso E1, com a statusline e o /usage', () => {
       'Leitura oficial: há 12 s',
       FONTE,
     ),
+    pcts: { h5: 25, d7: 41, fable: 57 },
   });
+});
+
+test('estadoPainel: pcts com null na janela sem leitura; sem janela nenhuma, sem pcts', () => {
+  assert.equal('pcts' in estadoPainel({ dir, agoraMs: AGORA }), false);
+  gravarEstado({ p5: 30.9, p7: null, at: AGORA - 10 * S });
+  assert.deepEqual(estadoPainel({ dir, agoraMs: AGORA }).pcts, { h5: 30, d7: null, fable: null });
 });
 
 test('estadoPainel: a fonte mais nova vence o percentual; o reinício vem da statusline', () => {
