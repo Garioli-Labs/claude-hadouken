@@ -4,9 +4,13 @@
     "superpowers@claude-plugins-official": "6.4.1",
     "mattpocock-skills@claude-hadouken": "1.3.1",
     "poka-yoke@claude-hadouken": "0.2.0",
-    "fullstack-dev-skills@claude-hadouken": "0.4.16",
-    "ui-ux-pro-max@claude-hadouken": "2.13.0"
+    "fullstack-dev-skills@claude-hadouken": "0.4.20",
+    "ui-ux-pro-max@claude-hadouken": "2.15.0"
   },
-  "npm": { "rea-agents": "6.1.0" },
-  "pip": { "graphifyy": "0.9.25" }
+  "npm": {
+    "rea-agents": "6.1.0"
+  },
+  "pip": {
+    "graphifyy": "0.9.25"
+  }
 }

@@ -1,0 +1,275 @@
+{
+  "fonte": "github.com/jeffallan/claude-skills",
+  "commit": "b803b6ace895a7f8ea619414b59fbdf2aa548a34",
+  "versao": "0.4.20",
+  "skills": [
+    {
+      "nome": "angular-architect",
+      "soUsuario": false
+    },
+    {
+      "nome": "api-designer",
+      "soUsuario": false
+    },
+    {
+      "nome": "architecture-designer",
+      "soUsuario": false
+    },
+    {
+      "nome": "atlassian-mcp",
+      "soUsuario": false
+    },
+    {
+      "nome": "chaos-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "cli-developer",
+      "soUsuario": false
+    },
+    {
+      "nome": "cloud-architect",
+      "soUsuario": false
+    },
+    {
+      "nome": "code-documenter",
+      "soUsuario": false
+    },
+    {
+      "nome": "code-reviewer",
+      "soUsuario": false
+    },
+    {
+      "nome": "cpp-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "csharp-developer",
+      "soUsuario": false
+    },
+    {
+      "nome": "database-optimizer",
+      "soUsuario": false
+    },
+    {
+      "nome": "debugging-wizard",
+      "soUsuario": false
+    },
+    {
+      "nome": "devops-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "django-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "django-storages-s3",
+      "soUsuario": false
+    },
+    {
+      "nome": "dotnet-core-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "embedded-systems",
+      "soUsuario": false
+    },
+    {
+      "nome": "fastapi-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "feature-forge",
+      "soUsuario": false
+    },
+    {
+      "nome": "fine-tuning-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "flutter-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "fullstack-guardian",
+      "soUsuario": false
+    },
+    {
+      "nome": "game-developer",
+      "soUsuario": false
+    },
+    {
+      "nome": "golang-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "graphql-architect",
+      "soUsuario": false
+    },
+    {
+      "nome": "java-architect",
+      "soUsuario": false
+    },
+    {
+      "nome": "javascript-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "kotlin-specialist",
+      "soUsuario": false
+    },
+    {
+      "nome": "kubernetes-specialist",
+      "soUsuario": false
+    },
+    {
+      "nome": "laravel-specialist",
+      "soUsuario": false
+    },
+    {
+      "nome": "legacy-modernizer",
+      "soUsuario": false
+    },
+    {
+      "nome": "mcp-developer",
+      "soUsuario": false
+    },
+    {
+      "nome": "microservices-architect",
+      "soUsuario": false
+    },
+    {
+      "nome": "ml-pipeline",
+      "soUsuario": false
+    },
+    {
+      "nome": "monitoring-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "nestjs-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "nextjs-developer",
+      "soUsuario": false
+    },
+    {
+      "nome": "pandas-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "php-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "playwright-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "postgres-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "prompt-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "python-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "rag-architect",
+      "soUsuario": false
+    },
+    {
+      "nome": "rails-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "react-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "react-native-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "rust-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "salesforce-developer",
+      "soUsuario": false
+    },
+    {
+      "nome": "secure-code-guardian",
+      "soUsuario": false
+    },
+    {
+      "nome": "security-reviewer",
+      "soUsuario": false
+    },
+    {
+      "nome": "shopify-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "spark-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "spec-miner",
+      "soUsuario": false
+    },
+    {
+      "nome": "spring-boot-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "sql-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "sre-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "swift-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "terraform-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "test-master",
+      "soUsuario": false
+    },
+    {
+      "nome": "the-fool",
+      "soUsuario": false
+    },
+    {
+      "nome": "typescript-pro",
+      "soUsuario": false
+    },
+    {
+      "nome": "vue-expert",
+      "soUsuario": false
+    },
+    {
+      "nome": "vue-expert-js",
+      "soUsuario": false
+    },
+    {
+      "nome": "websocket-engineer",
+      "soUsuario": false
+    },
+    {
+      "nome": "wordpress-pro",
+      "soUsuario": false
+    }
+  ]
+}
