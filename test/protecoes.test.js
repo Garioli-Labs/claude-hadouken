@@ -18,15 +18,42 @@ const CWD = 'C:/Projetos DEV/Claude Hadouken/claude-hadouken';
 
 test('§12.1 o cwd com Claude no meio não conta como claude', () => {
   const opc = { cwd: CWD };
-  assert.equal(chamaClaude(`node "${CWD}/x.mjs"`), true, 'sem cwd, o falso positivo de antes');
+  // Desde a revisão do branch, o caminho entre aspas some também sem o cwd.
+  assert.equal(chamaClaude(`node "${CWD}/x.mjs"`), false, 'sem cwd, entre aspas');
   assert.equal(chamaClaude(`node "${CWD}/x.mjs"`, opc), false);
   assert.equal(chamaClaude(`node "${CWD.replace(/\//g, '\\')}\\x.mjs"`, opc), false);
   assert.equal(chamaClaude(`node "${CWD.replace(/\//g, '\\')}\\x.mjs"`, { cwd: CWD.replace(/\//g, '\\') }), false);
   assert.equal(chamaClaude('bash "/c/projetos dev/claude hadouken/claude-hadouken/t.sh"', opc), false);
   assert.equal(chamaClaude(`NODE "${CWD.toUpperCase()}/X.MJS"`, opc), false);
   assert.equal(chamaClaude(`cd "${CWD}" && node x.mjs`, opc), false);
-  assert.equal(claudeComLiberar(`node "${CWD}/x.mjs" $HOME *.js`), true, 'sem cwd, o falso positivo de antes');
+  assert.equal(claudeComLiberar(`node "${CWD}/x.mjs" $HOME *.js`), false, 'sem cwd, entre aspas');
   assert.equal(claudeComLiberar(`node "${CWD}/x.mjs" $HOME *.js`, opc), false);
+});
+
+test('revisão do branch: caminho entre aspas fora do cwd não conta; cwd com metacaractere não é trocado', () => {
+  // Achado 2: o cwd é outra pasta, e o comando cita o projeto entre aspas.
+  const vscode = { cwd: `${CWD}/vscode` };
+  assert.equal(chamaClaude(`node "${CWD}/src/x.js"`, vscode), false);
+  assert.equal(claudeComLiberar(`grep -r "hadouken" "${CWD}/src" --include=*.js`, vscode), false);
+  assert.equal(chamaClaude('ls "C:/Projetos DEV/Claude Hadouken/outra"', vscode), false);
+  assert.equal(chamaClaude('ls "C:/Users/x/AppData/Roaming/Claude Code/logs/a.txt"', vscode), false);
+  assert.equal(chamaClaude("cat '/c/Projetos DEV/Claude Hadouken/x.md'", vscode), false);
+  // Continua claude: o executável entre aspas, o argumento de -c, com opção,
+  // com claude como palavra e fora das aspas.
+  for (const c of [
+    '"C:/Program Files/Claude/claude.exe" -p oi',
+    'bash -c "/opt/Claude x"',
+    "powershell -Command '/opt/claude x'",
+    'eval "/opt/Claude Code/x"',
+    '"/usr/bin/env claude"',
+    'ls "C:/a b/x"; claude -p oi',
+  ]) assert.equal(chamaClaude(c, vscode), true, c);
+  assert.equal(claudeComLiberar('claude -p "C:/a/hadouken:liberar"', vscode), true);
+  // Achado 1: a pasta 'z; claude' não pode apagar a chamada do comando.
+  for (const sep of ['; claude', '&& claude', '|claude']) {
+    const cwd = `/home/u/proj/z${sep}`;
+    assert.equal(chamaClaude(`cd ${cwd} -p hi`, { cwd }), true, cwd);
+  }
 });
 
 test('§12.1 o que é claude continua sendo', () => {

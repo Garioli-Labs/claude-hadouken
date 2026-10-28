@@ -70,7 +70,7 @@ Resumo do modelo de ameaças:
 
 Riscos residuais da guarda (v0.4.0):
 
-- **R1, forja pelo shell, comando ofuscado ou edição que a P5 não cobre:** escapa da P4 e da P5. A barra e os eventos tornam a forja visível; não a impedem. A P5 cobre:
+- **R1, forja pelo shell, comando ofuscado ou edição que a P5 não cobre:** escapa da P4 e da P5. A barra e os eventos tornam a forja visível; não a impedem. Desde a v0.5.4, a P4 ignora um caminho absoluto entre aspas que tem no meio uma pasta `Claude …` e não termina em `claude`, não traz opção nem `liberar`/`aprender` e não vem depois de `-c`, `/c`, `-Command` ou `eval`; um executável escondido numa pasta assim (`"C:/x/Claude y/z"` que seja um link para o `claude`) passa, e cabe no R1. O cwd com metacaractere de shell não é trocado. A P5 cobre:
   - a pasta de dados;
   - os `settings.json` e `settings.local.json` do usuário, em `~/.claude` e no `CLAUDE_CONFIG_DIR`;
   - o próprio plugin: a raiz dele e o que tiver `claude-hadouken` dentro de `plugins/` (o cache e o marketplace);
@@ -251,7 +251,7 @@ Threat model summary:
 
 Residual risks of the guard (v0.4.0):
 
-- **R1, forging through the shell, an obfuscated command or an edit P5 does not cover:** escapes P4 and P5. The bar and the events make the forgery visible; they do not prevent it. P5 covers:
+- **R1, forging through the shell, an obfuscated command or an edit P5 does not cover:** escapes P4 and P5. The bar and the events make the forgery visible; they do not prevent it. Since v0.5.4, P4 ignores a quoted absolute path with a `Claude …` folder in it that does not end in `claude`, carries no option nor `liberar`/`aprender` and does not follow `-c`, `/c`, `-Command` or `eval`; an executable hidden in such a folder (`"C:/x/Claude y/z"` linked to `claude`) passes, and falls under R1. A cwd with a shell metacharacter is not replaced. P5 covers:
   - the data folder;
   - the user's `settings.json` and `settings.local.json`, in `~/.claude` and in `CLAUDE_CONFIG_DIR`;
   - the plugin itself: its root, and anything with `claude-hadouken` inside `plugins/` (the cache and the marketplace);

@@ -527,9 +527,12 @@ const CLAUDE = /(?:^|[\s;&|(:])(?:[^\s;&|()"']*[\\/])?claude(?:\.exe|\.cmd|\.ps1
 // um cwd relativo, só raiz, ou cujo último segmento é claude (com .exe, .cmd
 // ou .ps1 opcionais: o próprio cwd poderia ser o executável). Devolve o texto em minúsculas, que
 // os dois testes já comparam assim.
+// Revisão do branch (achado 1): um cwd com metacaractere do shell ('z; claude')
+// não é trocado, porque a troca apagaria a chamada que vem no próprio nome.
 const FIM_DO_CWD = /^(?:[\\/"'\s]|$)/;
+const META_SHELL = /[;&|()<>$`"'\r\n^%!*?{}]/;
 function formasDoCwd(cwd) {
-  if (typeof cwd !== 'string' || cwd.length > 4096) return [];
+  if (typeof cwd !== 'string' || cwd.length > 4096 || META_SHELL.test(cwd)) return [];
   const limpo = cwd.toLowerCase().replace(/[\\/]+$/, '');
   const segs = limpo.split(/[\\/]+/).filter(Boolean);
   const absoluto = /^[a-z]:[\\/]/.test(cwd.toLowerCase()) || cwd.startsWith('/') || cwd.startsWith('\\\\');
@@ -555,7 +558,33 @@ export function semCwd(comando, cwd) {
   }
   return texto;
 }
-const comCwd = (comando, opcoes) => (typeof comando === 'string' && typeof opcoes?.cwd === 'string' ? semCwd(comando, opcoes.cwd) : comando);
+// Revisão do branch (achado 2): fora do cwd, um caminho absoluto entre aspas
+// ("C:/Projetos DEV/Claude Hadouken/...", '/c/x/Claude Code/y') também vira
+// '.', para o 'Claude' de um segmento não contar como o executável. Só o
+// caminho inteiro entre aspas iguais, sem metacaractere do shell nem ':' fora
+// do drive (então 'hadouken:liberar' nunca some), e nunca o que termina no
+// próprio claude ("C:/x/claude.exe" -p continua sendo claude). Recebe e
+// devolve minúsculas. Fica como está (e conferido) o texto entre aspas que
+// pode ser um comando: o argumento de -c, /c, -Command, eval ou iex; o que
+// tem uma opção (' -p'); e o que traz claude depois de espaço ou o pacote
+// claude-code.
+const ENTRE_ASPAS = /(["'])((?:[a-z]:[\\/]|\/)[^"'\r\n;&|$`()<>*?{}!%:^]*)\1/g;
+const FIM_CLAUDE = /(?:^|[\\/])claude(?:\.exe|\.cmd|\.ps1)?[\\/]*$/;
+// Só o formato do falso positivo: um segmento que começa por 'claude ' e
+// continua como pasta ('/Claude Hadouken/'); o resto entre aspas fica.
+const PASTA_CLAUDE = /[\\/]claude\s[^\\/]*[\\/]/;
+const PODE_SER_COMANDO = /\s-|\sclaude(?:\.exe|\.cmd|\.ps1)?(?:\s|$)|claude-code|liberar|aprender/;
+const ANTES_DE_COMANDO = /(?:^|\s)(?:\/[ck]|-[a-z]*c|-co(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?|eval|iex|invoke-expression)\s*$/;
+function semCaminhosEntreAspas(t) {
+  return t.replace(ENTRE_ASPAS, (todo, aspa, c, i) => {
+    if (!PASTA_CLAUDE.test(c) || FIM_CLAUDE.test(c) || PODE_SER_COMANDO.test(c) || ANTES_DE_COMANDO.test(t.slice(Math.max(0, i - 40), i))) return todo;
+    return `${aspa}.${aspa}`;
+  });
+}
+const comCwd = (comando, opcoes) => {
+  if (typeof comando !== 'string') return comando;
+  return semCaminhosEntreAspas(typeof opcoes?.cwd === 'string' ? semCwd(comando, opcoes.cwd) : comando.toLowerCase());
+};
 
 export function chamaClaude(comandoBruto, opcoes) {
   if (typeof comandoBruto !== 'string') return false;

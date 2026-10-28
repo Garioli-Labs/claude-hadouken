@@ -61,6 +61,6 @@ Since v0.5.4, the four blocks below can be turned off, in the Proteções tab of
 | `protecoes.hooks` | Holds, for the current session, changes to hooks, plugins and `disableAllHooks` made to the settings from outside (through the shell, for example); the next session reads the new file. | Such a change applies at once, including one that turns hadouken itself off. |
 | `protecoes.agenda` | Denies a scheduled task, `/loop` or routine that asks for liberar or aprender. | A task running without you can ask for them (liberar still refuses anything that was not typed). |
 
-No protection blocks a command just for mentioning the project folder: a command with the repository path (for example `node` or `grep` inside `claude-hadouken`) goes through. Before v0.5.4, that was blocked by mistake.
+No protection blocks a command just for mentioning the project folder: a command with the repository path (for example `node` or `grep` inside `claude-hadouken`) goes through, and so does a quoted absolute path with a `Claude …` folder in it (`"C:/Projetos DEV/Claude Hadouken/x"`), even outside the session's folder. Before v0.5.4, that was blocked by mistake.
 
 ---
