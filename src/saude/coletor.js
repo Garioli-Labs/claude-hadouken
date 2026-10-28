@@ -241,6 +241,22 @@ function cargaCpu(os, antes, depois, win) {
 
 // ---- a leitura ----------------------------------------------------------
 
+// Quando a coleta inteira estoura o prazo do coletor-main: só a RAM, que vem
+// do próprio Node e nunca demora; o resto fica 'prazo'.
+export function leituraSoRam(agoraMs, os) {
+  return {
+    versao: 1,
+    em: agoraMs,
+    ram: lerRam(os),
+    cpu: { cargaPct: null, tempC: null },
+    gpu: { nome: null, tempC: null, usoPct: null },
+    bateria: null,
+    disco: { dadosLivreBytes: null, projetoLivreBytes: null },
+    processos: [],
+    fontes: { processos: 'prazo', cpuCarga: 'prazo', cpuTemp: 'prazo', gpu: 'prazo', bateria: 'prazo', disco: 'prazo' },
+  };
+}
+
 export async function coletar({ agoraMs, plataforma, executar, fs, os, dirDados, dirProjeto }) {
   const win = plataforma === 'win32';
   const antes = amostraCpu(os);
@@ -281,11 +297,14 @@ export async function coletar({ agoraMs, plataforma, executar, fs, os, dirDados,
   fontes.disco = disco.dadosLivreBytes === null && disco.projetoLivreBytes === null ? 'na' : 'ok';
 
   // A linha de comando fica só na memória: classificar já tirou dela o que
-  // importa (classe e script); pode ter segredo e não vai para o disco.
-  const processos = classificar(brutos)
-    .sort((a, b) => b.rssBytes - a.rssBytes)
-    .slice(0, PROCESSOS_MAX)
-    .map(({ cmd, ...resto }) => resto);
+  // importa (classe e script); pode ter segredo e não vai para o disco. Os
+  // processos do hadouken ficam mesmo fora dos 40 maiores: um coletor
+  // pendurado ocupa pouca memória, e encerraveis precisa dele na lista.
+  const ordenados = classificar(brutos).sort((a, b) => b.rssBytes - a.rssBytes);
+  const processos = [
+    ...ordenados.slice(0, PROCESSOS_MAX),
+    ...ordenados.slice(PROCESSOS_MAX).filter((p) => p.classe === 'hadouken').slice(0, PROCESSOS_MAX),
+  ].map(({ cmd, ...resto }) => resto);
 
   return {
     versao: 1,

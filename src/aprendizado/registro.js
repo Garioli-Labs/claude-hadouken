@@ -8,6 +8,7 @@ import { TOLERANCIA_JANELA_S } from '../util.js';
 import { apagar, esperar, fechar, idValido, instante, numeroFinito, varrerTmpVelhos } from '../base.js';
 import { ITENS, SUBIR_AGENTE, TETO, caminhos, ligadoExiste, valorDoItem } from './arquivos.js';
 import { CHAVES_LIGAR } from './settings-env.js';
+import { conteudoTrava, tokenDaTrava } from '../saude/trava-pid.js';
 import {
   aprendizadoVazio, CAMPOS_MODELO, CHAVE_MODELO, DURACAO_JANELA_MS, inicioSemana, JANELAS_MAX, LIMIARES, MODELOS_SEMANA_MAX, SEMANAS_MAX,
 } from './agregar.js';
@@ -618,7 +619,7 @@ export function _retomarTravaVencida(arq) {
 function soltarTrava(arq, token) {
   try {
     const l = lerTextoSemLink(arq, 1024);
-    if (l.ok && l.texto === token) apagar(arq);
+    if (l.ok && tokenDaTrava(l.texto) === token) apagar(arq);
   } catch {
     /* fica para a retomada */
   }
@@ -627,7 +628,9 @@ function soltarTrava(arq, token) {
 // Um passo por vez (Foco de revisão 3): arquivo criado com 'wx', com um token
 // aleatório do dono no conteúdo. Trava com mais de 2 min pelo mtime é de um
 // processo morto e é retomada (_retomarTravaVencida). Até 5 tentativas com
-// 50 ms entre elas; depois, 'ocupada'.
+// 50 ms entre elas; depois, 'ocupada'. Desde a v0.5.5 o conteúdo leva também
+// pid, script, início e prazo (saude/trava-pid.js): o coletor de saúde
+// encerra o processo do passo que passou de 3× o prazo.
 export function pegarTrava(dir) {
   let arq;
   try {
@@ -656,7 +659,7 @@ export function pegarTrava(dir) {
       continue;
     }
     try {
-      fs.writeSync(fd, token);
+      fs.writeSync(fd, conteudoTrava({ token, prazoMs: TRAVA_VENCIDA_MS }));
     } catch {
       fechar(fd);
       apagar(arq);

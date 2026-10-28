@@ -207,10 +207,13 @@ test('sem nvidia-smi: gpu na; valores absurdos também viram na', async () => {
 
 test('no máximo 40 processos, os de maior RSS', async () => {
   const p = Array.from({ length: 100 }, (_, i) => ({ i: 1000 + i, p: 1, n: `app${i}.exe`, c: '', r: (i + 1) * 1_000_000 }));
+  // Um coletor pendurado pequeno: fica na lista mesmo fora dos 40 maiores.
+  p.push({ i: 9, p: 1, n: 'node.exe', c: 'node C:\\x\\claude-hadouken\\src\\saude\\coletor-main.js', r: 100 });
   const { executar } = falsoExecutar({ powershell: powershell(JSON.stringify({ p, b: [] }), '{"t":null}') });
   const l = await coletar(base({ plataforma: 'win32', executar }));
-  assert.equal(l.processos.length, 40);
+  assert.equal(l.processos.length, 41);
   assert.equal(l.processos[0].pid, 1099);
+  assert.deepEqual(l.processos.at(-1), { pid: 9, ppid: 1, nome: 'node.exe', rssBytes: 100, cpuPct: 0, classe: 'hadouken', script: 'coletor-main' });
   assert.equal(l.bateria, null);
 });
 
