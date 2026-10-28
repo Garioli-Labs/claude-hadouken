@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { rodarHook, emitirJson, falharAberto } from './comum.js';
+import { rodarHook, emitirJson, falharAberto, digitado, entrypointSdk } from './comum.js';
 import { dirDados, idValido } from '../base.js';
 
 // Hook UserPromptExpansion de /hadouken:liberar (spec v0.4.0 §6, D4 =
@@ -40,9 +40,6 @@ import { dirDados, idValido } from '../base.js';
 // (fail-closed) até a lista ganhar o valor.
 
 const COMANDO = 'hadouken:liberar';
-const ORIGENS = Object.freeze(['plugin']);
-const EXPANSOES = Object.freeze(['slash_command']);
-const digitado = (entrada) => ORIGENS.includes(entrada.command_source) && EXPANSOES.includes(entrada.expansion_type);
 // O mesmo texto de NAO_GRAVADO (mensagens.js), só para quando o import dele
 // falha: a expansão continua bloqueada e nada é liberado.
 // test/guarda-liberar-extra.test.js confere que os dois são iguais.
@@ -62,8 +59,7 @@ async function decidir(entrada, dir, sessionId, agoraMs, msg) {
   ]);
   // A recusa de -p e SDK vem antes de qualquer outra gravação: a sessão filha
   // deixa só o evento 'liberacao-recusada', nem a marca de sessão.
-  const ep = process.env.CLAUDE_CODE_ENTRYPOINT;
-  if (typeof ep === 'string' && /^sdk/i.test(ep)) {
+  if (entrypointSdk()) {
     reg.anexarEvento(dir, 'liberacao-recusada', 'entrypoint', agoraMs);
     return msg.RECUSADO_ENTRYPOINT;
   }

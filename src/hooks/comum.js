@@ -117,6 +117,18 @@ export function rodarHook(fn, maxBytes, vigia, rotulo) {
 // transcript_path com a pasta subagents, com / ou \. É só reserva: pelo S1 da
 // parte 1, o PreToolUse de dentro do subagente traz o caminho da mãe. Só
 // confere forma; nada daqui vira texto. Nunca lança.
+// Portão dos comandos que só valem digitados (/hadouken:liberar e
+// /hadouken:limites; a razão de cada lista está no cabeçalho de liberar.js).
+// Origem e expansão em listas fechadas: qualquer outro valor, inclusive
+// ausente, é recusado. CLAUDE_CODE_ENTRYPOINT sdk-* (-p e SDK) também.
+const ORIGENS = Object.freeze(['plugin']);
+const EXPANSOES = Object.freeze(['slash_command']);
+export const digitado = (entrada) => ORIGENS.includes(entrada.command_source) && EXPANSOES.includes(entrada.expansion_type);
+export function entrypointSdk() {
+  const ep = process.env.CLAUDE_CODE_ENTRYPOINT;
+  return typeof ep === 'string' && /^sdk/i.test(ep);
+}
+
 // A pasta subagents conta só como pasta mãe do arquivo
 // (<sessão>/subagents/agent-<id>.jsonl). Uma pasta subagents mais acima (a
 // home ou o CLAUDE_CONFIG_DIR dentro dela) faria da thread principal um
