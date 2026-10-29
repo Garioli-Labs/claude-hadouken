@@ -86,7 +86,7 @@ async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', g
   const logo = estado.itens.find((i) => i.id === 'claudeHadouken.logo');
   // O primeiro tique desenha (e só guarda o `em`, sem animar).
   assert.ok(await esperar(() => globalThis.hdk.desenhos > 0), 'o primeiro tique não desenhou');
-  return { ext, api, estado, uso, logo, fim, globalState };
+  return { ext, api, estado, uso, logo, fim, globalState, home };
 }
 
 // Um tique do relógio de 5 s, esperando o desenho que ele faz.
@@ -224,6 +224,23 @@ test('plugin velho: um item como hoje, e o clique atualiza o uso', async (t) => 
     assert.equal(m.logo.visivel, false);
     await m.api.commands.executeCommand(m.uso.command);
     assert.ok(globalThis.hdk.leituras.some((o) => o?.forcar === true));
+  } finally {
+    m.fim();
+  }
+});
+
+test('v0.5.7: o shim do painel muda (plugin atualizado) e o próximo tique já usa o módulo novo, sem Reload Window', async (t) => {
+  const m = await montar(t, { shim: PAINEL_VELHO });
+  try {
+    assert.equal(m.uso.command, 'claudeHadouken.atualizarUso');
+    fs.writeFileSync(path.join(m.home, 'bin', 'painel.mjs'), PAINEL_NOVO);
+    t.mock.timers.tick(5_000);
+    assert.ok(await esperar(() => m.uso.command === 'claudeHadouken.abrirJanela'), 'continuou no módulo velho');
+    // Shim igual: o módulo fica (nenhuma recarga a cada tique).
+    const desenhos = globalThis.hdk.desenhos;
+    await tique(t);
+    assert.ok(globalThis.hdk.desenhos > desenhos);
+    assert.equal(m.uso.command, 'claudeHadouken.abrirJanela');
   } finally {
     m.fim();
   }

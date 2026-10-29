@@ -61,7 +61,7 @@ The report has these sections:
 2. **Suggestions:** the apps that free the most memory, and light mode.
 3. **Hooks:** the p95 of each hadouken hook and of other plugins' hooks over the last 7 days, and the parts turned off by the time budget.
 4. **Repairs:** the files put in quarantine.
-5. **Versions and compatibility.** When the panel's `.vsix` is in the data folder, the `Painel` line shows its path, to install it on another PC with `code --install-extension <that file>`.
+5. **Versions and compatibility.** When the panel's `.vsix` is in the data folder, the `Painel` line shows its path, to install it on another PC with `code --install-extension <that file>`. The `Instal.` line checks whether this session's plugin, the VS Code extension and the shortcuts in `~/.claude/hadouken/bin` are on the version installed in Claude Code, and whether a plugin under an old name is still installed. For each difference, it gives the fix.
 6. **Conflicts** with other plugins.
 7. **Data:** the size of each file in the data folder and the ceiling.
 8. **Savings this week.**
@@ -80,6 +80,14 @@ A corrupted state file goes to quarantine, named `<name>.corrompido-<date>`, at 
 ### Compatibility and conflicts
 
 At session start, hadouken compares the Node, Claude Code and VS Code extension versions with the supported minimum (Node 20, Claude Code 2.1.251). Outside that, there is a one-time notice per combination saying what to do. Once a day, it looks for a `statusLine` that is not its own, plugins with permission hooks on the same points as the guard's, and other plugins' hooks with a high p95. Everything is only reported.
+
+### Same version on every PC
+
+hadouken has three pieces: the plugin, the VS Code extension and the shortcuts in `~/.claude/hadouken/bin`, which the status bar and the panel use. The version that counts is always the one Claude Code registered as installed, on Windows, Linux and macOS:
+
+- A session opened before the update keeps running the old version until it closes, but it no longer pulls the shortcuts or the extension back. It warns: `esta sessão abriu com o plugin X e o instalado é o Y` (this session opened with plugin X and Y is installed). To move to the new one, use `/exit` and `claude -c`.
+- The VS Code extension switches versions by itself, without `Developer: Reload Window`.
+- `/hadouken:saude` shows, on the `Instal.` line, anything that differs and how to fix it.
 
 ### Data cleanup
 

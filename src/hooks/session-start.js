@@ -12,7 +12,8 @@ import { registrarSessao } from '../ativas.js';
 // 1. registra a sessão em <dirDados>/ativas/, o que liga a barra e os alertas
 //    para ela (o gate de ativação);
 // 2. sincroniza os shims estáveis de <dirDados>/bin/ com a versão do plugin
-//    em uso (CLAUDE_PLUGIN_ROOT);
+//    em uso: a registrada no Claude Code (instalacao.js, v0.5.7), senão a
+//    desta sessão (CLAUDE_PLUGIN_ROOT);
 // 3. injeta uma linha com o consumo atual, mais uma linha fixa para cada
 //    passo anterior que falhou e, se a instalação do item do VS Code falhou
 //    (v0.5.2), uma com o motivo;
@@ -49,9 +50,9 @@ import { registrarSessao } from '../ativas.js';
 // hook sem esperar a instalação), roda com o cwd na pasta de dados (nunca no
 // repo aberto) e sem janela no Windows. Melhor esforço: nunca lança, e um
 // erro do spawn só é engolido.
-async function dispararPainel(dir, agoraMs) {
+async function dispararPainel(dir, agoraMs, raizEmUso) {
   try {
-    const raiz = caminhoDoAmbiente(process.env.CLAUDE_PLUGIN_ROOT);
+    const raiz = caminhoDoAmbiente(raizEmUso);
     if (raiz === null) return;
     // Caminho rápido do dia a dia: versão já instalada. Duas leituras de JSON
     // pequenas, com o estado.js que este hook já carregou, e nada do
@@ -127,12 +128,18 @@ rodarHook(async (entrada) => {
     const arquivos = foto.settingsDaSessao({ cwd, configDir: process.env.CLAUDE_CONFIG_DIR, casa });
     if (!foto.fotografar(dir, sessionId, arquivos, agoraMs).ok) (await import('../guarda/registros.js')).anexarEvento(dir, 'erro', 'config-foto', agoraMs);
   });
-  const [{ sincronizarShims }, { ARQ_ESTADO, lerJson, validarEstado, leiturasComPiso, ultimaLeitura }, linhas] = await Promise.all([
+  const [{ sincronizarShims }, { ARQ_ESTADO, lerJson, validarEstado, leiturasComPiso, ultimaLeitura }, linhas, instalacao] = await Promise.all([
     import('../shim.js'),
     import('../estado.js'),
     import('./linha-estado.js'),
+    import('../instalacao.js').catch(() => null),
   ]);
-  const shims = sincronizarShims(process.env.CLAUDE_PLUGIN_ROOT);
+  // v0.5.7: atalhos e extensão seguem a versão registrada no Claude Code, não
+  // a desta sessão; uma sessão aberta antes da atualização (retomada,
+  // compactação) não os puxa mais para trás.
+  const raizSessao = process.env.CLAUDE_PLUGIN_ROOT;
+  const raizEmUso = instalacao === null ? raizSessao : instalacao.raizEmUso(raizSessao);
+  const shims = sincronizarShims(raizEmUso);
   const lido = lerJson(path.join(dir, ARQ_ESTADO));
   const estado = lido.ok ? validarEstado(lido.valor, agoraMs) : null;
   const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs))];
@@ -144,7 +151,7 @@ rodarHook(async (entrada) => {
   let painelPendente = false;
   if (process.env.HADOUKEN_SEM_PAINEL !== '1') {
     try {
-      const motivo = (await import('../painel/falha.js')).falhaPendente({ dir, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT });
+      const motivo = (await import('../painel/falha.js')).falhaPendente({ dir, raizPlugin: raizEmUso });
       painelPendente = motivo !== null;
       if (motivo !== null) saida.push(linhas.linhaPainel(motivo));
     } catch { /* sem a linha do painel nesta sessão */ }
@@ -228,9 +235,16 @@ rodarHook(async (entrada) => {
   // painel, que roda depois da saída, fica no evento 'reparo' e no
   // /hadouken:saude.
   if (hookSaude !== null) aoUsuario.push(...await hookSaude.avisosDoTeto(tetos));
+  // v0.5.7: esta sessão roda uma versão que já não é a instalada.
+  if (instalacao !== null && raizEmUso !== raizSessao) {
+    try {
+      const linha = instalacao.linhaSessaoAntiga(instalacao.versaoDe(raizSessao), instalacao.versaoDe(raizEmUso));
+      if (linha !== null) aoUsuario.push(linha);
+    } catch { /* sem a linha nesta sessão */ }
+  }
   if (aoUsuario.length === 0) emitirContexto('SessionStart', saida.join('\n'));
   else emitirJson({ systemMessage: aoUsuario.join('\n'), hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: saida.join('\n') } });
-  if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await tetos.rodar('painel', () => dispararPainel(dir, agoraMs));
+  if (shims.ok && process.env.HADOUKEN_SEM_PAINEL !== '1') await tetos.rodar('painel', () => dispararPainel(dir, agoraMs, raizEmUso));
   tetos.fechar();
   await saude.depois();
   if (aprendizadoLigado) {

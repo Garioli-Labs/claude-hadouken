@@ -20,6 +20,7 @@ import { conferirCompat, descreverItem } from './compat.js';
 import { lerArquivoConflitos, lerConflitos } from './aviso-compat.js';
 import { resumoEconomia } from './economia.js';
 import { ROTULO_PARTE } from './mensagens.js';
+import { conferirInstalacao, textoInstalacao } from '../instalacao.js';
 
 // O texto do /hadouken:saude (spec v0.5.5 §6.D), no formato do terminal do
 // protótipo: rótulos de 6 colunas. Só lê arquivos (os índices que já
@@ -166,6 +167,7 @@ export function resumoCurto({ dir, agoraMs = Date.now(), config, raizPlugin = nu
     }),
     parte('Reparos', () => reparos(dir, agoraMs)),
     parte('Compat', () => compat(ctx)),
+    ...(raizPlugin === null ? [] : [parte('Instalação', () => textoInstalacao(conferirInstalacao({ dir, raiz: raizPlugin })))]),
     parte('Conflitos', () => conflitos(dir, agoraMs, config)),
     parte('Dados', () => dados(dir, config, { comMaiores: false })),
     parte('Economia', () => semana({ dir, agoraMs, dirConfig: null, config })),
@@ -205,6 +207,7 @@ export function relatorioSaude(opcoes) {
   L.push(secao('Hooks', () => hooks(ctx)));
   L.push(secao('Reparo', () => reparos(dir, agoraMs)));
   L.push(secao('Compat', () => compat(ctx)));
+  L.push(secao('Instal.', () => textoInstalacao(conferirInstalacao({ dir, raiz: raizPlugin, ...(typeof dirConfig === 'string' ? { dirConfig } : {}) }))));
   const painel = vsixDoPainel(dir, plugin);
   if (painel !== null) L.push(secao('Painel', () => `${painel} (outro PC: code --install-extension <esse arquivo>)`));
   L.push(secao('Confl.', () => conflitos(dir, agoraMs, config)));

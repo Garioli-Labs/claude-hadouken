@@ -217,6 +217,29 @@ test('session-start com session_id inválido ou ausente: sem registro, sem linha
   }
 });
 
+test('v0.5.7: session-start de uma sessão 0.5.5 com a 0.5.6 registrada aponta os atalhos para a 0.5.6 e avisa o usuário', () => {
+  const home = novoHome();
+  const cfg = path.join(home, 'cfg');
+  const cache = path.join(cfg, 'plugins', 'cache', 'claude-hadouken', 'hadouken');
+  for (const v of ['0.5.5', '0.5.6']) {
+    fs.mkdirSync(path.join(cache, v, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(cache, v, '.claude-plugin'), { recursive: true });
+    fs.writeFileSync(path.join(cache, v, 'src', 'statusline.js'), '');
+    fs.writeFileSync(path.join(cache, v, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'hadouken', version: v }));
+  }
+  fs.writeFileSync(path.join(cfg, 'plugins', 'installed_plugins.json'), JSON.stringify({
+    version: 2, plugins: { 'hadouken@claude-hadouken': [{ scope: 'user', installPath: path.join(cache, '0.5.6'), version: '0.5.6' }] },
+  }));
+  const r = rodar('session-start.js', inicio('s1', 'compact'), home, { CLAUDE_PLUGIN_ROOT: path.join(cache, '0.5.5'), CLAUDE_CONFIG_DIR: cfg });
+  assert.equal(r.status, 0, r.stderr);
+  for (const shim of ['statusline.mjs', 'cli.mjs', 'painel.mjs']) {
+    const texto = fs.readFileSync(path.join(home, 'bin', shim), 'utf8');
+    assert.ok(texto.includes('/0.5.6/src/'), `${shim}: ${texto}`);
+  }
+  assert.equal(JSON.parse(r.stdout).systemMessage,
+    'hadouken: esta sessão abriu com o plugin 0.5.5 e o instalado é o 0.5.6. Para usar o novo: /exit e claude -c.');
+});
+
 test('session-start: shim indisponível vira uma linha fixa', () => {
   // Sem CLAUDE_PLUGIN_ROOT.
   let home = novoHome();

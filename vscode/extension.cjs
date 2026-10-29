@@ -165,6 +165,9 @@ function dirDados() {
 
 // Estado do módulo, dividido entre as ativações do mesmo processo.
 let modulo = null;
+// O texto do painel.mjs quando o módulo carregou (v0.5.7): o SessionStart
+// regrava o shim quando o plugin muda de versão, e o tique compara.
+let shimCarregado = null;
 let cargaFalhouEm = null;
 let descartes = 0;
 let carregando = null;
@@ -176,9 +179,33 @@ let relogio = null;
 async function importarPainel() {
   const dir = dirDados();
   if (dir === null) throw new Error('sem pasta de dados');
+  const texto = lerShim();
   const m = await import(`${pathToFileURL(path.join(dir, 'bin', 'painel.mjs')).href}?t=${Date.now()}`);
   if (typeof m.estadoPainel !== 'function' || typeof m.talvezAtualizar !== 'function') throw new Error('painel incompleto');
+  shimCarregado = texto;
   return m;
+}
+
+// O painel.mjs (uma linha, poucas centenas de bytes), ou null. Nunca lança.
+function lerShim() {
+  try {
+    const dir = dirDados();
+    return dir === null ? null : fs.readFileSync(path.join(dir, 'bin', 'painel.mjs'), 'utf8').slice(0, 4096);
+  } catch {
+    return null;
+  }
+}
+
+// Plugin atualizado: o shim agora aponta para outra versão, e o módulo
+// carregado sai de uso sem contar como descarte. O próximo carregar importa o
+// novo, sem Reload Window. Shim ilegível: fica o que está. Nunca lança.
+function trocarSeShimMudou() {
+  if (modulo === null || shimCarregado === null) return;
+  const texto = lerShim();
+  if (texto === null || texto === shimCarregado) return;
+  modulo = null;
+  shimCarregado = null;
+  cargaFalhouEm = null;
 }
 
 // O módulo do painel, ou null. Só importa quando ainda não carregou; depois de
@@ -552,6 +579,7 @@ function activate(ctx) {
     };
 
     const tique = () => {
+      trocarSeShimMudou();
       carregar(false)
         .then(async (m) => {
           if (m !== null) {

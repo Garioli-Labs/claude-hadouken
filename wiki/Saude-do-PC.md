@@ -61,7 +61,7 @@ O relatório tem estas seções:
 2. **Sugestões:** os aplicativos que liberam mais memória e o modo leve.
 3. **Hooks:** o p95 de cada hook do hadouken e dos outros plugins nos últimos 7 dias, e as partes desligadas pelo teto de tempo.
 4. **Reparos:** os arquivos postos em quarentena.
-5. **Versões e compatibilidade.** Quando o `.vsix` do painel está na pasta de dados, a linha `Painel` mostra o caminho dele, para instalar em outro PC com `code --install-extension <esse arquivo>`.
+5. **Versões e compatibilidade.** Quando o `.vsix` do painel está na pasta de dados, a linha `Painel` mostra o caminho dele, para instalar em outro PC com `code --install-extension <esse arquivo>`. A linha `Instal.` confere se o plugin desta sessão, a extensão do VS Code e os atalhos de `~/.claude/hadouken/bin` estão na versão instalada no Claude Code, e se ficou instalado um plugin de nome antigo. Para cada diferença, ela diz o conserto.
 6. **Conflitos** com outros plugins.
 7. **Dados:** o tamanho de cada arquivo da pasta de dados e o teto.
 8. **Economia da semana.**
@@ -80,6 +80,14 @@ Um arquivo de estado corrompido vai para a quarentena, com o nome `<nome>.corrom
 ### Compatibilidade e conflitos
 
 No início da sessão, o hadouken compara a versão do Node, a do Claude Code e a da extensão do VS Code com o mínimo suportado (Node 20, Claude Code 2.1.251). Fora disso, há um aviso único por combinação, dizendo o que fazer. Uma vez por dia, ele procura uma `statusLine` que não seja a dele, plugins com hooks de permissão nos mesmos pontos que os da guarda e hooks de outros plugins com p95 alto. Tudo é só relatado.
+
+### Mesma versão em todo PC
+
+O hadouken tem três peças: o plugin, a extensão do VS Code e os atalhos de `~/.claude/hadouken/bin`, que a barra e o painel usam. Vale sempre a versão que o Claude Code registrou como instalada, no Windows, no Linux e no macOS:
+
+- Uma sessão aberta antes da atualização continua rodando a versão antiga até fechar, mas não puxa mais os atalhos nem a extensão para trás. Ela avisa: `esta sessão abriu com o plugin X e o instalado é o Y`. Para passar à nova, use `/exit` e `claude -c`.
+- A extensão do VS Code troca de versão sozinha, sem `Developer: Reload Window`.
+- O `/hadouken:saude` mostra, na linha `Instal.`, o que estiver diferente e como consertar.
 
 ### Limpeza dos dados
 

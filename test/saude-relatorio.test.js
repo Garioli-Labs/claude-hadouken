@@ -183,3 +183,15 @@ test('sessões do Claude paradas aparecem no PC, sem pid nem nome', () => {
   assert.match(t, /2 sessões do Claude paradas há mais de 30 min: 2,5 GB \(fechar libera memória; quem fecha é você\)/);
   assert.doesNotMatch(t, /4321/);
 });
+
+test('v0.5.7: a linha Instal. vem depois da Compat e acusa a extensão que falta', () => {
+  const dir = novoHome();
+  const versao = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version;
+  const linhas = rel(dir).split('\n');
+  const i = linhas.findIndex((l) => l.startsWith('Instal. '));
+  assert.ok(i > 0 && linhas[i - 1].startsWith('Compat '), linhas.join('\n'));
+  assert.equal(linhas[i], 'Instal. extensão do VS Code não instalada: rode node ~/.claude/hadouken/bin/cli.mjs painel instalar');
+  fs.mkdirSync(path.join(dir, 'painel'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'painel', 'instalado.json'), JSON.stringify({ versao, em: 'x' }));
+  assert.ok(rel(dir).split('\n').includes(`Instal. em dia (plugin, extensão do VS Code e atalhos na ${versao})`));
+});
