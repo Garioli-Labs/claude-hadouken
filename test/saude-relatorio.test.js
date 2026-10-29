@@ -157,6 +157,21 @@ test('origem não digitada: recusado', () => {
   assert.equal(fs.existsSync(path.join(home, ARQ_MODO)), false);
 });
 
+test('plano da conta e caminho do .vsix do painel', () => {
+  const d = novoHome();
+  let t = rel(d);
+  assert.match(t, /^Plano  não identificado \(os relatórios mostram só tokens\)$/m);
+  assert.doesNotMatch(t, /^Painel /m, 'sem .vsix, sem linha');
+  fs.writeFileSync(path.join(d, 'conta-plano.json'), JSON.stringify({ v: 1, plano: 'max20', em: AGORA }));
+  const versao = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'plugin.json'), 'utf8')).version;
+  fs.mkdirSync(path.join(d, 'painel'));
+  const vsix = path.join(d, 'painel', `claude-hadouken-painel-${versao}.vsix`);
+  fs.writeFileSync(vsix, 'PK');
+  t = rel(d);
+  assert.match(t, /^Plano  Max 20x \(do Claude Code\)$/m);
+  assert.ok(t.split('\n').includes(`Painel ${vsix} (outro PC: code --install-extension <esse arquivo>)`), t);
+});
+
 test('sessões do Claude paradas aparecem no PC, sem pid nem nome', () => {
   const d = novoHome();
   gravarSaude(d, 50);

@@ -57,7 +57,13 @@ test('PC tranquilo: feixes calmos, sem sugestões, sem botão, CPU sem temperatu
   assert.match(e.resumo, /^Hooks: no tempo · Reparos: nenhum · Compat: em dia \(Node .+\) · Conflitos: ainda não conferido/);
   // Revisão do branch (spec §6.J e §6.L): dados e economia também na janela,
   // sem os maiores arquivos e sem ler o índice dos transcripts.
-  assert.match(e.resumo, / · Dados: [\d,]+ KB de 50 MB · Economia: nada a contar$/);
+  assert.match(e.resumo, / · Dados: [\d,]+ KB de 50 MB · Economia: nada a contar · Plano: não identificado \(os relatórios mostram só tokens\)$/);
+});
+
+test('plano da conta no resumo da janela', () => {
+  const dir = comLeitura();
+  fs.writeFileSync(path.join(dir, 'conta-plano.json'), JSON.stringify({ v: 1, plano: 'max5', em: AGORA }));
+  assert.match(estadoJanela({ dir, agoraMs: AGORA, raizPlugin: null }).resumo, / · Plano: Max 5x \(do Claude Code\)$/);
 });
 
 test('RAM 94%: feixe urgente, até 5 apps para fechar, botão de ligar o leve e o segmento da barra', () => {

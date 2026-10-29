@@ -62,6 +62,12 @@ export function atualizarPlano({
   }
 }
 
+// O texto do plano nos relatórios (Task 6). Só os rótulos da lista fixa;
+// qualquer outra coisa é "não identificado".
+export function textoPlano(plano) {
+  return Object.hasOwn(ROTULO_PLANO, plano) ? `${ROTULO_PLANO[plano]} (do Claude Code)` : 'não identificado (os relatórios mostram só tokens)';
+}
+
 // O plano guardado pelo coletor: 'pro' | 'max5' | 'max20' | 'desconhecido'.
 export function planoEfetivo(dir) {
   try {

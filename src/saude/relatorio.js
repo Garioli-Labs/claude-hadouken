@@ -1,5 +1,7 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { planoEfetivo, textoPlano } from '../conta/plano.js';
 import { lerJson } from '../estado.js';
 import { configSaude } from '../config/ler.js';
 import { lerEventos } from '../guarda/registros.js';
@@ -111,6 +113,20 @@ function compat({ dir, raizPlugin, versaoNode, versaoClaude, config }) {
   return `em dia (Node ${node}${plugin === null ? '' : `, plugin ${plugin}`}${extensao === null ? '' : `, extensão ${extensao}`})`;
 }
 
+// v0.5.6 (Task 6): o .vsix que a instalação do painel deixa na pasta de
+// dados, para instalar em outro PC. Só com o arquivo regular presente; o
+// relatório é decision: block, então o caminho vai só ao usuário. O nome é o
+// de ID_EXTENSAO (painel/vsix.js), repetido para não carregar o zlib aqui.
+function vsixDoPainel(dir, versao) {
+  try {
+    if (typeof dir !== 'string' || versao === null) return null;
+    const vsix = path.join(dir, 'painel', `claude-hadouken-painel-${versao}.vsix`);
+    return fs.lstatSync(vsix).isFile() ? vsix : null;
+  } catch {
+    return null;
+  }
+}
+
 function conflitos(dir, agoraMs, config) {
   if (!config.conflitos) return 'conferência desligada (saude.conflitos)';
   if (lerArquivoConflitos(dir) === null) return 'ainda não conferido (o coletor confere uma vez por dia)';
@@ -153,6 +169,7 @@ export function resumoCurto({ dir, agoraMs = Date.now(), config, raizPlugin = nu
     parte('Conflitos', () => conflitos(dir, agoraMs, config)),
     parte('Dados', () => dados(dir, config, { comMaiores: false })),
     parte('Economia', () => semana({ dir, agoraMs, dirConfig: null, config })),
+    parte('Plano', () => textoPlano(planoEfetivo(dir))),
   ].join(' · ');
 }
 
@@ -188,8 +205,11 @@ export function relatorioSaude(opcoes) {
   L.push(secao('Hooks', () => hooks(ctx)));
   L.push(secao('Reparo', () => reparos(dir, agoraMs)));
   L.push(secao('Compat', () => compat(ctx)));
+  const painel = vsixDoPainel(dir, plugin);
+  if (painel !== null) L.push(secao('Painel', () => `${painel} (outro PC: code --install-extension <esse arquivo>)`));
   L.push(secao('Confl.', () => conflitos(dir, agoraMs, config)));
   L.push(secao('Dados', () => dados(dir, config)));
   L.push(secao('Semana', () => semana(ctx)));
+  L.push(secao('Plano', () => textoPlano(planoEfetivo(dir))));
   return L.join('\n');
 }

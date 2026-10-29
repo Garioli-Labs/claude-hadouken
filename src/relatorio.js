@@ -5,6 +5,7 @@ import { DATA_MAX_MS, numeroFinito, somaSegura } from './base.js';
 import { AMBIGUO, OUTROS, ROTULO_PLUGIN } from './custo-hooks.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
+import { ROTULO_PLANO, textoPlano } from './conta/plano.js';
 import { ESCOPOS_MAX, GATILHOS, escopoDe } from './guarda/resumo.js';
 import { decimal, effortValido, formatarTokens, GLIFOS_BARRA, horaLocal, janelaValida, milhar, quandoLocal, sanear } from './util.js';
 
@@ -617,6 +618,9 @@ export function montarRelatorio(entrada) {
   r.guarda = montarGuarda(ler(e, 'guarda'));
   r.custoHooks = montarCustoHooks(ler(e, 'custoHooks'));
   r.roteamento = montarRoteamento(ler(e, 'roteamento'));
+  // v0.5.6: o plano da conta (planoEfetivo), só da lista fixa.
+  const plano = ler(e, 'plano');
+  r.plano = Object.hasOwn(ROTULO_PLANO, plano) ? plano : 'desconhecido';
   return r;
 }
 
@@ -1155,7 +1159,7 @@ export function formatarMarkdown(r) {
   try {
     const o = ehObjeto(r) ? r : {};
     const extras = [blocoGuarda(o), blocoRoteamento(o), blocoCustoHooks(o)].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
-    return [AVISO_DADOS, '', ...blocoLimites(o), '', ...blocoClaude(o), '', ...extras, ...blocoGithub(o)].join('\n');
+    return [AVISO_DADOS, '', ...blocoLimites(o), '', `Plano: ${textoPlano(ler(o, 'plano'))}`, '', ...blocoClaude(o), '', ...extras, ...blocoGithub(o)].join('\n');
   } catch {
     return `${AVISO_DADOS}\n\nRelatório indisponível: erro interno.`;
   }

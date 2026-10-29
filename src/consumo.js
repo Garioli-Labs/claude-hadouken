@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { agregar } from './agregacao.js';
+import { planoEfetivo } from './conta/plano.js';
 import { numeroFinito } from './base.js';
 import { mapaDePlugins, resumirCusto } from './custo-hooks.js';
 import { ARQ_ESTADO, dirDados, lerJson, limitesValidos, validarEstado } from './estado.js';
@@ -389,7 +390,7 @@ export async function gerarRelatorio(opcoes) {
     // "Guarda (7 dias)" (spec v0.4.0 §9.4): só leitura, síncrona e pequena.
     const guarda = dir === null ? null : resumoGuarda(dir, agoraMs);
     const roteamento = dir === null ? null : await coletarRoteamento({ dir, raiz, dirConfig, cwd: o.cwd, coleta, agoraMs });
-    return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos, guarda, custoHooks, roteamento }) };
+    return { ok: true, relatorio: montarRelatorio({ estado, agoraMs, claude, github: gh.github, avisos: gh.avisos, guarda, custoHooks, roteamento, plano: dir === null ? null : planoEfetivo(dir) }) };
   } catch (e) {
     return { ok: false, motivo: codigoErro(e) };
   }
