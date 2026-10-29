@@ -9,6 +9,9 @@ export const TIPOS = Object.freeze(['ram', 'gpu', 'cpu', 'disco', 'bateria']);
 const GB = 1024 ** 3;
 const BARRA_MAX = 24;
 const NOME_MAX = 60;
+// O mesmo PARADA_MIN_MS de ociosas.js, repetido para esta folha seguir sem
+// import: sessão do Claude parada há 30 min.
+const PARADA_MIN_MS = 30 * 60_000;
 const SID = /^[A-Za-z0-9-]{1,16}$/;
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -87,7 +90,7 @@ export function semNovidade({ leitura, config, registro, modo, sessao }) {
   // Sessão parada na leitura, ou episódio delas aberto: a decisão completa
   // roda (avisa, ou fecha o episódio quando n zerou).
   if (r.paradas !== undefined) return false;
-  if (ehObjeto(leitura) && Array.isArray(leitura.ociosas) && leitura.ociosas.some((o) => leitura.em - o?.desdeMs >= 30 * 60_000)) return false;
+  if (ehObjeto(leitura) && Array.isArray(leitura.ociosas) && leitura.ociosas.some((o) => leitura.em - o?.desdeMs >= PARADA_MIN_MS)) return false;
   if (r.episodios !== undefined && !(ehObjeto(r.episodios) && Object.keys(r.episodios).length === 0)) return false;
   const leve = modo?.leve === true && Number.isFinite(modo.ateMs);
   const anunciado = ehObjeto(r.modoAnunciado) ? r.modoAnunciado[sid(sessao)] : undefined;

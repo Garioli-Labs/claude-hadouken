@@ -43,20 +43,20 @@ export function planoDoClaude(texto) {
 
 // deps: dir, agoraMs, arquivo (o .claude.json, ou null), ler (arquivo,
 // maxBytes) → { ok, texto }. Com conta-plano.json de menos de 24 h não lê
-// nada. Devolve { lido }. Nunca lança.
-export function atualizarPlano({
-  dir, agoraMs = Date.now(), arquivo = arquivoClaudeJson(process.env, os.homedir()), ler = lerTextoSemLink,
-}) {
+// nada. Sem arquivo ou com a leitura falha, a tentativa é gravada com o plano
+// de antes (ou desconhecido): o coletor roda a cada minuto e não relê 8 MB a
+// cada rodada. Devolve { lido }. Nunca lança.
+export function atualizarPlano({ dir, agoraMs = Date.now(), arquivo, ler = lerTextoSemLink }) {
   try {
     const atual = lerJson(path.join(dir, ARQ_PLANO));
     const em = atual.ok ? atual.valor?.em : null;
     if (Number.isFinite(em) && em <= agoraMs && agoraMs - em < VALE_MS) return { lido: false };
-    if (arquivo === null) return { lido: false };
-    const l = ler(arquivo, TETO_BYTES);
-    if (!l?.ok) return { lido: false };
-    const plano = planoDoClaude(l.texto) ?? 'desconhecido';
+    const alvo = arquivo === undefined ? arquivoClaudeJson(process.env, os.homedir()) : arquivo;
+    const l = alvo === null ? null : ler(alvo, TETO_BYTES);
+    const anterior = atual.ok && PLANOS.has(atual.valor?.plano) ? atual.valor.plano : 'desconhecido';
+    const plano = l?.ok ? planoDoClaude(l.texto) ?? 'desconhecido' : anterior;
     gravarJsonAtomico(path.join(dir, ARQ_PLANO), { v: 1, plano, em: agoraMs }, { compacto: true });
-    return { lido: true };
+    return { lido: l?.ok === true };
   } catch {
     return { lido: false };
   }

@@ -93,12 +93,21 @@ test('atualizarPlano: arquivo sem o campo grava desconhecido (o padrão vale)', 
   assert.equal(planoEfetivo(d), 'desconhecido');
 });
 
-test('atualizarPlano: ler que lança, falha ou arquivo null → nada gravado', () => {
+test('atualizarPlano: ler que lança, falha ou arquivo null → nada lido, e a tentativa conta para as 24 h', () => {
   const d = novoDir();
   assert.deepEqual(atualizarPlano({ dir: d, agoraMs: AGORA, arquivo: '/c/.claude.json', ler: () => { throw new Error('x'); } }), { lido: false });
-  assert.deepEqual(atualizarPlano({ dir: d, agoraMs: AGORA, arquivo: '/c/.claude.json', ler: () => ({ ok: false, motivo: 'grande' }) }), { lido: false });
-  assert.deepEqual(atualizarPlano({ dir: d, agoraMs: AGORA, arquivo: null, ler: () => ({ ok: true, texto: '{}' }) }), { lido: false });
-  assert.equal(fs.existsSync(path.join(d, ARQ_PLANO)), false);
+  assert.equal(fs.existsSync(path.join(d, ARQ_PLANO)), false, 'ler que lança: nada gravado');
+  let leituras = 0;
+  const falha = () => { leituras++; return { ok: false, motivo: 'grande' }; };
+  assert.deepEqual(atualizarPlano({ dir: d, agoraMs: AGORA, arquivo: '/c/.claude.json', ler: falha }), { lido: false });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, ARQ_PLANO), 'utf8')), { v: 1, plano: 'desconhecido', em: AGORA });
+  atualizarPlano({ dir: d, agoraMs: AGORA + H, arquivo: '/c/.claude.json', ler: falha });
+  assert.equal(leituras, 1, 'a falha não relê a cada rodada do coletor');
+  // Plano conhecido fica numa falha depois de 24 h; arquivo null também.
+  const k = novoDir();
+  fs.writeFileSync(path.join(k, ARQ_PLANO), JSON.stringify({ v: 1, plano: 'max20', em: AGORA - 25 * H }));
+  assert.deepEqual(atualizarPlano({ dir: k, agoraMs: AGORA, arquivo: null, ler: () => ({ ok: true, texto: '{}' }) }), { lido: false });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(k, ARQ_PLANO), 'utf8')), { v: 1, plano: 'max20', em: AGORA });
 });
 
 test('atualizarPlano: lê com teto de 8 MB', () => {
