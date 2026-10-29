@@ -123,3 +123,16 @@ test('nome de app com controle e marca de direção chega saneado', () => {
   const e = estadoJanela({ dir: comLeitura({ ram: { totalBytes: 16 * GB, livreBytes: GB, usadaPct: 95 }, processos }), agoraMs: AGORA, raizPlugin: null });
   assert.equal(e.sugestoes[0].nome, 'evil');
 });
+
+test('sessões do Claude paradas: medida própria, só contagem e GB', () => {
+  const em = AGORA - 12_000;
+  const ociosas = [
+    { pid: 900, desdeMs: em - 40 * 60_000, cpuMs: 10, rssBytes: 2 * GB },
+    { pid: 901, desdeMs: em - 5 * 60_000, cpuMs: 10, rssBytes: GB },
+  ];
+  const e = estadoJanela({ dir: comLeitura({ ociosas }), agoraMs: AGORA, raizPlugin: null });
+  const m = e.medidas.find((x) => x.chave === 'paradas');
+  assert.deepEqual(m, { chave: 'paradas', rotulo: 'Sessões do Claude paradas', pct: null, valor: '1 há mais de 30 min · 2,0 GB', urgencia: 'atencao' });
+  const sem = estadoJanela({ dir: comLeitura(), agoraMs: AGORA, raizPlugin: null });
+  assert.equal(sem.medidas.some((x) => x.chave === 'paradas'), false);
+});

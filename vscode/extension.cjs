@@ -219,7 +219,7 @@ function estadoValido(e) {
 // A saúde do PC (v0.5.5, Task 13) na forma que a janela desenha, ou null. O
 // plugin já decide tudo; aqui só passa o que tem a forma combinada, com os
 // textos cortados. Os nomes de app vão como texto (a página usa textContent).
-const CHAVES_SAUDE = new Set(['ram', 'gpu', 'cpu', 'disco', 'bateria']);
+const CHAVES_SAUDE = new Set(['ram', 'gpu', 'cpu', 'disco', 'bateria', 'paradas']);
 const URGENCIAS = new Set(['calma', 'atencao', 'urgente']);
 const texto = (s, max) => (typeof s === 'string' ? s.slice(0, max) : null);
 const inteiroOuNull = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);

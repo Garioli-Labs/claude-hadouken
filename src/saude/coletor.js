@@ -1,4 +1,5 @@
 import { classificar } from './processos.js';
+import { tempoCpuMs } from './ociosas.js';
 
 // As leituras do PC por plataforma (spec v0.5.5 §6.A). Roda só no coletor
 // desanexado, nunca num hook. Toda saída externa é dado: cada número passa
@@ -25,7 +26,7 @@ const comoArgs = (linhas) => ['-NoProfile', '-NonInteractive', '-EncodedCommand'
   ["$ErrorActionPreference='SilentlyContinue'", '[Console]::OutputEncoding=[Text.Encoding]::UTF8', ...linhas].join('\n'), 'utf16le',
 ).toString('base64')];
 const ARGS_WIN = comoArgs([
-  '$p=@(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,CommandLine,WorkingSetSize | ForEach-Object { $c=$_.CommandLine; if ($c -and $c.Length -gt 400) { $c=$c.Substring(0,400) }; @{i=$_.ProcessId;p=$_.ParentProcessId;n=$_.Name;c=$c;r=$_.WorkingSetSize} })',
+  '$p=@(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,CommandLine,WorkingSetSize,UserModeTime,KernelModeTime | ForEach-Object { $c=$_.CommandLine; if ($c -and $c.Length -gt 400) { $c=$c.Substring(0,400) }; @{i=$_.ProcessId;p=$_.ParentProcessId;n=$_.Name;c=$c;r=$_.WorkingSetSize;u=$_.UserModeTime;k=$_.KernelModeTime} })',
   '$b=@(Get-CimInstance Win32_Battery -Property EstimatedChargeRemaining,BatteryStatus | ForEach-Object { @{c=$_.EstimatedChargeRemaining;s=$_.BatteryStatus} })',
   '@{p=$p;b=$b} | ConvertTo-Json -Depth 3 -Compress',
 ]);
@@ -102,6 +103,13 @@ function objetoJson(r) {
   }
 }
 
+// UserModeTime + KernelModeTime vêm em unidades de 100 ns; sem os dois, null.
+function cpuMsWindows(u, k) {
+  const us = naFaixa(numero(u), 0, Number.MAX_SAFE_INTEGER);
+  const ks = naFaixa(numero(k), 0, Number.MAX_SAFE_INTEGER);
+  return us === null || ks === null ? null : Math.floor((us + ks) / 10_000);
+}
+
 function lerWindows(r) {
   const fontes = { processos: r.fonte, bateria: r.fonte };
   const saida = { processos: [], bateria: null, fontes };
@@ -115,7 +123,7 @@ function lerWindows(r) {
   const lista = Array.isArray(j.p) ? j.p : [];
   fontes.processos = Array.isArray(j.p) ? 'ok' : 'na';
   saida.processos = lista.map((x) => (x && typeof x === 'object'
-    ? { pid: x.i, ppid: x.p, nome: x.n, cmd: x.c, rssBytes: x.r, cpuPct: 0 }
+    ? { pid: x.i, ppid: x.p, nome: x.n, cmd: x.c, rssBytes: x.r, cpuPct: 0, cpuMs: cpuMsWindows(x.u, x.k) }
     : null));
   const b = Array.isArray(j.b) ? j.b.find((x) => x && typeof x === 'object') : undefined;
   const pct = naFaixa(numero(b?.c), 0, 100);
@@ -137,7 +145,9 @@ function lerTermicaWindows(r) {
 
 // ---- posix --------------------------------------------------------------
 
-const LINHA_PS = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+(?:[.,]\d+)?)\s+(.+)$/;
+// A coluna do tempo de CPU (time=) é opcional na leitura: sempre tem ':', o
+// que a separa de um nome de processo.
+const LINHA_PS = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+(?:[.,]\d+)?)\s+(?:((?:\d+-)?\d+:[\d:.]+)\s+)?(.+)$/;
 const LINHA_ARGS = /^\s*(\d+)\s+(.+)$/;
 
 function lerPs(rLista, rArgs) {
@@ -155,8 +165,10 @@ function lerPs(rLista, rArgs) {
     if (!m) continue;
     const pid = Number(m[1]);
     // No macOS o comm= traz o caminho; para o usuário, só o nome do app.
-    const nome = m[5].startsWith('/') ? m[5].slice(m[5].lastIndexOf('/') + 1) : m[5];
-    processos.push({ pid, ppid: Number(m[2]), nome, cmd: cmds.get(pid) ?? '', rssBytes: Number(m[3]) * 1024, cpuPct: numero(m[4]) });
+    const nome = m[6].startsWith('/') ? m[6].slice(m[6].lastIndexOf('/') + 1) : m[6];
+    processos.push({
+      pid, ppid: Number(m[2]), nome, cmd: cmds.get(pid) ?? '', rssBytes: Number(m[3]) * 1024, cpuPct: numero(m[4]), cpuMs: tempoCpuMs(m[5]),
+    });
   }
   return { processos, fonte: 'ok' };
 }
@@ -263,7 +275,7 @@ export async function coletar({ agoraMs, plataforma, executar, fs, os, dirDados,
   const [rWin, rTermica, rLista, rArgs, rGpu, rPmset] = await Promise.all([
     win ? rodar(executar, 'powershell', ARGS_WIN, PRAZO_POWERSHELL_MS) : null,
     win ? rodar(executar, 'powershell', ARGS_TERMICA, PRAZO_TERMICA_MS) : null,
-    win ? null : rodar(executar, 'ps', ['-axo', 'pid=,ppid=,rss=,pcpu=,comm='], PRAZO_MS),
+    win ? null : rodar(executar, 'ps', ['-axo', 'pid=,ppid=,rss=,pcpu=,time=,comm='], PRAZO_MS),
     win ? null : rodar(executar, 'ps', ['-axww', '-o', 'pid=,args='], PRAZO_MS),
     rodar(executar, 'nvidia-smi', ARGS_NVIDIA, PRAZO_MS),
     plataforma === 'darwin' ? rodar(executar, 'pmset', ['-g', 'batt'], PRAZO_MS) : null,
@@ -299,11 +311,13 @@ export async function coletar({ agoraMs, plataforma, executar, fs, os, dirDados,
   // A linha de comando fica só na memória: classificar já tirou dela o que
   // importa (classe e script); pode ter segredo e não vai para o disco. Os
   // processos do hadouken ficam mesmo fora dos 40 maiores: um coletor
-  // pendurado ocupa pouca memória, e encerraveis precisa dele na lista.
+  // pendurado ocupa pouca memória, e encerraveis precisa dele na lista. As
+  // sessões do Claude também: uma parada há horas pode ter a memória
+  // devolvida ao sistema e cair do topo (ociosas.js precisa dela).
   const ordenados = classificar(brutos).sort((a, b) => b.rssBytes - a.rssBytes);
   const processos = [
     ...ordenados.slice(0, PROCESSOS_MAX),
-    ...ordenados.slice(PROCESSOS_MAX).filter((p) => p.classe === 'hadouken').slice(0, PROCESSOS_MAX),
+    ...ordenados.slice(PROCESSOS_MAX).filter((p) => p.classe === 'hadouken' || p.classe === 'claude').slice(0, PROCESSOS_MAX),
   ].map(({ cmd, ...resto }) => resto);
 
   return {

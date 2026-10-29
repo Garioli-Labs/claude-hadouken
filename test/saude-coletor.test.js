@@ -209,11 +209,14 @@ test('no máximo 40 processos, os de maior RSS', async () => {
   const p = Array.from({ length: 100 }, (_, i) => ({ i: 1000 + i, p: 1, n: `app${i}.exe`, c: '', r: (i + 1) * 1_000_000 }));
   // Um coletor pendurado pequeno: fica na lista mesmo fora dos 40 maiores.
   p.push({ i: 9, p: 1, n: 'node.exe', c: 'node C:\\x\\claude-hadouken\\src\\saude\\coletor-main.js', r: 100 });
+  // Uma sessão do Claude parada, com a memória devolvida: também fica (v0.5.6).
+  p.push({ i: 8, p: 1, n: 'claude.exe', c: 'claude', r: 50, u: 10_000, k: 0 });
   const { executar } = falsoExecutar({ powershell: powershell(JSON.stringify({ p, b: [] }), '{"t":null}') });
   const l = await coletar(base({ plataforma: 'win32', executar }));
-  assert.equal(l.processos.length, 41);
+  assert.equal(l.processos.length, 42);
   assert.equal(l.processos[0].pid, 1099);
-  assert.deepEqual(l.processos.at(-1), { pid: 9, ppid: 1, nome: 'node.exe', rssBytes: 100, cpuPct: 0, classe: 'hadouken', script: 'coletor-main' });
+  assert.deepEqual(l.processos.at(-2), { pid: 9, ppid: 1, nome: 'node.exe', rssBytes: 100, cpuPct: 0, cpuMs: null, classe: 'hadouken', script: 'coletor-main' });
+  assert.deepEqual(l.processos.at(-1), { pid: 8, ppid: 1, nome: 'claude.exe', rssBytes: 50, cpuPct: 0, cpuMs: 1, classe: 'claude' });
   assert.equal(l.bateria, null);
 });
 

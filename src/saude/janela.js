@@ -3,6 +3,7 @@ import { lerSaude } from './ler.js';
 import { lerModo } from './modo.js';
 import { medidasNaFaixa, montarBarra } from './faixas.js';
 import { sugerirFechar } from './processos.js';
+import { paradas } from './ociosas.js';
 import { resumoCurto } from './relatorio.js';
 
 // O que a seção "PC agora" da janela do VS Code mostra (spec v0.5.5 §6.L,
@@ -48,6 +49,13 @@ function medidas(l, config, fora) {
     lista.push({
       chave: 'bateria', rotulo: 'Bateria', pct: limitar(l.bateria.pct),
       valor: `${Math.round(l.bateria.pct)}%${l.bateria.naTomada === false ? ' · fora da tomada' : ''}`, urgencia: urgencia(fora, 'bateria'),
+    });
+  }
+  const p = paradas(l.ociosas, l.em);
+  if (p.n > 0) {
+    lista.push({
+      chave: 'paradas', rotulo: 'Sessões do Claude paradas', pct: null,
+      valor: `${p.n} há mais de 30 min · ${(p.rssBytes / GB).toFixed(1).replace('.', ',')} GB`, urgencia: 'atencao',
     });
   }
   return lista;

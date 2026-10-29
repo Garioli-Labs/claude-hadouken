@@ -11,6 +11,7 @@ import { lerSaude } from './ler.js';
 import { lerModo } from './modo.js';
 import { abrirTetos } from './tetos.js';
 import { sugerirFechar } from './processos.js';
+import { paradas } from './ociosas.js';
 import { medidasNaFaixa } from './faixas.js';
 import { medirDados } from './limpeza.js';
 import { conferirCompat, descreverItem } from './compat.js';
@@ -65,6 +66,10 @@ function linhasPc(l, config) {
   const linhas = [`PC     ${partes.join(' · ')}`];
   const faltam = Object.keys(NOMES_FONTE).filter((k) => l.fontes[k] !== 'ok').map((k) => NOMES_FONTE[k]);
   if (faltam.length > 0) linhas.push(`       indisponível neste PC: ${faltam.join(', ')} (o hadouken não pede admin)`);
+  const p = paradas(l.ociosas, l.em);
+  if (p.n > 0) {
+    linhas.push(`       ${p.n === 1 ? '1 sessão do Claude parada' : `${p.n} sessões do Claude paradas`} há mais de 30 min: ${decimal(p.rssBytes / GB)} GB (fechar libera memória; quem fecha é você)`);
+  }
   if (medidasNaFaixa(l, config).ram?.nivel === 2) {
     const apps = sugerirFechar(l.processos, { pidSessao: process.ppid });
     if (apps.length > 0) linhas.push('', 'Fechar libera memória (só sugestão; quem fecha é você):', ...apps.map((a) => `  - ${a.nome}: ${decimal(a.rssBytes / GB)} GB`));

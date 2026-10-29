@@ -59,6 +59,14 @@ export function avisoUsuario(resumo, sugestoes = []) {
   return texto.length <= USUARIO_MAX ? texto : texto.slice(0, USUARIO_MAX);
 }
 
+// Sessões do Claude paradas (plano v0.5.6, Task 3): só a contagem e a RAM.
+export const textoParadas = ({ n, rssBytes }) => (n === 1
+  ? `hadouken: 1 sessão do Claude parada há mais de 30 min ocupa ${gbDecimal(rssBytes)} GB. Fechar libera memória para esta.`
+  : `hadouken: ${n} sessões do Claude paradas há mais de 30 min ocupam ${gbDecimal(rssBytes)} GB. Fechar libera memória para esta.`);
+export const linhaParadas = ({ n, rssBytes }) => (n === 1
+  ? `hadouken: 1 sessão do Claude parada ocupa ${gbDecimal(rssBytes)} GB; se o usuário fechar, a RAM folga.`
+  : `hadouken: ${n} sessões do Claude paradas ocupam ${gbDecimal(rssBytes)} GB; se o usuário fechar, a RAM folga.`);
+
 export const linhaModoLeve = (ateMs) =>
   `hadouken: modo leve até ${hhmm(ateMs)}. Um subagente por vez, effort mínimo necessário, Haiku/Sonnet para busca, sem Fable nem Workflow sem pedido explícito, testes com concorrência 1.`;
 export const LINHA_MODO_NORMAL = 'hadouken: modo leve encerrado; ritmo normal de trabalho.';

@@ -18,6 +18,7 @@ export const LEITURA_VALE_MS = 5 * 60_000;
 export const TRAVA_SAUDE_VENCE_MS = 30_000;
 const SAUDE_MAX_BYTES = 256 * 1024;
 const PROCESSOS_MAX = 80;
+const OCIOSAS_MAX = 20;
 const CLASSES = new Set(['sistema', 'claude', 'hadouken', 'vscode', 'navegador', 'node-dev', 'outro']);
 const FONTES = ['processos', 'cpuCarga', 'cpuTemp', 'gpu', 'bateria', 'disco'];
 
@@ -34,15 +35,23 @@ function processoValido(p) {
     nome: sanearNome(p.nome),
     rssBytes: bytes(p.rssBytes) ?? 0,
     cpuPct: naFaixa(p.cpuPct, 0, 100_000) ?? 0,
+    cpuMs: Number.isInteger(p.cpuMs) && p.cpuMs >= 0 ? p.cpuMs : null,
     classe: CLASSES.has(p.classe) ? p.classe : 'outro',
   };
   if (item.classe === 'hadouken') item.script = typeof p.script === 'string' && /^[a-z0-9-]{1,40}$/.test(p.script) ? p.script : null;
   return item;
 }
 
+function ociosaValida(o) {
+  if (!ehObjeto(o) || !Number.isInteger(o.pid) || o.pid < 0 || !Number.isFinite(o.desdeMs)) return null;
+  if (!Number.isInteger(o.cpuMs) || o.cpuMs < 0 || bytes(o.rssBytes) === null) return null;
+  return { pid: o.pid, desdeMs: o.desdeMs, cpuMs: o.cpuMs, rssBytes: o.rssBytes };
+}
+
 // saude.json é escrito pelo próprio hadouken, mas pode ser trocado: cada campo
-// é conferido e o que não confere vira null (ou sai, no caso dos processos).
-function validarLeitura(j) {
+// é conferido e o que não confere vira null (ou sai, no caso dos processos e
+// das sessões paradas).
+export function validarLeitura(j) {
   if (!ehObjeto(j) || j.versao !== 1 || !Number.isFinite(j.em)) return null;
   const ram = ehObjeto(j.ram) ? j.ram : {};
   const cpu = ehObjeto(j.cpu) ? j.cpu : {};
@@ -64,6 +73,7 @@ function validarLeitura(j) {
     disco: { dadosLivreBytes: bytes(disco.dadosLivreBytes), projetoLivreBytes: bytes(disco.projetoLivreBytes) },
     processos: (Array.isArray(j.processos) ? j.processos.slice(0, PROCESSOS_MAX) : []).map(processoValido).filter(Boolean),
     fontes: Object.fromEntries(FONTES.map((k) => [k, fonte(fontes[k])])),
+    ociosas: (Array.isArray(j.ociosas) ? j.ociosas.slice(0, OCIOSAS_MAX) : []).map(ociosaValida).filter(Boolean),
   };
 }
 

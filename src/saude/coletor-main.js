@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirDados } from '../base.js';
-import { gravarJsonAtomico } from '../estado.js';
+import { gravarJsonAtomico, lerJson } from '../estado.js';
+import { atualizarOciosas } from './ociosas.js';
 import { configSaude } from '../config/ler.js';
 import { lerTextoSemLink } from '../guarda/arquivo.js';
 import { anexarEvento } from '../guarda/registros.js';
@@ -27,6 +28,7 @@ import { conteudoTrava, lerTravaPid, tokenDaTrava } from './trava-pid.js';
 
 const PRAZO_TOTAL_MS = 8000;
 const PRAZO_COLETA_MS = 7000;
+const SAUDE_MAX_BYTES = 256 * 1024;
 
 function pegarTravaSaude(dir, agoraMs, token) {
   const arq = path.join(dir, ARQ_TRAVA_SAUDE);
@@ -120,6 +122,10 @@ export async function rodarColetor({
     const encerrados = cfg.liberarProprios ? liberarPendurados(dir, leitura, trava.antiga, agoraMs, matar, pidProprio) : [];
     const reparos = repararDados(dir, agoraMs);
     const cortes = cfg.limpeza?.ligada ? limparDados(dir, { tetoMb: cfg.limpeza.mb, agoraMs }).cortes : [];
+    // A leitura anterior vem crua (lerSaude a descarta depois de 5 min, e uma
+    // pausa zeraria a contagem das sessões paradas).
+    const anterior = lerJson(path.join(dir, ARQ_SAUDE), SAUDE_MAX_BYTES);
+    leitura.ociosas = atualizarOciosas(anterior.ok ? anterior.valor : null, leitura, agoraMs);
     const g = gravarJsonAtomico(path.join(dir, ARQ_SAUDE), leitura, { compacto: true });
     // Depois do saude.json: a barra não espera pelos conflitos (uma vez em 24 h).
     const c = cfg.conflitos ? conflitos({ dir, agoraMs }) : { lido: false };

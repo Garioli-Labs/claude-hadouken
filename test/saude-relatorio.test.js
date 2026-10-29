@@ -156,3 +156,15 @@ test('origem não digitada: recusado', () => {
   assert.match(rodar('leve', home, { env: { CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' } }), /só vale digitado numa sessão normal/);
   assert.equal(fs.existsSync(path.join(home, ARQ_MODO)), false);
 });
+
+test('sessões do Claude paradas aparecem no PC, sem pid nem nome', () => {
+  const d = novoHome();
+  gravarSaude(d, 50);
+  const arq = path.join(d, 'saude.json');
+  const j = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  j.ociosas = [{ pid: 4321, desdeMs: j.em - 45 * 60_000, cpuMs: 5, rssBytes: 1.5 * GB }, { pid: 4322, desdeMs: j.em - 50 * 60_000, cpuMs: 5, rssBytes: GB }];
+  fs.writeFileSync(arq, JSON.stringify(j));
+  const t = rel(d);
+  assert.match(t, /2 sessões do Claude paradas há mais de 30 min: 2,5 GB \(fechar libera memória; quem fecha é você\)/);
+  assert.doesNotMatch(t, /4321/);
+});

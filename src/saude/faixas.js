@@ -84,6 +84,10 @@ export function semNovidade({ leitura, config, registro, modo, sessao }) {
   if (ehObjeto(leitura) && Object.keys(medidasNaFaixa(leitura, config)).length > 0) return false;
   if (registro !== undefined && !ehObjeto(registro)) return false;
   const r = registro ?? {};
+  // Sessão parada na leitura, ou episódio delas aberto: a decisão completa
+  // roda (avisa, ou fecha o episódio quando n zerou).
+  if (r.paradas !== undefined) return false;
+  if (ehObjeto(leitura) && Array.isArray(leitura.ociosas) && leitura.ociosas.some((o) => leitura.em - o?.desdeMs >= 30 * 60_000)) return false;
   if (r.episodios !== undefined && !(ehObjeto(r.episodios) && Object.keys(r.episodios).length === 0)) return false;
   const leve = modo?.leve === true && Number.isFinite(modo.ateMs);
   const anunciado = ehObjeto(r.modoAnunciado) ? r.modoAnunciado[sid(sessao)] : undefined;

@@ -76,6 +76,7 @@ export function classificar(lista) {
       cmd,
       rssBytes: Number.isFinite(p.rssBytes) && p.rssBytes > 0 ? p.rssBytes : 0,
       cpuPct: Number.isFinite(p.cpuPct) && p.cpuPct > 0 ? p.cpuPct : 0,
+      cpuMs: inteiroNaoNeg(p.cpuMs) ? p.cpuMs : null,
       classe,
     };
     if (classe === 'hadouken') item.script = cmd.match(NOME_SCRIPT)?.[1].toLowerCase() ?? null;

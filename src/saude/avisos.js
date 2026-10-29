@@ -1,5 +1,6 @@
 import { sugerirFechar } from './processos.js';
-import { avisoUsuario, linhaClaude, linhaModoLeve, LINHA_MODO_NORMAL, resumoUsuario } from './mensagens.js';
+import { avisoUsuario, linhaClaude, linhaModoLeve, linhaParadas, LINHA_MODO_NORMAL, resumoUsuario, textoParadas } from './mensagens.js';
+import { paradas } from './ociosas.js';
 import { medidasNaFaixa, montarBarra, porGravidade, sid, sidValido, TIPOS } from './faixas.js';
 
 // A decisão dos avisos da saúde (spec v0.5.5 §6.B, §6.C e §9.1 item 2).
@@ -47,7 +48,32 @@ function registroValido(r) {
       }
     }
   }
-  return { episodios, modoAnunciado };
+  const p = ehObjeto(r) && ehObjeto(r.paradas) ? r.paradas : null;
+  const paradas = p === null ? undefined : {
+    avisadoUsuario: p.avisadoUsuario === true,
+    sessoes: Array.isArray(p.sessoes) ? p.sessoes.filter(sidValido).slice(-SESSOES_MAX) : [],
+  };
+  return paradas === undefined ? { episodios, modoAnunciado } : { episodios, modoAnunciado, paradas };
+}
+
+// Sessões do Claude paradas: episódio à parte, fora de TIPOS (sem faixa nem
+// barra). Começa quando há alguma parada na leitura e acaba quando n volta a
+// 0. Ao usuário, uma vez por episódio e só num hook em que nenhum aviso de
+// faixa saiu; ao Claude, uma vez por sessão e só com a RAM amarela ou pior.
+function avisarParadas(reg, leitura, fora, s, usuarioJa, linhas) {
+  const p = paradas(leitura.ociosas, leitura.em);
+  if (p.n === 0) {
+    delete reg.paradas;
+    return null;
+  }
+  reg.paradas ??= { avisadoUsuario: false, sessoes: [] };
+  if ((fora.ram?.nivel ?? 0) >= 1 && !reg.paradas.sessoes.includes(s)) {
+    linhas.push(linhaParadas(p));
+    reg.paradas.sessoes = [...reg.paradas.sessoes, s].slice(-SESSOES_MAX);
+  }
+  if (usuarioJa || reg.paradas.avisadoUsuario) return null;
+  reg.paradas.avisadoUsuario = true;
+  return textoParadas(p);
 }
 
 export function decidirAvisos({ leitura, config, registro, modo, sessao, agoraMs, pidSessao } = {}) {
@@ -95,6 +121,8 @@ export function decidirAvisos({ leitura, config, registro, modo, sessao, agoraMs
       usuario = avisoUsuario(resumoUsuario(t, fora[t].valor), sugestoes);
       for (const n of novos) reg.episodios[n].avisadoUsuario = true;
     }
+    const aviso = avisarParadas(reg, leitura, fora, s, usuario !== null, linhas);
+    if (aviso !== null) usuario = aviso;
   }
 
   // O modo leve, ao Claude, só quando muda para esta sessão.
