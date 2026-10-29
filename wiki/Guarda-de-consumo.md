@@ -65,10 +65,15 @@ Aprovar uma pergunta solta só aquele pedido. Para soltar a trava inteira:
 - `/hadouken:liberar`: libera por 2 h.
 - `/hadouken:liberar 8h`: de 1 a 24 h.
 - `/hadouken:liberar janela`: até o reset da janela que travou, no máximo 24 h.
+- `/hadouken:liberar noite`: até as 7h seguintes, no mínimo 15 min (desde a v0.5.6). Serve para deixar um trabalho longo rodando de madrugada.
 - Acrescente `fable` para soltar também o limite do Fable. Depois do limite, o Fable pode consumir créditos de uso.
 - Acrescente `caro` para soltar o despacho caro, por exemplo antes da revisão final de um bloco.
 
 Toda liberação acaba antes do prazo se a semana subir 10 pontos. Ela vale para todas as sessões, porque o limite é da conta. A barra mostra "liberada até …" enquanto ela vale, também ao lado de uma trava que ela não cobre.
+
+### Loop e tarefa agendada com a guarda travada
+
+Desde a v0.5.6, quando o Claude agenda a próxima volta de um loop (`ScheduleWakeup`) ou cria uma tarefa agendada (`CronCreate`) com a guarda travada na janela de 5 h ou de 7 dias, ele recebe uma linha com o horário do reset: acordar antes disso só gasta cota. Um `ScheduleWakeup` espera no máximo 1 h, então a orientação é repetir a espera até o reset. Numa tarefa com intervalo fixo, a orientação é trocar por um `ScheduleWakeup` depois do reset. Nada é negado por isso; com uma liberação ativa, a linha não aparece.
 
 ### O que a barra diz
 

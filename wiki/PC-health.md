@@ -10,6 +10,7 @@ Since v0.5.5, hadouken keeps an eye on the PC's RAM, temperatures, battery and d
 - **Warns once per episode.** When a measure enters its band, three things appear: a short segment in the status bar (for example `PC: GPU 88°C`) while it lasts, a one-time notice to you and a context line to Claude. A new episode of the same measure starts only after 30 min below the band.
 - **Steers Claude without blocking.** With high RAM, Claude gets a line like "tests with concurrency 1, no parallel subagents, no watch builds". Nothing is denied because of PC health.
 - **Suggests what to close.** In the red RAM band, the notice and `/hadouken:saude` list up to 5 apps that use the most memory, with how much each one frees. The current session and the system are left out. **You are the one who closes them.**
+- **Points out idle Claude sessions.** The collector keeps the CPU time of each Claude Code session. A session whose CPU has barely moved for 30 min counts as idle: you get one notice per episode, with how many there are and how much memory they hold, and `/hadouken:saude` and the window show the count. Claude only gets a line when RAM is already in the band, and only a number and GB, never a name or pid. **You are the one who closes them.**
 - **Shows everything in one command,** `/hadouken:saude`, and in the "PC now" section of the [VS Code window](VS-Code-panel-and-window#pc-now).
 
 ## What it never does
@@ -60,10 +61,11 @@ The report has these sections:
 2. **Suggestions:** the apps that free the most memory, and light mode.
 3. **Hooks:** the p95 of each hadouken hook and of other plugins' hooks over the last 7 days, and the parts turned off by the time budget.
 4. **Repairs:** the files put in quarantine.
-5. **Versions and compatibility.**
+5. **Versions and compatibility.** When the panel's `.vsix` is in the data folder, the `Painel` line shows its path, to install it on another PC with `code --install-extension <that file>`.
 6. **Conflicts** with other plugins.
 7. **Data:** the size of each file in the data folder and the ceiling.
 8. **Savings this week.**
+9. **Plan** of the account, as Claude Code reports it (Pro, Max 5x or Max 20x), or "not identified".
 
 ## How hadouken looks after itself
 

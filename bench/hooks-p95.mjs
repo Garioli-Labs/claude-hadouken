@@ -55,6 +55,8 @@
 //   unregistered.
 // - guard (v0.4.0): P1 on a fable-max dispatch (the fixture's 7d forecast trips G2) and P3 on a switch to Fable, both asking since v0.5.4 (guarda.perguntar on by default); P5 denying a write in the data folder.
 // - /liberar 2h (v0.4.0 part 2): the release hook, writing liberacao.json and the two events.
+// - schedule with the guard locked (v0.5.6): ScheduleWakeup with a 7d lock in
+//   guarda.json, answered with the reset line.
 // - a bare `node -e ""` as the floor of any Node script.
 //
 // The scenarios are interleaved: every round runs each scenario once, in a
@@ -377,6 +379,25 @@ try {
         const o = JSON.parse(out);
         if (o.decision !== 'block' || !/^hadouken: liberado até /.test(o.reason ?? '')) throw new Error(`liberar: expected a release, got ${out}`);
         if (!fs.existsSync(path.join(home, 'liberacao.json'))) throw new Error('liberar: liberacao.json not written');
+      },
+      alvo: true,
+    },
+    // v0.5.6: ScheduleWakeup with the 7-day lock on reads the guard
+    // evaluation and answers with the reset line. The lock is removed after
+    // the check, so the other rows never see it.
+    {
+      id: 'agenda-com-trava',
+      nome: 'schedule, guard locked',
+      argv: [hook('guarda-agenda.js')],
+      preparar: () => {
+        semLiberacao();
+        const desde = new Date(Date.now() - 60_000).toISOString();
+        fs.writeFileSync(arqGuarda, JSON.stringify({ v: 1, travas: { seven_day: { resets_at: Math.floor(Date.now() / 1000) + 2 * 86_400, gatilho: 'G4', desde } } }));
+      },
+      stdin: JSON.stringify({ ...comum(uuid(0), 'PreToolUse'), tool_name: 'ScheduleWakeup', tool_input: { delaySeconds: 1200, reason: 'wait', prompt: 'continue' } }),
+      conferir: (out) => {
+        semLiberacao();
+        if (!/^hadouken: a guarda está travada/.test(JSON.parse(out).hookSpecificOutput?.additionalContext ?? '')) throw new Error(`agenda: expected the lock line, got ${out}`);
       },
       alvo: true,
     },

@@ -67,10 +67,15 @@ Approving a question lets only that request through. To lift the whole lock:
 - `/hadouken:liberar`: releases for 2 h.
 - `/hadouken:liberar 8h`: from 1 to 24 h.
 - `/hadouken:liberar janela`: until the reset of the window that locked, at most 24 h.
+- `/hadouken:liberar noite`: until the next 7 a.m., at least 15 min (since v0.5.6). Meant for leaving long work running overnight.
 - Add `fable` to lift the Fable limit as well. After the limit, Fable may consume usage credits.
 - Add `caro` to lift the expensive dispatch, for example before the final review of a block.
 
 Every release ends early if the week rises 10 points. It applies to every session, because the limit belongs to the account. The bar shows "liberada até …" (released until …) while it holds, also next to a lock it does not cover.
+
+### Loops and scheduled tasks with the guard locked
+
+Since v0.5.6, when Claude schedules the next turn of a loop (`ScheduleWakeup`) or creates a scheduled task (`CronCreate`) while the guard is locked on the 5-hour or 7-day window, it gets a line with the reset time: waking up before that only spends quota. A `ScheduleWakeup` waits at most 1 h, so the guidance is to repeat the wait until the reset. For a fixed-interval task, the guidance is to switch to a `ScheduleWakeup` after the reset. Nothing is denied because of this; with an active release, the line does not show.
 
 ### What the bar says
 

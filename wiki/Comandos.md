@@ -9,7 +9,7 @@ Todos respondem por um hook, antes do modelo: não gastam tokens. Os que mudam a
 | Comando | O que faz | Detalhes |
 |---|---|---|
 | `/hadouken:consumo` | Relatório de consumo: limites de 5 h e 7 dias com ritmo, tokens por projeto e por modelo·effort, cache e o GitHub Actions. O Claude também o chama quando o senhor pede. | [Relatório de consumo](Relatorio-de-consumo) |
-| `/hadouken:liberar [Nh \| janela] [fable] [caro]` | Libera a guarda por um tempo; `off` e `on` desligam e religam a guarda. | [Como liberar](Guarda-de-consumo#como-liberar) |
+| `/hadouken:liberar [Nh \| janela \| noite] [fable] [caro]` | Libera a guarda por um tempo (`noite`: até as 7h); `off` e `on` desligam e religam a guarda. | [Como liberar](Guarda-de-consumo#como-liberar) |
 | `/hadouken:limites [item valor \| item padrao \| padrao]` | Mostra e muda os limites da guarda, da barra, dos alertas, das proteções e da saúde do PC. | [O comando /hadouken:limites](Limites#o-comando-hadoukenlimites) |
 | `/hadouken:saude [leve \| normal]` | A saúde do PC e a do próprio hadouken: RAM, temperaturas, bateria, disco, hooks, reparos, compatibilidade, conflitos, dados e economia. `leve` e `normal` ligam (por 4 h) e desligam o modo leve. | [Saúde do PC](Saude-do-PC#o-comando-hadoukensaude) |
 | `/hadouken:aprender [status \| ligar \| desligar \| desfazer \| aprovar \| recusar]` | O aprendizado local. | [Aprendizado](Aprendizado#comandos) |

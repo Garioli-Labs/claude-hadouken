@@ -1,7 +1,7 @@
 {
   "name": "hadouken",
   "displayName": "Claude Hadouken",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Usage-aware pacing for Claude Code: rate limits, weekly pace, tokens per model and effort, GitHub Actions minutes.",
   "author": { "name": "Lucas Garioli", "url": "https://github.com/Garioli-Labs" },
   "homepage": "https://github.com/Garioli-Labs/claude-hadouken",

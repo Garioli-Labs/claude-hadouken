@@ -50,6 +50,10 @@ O mesmo que a janela do VS Code, pelo terminal. Só o senhor usa, digitando; o C
 
 Os itens são os da tabela; os liga-desliga aceitam `liga` e `desliga` (por exemplo `barra.ctx.amarelo 75` ou `protecoes.hooks desliga`). Se a configuração mudou entre a leitura e a gravação, nada é gravado e a resposta pede para tentar de novo. Tudo fica em `~/.claude/hadouken/config.json`, com cópia de segurança.
 
+## Plano da conta
+
+Desde a v0.5.6, o coletor da saúde lê uma vez por dia o plano da conta (Pro, Max 5x ou Max 20x) do `.claude.json` do Claude Code, só o campo `organizationRateLimitTier`, e guarda apenas o rótulo em `conta-plano.json`. O arquivo de credenciais nunca é lido. O plano aparece no `/hadouken:consumo`, abaixo dos limites, no `/hadouken:saude` e na janela do VS Code. Sem plano identificado, a linha diz "não identificado (os relatórios mostram só tokens)". Os relatórios continuam em tokens: a medição mostrou que a conversão para porcentagem da cota varia demais para ser confiável.
+
 ## Proteções
 
 Desde a v0.5.4, os quatro bloqueios abaixo podem ser desligados, na aba Proteções da janela ou com `/hadouken:limites protecoes.<item> desliga`. Todos vêm ligados. Desligar não pede confirmação, mas a janela mostra o que passa a valer, e a mudança pode ser desfeita.

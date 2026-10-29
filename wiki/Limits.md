@@ -50,6 +50,10 @@ The same as the VS Code window, from the terminal. Only you use it, by typing it
 
 The items are the ones in the table; on-off items take `liga` and `desliga` (for example `barra.ctx.amarelo 75` or `protecoes.hooks desliga`). If the configuration changed between reading and saving, nothing is saved and the answer asks you to try again. Everything lives in `~/.claude/hadouken/config.json`, with a backup.
 
+## Account plan
+
+Since v0.5.6, the health collector reads the account plan (Pro, Max 5x or Max 20x) once a day from Claude Code's `.claude.json`, only the `organizationRateLimitTier` field, and keeps just the label in `conta-plano.json`. The credentials file is never read. The plan shows in `/hadouken:consumo`, below the limits, in `/hadouken:saude` and in the VS Code window. With no plan identified, the line says "não identificado (os relatórios mostram só tokens)", that is, not identified, reports show tokens only. Reports stay in tokens: measurement showed the conversion to a percentage of the quota varies too much to be reliable.
+
 ## Protections
 
 Since v0.5.4, the four blocks below can be turned off, in the Proteções tab of the window or with `/hadouken:limites protecoes.<item> desliga`. All of them start on. Turning one off asks for no confirmation, but the window shows what then applies, and the change can be undone.

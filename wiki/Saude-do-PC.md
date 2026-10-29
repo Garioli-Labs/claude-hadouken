@@ -10,6 +10,7 @@ Desde a v0.5.5, o hadouken acompanha a RAM, as temperaturas, a bateria e o disco
 - **Avisa uma vez por episódio.** Quando uma medida entra na faixa, aparecem três coisas: um segmento curto na barra (por exemplo `PC: GPU 88°C`) enquanto durar, um aviso único ao senhor e uma linha de contexto ao Claude. Um episódio novo da mesma medida só começa depois de 30 min abaixo da faixa.
 - **Orienta o Claude, sem bloquear.** Com a RAM alta, o Claude recebe uma linha do tipo "testes com concorrência 1, sem subagentes em paralelo, sem build em watch". Nada é negado por causa da saúde do PC.
 - **Sugere o que fechar.** Na faixa vermelha da RAM, o aviso e o `/hadouken:saude` listam até 5 aplicativos que mais ocupam memória, com quanto cada um libera. Ficam de fora a sessão atual e o sistema. **Quem fecha é o senhor.**
+- **Aponta sessões do Claude paradas.** O coletor guarda o tempo de CPU de cada sessão do Claude Code. Uma sessão cuja CPU quase não sobe há 30 min conta como parada: o senhor recebe um aviso único por episódio, com quantas são e quanta memória ocupam, e o `/hadouken:saude` e a janela mostram a contagem. O Claude só recebe uma linha quando a RAM já está na faixa, e só número e GB, nunca nome nem pid. **Quem fecha é o senhor.**
 - **Mostra tudo num comando,** o `/hadouken:saude`, e na seção "PC agora" da [janela do VS Code](Painel-e-janela-do-VS-Code#pc-agora).
 
 ## O que nunca faz
@@ -60,10 +61,11 @@ O relatório tem estas seções:
 2. **Sugestões:** os aplicativos que liberam mais memória e o modo leve.
 3. **Hooks:** o p95 de cada hook do hadouken e dos outros plugins nos últimos 7 dias, e as partes desligadas pelo teto de tempo.
 4. **Reparos:** os arquivos postos em quarentena.
-5. **Versões e compatibilidade.**
+5. **Versões e compatibilidade.** Quando o `.vsix` do painel está na pasta de dados, a linha `Painel` mostra o caminho dele, para instalar em outro PC com `code --install-extension <esse arquivo>`.
 6. **Conflitos** com outros plugins.
 7. **Dados:** o tamanho de cada arquivo da pasta de dados e o teto.
 8. **Economia da semana.**
+9. **Plano** da conta, como o Claude Code o informa (Pro, Max 5x ou Max 20x), ou "não identificado".
 
 ## Cuidados do hadouken consigo mesmo
 

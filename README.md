@@ -22,7 +22,8 @@
 - avisos ao Claude quando o ritmo vai esgotar a janela, e uma **guarda** que segura o despacho caro até o senhor liberar;
 - uma **janela no VS Code** com todas as configurações: tetos, faixas, alertas, roteamento, aprendizado e proteções;
 - o relatório `/hadouken:consumo`, com tokens por projeto, por modelo·effort e o GitHub Actions;
-- a **saúde do PC** (`/hadouken:saude`): RAM, temperaturas, bateria e disco, com aviso, sugestão do que fechar e um modo leve que orienta o Claude a pegar mais leve.
+- a **saúde do PC** (`/hadouken:saude`): RAM, temperaturas, bateria e disco, com aviso, sugestão do que fechar, sessões do Claude paradas há 30 min e um modo leve que orienta o Claude a pegar mais leve;
+- o **plano da conta** (Pro, Max 5x ou Max 20x) nos relatórios, e `/hadouken:liberar noite` para deixar um trabalho rodando até as 7h.
 
 ## Instalar
 

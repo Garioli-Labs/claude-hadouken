@@ -22,7 +22,8 @@
 - notices to Claude when the pace will run the window out, and a **guard** that holds expensive dispatches until you release it;
 - a **VS Code window** with every setting: ceilings, bands, alerts, routing, learning and protections;
 - the `/hadouken:consumo` report, with tokens per project, per model·effort and GitHub Actions;
-- **PC health** (`/hadouken:saude`): RAM, temperatures, battery and disk, with a notice, a suggestion of what to close and a light mode that steers Claude toward lighter work.
+- **PC health** (`/hadouken:saude`): RAM, temperatures, battery and disk, with a notice, a suggestion of what to close, Claude sessions idle for 30 min and a light mode that steers Claude toward lighter work;
+- the **account plan** (Pro, Max 5x or Max 20x) in the reports, and `/hadouken:liberar noite` to leave work running until 7 a.m.
 
 ## Install
 
