@@ -13,7 +13,7 @@ import { anexarEvento } from '../guarda/registros.js';
 // guarda. Só a liberação o reescreve. Nunca lança.
 
 export const ARQUIVOS_ESTADO = Object.freeze([
-  'estado.json', 'liberacao.json', 'guarda-eventos.json', 'alertas.json', 'projecao.json',
+  'estado.json', 'conta-plano.json', 'liberacao.json', 'guarda-eventos.json', 'alertas.json', 'projecao.json',
   'uso-oficial.json', 'config.json', 'saude-avisos.json', 'tetos.json', 'saude-modo.json',
 ]);
 const COPIAS_MAX = 3;

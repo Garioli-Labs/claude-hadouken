@@ -15,6 +15,7 @@ import { encerraveis } from './processos.js';
 import { repararDados } from './reparo.js';
 import { limparDados } from './limpeza.js';
 import { atualizarConflitos } from './conflitos.js';
+import { atualizarPlano } from '../conta/plano.js';
 import { ARQ_SAUDE, ARQ_TRAVA_SAUDE, travaViva } from './ler.js';
 import { conteudoTrava, lerTravaPid, tokenDaTrava } from './trava-pid.js';
 
@@ -104,10 +105,11 @@ function liberarPendurados(dir, leitura, antiga, agoraMs, matar, pidProprio) {
 
 // deps: dir, agoraMs, coletar (async, sem argumentos), matar(pid), config
 // (de configSaude), prazoColetaMs, pidProprio, conflitos ({ dir, agoraMs } →
-// { lido }). Nunca lança.
+// { lido }), plano ({ dir, agoraMs } → { lido }). Nunca lança.
 export async function rodarColetor({
   dir, agoraMs = Date.now(), coletar, matar = (pid) => process.kill(pid),
   config, prazoColetaMs = PRAZO_COLETA_MS, pidProprio = process.pid, conflitos = atualizarConflitos,
+  plano = atualizarPlano,
 }) {
   const token = crypto.randomBytes(16).toString('hex');
   const trava = pegarTravaSaude(dir, agoraMs, token);
@@ -121,6 +123,7 @@ export async function rodarColetor({
     const g = gravarJsonAtomico(path.join(dir, ARQ_SAUDE), leitura, { compacto: true });
     // Depois do saude.json: a barra não espera pelos conflitos (uma vez em 24 h).
     const c = cfg.conflitos ? conflitos({ dir, agoraMs }) : { lido: false };
+    try { plano({ dir, agoraMs }); } catch { /* sem plano: o padrão vale */ }
     if (!g.ok) adiarProxima(dir, agoraMs);
     return { ok: g.ok, encerrados, reparos, cortes, conflitosLidos: c.lido };
   } catch {
