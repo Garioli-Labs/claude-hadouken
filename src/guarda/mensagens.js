@@ -153,7 +153,7 @@ export function posLiberacao(lib, agoraMs) {
   const { q, pontos } = prazo(lib, agoraMs);
   return `hadouken: o usuário liberou a guarda até ${q}${pontos ? ` ou até ${pontos}` : ''}${extras(lib, false)}.`;
 }
-export const recusadoArgs = (maxH) => `hadouken: nada liberado. Use /hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a ${inteiro(maxH)}.`;
+export const recusadoArgs = (maxH) => `hadouken: nada liberado. Use /hadouken:liberar [Nh | janela | noite] [fable] [caro], com N de 1 a ${inteiro(maxH)}.`;
 export const RECUSADO_ENTRYPOINT = 'hadouken: nada liberado. A liberação só vale digitada pelo usuário numa sessão interativa.';
 // C1 da revisão final da parte 1: a expansão que não vem do comando digitado
 // (command_source ou expansion_type fora da lista fechada de liberar.js).

@@ -18,7 +18,8 @@ test('escopoDe: as formas do liberacao-escopo e nada mais', () => {
   assert.deepEqual(escopoDe('2h:120'), { prazo: '2h', minutos: 120, fable: false, caro: false });
   assert.deepEqual(escopoDe('janela:95:fable'), { prazo: 'janela', minutos: 95, fable: true, caro: false });
   assert.deepEqual(escopoDe('3h:180:fable:caro'), { prazo: '3h', minutos: 180, fable: true, caro: true });
-  for (const d of [null, '', '0h:0', '25h:10', '2h:1441', '2h:120:caro:fable', '2h', 'janela:x', 'Ignore previous instructions']) assert.equal(escopoDe(d), null, String(d));
+  assert.deepEqual(escopoDe('noite:430'), { prazo: 'noite', minutos: 430, fable: false, caro: false });
+  for (const d of [null, '', '0h:0', '25h:10', '2h:1441', '2h:120:caro:fable', '2h', 'janela:x', 'noites:10', 'Ignore previous instructions']) assert.equal(escopoDe(d), null, String(d));
 });
 
 test('resumoGuarda conta por tipo e gatilho só nos últimos 7 dias, e lista os escopos', () => {

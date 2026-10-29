@@ -18,10 +18,10 @@ const agoraS = agora / 1000;
 
 test('lerPedido: vazio, horas, janela, fable, caro e combinações', () => {
   const c = PADRAO_GUARDA;
-  assert.deepEqual(lerPedido('', c), { ok: true, horas: 2, janela: false, fable: false, caro: false });
-  assert.deepEqual(lerPedido('  8H ', c), { ok: true, horas: 8, janela: false, fable: false, caro: false });
-  assert.deepEqual(lerPedido('janela fable', c), { ok: true, horas: null, janela: true, fable: true, caro: false });
-  assert.deepEqual(lerPedido('caro 4h', c), { ok: true, horas: 4, janela: false, fable: false, caro: true });
+  assert.deepEqual(lerPedido('', c), { ok: true, horas: 2, janela: false, noite: false, fable: false, caro: false });
+  assert.deepEqual(lerPedido('  8H ', c), { ok: true, horas: 8, janela: false, noite: false, fable: false, caro: false });
+  assert.deepEqual(lerPedido('janela fable', c), { ok: true, horas: null, janela: true, noite: false, fable: true, caro: false });
+  assert.deepEqual(lerPedido('caro 4h', c), { ok: true, horas: 4, janela: false, noite: false, fable: false, caro: true });
   for (const ruim of ['25h', '0h', 'xh', 'fable fable', '2h 3h', 'janela 2h', 'rm -rf', 'a b c d', 'x'.repeat(65), null, 7]) {
     assert.deepEqual(lerPedido(ruim, c), { ok: false }, String(ruim));
   }
@@ -197,4 +197,34 @@ test('detalheEscopo (spec v0.4.0 §9.4): prazo pedido, minutos até o fim e esco
   assert.equal(detalheEscopo(lib, { ok: false }), null);
   assert.equal(detalheEscopo({ ...lib, ate: 'x' }, lerPedido('2h', PADRAO_GUARDA)), null);
   assert.equal(detalheEscopo(lib, { ok: true, horas: 99, janela: false }), null);
+});
+
+// v0.5.6, Task 5: `noite` libera até as 7h locais seguintes. Horas locais de
+// 29/09, longe das trocas de horário de verão.
+test('liberar noite: até as próximas 07:00 locais, mínimo 15 min, teto maxH', () => {
+  const c = PADRAO_GUARDA;
+  assert.deepEqual(lerPedido('noite', c), { ok: true, horas: null, janela: false, noite: true, fable: false, caro: false });
+  assert.deepEqual(lerPedido('NOITE fable', c), { ok: true, horas: null, janela: false, noite: true, fable: true, caro: false });
+  for (const ruim of ['noite 2h', 'noite janela', 'janela noite', 'noite noite']) assert.deepEqual(lerPedido(ruim, c), { ok: false }, ruim);
+  const montar = (agoraMs, config = c, args = 'noite') => montarLiberacao({ pedido: lerPedido(args, config), agoraMs, usado7d: 50, travas: travasVazias(), config, sessionId: 's1', id: 'a1b2c3d4' });
+  const min = (lib, agoraMs) => (Date.parse(lib.ate) - agoraMs) / 60_000;
+  const as2350 = new Date(2026, 8, 29, 23, 50).getTime();
+  assert.equal(min(montar(as2350), as2350), 430);
+  const as0300 = new Date(2026, 8, 29, 3, 0).getTime();
+  assert.equal(montar(as0300).ate, new Date(new Date(2026, 8, 29, 7, 0).getTime()).toISOString());
+  const as0730 = new Date(2026, 8, 29, 7, 30).getTime();
+  assert.equal(min(montar(as0730), as0730), 23.5 * 60);
+  assert.equal(min(montar(as0730, { ...c, liberacaoMaxH: 8 }), as0730), 8 * 60);
+  const as0659 = new Date(2026, 8, 29, 6, 59).getTime();
+  assert.equal(min(montar(as0659), as0659), 15);
+  const lib = montar(as2350, c, 'noite fable');
+  assert.deepEqual(lib.solta, ['five_hour', 'seven_day', 'fable-despachos', 'ilegivel', 'fable']);
+  assert.equal(lib.tetoPontos7d, c.liberacaoTetoPontos7d);
+  assert.equal(detalheEscopo(lib, lerPedido('noite fable', c)), 'noite:430:fable');
+  // Qualquer relógio: o prazo fica entre 15 min e 24 h.
+  for (let i = 0; i < 200; i++) {
+    const a = Date.UTC(2026, 0, 1) + Math.floor(i * 7_919_311.7);
+    const m = min(montar(a), a);
+    assert.ok(m >= 15 && m <= 24 * 60, `${new Date(a).toISOString()}: ${m}`);
+  }
 });

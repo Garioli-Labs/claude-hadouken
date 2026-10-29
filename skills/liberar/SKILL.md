@@ -1,6 +1,6 @@
 ---
 name: liberar
-description: Libera a guarda de consumo do hadouken. Só o usuário libera, digitando /hadouken:liberar [Nh | janela] [fable] [caro], ou /hadouken:liberar off | on para desligar ou religar a guarda.
+description: Libera a guarda de consumo do hadouken. Só o usuário libera, digitando /hadouken:liberar [Nh | janela | noite] [fable] [caro], ou /hadouken:liberar off | on para desligar ou religar a guarda.
 disable-model-invocation: true
 ---
 

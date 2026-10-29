@@ -15,7 +15,7 @@ const SEMANA_MS = 7 * 86_400_000;
 export const GATILHOS = Object.freeze(['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7']);
 export const ESCOPOS_MAX = 20;
 const MINUTOS_MAX = 1440;
-const ESCOPO = /^(janela|(?:[1-9]|1\d|2[0-4])h):(\d{1,4})(:fable)?(:caro)?$/;
+const ESCOPO = /^(janela|noite|(?:[1-9]|1\d|2[0-4])h):(\d{1,4})(:fable)?(:caro)?$/;
 // Tipo de evento → contador do resumo. 'disparo', 'negado',
 // 'liberacao-escopo' e 'arquivo-negado' têm tratamento próprio.
 const CONTADOR = Object.freeze({

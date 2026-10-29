@@ -72,7 +72,7 @@ test('liberação: confirmação, linha seguinte ao Claude e recusas', () => {
   const libFable = { ...lib, base7d: null, solta: [...lib.solta, 'fable', 'despacho-caro'] };
   assert.equal(m.liberado(libFable, agora), `hadouken: liberado até ${q}, com Fable (pode consumir créditos de uso) e despacho caro.`);
   assert.equal(m.posLiberacao(libFable, agora), `hadouken: o usuário liberou a guarda até ${q}, com Fable e despacho caro.`);
-  assert.equal(m.recusadoArgs(24), 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.');
+  assert.equal(m.recusadoArgs(24), 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela | noite] [fable] [caro], com N de 1 a 24.');
   assert.equal(m.RECUSADO_ENTRYPOINT, 'hadouken: nada liberado. A liberação só vale digitada pelo usuário numa sessão interativa.');
   assert.equal(m.NAO_GRAVADO, 'hadouken: nada liberado. A liberação não pôde ser gravada.');
 });

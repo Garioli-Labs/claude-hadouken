@@ -287,7 +287,7 @@ test('liberar com argumento inválido recusa sem repetir o texto', () => {
   registrar(home, 's1');
   for (const args of ['99h', INSTRUCAO, 'janela 2h', '1h\u001b]0;x\u0007']) {
     const o = saida(rodar('liberar.js', expansao('s1', args), home));
-    assert.deepEqual(o, { decision: 'block', reason: 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.' });
+    assert.deepEqual(o, { decision: 'block', reason: 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela | noite] [fable] [caro], com N de 1 a 24.' });
   }
   assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
 });
@@ -319,7 +319,7 @@ test('liberar: entrada hostil nunca quebra o hook nem libera', () => {
   }
   assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
   const o = saida(rodar('liberar.js', expansao('s1', `2h ${'x'.repeat(10_000)}`), home));
-  assert.equal(o.reason, 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela] [fable] [caro], com N de 1 a 24.');
+  assert.equal(o.reason, 'hadouken: nada liberado. Use /hadouken:liberar [Nh | janela | noite] [fable] [caro], com N de 1 a 24.');
   assert.equal(fs.existsSync(path.join(home, ARQ_LIBERACAO)), false);
 });
 

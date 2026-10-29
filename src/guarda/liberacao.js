@@ -25,7 +25,7 @@ const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const nenhuma = () => ({ ativa: false, solta: new Set(), fim: null });
 
 // Argumentos de /hadouken:liberar (§6.2): até três palavras entre `Nh`
-// (1 a maxH) ou `janela`, que são o prazo (um só), `fable` e `caro`, cada uma
+// (1 a maxH), `janela` ou `noite` (v0.5.6, até as 7h), que são o prazo (um só), `fable` e `caro`, cada uma
 // no máximo uma vez. Qualquer outra coisa, inclusive um invisível colado ou
 // um dígito que não é ASCII, recusa o pedido inteiro: nunca se adivinha um
 // escopo. Sem prazo, o padrão do config.json.
@@ -34,7 +34,7 @@ export function lerPedido(args, config) {
     if (typeof args !== 'string' || args.length > ARGS_MAX) return { ok: false };
     const tokens = args.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (tokens.length > 3) return { ok: false };
-    const p = { ok: true, horas: null, janela: false, fable: false, caro: false };
+    const p = { ok: true, horas: null, janela: false, noite: false, fable: false, caro: false };
     let temPrazo = false;
     for (const t of tokens) {
       const m = /^(\d{1,2})h$/.exec(t);
@@ -43,9 +43,9 @@ export function lerPedido(args, config) {
         if (temPrazo || n < 1 || n > config.liberacaoMaxH) return { ok: false };
         p.horas = n;
         temPrazo = true;
-      } else if (t === 'janela') {
+      } else if (t === 'janela' || t === 'noite') {
         if (temPrazo) return { ok: false };
-        p.janela = true;
+        p[t] = true;
         temPrazo = true;
       } else if (t === 'fable' || t === 'caro') {
         if (p[t]) return { ok: false };
@@ -73,12 +73,24 @@ function prazoJanela(travas, agoraMs, config) {
   return reset === null ? agoraMs + config.liberacaoPadraoH * H : Math.min(reset * 1000, teto);
 }
 
+// Prazo de "noite" (v0.5.6): as próximas 07:00 locais, no mínimo 15 min
+// depois de agora (liberar 1 min não serve a ninguém) e no máximo maxH.
+const NOITE_MIN_MS = 15 * 60_000;
+function prazoNoite(agoraMs, config) {
+  const d = new Date(agoraMs);
+  d.setHours(7, 0, 0, 0);
+  if (d.getTime() <= agoraMs) d.setDate(d.getDate() + 1);
+  return Math.min(Math.max(d.getTime(), agoraMs + NOITE_MIN_MS), agoraMs + config.liberacaoMaxH * H);
+}
+
 // `pedido` vem de lerPedido; sem `ok: true` não há liberação (null), em vez
 // de um prazo NaN que lançaria. `id` e `sessionId` vêm do hook. base7d sem
 // leitura válida é null: aí só o prazo encerra a liberação.
 export function montarLiberacao({ pedido, agoraMs, usado7d, travas, config, sessionId, id }) {
   if (pedido?.ok !== true) return null;
-  const ate = pedido.janela ? prazoJanela(travas, agoraMs, config) : agoraMs + pedido.horas * H;
+  let ate = agoraMs + pedido.horas * H;
+  if (pedido.janela) ate = prazoJanela(travas, agoraMs, config);
+  else if (pedido.noite) ate = prazoNoite(agoraMs, config);
   const solta = [...SOLTA_BASE];
   if (pedido.fable) solta.push('fable');
   if (pedido.caro) solta.push('despacho-caro');
@@ -103,6 +115,7 @@ export function detalheEscopo(lib, pedido) {
     if (!Number.isFinite(minutos)) return null;
     let prazo = null;
     if (pedido.janela === true) prazo = 'janela';
+    else if (pedido.noite === true) prazo = 'noite';
     else if (Number.isInteger(pedido.horas) && pedido.horas >= 1 && pedido.horas <= 24) prazo = `${pedido.horas}h`;
     if (prazo === null) return null;
     const partes = [prazo, String(Math.min(MINUTOS_MAX, Math.max(0, minutos)))];
