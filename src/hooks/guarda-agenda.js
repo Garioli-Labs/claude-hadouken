@@ -94,6 +94,27 @@ async function semEntrada(leitura) {
   if (leitura.cortado !== true) await avisarLeituraFalha('agenda');
 }
 
+// v0.5.6 (Task 4): sem o pedido, CronCreate ou ScheduleWakeup (que não seja
+// o stop) com a guarda travada na janela de 5h ou de 7d ganha uma linha de
+// contexto com o reset: acordar antes dele só gasta cota. A avaliação é a da
+// guarda (respeita a liberação ativa), por import dinâmico; qualquer falha
+// deixa passar calado (fail-open, como a P2).
+const AGENDA_COM_ESPERA = new Set(['CronCreate', 'ScheduleWakeup']);
+async function avisarTrava(entrada) {
+  if (!AGENDA_COM_ESPERA.has(entrada.tool_name) || entrada.tool_input?.stop === true) return;
+  try {
+    if (!(await protecaoLigada('protecoes.agenda'))) return;
+    const dir = dirDados();
+    if (dir === null) return;
+    const agoraMs = Date.now();
+    const [{ avaliarGuarda }, msg] = await Promise.all([import('../guarda/avaliar.js'), import('../guarda/mensagens.js')]);
+    const sessionId = typeof entrada.session_id === 'string' ? entrada.session_id : undefined;
+    const motivo = avaliarGuarda({ dir, agoraMs, sessionId }).motivos?.find((m) => m.trava === 'seven_day' || m.trava === 'five_hour');
+    const texto = motivo ? msg.textoAgendaTrava(motivo, entrada.tool_name, agoraMs) : null;
+    if (typeof texto === 'string') emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: texto } });
+  } catch { /* passa calado */ }
+}
+
 rodarHook(async (entrada, leitura) => {
   if (leitura?.casou === true) {
     await negar('agenda');
@@ -112,4 +133,5 @@ rodarHook(async (entrada, leitura) => {
     pede = true;
   }
   if (pede) await negar(rotulo);
+  else await avisarTrava(entrada);
 }, undefined, VIGIA, 'agenda');

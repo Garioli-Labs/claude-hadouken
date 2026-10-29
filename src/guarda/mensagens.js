@@ -114,6 +114,23 @@ export const P4_LIBERAR_TEXTO = 'hadouken: bloqueado: uma sessão claude filha n
 // Task 11 do aprendizado, também o /hadouken:aprender.
 export const AGENDA_LIBERAR_TEXTO = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar ou /hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
 
+// v0.5.6 (Task 4): CronCreate ou ScheduleWakeup com a trava de 5h ou de 7d
+// ativa e sem liberação. Uma linha de contexto, não um deny: diz até quando
+// esperar. O teto de 1 h é o do esquema do ScheduleWakeup (delaySeconds até
+// 3600). Sem resets_at válido, sem horário. null com trava de outro tipo.
+const JANELA_AGENDA = Object.freeze({ seven_day: '7 dias', five_hour: '5 horas' });
+const QUANDO_COM_HORA = /^(hoje|amanhã|\S+ \d\d\/\d\d) (\d\d:\d\d)$/u;
+export function textoAgendaTrava(motivo, ferramenta, agoraMs) {
+  const janela = JANELA_AGENDA[motivo?.trava];
+  if (janela === undefined) return null;
+  const m = QUANDO_COM_HORA.exec(quandoLocal(motivo.resets_at, agoraMs));
+  const ate = m ? `até o reset de ${m[1]} às ${m[2]}` : 'até a janela voltar a ter folga';
+  const fim = ferramenta === 'CronCreate'
+    ? `Prefira um ScheduleWakeup ${m ? 'depois desse horário' : 'mais tarde'} a um intervalo fixo: cada disparo antes ${m ? 'dele' : 'da folga'} gasta cota sem destravar nada.`
+    : `Agende a próxima volta para ${m ? 'depois desse horário' : 'mais tarde'} (um ScheduleWakeup espera no máximo 1 h; repita a espera).`;
+  return `hadouken: a guarda está travada (janela de ${janela}) ${ate}; acordar antes disso não destrava nada. ${fim}`;
+}
+
 // Prazo da liberação (§6.2 e D4): a hora e, com base de 7d, o ponto de 7d
 // em que ela acaba antes.
 function prazo(lib, agoraMs) {

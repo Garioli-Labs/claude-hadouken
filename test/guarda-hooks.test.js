@@ -1202,3 +1202,75 @@ test('roteamento: config negarN1=false solta N1; Explore com Opus passa calado',
   semSaida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'Explore', model: 'opus' }), home));
   assert.equal(eventos(home, 'roteamento-negado').length, 0);
 });
+
+// v0.5.6, Task 4: a agenda com a guarda travada recebe uma linha dizendo até
+// quando esperar; acordar antes do reset só gasta cota.
+const DIAS_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const dd = (n) => String(n).padStart(2, '0');
+function travar(home, chave, resetsS) {
+  fs.writeFileSync(path.join(home, ARQ_GUARDA), JSON.stringify({
+    v: 1, travas: { [chave]: { resets_at: resetsS, gatilho: chave === 'seven_day' ? 'G4' : 'G3', desde: iso(Date.now() - 60_000) } },
+  }));
+}
+const contexto = (texto) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: texto } });
+const ESPERA = 'Agende a próxima volta para depois desse horário (um ScheduleWakeup espera no máximo 1 h; repita a espera).';
+const linhaTrava = (janela, quando, fim = ESPERA) => `hadouken: a guarda está travada (janela de ${janela}) até o reset de ${quando}; acordar antes disso não destrava nada. ${fim}`;
+const acordar = (id) => ferramenta(id, 'ScheduleWakeup', { delaySeconds: 1200, reason: 'esperar', prompt: 'continue' });
+
+test('agenda com trava de 7d: hoje, amanhã ou o dia da semana com a data', (t) => {
+  const agora = new Date();
+  const y = agora.getFullYear(); const m = agora.getMonth(); const d = agora.getDate();
+  const casos = [
+    [new Date(y, m, d + 1, 10, 0), 'amanhã às 10:00'],
+    [new Date(y, m, d + 3, 9, 5), (x) => `${DIAS_SEMANA[x.getDay()]} ${dd(x.getDate())}/${dd(x.getMonth() + 1)} às 09:05`],
+  ];
+  if (agora.getHours() < 23 || agora.getMinutes() < 50) casos.push([new Date(y, m, d, 23, 59), 'hoje às 23:59']);
+  else t.diagnostic('hoje pulado: perto da meia-noite');
+  for (const [quando, esperado] of casos) {
+    const home = novoHome();
+    travar(home, 'seven_day', Math.floor(quando.getTime() / 1000));
+    const texto = typeof esperado === 'function' ? esperado(quando) : esperado;
+    assert.deepEqual(saida(rodar('guarda-agenda.js', acordar('s1'), home)), contexto(linhaTrava('7 dias', texto)));
+  }
+});
+
+test('agenda com trava: CronCreate pede ScheduleWakeup; 5 h e sem reset viram texto próprio', () => {
+  const home = novoHome();
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  amanha.setHours(8, 30, 0, 0);
+  travar(home, 'seven_day', Math.floor(amanha.getTime() / 1000));
+  const cron = ferramenta('s1', 'CronCreate', { cron: '*/10 * * * *', prompt: 'check the build' });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home)), contexto(linhaTrava('7 dias', 'amanhã às 08:30',
+    'Prefira um ScheduleWakeup depois desse horário a um intervalo fixo: cada disparo antes dele gasta cota sem destravar nada.')));
+
+  const cinco = novoHome();
+  travar(cinco, 'five_hour', Math.floor(amanha.getTime() / 1000));
+  assert.match(saida(rodar('guarda-agenda.js', acordar('s1'), cinco)).hookSpecificOutput.additionalContext, /^hadouken: a guarda está travada \(janela de 5 horas\) até o reset de amanhã às 08:30;/);
+
+  const semReset = novoHome();
+  travar(semReset, 'seven_day', null);
+  const t = saida(rodar('guarda-agenda.js', acordar('s1'), semReset)).hookSpecificOutput.additionalContext;
+  assert.equal(t, 'hadouken: a guarda está travada (janela de 7 dias) até a janela voltar a ter folga; acordar antes disso não destrava nada. Agende a próxima volta para mais tarde (um ScheduleWakeup espera no máximo 1 h; repita a espera).');
+  assert.doesNotMatch(t, /NaN|undefined|—/);
+});
+
+test('agenda com trava: liberação ativa, stop, RemoteTrigger e protecoes.agenda desligada ficam calados; pedido de liberação segue negado', () => {
+  const amanha = Math.floor(Date.now() / 1000) + 86_400;
+  const liberada = novoHome();
+  travar(liberada, 'seven_day', amanha);
+  const agora = Date.now();
+  gravarLiberacao(liberada, montarLiberacao({ pedido: lerPedido('2h', PADRAO_GUARDA), agoraMs: agora, usado7d: 90, travas: lerTravas(liberada, agora).travas, config: PADRAO_GUARDA, sessionId: 's1', id: 'abcdef02' }));
+  semSaida(rodar('guarda-agenda.js', acordar('s1'), liberada));
+
+  const home = novoHome();
+  travar(home, 'seven_day', amanha);
+  semSaida(rodar('guarda-agenda.js', ferramenta('s1', 'ScheduleWakeup', { stop: true }), home));
+  semSaida(rodar('guarda-agenda.js', ferramenta('s1', 'RemoteTrigger', { action: 'list' }), home));
+  assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('s1', 'ScheduleWakeup', { delaySeconds: 60, reason: 'x', prompt: '/hadouken:liberar 2h' }), home)), AGENDA_NEGADO);
+
+  const desligada = novoHome();
+  travar(desligada, 'seven_day', amanha);
+  fs.writeFileSync(path.join(desligada, 'config.json'), JSON.stringify({ guarda: { perguntar: false }, protecoes: { agenda: false } }));
+  semSaida(rodar('guarda-agenda.js', acordar('s1'), desligada));
+});
