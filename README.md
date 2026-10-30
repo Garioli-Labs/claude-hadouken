@@ -1,29 +1,32 @@
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/logo-escuro.svg"><img src="assets/logo-claro.svg" alt="Hadouken" width="420"></picture></p>
+
+<h1 align="center">Hadouken</h1>
+
+<p align="center"><b>O Claude Code no ritmo certo: o consumo na tela, o Claude sabendo dele e nada de gastar a cota à toa.</b></p>
+
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-escuro.svg">
-    <img src="assets/logo-claro.svg" alt="hadouken" width="420">
-  </picture>
+  <a href="https://github.com/Garioli-Labs/claude-hadouken/releases/latest"><img alt="Versão" src="https://img.shields.io/github/v/release/Garioli-Labs/claude-hadouken?label=vers%C3%A3o&color=e8590c"></a>
+  <a href="https://github.com/Garioli-Labs/claude-hadouken/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Garioli-Labs/claude-hadouken/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="Licença: MIT" src="https://img.shields.io/github/license/Garioli-Labs/claude-hadouken"></a>
+  <br>
+  <a href="README.en.md">English</a> · <b>Português</b>
 </p>
 
-# hadouken
-
-[English](README.en.md) · **Português**
-
-[![CI](https://github.com/Garioli-Labs/claude-hadouken/actions/workflows/ci.yml/badge.svg)](https://github.com/Garioli-Labs/claude-hadouken/actions/workflows/ci.yml)
-[![Licença: MIT](https://img.shields.io/github/license/Garioli-Labs/claude-hadouken)](LICENSE)
-
 > [!IMPORTANT]
-> **Atualizou para a v0.5.2 e a barra sumiu, ou apareceu `claude-hadouken not found`?** O plugin mudou de nome, de `claude-hadouken` para `hadouken`. No terminal, rode `claude plugin install hadouken@claude-hadouken` e abra uma sessão nova, ou rode o comando de instalação abaixo de novo.
+> **Depois de atualizar, feche as sessões abertas com `/exit` e volte com `claude -c`.** Desde a v0.5.7 o Hadouken mantém o plugin, a extensão do VS Code e os atalhos na mesma versão em qualquer PC; o `/hadouken:saude` mostra o que estiver fora (linha `Instal.`).
 
-**Seu consumo do Claude Code na tela, com referência de ritmo, e o Claude sabendo disso também.**
+## Recursos
 
-- os limites da conta (**sessão de 5 horas**, **semana** e **semana do Fable**) num item da barra de status do VS Code, sem gastar tokens;
-- **contexto** e **cache** de cada sessão na barra do Claude Code;
-- avisos ao Claude quando o ritmo vai esgotar a janela, e uma **guarda** que segura o despacho caro até o senhor liberar;
-- uma **janela no VS Code** com todas as configurações: tetos, faixas, alertas, roteamento, aprendizado e proteções;
-- o relatório `/hadouken:consumo`, com tokens por projeto, por modelo·effort e o GitHub Actions;
-- a **saúde do PC** (`/hadouken:saude`): RAM, temperaturas, bateria e disco, com aviso, sugestão do que fechar, sessões do Claude paradas há 30 min e um modo leve que orienta o Claude a pegar mais leve;
-- o **plano da conta** (Pro, Max 5x ou Max 20x) nos relatórios, e `/hadouken:liberar noite` para deixar um trabalho rodando até as 7h.
+| | |
+|---|---|
+| 📊 **Limites na tela** | Sessão de 5 horas, semana e semana do Fable num item da barra do VS Code, com a logo animada, sem gastar tokens. |
+| 🧠 **Contexto e cache** | Quanto do contexto cada sessão usa e quanto veio do cache, na barra do Claude Code. |
+| 🛡️ **Guarda de consumo** | Avisa o Claude quando o ritmo vai esgotar a janela e segura o despacho caro até você liberar (`/hadouken:liberar`, inclusive `noite`). |
+| 🧭 **Roteamento** | Sugere modelo, effort e quando lançar agente, para não queimar Fable ou effort alto à toa. |
+| 📈 **Relatório** | `/hadouken:consumo`: tokens por projeto e por modelo·effort, plano da conta (Pro, Max 5x, Max 20x) e minutos do GitHub Actions. |
+| 🖥️ **Saúde do PC** | `/hadouken:saude`: RAM, temperaturas, bateria, disco, sessões paradas, modo leve e a instalação conferida. |
+| ⚙️ **Janela no VS Code** | Todas as configurações num clique na barra: tetos, faixas, alertas, roteamento e proteções. |
+| 🧰 **Kit e REA** | `hadouken-kit`, as skills do dia a dia com o mapa de qual usar; `hadouken-rea`, engenharia reversa (desligado por padrão). |
 
 ## Instalar
 
@@ -39,19 +42,15 @@ No Windows, no PowerShell:
 irm https://raw.githubusercontent.com/Garioli-Labs/claude-hadouken/main/install.ps1 | iex
 ```
 
-Requisitos: **Node 20** ou mais novo e **Claude Code 2.1.251** ou mais novo. O instalador confere os dois, instala o plugin, a barra e o item do VS Code. Opções e o passo a passo manual estão na [wiki](https://github.com/Garioli-Labs/claude-hadouken/wiki/Home#um-comando).
+Requisitos: **Node 20** ou mais novo e **Claude Code 2.1.251** ou mais novo, em Windows, Linux ou macOS. O instalador confere os dois e instala o plugin, a barra e o item do VS Code. Detalhes na [wiki](https://github.com/Garioli-Labs/claude-hadouken/wiki/Home#um-comando).
 
 ## Atualizar
 
-Quando sai uma versão nova, o VS Code avisa com o botão **Atualizar**. Sem o VS Code, rode o mesmo comando de instalação.
+O VS Code avisa a versão nova com o botão **Atualizar**. Sem o VS Code, rode o mesmo comando de instalação.
 
 ## Documentação
 
-- [Barra de status](https://github.com/Garioli-Labs/claude-hadouken/wiki/Barra-de-status) · [Painel e janela do VS Code](https://github.com/Garioli-Labs/claude-hadouken/wiki/Painel-e-janela-do-VS-Code) · [Avisos e alertas](https://github.com/Garioli-Labs/claude-hadouken/wiki/Avisos-e-alertas)
-- [Guarda de consumo e roteamento](https://github.com/Garioli-Labs/claude-hadouken/wiki/Guarda-de-consumo) · [Limites e proteções](https://github.com/Garioli-Labs/claude-hadouken/wiki/Limites) · [Comandos](https://github.com/Garioli-Labs/claude-hadouken/wiki/Comandos)
-- [Relatório de consumo](https://github.com/Garioli-Labs/claude-hadouken/wiki/Relatorio-de-consumo) · [Aprendizado](https://github.com/Garioli-Labs/claude-hadouken/wiki/Aprendizado) · [Saúde do PC](https://github.com/Garioli-Labs/claude-hadouken/wiki/Saude-do-PC)
-- [hadouken-kit](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit) · [REA](https://github.com/Garioli-Labs/claude-hadouken/wiki/REA) · [Problemas comuns](https://github.com/Garioli-Labs/claude-hadouken/wiki/Problemas-comuns)
-- [Versões](https://github.com/Garioli-Labs/claude-hadouken/releases) · [Segurança](SECURITY.md)
+[Barra de status](https://github.com/Garioli-Labs/claude-hadouken/wiki/Barra-de-status) · [Painel e janela do VS Code](https://github.com/Garioli-Labs/claude-hadouken/wiki/Painel-e-janela-do-VS-Code) · [Avisos e alertas](https://github.com/Garioli-Labs/claude-hadouken/wiki/Avisos-e-alertas) · [Guarda de consumo](https://github.com/Garioli-Labs/claude-hadouken/wiki/Guarda-de-consumo) · [Limites](https://github.com/Garioli-Labs/claude-hadouken/wiki/Limites) · [Comandos](https://github.com/Garioli-Labs/claude-hadouken/wiki/Comandos) · [Relatório de consumo](https://github.com/Garioli-Labs/claude-hadouken/wiki/Relatorio-de-consumo) · [Aprendizado](https://github.com/Garioli-Labs/claude-hadouken/wiki/Aprendizado) · [Saúde do PC](https://github.com/Garioli-Labs/claude-hadouken/wiki/Saude-do-PC) · [Kit](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit) · [REA](https://github.com/Garioli-Labs/claude-hadouken/wiki/REA) · [Problemas comuns](https://github.com/Garioli-Labs/claude-hadouken/wiki/Problemas-comuns) · [Versões](https://github.com/Garioli-Labs/claude-hadouken/releases) · [Segurança](SECURITY.md)
 
 ## Licença
 

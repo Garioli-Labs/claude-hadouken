@@ -6,7 +6,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
-// Spec v0.5.3 VS Code §3 (Task 9): a logo animada, a cor da urgência, os
+// Spec v0.5.3 VS Code §3 (Task 9): a logo animada (no próprio item e em loop
+// desde a v0.5.8), os
 // segmentos de energia e a seta da versão nova, com o `vscode` falso e um
 // painel.mjs de teste na pasta de dados. O relógio é o mock.timers do
 // node:test (setTimeout e setInterval); as promessas e o import() do shim
@@ -83,10 +84,9 @@ async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', g
     fs.rmSync(home, { recursive: true, force: true });
   };
   const uso = estado.itens.find((i) => i.id === 'claudeHadouken.uso');
-  const logo = estado.itens.find((i) => i.id === 'claudeHadouken.logo');
-  // O primeiro tique desenha (e só guarda o `em`, sem animar).
+  // O primeiro tique desenha.
   assert.ok(await esperar(() => globalThis.hdk.desenhos > 0), 'o primeiro tique não desenhou');
-  return { ext, api, estado, uso, logo, fim, globalState, home };
+  return { ext, api, estado, uso, fim, globalState, home };
 }
 
 // Um tique do relógio de 5 s, esperando o desenho que ele faz.
@@ -96,7 +96,7 @@ async function tique(t) {
   assert.ok(await esperar(() => globalThis.hdk.desenhos > antes), 'o tique não desenhou');
 }
 
-test('_teste: quadros, cor da urgência e segmentos de energia', () => {
+test('_teste: quadros e segmentos de energia', () => {
   const { api } = criar();
   const cargaOriginal = Module._load;
   Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
@@ -104,10 +104,6 @@ test('_teste: quadros, cor da urgência e segmentos de energia', () => {
     delete requireDaqui.cache[requireDaqui.resolve(ARQ_EXTENSAO)];
     const { _teste } = requireDaqui(ARQ_EXTENSAO);
     assert.deepEqual(_teste.quadros(), QUADROS);
-    assert.equal(_teste.corDaUrgencia('calma'), 'charts.blue');
-    assert.equal(_teste.corDaUrgencia('atencao'), 'charts.yellow');
-    assert.equal(_teste.corDaUrgencia('urgente'), 'charts.red');
-    assert.equal(_teste.corDaUrgencia('outra'), 'charts.blue');
     const s = _teste.segmentos(55);
     assert.equal(s.length, 8);
     assert.equal(s.filter((x) => x === '$(hadouken-seg-cheio)').length, 4);
@@ -122,83 +118,66 @@ test('_teste: quadros, cor da urgência e segmentos de energia', () => {
   }
 });
 
-test('plugin novo: dois itens com o comando da janela, segmentos no lugar das porcentagens soltas', async (t) => {
+test('plugin novo: um item só, com a logo no começo, o comando da janela e segmentos no lugar das porcentagens soltas', async (t) => {
   const m = await montar(t, { hdk: { nivel: 'aviso' } });
   try {
-    assert.equal(m.logo.prioridade, 101);
+    assert.equal(m.estado.itens.length, 1);
     assert.equal(m.uso.prioridade, 100);
-    assert.equal(m.logo.command, 'claudeHadouken.abrirJanela');
     assert.equal(m.uso.command, 'claudeHadouken.abrirJanela');
-    assert.ok(m.logo.visivel);
-    assert.equal(m.logo.text, '$(hadouken-0)');
-    assert.equal(m.logo.color.id, 'charts.yellow');
+    // Sem cor própria: a logo segue a cor do texto da barra, em qualquer tema.
+    assert.equal(m.uso.color, undefined);
     assert.equal(m.uso.backgroundColor.id, 'statusBarItem.warningBackground');
     const segs = ['cheio', 'cheio', 'cheio', 'cheio', 'meio', 'vazio', 'vazio', 'vazio'].map((s) => `$(hadouken-seg-${s})`).join('');
-    assert.equal(m.uso.text, `5h ${segs} 55% · sem — · Fable —`);
+    assert.equal(m.uso.text, `$(hadouken-0) 5h ${segs} 55% · sem — · Fable —`);
   } finally {
     m.fim();
   }
 });
 
-test('animação: o `em` muda de 1 para 2, quadros 1 a 4 e termina no 0; o mesmo `em` não anima de novo', async (t) => {
+test('animação: os quadros giram sem parar, como um gif, e o resto do texto fica', async (t) => {
   const m = await montar(t);
   try {
-    // O primeiro tique só guardou o em = 1.
-    assert.deepEqual(m.logo.historico, ['$(hadouken-0)']);
-    globalThis.hdk.em = 2;
-    await tique(t);
-    assert.equal(m.logo.text, '$(hadouken-1)');
-    for (const k of [2, 3, 4, 0]) {
+    const resto = m.uso.text.slice(m.uso.text.indexOf(' '));
+    const vistos = [];
+    for (let i = 0; i < 12; i++) {
       t.mock.timers.tick(120);
-      assert.equal(m.logo.text, QUADROS[k]);
+      vistos.push(m.uso.text.slice(0, m.uso.text.indexOf(' ')));
+      assert.equal(m.uso.text.slice(m.uso.text.indexOf(' ')), resto);
     }
-    assert.deepEqual(m.logo.historico, ['$(hadouken-0)', ...QUADROS.slice(1), QUADROS[0]]);
+    assert.deepEqual(vistos, [1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1, 2].map((k) => QUADROS[k]));
+    // Um tique de 5 s redesenha sem parar o loop.
     await tique(t);
-    t.mock.timers.tick(1_000);
-    assert.equal(m.logo.historico.length, 6);
+    const antes = m.uso.text;
+    t.mock.timers.tick(120);
+    assert.notEqual(m.uso.text, antes);
   } finally {
     m.fim();
   }
 });
 
-test('animação: um evento que chega no meio dela não começa outra', async (t) => {
+test('janela sem foco: a logo para no quadro 0 e volta a girar com o foco', async (t) => {
   const m = await montar(t);
   try {
-    // Dois tiques presos no ultimoEvento: o primeiro vê em = 3 e anima; o
-    // segundo vê em = 4 com a animação no primeiro quadro.
-    let abrir;
-    globalThis.hdk.portao = new Promise((r) => { abrir = r; });
-    globalThis.hdk.ems = [3, 4];
-    t.mock.timers.tick(5_000);
-    t.mock.timers.tick(5_000);
-    await esperar(() => false, 200);
-    const antes = globalThis.hdk.desenhos;
-    abrir();
-    assert.ok(await esperar(() => globalThis.hdk.desenhos >= antes + 2));
-    assert.equal(m.logo.text, '$(hadouken-1)');
-    for (let i = 0; i < 4; i++) t.mock.timers.tick(120);
-    assert.deepEqual(m.logo.historico, ['$(hadouken-0)', ...QUADROS.slice(1), QUADROS[0]]);
-    // O em = 4 ficou guardado: o tique seguinte, ainda com 4, não anima.
-    globalThis.hdk.portao = null;
-    globalThis.hdk.em = 4;
-    await tique(t);
-    t.mock.timers.tick(1_000);
-    assert.equal(m.logo.historico.length, 6);
+    t.mock.timers.tick(240);
+    m.api.window.state = { focused: false };
+    const n = m.uso.historico.length;
+    t.mock.timers.tick(1_200);
+    assert.ok(m.uso.text.startsWith('$(hadouken-0) '));
+    assert.equal(m.uso.historico.length, n + 1);
+    m.api.window.state = { focused: true };
+    t.mock.timers.tick(120);
+    assert.ok(m.uso.text.startsWith('$(hadouken-1) '));
   } finally {
     m.fim();
   }
 });
 
-test('movimento reduzido: a logo fica no quadro 0 e só a cor muda', async (t) => {
+test('movimento reduzido: a logo fica no quadro 0', async (t) => {
   const m = await montar(t, { reduceMotion: 'on' });
   try {
-    assert.equal(m.logo.color.id, 'charts.blue');
-    globalThis.hdk.em = 2;
-    globalThis.hdk.nivel = 'erro';
-    await tique(t);
-    t.mock.timers.tick(1_000);
-    assert.deepEqual(m.logo.historico, ['$(hadouken-0)']);
-    assert.equal(m.logo.color.id, 'charts.red');
+    t.mock.timers.tick(1_200);
+    assert.ok(m.uso.text.startsWith('$(hadouken-0) '));
+    assert.ok(m.uso.historico.every((x) => !x.includes('$(hadouken-1)')));
   } finally {
     m.fim();
   }
@@ -207,10 +186,9 @@ test('movimento reduzido: a logo fica no quadro 0 e só a cor muda', async (t) =
 test('painel.animarLogo false: não anima', async (t) => {
   const m = await montar(t, { hdk: { animarLogo: false } });
   try {
-    globalThis.hdk.em = 2;
-    await tique(t);
-    t.mock.timers.tick(1_000);
-    assert.deepEqual(m.logo.historico, ['$(hadouken-0)']);
+    t.mock.timers.tick(1_200);
+    assert.ok(m.uso.text.startsWith('$(hadouken-0) '));
+    assert.ok(m.uso.historico.every((x) => !x.includes('$(hadouken-1)')));
   } finally {
     m.fim();
   }
@@ -221,7 +199,7 @@ test('plugin velho: um item como hoje, e o clique atualiza o uso', async (t) => 
   try {
     assert.equal(m.uso.text, '$(pulse) 5h 25% · sem 41% · Fable 57%');
     assert.equal(m.uso.command, 'claudeHadouken.atualizarUso');
-    assert.equal(m.logo.visivel, false);
+    assert.ok(!m.uso.text.includes('$(hadouken-'));
     await m.api.commands.executeCommand(m.uso.command);
     assert.ok(globalThis.hdk.leituras.some((o) => o?.forcar === true));
   } finally {

@@ -19,12 +19,12 @@
 //   Claude Code" e o import só é tentado de novo depois de 60 s; o comando
 //   manual tenta na hora (Foco 5). Um painel que lança é descartado e
 //   recarregado pela mesma regra (plugin atualizado com a janela aberta).
-// Spec v0.5.3 VS Code §3: com o shim novo (painel-api.js) vêm mais um item, a
-// logo (prioridade 101), que anima quando o último evento muda e tem a cor da
-// urgência, e o item de uso com segmentos de energia no lugar das
-// porcentagens soltas e a seta da versão nova; o clique nos dois abre a
-// janela. Um shim velho, só com estadoPainel e talvezAtualizar, segue como
-// antes: um item, `$(pulse)`, o clique atualiza o uso (foco 1).
+// Spec v0.5.3 VS Code §3: com o shim novo (painel-api.js), o item traz a logo
+// animada no começo (no mesmo item desde a v0.5.7, na cor do texto da barra,
+// para aparecer em qualquer tema), segmentos de energia no lugar das
+// porcentagens soltas e a seta da versão nova; o clique abre a janela. Um
+// shim velho, só com estadoPainel e talvezAtualizar, segue como antes:
+// `$(pulse)` e o clique atualiza o uso (foco 1).
 // Nenhum callback lança: tudo fica em try/catch, e nenhuma promessa fica sem
 // tratamento. CommonJS, porque o VS Code carrega a extensão com require; o
 // ESM do plugin entra por import() dinâmico.
@@ -61,13 +61,10 @@ const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}(?![?.][\\/])[^\\/]+[\\/]+[^\\/
 const COMANDO_JANELA = 'claudeHadouken.abrirJanela';
 const VERSAO = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 
-// Spec vscode §3: 5 quadros a ~120 ms quando o evento muda; uma por vez;
-// nada com movimento reduzido ou painel.animarLogo false.
+// 5 quadros a 120 ms, em loop (v0.5.7); nada com movimento reduzido ou
+// painel.animarLogo false.
 const QUADROS = Object.freeze(['$(hadouken-0)', '$(hadouken-1)', '$(hadouken-2)', '$(hadouken-3)', '$(hadouken-4)']);
 const QUADRO_MS = 120;
-const CORES = Object.freeze({ __proto__: null, calma: 'charts.blue', atencao: 'charts.yellow', urgente: 'charts.red' });
-const URGENCIA_DO_NIVEL = Object.freeze({ __proto__: null, aviso: 'atencao', erro: 'urgente' });
-const corDaUrgencia = (u) => CORES[u] ?? CORES.calma;
 const quadros = () => [...QUADROS];
 
 // Barra de vida: 8 segmentos, em meios (55% são 4 cheios, 1 meio e 3 vazios).
@@ -295,21 +292,17 @@ function activate(ctx) {
     item.text = TEXTO_SEM_MODULO;
     item.show();
     ctx.subscriptions.push(item);
-    const logo = vscode.window.createStatusBarItem('claudeHadouken.logo', vscode.StatusBarAlignment.Right, 101);
-    logo.name = 'Claude Hadouken: logo';
-    logo.command = COMANDO;
-    logo.text = QUADROS[0];
-    ctx.subscriptions.push(logo);
     let ativo = true;
     let ultimoMotivo;
     let leitura = null;
     let proximoPedidoEm = 0;
-    // Logo e versão: o primeiro evento lido só fica guardado (abrir o VS Code
-    // não anima); depois, cada `em` novo anima uma vez, nunca duas juntas.
-    let primeiroEvento = true;
-    let ultimoEm = null;
-    let animando = false;
-    let animacao = null;
+    // A logo vai no começo do próprio item (v0.5.7), na cor do texto da barra,
+    // e gira os quadros sem parar, como um gif; parada no quadro 0 com
+    // movimento reduzido, painel.animarLogo false ou a janela sem foco.
+    let comLogo = false;
+    let textoBase = TEXTO_SEM_MODULO;
+    let quadro = 0;
+    let reduzido = movimentoReduzido();
     let animarLigado = true;
     let versaoNova = null;
     let versaoInstalada = null;
@@ -320,24 +313,22 @@ function activate(ctx) {
     let terminal = null;
     let tiquesDeConsulta = 0;
 
-    const animar = () => {
-      animando = true;
-      const seq = [1, 2, 3, 4, 0];
-      const passo = (i) => {
-        animacao = null;
-        if (!ativo) return;
-        try { logo.text = QUADROS[seq[i]]; } catch { /* item já descartado */ }
-        if (i + 1 < seq.length) animacao = setTimeout(passo, QUADRO_MS, i + 1);
-        else animando = false;
-      };
-      passo(0);
+    const pintar = () => {
+      try { item.text = comLogo ? `${QUADROS[quadro]} ${textoBase}` : textoBase; } catch { /* item já descartado */ }
     };
+    const animacao = setInterval(() => {
+      if (!ativo || !comLogo) return;
+      const parado = !animarLigado || reduzido || vscode.window.state?.focused === false;
+      const proximo = parado ? 0 : (quadro + 1) % QUADROS.length;
+      if (proximo === quadro) return;
+      quadro = proximo;
+      pintar();
+    }, QUADRO_MS);
 
-    // Evento, versão e configuração do shim novo. Nunca rejeita.
+    // Versão e configuração do shim novo. Nunca rejeita.
     const lerExtras = async (m) => {
       const api = apiDe(m);
-      const [ev, ver, cfg, barra] = await Promise.all([
-        api.evento ? chamar(m, 'ultimoEvento') : null,
+      const [ver, cfg, barra] = await Promise.all([
         api.versao ? chamar(m, 'estadoVersao') : null,
         api.janela ? chamar(m, 'lerConfiguracao') : null,
         chamar(m, 'barraSaude'),
@@ -348,15 +339,7 @@ function activate(ctx) {
       versaoInstalada = ver !== null && typeof ver === 'object' && typeof ver.instalada === 'string' && VERSAO.test(ver.instalada) ? ver.instalada : null;
       const itens = cfg !== null && typeof cfg === 'object' && Array.isArray(cfg.itens) ? cfg.itens : [];
       animarLigado = itens.find((i) => i !== null && typeof i === 'object' && i.id === 'painel.animarLogo')?.valor !== false;
-      const em = ev !== null && typeof ev === 'object' && Number.isSafeInteger(ev.em) ? ev.em : null;
-      if (primeiroEvento) {
-        primeiroEvento = false;
-        ultimoEm = em;
-        return;
-      }
-      if (em === null || em === ultimoEm) return;
-      ultimoEm = em;
-      if (!animando && animarLigado && !movimentoReduzido()) animar();
+      reduzido = movimentoReduzido();
     };
 
     // Desenha com o painel `m` (null: sem módulo). Nunca lança.
@@ -364,34 +347,34 @@ function activate(ctx) {
       if (!ativo) return;
       try {
         if (m === null) {
-          item.text = TEXTO_SEM_MODULO;
+          comLogo = false;
+          textoBase = TEXTO_SEM_MODULO;
+          pintar();
           item.command = COMANDO;
           item.backgroundColor = undefined;
           item.tooltip = undefined;
-          logo.hide();
           return;
         }
         const api = apiDe(m);
         const e = estadoValido(m.estadoPainel(ultimoMotivo === undefined ? {} : { ultimoMotivo }));
-        const comando = api.janela ? COMANDO_JANELA : COMANDO;
-        item.command = comando;
+        item.command = api.janela ? COMANDO_JANELA : COMANDO;
         if (api.evento) {
           const seta = versaoNova === null ? '' : ` $(hadouken-seta) ${versaoNova}`;
-          item.text = `${e.pcts === null ? e.texto : textoComSegmentos(e.pcts)}${saudeBarra === null ? '' : ` · ${saudeBarra}`}${seta}`;
-          logo.command = comando;
-          logo.color = new vscode.ThemeColor(corDaUrgencia(URGENCIA_DO_NIVEL[e.nivel]));
-          logo.tooltip = e.dica === '' ? undefined : new vscode.MarkdownString(e.dica);
-          logo.show();
+          comLogo = true;
+          textoBase = `${e.pcts === null ? e.texto : textoComSegmentos(e.pcts)}${saudeBarra === null ? '' : ` · ${saudeBarra}`}${seta}`;
         } else {
-          item.text = `$(pulse) ${e.texto}`;
-          logo.hide();
+          comLogo = false;
+          textoBase = `$(pulse) ${e.texto}`;
         }
+        pintar();
         const cor = typeof e.nivel === 'string' ? COR[e.nivel] : undefined;
         item.backgroundColor = cor === undefined ? undefined : new vscode.ThemeColor(cor);
         item.tooltip = e.dica === '' ? undefined : new vscode.MarkdownString(e.dica);
       } catch {
         descartar(m);
-        try { item.text = TEXTO_SEM_MODULO; logo.hide(); } catch { /* item já descartado */ }
+        comLogo = false;
+        textoBase = TEXTO_SEM_MODULO;
+        pintar();
       }
     };
 
@@ -604,7 +587,7 @@ function activate(ctx) {
       dispose() {
         ativo = false;
         clearInterval(esteRelogio);
-        if (animacao !== null) clearTimeout(animacao);
+        clearInterval(animacao);
         try { janela?.dispose(); } catch { /* já fechada */ }
         janela = null;
         if (relogio === esteRelogio) relogio = null;
@@ -639,4 +622,4 @@ function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, _teste: { quadros, corDaUrgencia, segmentos } };
+module.exports = { activate, deactivate, _teste: { quadros, segmentos } };
