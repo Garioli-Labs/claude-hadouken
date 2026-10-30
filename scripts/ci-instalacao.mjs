@@ -45,23 +45,25 @@ for (const s of ['statusline.mjs', 'cli.mjs', 'painel.mjs']) {
   ok(texto.includes(`/${versaoRepo}/src/`), `bin/${s} aponta para ${versaoRepo}`);
 }
 
-// 4. A barra do Claude Code responde com o JSON que ele manda.
-const barra = rodar([path.join(dados, 'bin', 'statusline.mjs')], {
-  entrada: JSON.stringify({ session_id: 'ci', model: { id: 'claude-opus-5-5', display_name: 'Opus' }, workspace: { current_dir: process.cwd() }, cwd: process.cwd() }),
-});
-ok(barra.codigo === 0 && barra.saida.trim() !== '', `statusline respondeu (${JSON.stringify(barra.saida.trim().slice(0, 80))})`);
-
-// 5. Os hooks de início e de prompt rodam e devolvem JSON ou nada.
+// 4. Os hooks de início e de prompt rodam e devolvem JSON ou nada. O de
+// início registra a sessão: a barra só aparece para sessão registrada.
+const SESSAO = '0c1d2e3f-4a5b-4c6d-8e7f-901a2b3c4d5e';
 const env = { CLAUDE_PLUGIN_ROOT: raiz };
 for (const [hook, dadosHook] of [
-  ['session-start.js', { session_id: 'ci', cwd: process.cwd(), source: 'startup', hook_event_name: 'SessionStart' }],
-  ['prompt-submit.js', { session_id: 'ci', cwd: process.cwd(), prompt: 'oi', hook_event_name: 'UserPromptSubmit' }],
+  ['session-start.js', { session_id: SESSAO, cwd: process.cwd(), source: 'startup', hook_event_name: 'SessionStart' }],
+  ['prompt-submit.js', { session_id: SESSAO, cwd: process.cwd(), prompt: 'oi', hook_event_name: 'UserPromptSubmit' }],
 ]) {
   const r = rodar([path.join(raiz, 'src', 'hooks', hook)], { entrada: JSON.stringify(dadosHook), env });
   let json = true;
   if (r.saida.trim() !== '') try { JSON.parse(r.saida); } catch { json = false; }
   ok(r.codigo === 0 && json, `hook ${hook} saiu com ${r.codigo}${json ? '' : ' e saída que não é JSON'}`);
 }
+
+// 5. A barra do Claude Code responde com o JSON que ele manda.
+const barra = rodar([path.join(dados, 'bin', 'statusline.mjs')], {
+  entrada: JSON.stringify({ session_id: SESSAO, model: { id: 'claude-opus-5-5', display_name: 'Opus' }, workspace: { current_dir: process.cwd() }, cwd: process.cwd() }),
+});
+ok(barra.codigo === 0 && barra.saida.trim() !== '', `statusline respondeu (${JSON.stringify(barra.saida.trim().slice(0, 80))})`);
 
 // 6. O relatório de consumo roda sem conta (sem leitura, sem erro interno).
 const consumo = rodar([path.join(dados, 'bin', 'cli.mjs'), 'consumo']);
