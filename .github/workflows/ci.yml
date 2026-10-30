@@ -44,6 +44,38 @@ jobs:
           package-manager-cache: false
       - run: node --test
 
+  # End-to-end install on a clean machine, the way a user's PC gets it: the
+  # Claude Code CLI, this checkout as the marketplace, the plugin, then
+  # scripts/ci-instalacao.mjs checks the shims, status line, hooks, report
+  # and the install check.
+  instalacao:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Claude Code CLI
+        shell: bash
+        run: npm install -g @anthropic-ai/claude-code && claude --version
+      - name: Plugin from this checkout
+        shell: bash
+        run: |
+          claude plugin marketplace add "$GITHUB_WORKSPACE"
+          claude plugin install hadouken@claude-hadouken
+          claude plugin list
+      - name: Check the install
+        shell: bash
+        run: node scripts/ci-instalacao.mjs
+
   # Report-only: the numbers go to the job summary and never fail the build.
   # The job fails only if a bench itself breaks (see bench/rodar-todos.mjs).
   bench:
