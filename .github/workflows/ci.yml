@@ -72,9 +72,14 @@ jobs:
           claude plugin marketplace add "$GITHUB_WORKSPACE"
           claude plugin install hadouken@claude-hadouken
           claude plugin list
+      # HADOUKEN_CLAUDE as install.sh / install.ps1 set it: the absolute
+      # path of the claude executable (claude.cmd from npm on Windows).
       - name: Check the install
         shell: bash
-        run: node scripts/ci-instalacao.mjs
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then HADOUKEN_CLAUDE=$(cygpath -w "$(command -v claude.cmd)"); else HADOUKEN_CLAUDE=$(command -v claude); fi
+          export HADOUKEN_CLAUDE
+          node scripts/ci-instalacao.mjs
 
   # Report-only: the numbers go to the job summary and never fail the build.
   # The job fails only if a bench itself breaks (see bench/rodar-todos.mjs).
