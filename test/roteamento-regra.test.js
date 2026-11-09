@@ -45,3 +45,25 @@ test('skill: abaixo de 8 000 caracteres (~2 mil tokens) e só agentes que existe
 test('fluxo do kit aponta para hadouken:roteamento', () => {
   assert.ok(fs.readFileSync(path.join(repo, 'kit', 'skills', 'fluxo', 'SKILL.md'), 'utf8').includes('hadouken:roteamento'));
 });
+
+// Tabela LITERAL (não importa PALETA): prova que o texto do SessionStart traz
+// o model·effort de cada agente, sem usar a mesma função da produção como régua.
+test('regra curta: cada agente aparece com model·effort literal', () => {
+  const esperado = [
+    ['busca', 'haiku', 'low'], ['varredor', 'haiku', 'medium'], ['pesquisa', 'sonnet', 'low'],
+    ['mecanico', 'haiku', 'low'], ['implementador-mecanico', 'sonnet', 'medium'],
+    ['implementador', 'sonnet', 'high'], ['revisor', 'sonnet', 'high'],
+    ['auditor', 'fable', 'high'], ['e2e', 'sonnet', 'high'], ['redator', 'sonnet', 'medium'],
+  ];
+  const linhas = linhasRegra(paletaEfetiva());
+  for (const [nome, model, effort] of esperado) {
+    const inicio = `hadouken:${nome} (${model}·${effort}):`;
+    assert.ok(linhas.some((l) => l.startsWith(inicio)), inicio);
+  }
+});
+
+test('regra curta: linha completa do auditor', () => {
+  assert.ok(linhasRegra(paletaEfetiva()).includes(
+    'hadouken:auditor (fable·high): auditoria adversarial de spec ou plano com impacto em produção, migração de dados, segurança, autenticação ou dinheiro, contra código vivo.',
+  ));
+});

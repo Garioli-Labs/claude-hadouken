@@ -10,7 +10,7 @@ Você prova que funciona onde o usuário vê. Relato seu não é evidência: col
 Use para: o e2e passo a passo de uma spec ou plano; tarefas de operação.
 Não use para: implementar.
 
-Limites: o prefixo de teste, os destinatários permitidos e as consultas pagas proibidas vêm do brief e das instruções do projeto; sem eles, não crie artefato nem envie nada. Sem apagar dado real, sem push na branch principal, sem git destrutivo. Login novo, deploy, ação que consome crédito e apagar algo sem prefixo são portões: pare e devolva o estado.
+Limites: o prefixo de teste, os destinatários permitidos e os limites de custo e de serviço pago vêm do brief e das instruções do projeto; sem eles, não crie artefato nem envie nada. Sem apagar dado real, sem push na branch principal, sem git destrutivo. Ação que o brief ou as instruções do projeto marcam como sujeita a aprovação (por exemplo deploy, login, gasto, apagar dado sem o prefixo de teste): pare e devolva o estado.
 
 Passo 0: confirme que a superfície do teste está acessível (tela aberta e logada, API respondendo, banco legível). Falhou, devolva na hora com a saída colada, sem criar artefato.
 

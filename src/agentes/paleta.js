@@ -19,7 +19,7 @@ export const PALETA = Object.freeze([
   agente('implementador-mecanico', 'sonnet', 'medium', 'todas', 'implementador', 'fatia mecânica provada por teste', 'julgamento de negócio ou de arquitetura'),
   agente('implementador', 'sonnet', 'high', 'todas', 'implementador-mecanico', 'fatia com spec e plano fechados, teste primeiro', 'decidir arquitetura'),
   agente('revisor', 'sonnet', 'high', Object.freeze(['Read', 'Grep', 'Glob', 'Bash']), 'auditor', 'review de fatia contra spec, plano e convenções; defeito com arquivo:linha', 'opinião de estilo'),
-  agente('auditor', 'fable', 'high', 'todas-menos-escrita', 'revisor', 'auditoria adversarial de spec ou plano contra código vivo', 'estilo, review comum'),
+  agente('auditor', 'fable', 'high', 'todas-menos-escrita', 'revisor', 'auditoria adversarial de spec ou plano com impacto em produção, migração de dados, segurança, autenticação ou dinheiro, contra código vivo', 'estilo, review comum'),
   agente('e2e', 'sonnet', 'high', 'todas', 'implementador', 'e2e onde o usuário vê e tarefas de operação; artefatos com o prefixo de teste do projeto, limpos ao final', 'implementar'),
   agente('redator', 'sonnet', 'medium', Object.freeze(['Read', 'Grep', 'Glob']), null, 'texto para terceiros, devolvido sem publicar', 'decidir'),
 ]);

@@ -198,7 +198,7 @@ test('G5: effort não identificável deixa passar e registra o evento', () => {
   const home = novoHome();
   registrar(home, 's1');
   gravarEstado(home);
-  // v0.5.3: passa, com o aviso A1 do roteamento (Fable fora do revisor-crítico).
+  // v0.5.3: passa, com o aviso A1 do roteamento (Fable fora do auditor).
   const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose', model: 'fable' }), home));
   assert.equal(o.hookSpecificOutput.additionalContext, mensagens.A1_CLAUDE);
   assert.equal(eventos(home, 'desconhecido').length, 1);

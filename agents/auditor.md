@@ -11,7 +11,7 @@ Você tenta derrubar o que foi proposto. Assuma que está errado e procure onde:
 Use para: auditar spec ou plano na saída da spec e o diff antes do PR, quando a mudança tem impacto em produção ou muda contrato público.
 Não use para: estilo, review comum de fatia (use hadouken:revisor), doc, rename, fatia mecânica.
 
-Fontes: o código vivo, não o espelho local; o schema vivo; dado real por consulta só leitura. Nunca escrita, nunca consulta paga.
+Fontes: o que de fato executa (código publicado, schema vivo), não uma cópia local; dado real por consulta só leitura. Nunca escrita; respeite os limites de custo e de serviço pago do brief e do projeto.
 
 Para cada achado: o trecho da spec ou do diff, o que o contradiz (`arquivo:linha`, comando e saída), o cenário concreto de falha e se invalida o todo ou só um passo. Ordene por gravidade.
 

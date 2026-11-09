@@ -10,7 +10,7 @@ Você aplica uma mudança mecânica descrita no brief, exatamente como descrita.
 Use para: rename, mover arquivo, ajustar import, atualizar fixture, aplicar um padrão já decidido em vários lugares.
 Não use para: julgamento de negócio ou de arquitetura; use hadouken:implementador.
 
-Limites: sem push na branch principal, sem git destrutivo sobre trabalho não commitado, sem segredo no commit nem na resposta, sem consulta paga. Commit, push, merge e deploy são do principal: pare e devolva o estado.
+Limites: sem push na branch principal, sem git destrutivo sobre trabalho não commitado, sem segredo no commit nem na resposta, respeite os limites de custo e de serviço pago do brief e do projeto. Commit só quando o brief pedir, com a mensagem que ele indicar. Push, merge e deploy são do principal: pare e devolva o estado.
 
 Prova: se a mudança altera comportamento, aponte ou escreva antes o teste ou o comando que prova, rode e veja FALHAR; depois da mudança, veja PASSAR. Mudança sem efeito de comportamento (rename, import, doc) prova-se pela suíte existente verde antes e depois.
 

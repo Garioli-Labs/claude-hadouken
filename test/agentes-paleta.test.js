@@ -133,6 +133,7 @@ test('conteúdo genérico: nenhum agente cita prefixo de teste, e-mail ou empres
   for (const nome of NOMES) {
     const t = lerAgente(nome);
     assert.doesNotMatch(t, /ZZE2E|HOMOLOG|educbank|@[a-z0-9-]+\.(com|br)/i, nome);
+    assert.doesNotMatch(t, /port[ãa]o|port[õo]es|consome cr[ée]dito|espelho local|hedging|consulta paga/i, nome);
   }
   for (const nome of ['varredor', 'implementador-mecanico', 'implementador', 'auditor', 'e2e', 'redator']) {
     const t = lerAgente(nome);

@@ -23,13 +23,13 @@ test('N2: busca/mecanico com modelo forte no parâmetro', () => {
 });
 
 test('liberação e config desligam N1/N2; avisos seguem', () => {
-  // Sem o N1, o Fable fora do revisor-crítico ainda cai no A1: os avisos seguem.
+  // Sem o N1, o Fable fora do auditor ainda cai no A1: os avisos seguem.
   assert.deepEqual(av({ perfil: perfil('Explore', 'fable', null), liberado: true }), { decisao: 'avisar', regra: 'A1' });
   assert.deepEqual(av({ perfil: perfil('Explore', 'fable', null), config: { ...PADRAO_ROTEAMENTO, negarN1: false } }), { decisao: 'avisar', regra: 'A1' });
   assert.equal(av({ perfil: perfil('Explore', 'opus', 'xhigh'), liberado: true }).decisao, 'passar');
 });
 
-test('A1: Fable fora do revisor-crítico avisa; agente do usuário que declara Fable passa', () => {
+test('A1: Fable fora do auditor avisa; agente do usuário que declara Fable passa', () => {
   assert.deepEqual(av({ perfil: perfil('general-purpose', 'fable', 'high', 'sessao') }), { decisao: 'avisar', regra: 'A1' });
   assert.equal(av({ perfil: perfil('fable-xhigh', 'fable', 'xhigh', 'frontmatter', { model: 'fable', effort: 'xhigh' }) }).decisao, 'passar');
   assert.equal(av({ perfil: perfil('hadouken:auditor', 'fable', 'high', 'frontmatter', { model: 'fable', effort: 'high' }) }).decisao, 'passar');
