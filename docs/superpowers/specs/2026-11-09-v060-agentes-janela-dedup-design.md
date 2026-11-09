@@ -6,7 +6,7 @@
 
 ## 0. Estado atual verificado (HEAD `a73e458`)
 
-Leitura por `grep`/`sed` no clone e por `ls` no cache instalado (`~/.claude/plugins/cache/claude-hadouken/`).
+Leitura por `grep`/`sed` no clone e por `ls` no cache instalado (`~/.claude/plugins/cache/claude-hadouken/`). As linhas de roteamento (N1/N2, `roteamento.subir`, A1/A2), de perfil do despacho, de hook de despacho e de nomes removidos foram reconferidas em `9988721` (HEAD do branch).
 
 | Tema | Onde | O que há |
 |---|---|---|
@@ -25,10 +25,13 @@ Leitura por `grep`/`sed` no clone e por `ls` no cache instalado (`~/.claude/plug
 | Projeções | `src/uso/frase.js:87-93` ("esgota"); `src/previsao.js:148` (instante); `src/guarda/mensagens.js:35` e `src/alerta.js:217,30` (texto "chega a 100%") | projeção em horas corridas |
 | Config | `src/guarda/config.js:32` padrão; `:56` `guardaDaConfig`; `:63-66` valor inválido → aviso + padrão; `:126` `gravarGuardaLigada` → `gravarJsonAtomico` (`src/estado.js:152`, tmp + `renameSync` `:169`) | — |
 | Agentes do plugin | `agents/*.md` (`name :2`, `model :4`, `effort :5`) | busca haiku·low; mecanico haiku·low; executor sonnet·medium; pesquisa sonnet·low; revisor opus·high; revisor-critico fable·xhigh |
-| Regras N1/N2 | `src/roteamento/regras.js:22,25` | N1 nega Explore/`hadouken:busca` em opus/fable ou xhigh/max; N2 nega `hadouken:busca`/`mecanico` com model opus/fable |
+| Regras N1/N2 | `src/roteamento/regras.js:22,24,25` | N1 (`:22`) nega Explore/`hadouken:busca` com família opus/fable ou effort xhigh/max, de qualquer origem (parâmetro, frontmatter, ambiente), sem consultar `config.subir`; N2 (`:25`) nega `hadouken:busca`/`mecanico` só com `origem === 'parametro'` e família opus/fable, salvo `config.subir[agente] === familia` (`:24`) |
+| `roteamento.subir` | `src/roteamento/config.js:14,19-20,47-52,62-75` | `{<agente completo>: haiku\|sonnet\|opus}`; gravado por `gravarSubida`, chamada em `src/aprendizado/comando.js:176`; lido em `regras.js:24` (N2) e em `src/hooks/session-start.js:204-209`, que manda o Claude passar `model: <família>` no despacho; não injeta nem troca modelo (`src/aprendizado/mensagens.js:426`) |
+| Regras A1/A2 | `src/roteamento/regras.js:30,32`; texto em `src/guarda/mensagens.js:88` | A1 isenta só `hadouken:revisor-critico` (`:30`) e o texto cita `hadouken:revisor-critico` e `hadouken:executor`; A2 isenta `agente.startsWith('hadouken:revisor')` (`:32`): `hadouken:auditor` não casa e recebe aviso A2 (saída abaixo) |
+| Nomes dos agentes removidos | `grep -rnE "hadouken:(executor\|revisor-critico)" src skills` | `src/roteamento/regra.js:7,8`; `src/roteamento/regras.js:30`; `src/guarda/mensagens.js:86,88`; `src/aprendizado/arquivos.js:72,73` (substituto sugerido pelo aprendizado); `skills/roteamento/SKILL.md:16,19,39,43,60` |
 | Texto de roteamento | `src/roteamento/regra.js:4-10` (`LINHAS_REGRA`), consumido em `src/hooks/session-start.js:196` | texto fixo |
-| Perfil do despacho | `src/guarda/despacho.js:40,63,77` | model/effort lidos do frontmatter |
-| Hook de despacho | `src/hooks/guarda-despacho.js:55` (`return` com guarda desligada), roteamento `:94`; matcher `Agent\|Task\|Workflow` em `hooks/hooks.json:13` | nada roda com guarda desligada |
+| Perfil do despacho | `src/guarda/despacho.js:14,63-73,77-107,112` | `NOME_AGENTE` (`:14`) recusa `:`; `frontmatterDoAgente` (`:63-73`) lê só `<cwd>/.claude/agents/<nome>.md` e `<dirCfg>/agents/<nome>.md`; `perfilDoDespacho` devolve `modelo: 'desconhecido'` para `hadouken:auditor` (saída abaixo). G5 (`despachoCaro`, `:112`), G6 (hook `:62`) e G7 (`registrarDespachoFable`, hook `:69,83,114`) leem esse perfil e não enxergam o model·effort de agente de plugin. `perfilRoteamento` (`:133-137,139-160`) lê `<raizPlugin>/agents/<x>.md` só para `hadouken:<x>` (`DO_PLUGIN`, `:126`), com `raizPlugin` = `CLAUDE_PLUGIN_ROOT` (hook `:99`); outro plugin fica desconhecido |
+| Hook de despacho | `src/hooks/guarda-despacho.js:51-55` (status `erro` e guarda `desligada` retornam), `:121-126` (`idValido`, `dirDados`, `sessaoAtiva` retornam antes de `avaliarDespacho`), `:62-77` (travas), `:79` (G5), `:94-112` (roteamento); matcher `Agent\|Task\|Workflow` em `hooks/hooks.json:13` | nada roda antes desses portões; `grep -rn updatedInput src` → vazio (nenhum hook do plugin devolve `updatedInput`) |
 | Skill roteamento | `skills/roteamento/SKILL.md` (62 linhas; seções `:10,23,30,41,57`) | tabela de agentes fixa |
 | Comandos | `skills/*` (aprender, consumo, instalar, liberar, limites, roteamento, saude); CLI `node "$HOME/.claude/hadouken/bin/cli.mjs"` (`skills/consumo/SKILL.md:11,15`, shim `src/comandos.js:9`); não há `commands/` nem `bin/` no repo | — |
 | Gravação por comando | `hooks/hooks.json:75-77` `UserPromptExpansion` `hadouken:liberar` → `src/hooks/liberar.js:73,81,115` (lê `command_name`, `command_args`) → `:76` `gravarGuardaLigada` | só o usuário, ao digitar, grava config |
@@ -38,11 +41,37 @@ Leitura por `grep`/`sed` no clone e por `ls` no cache instalado (`~/.claude/plug
 | Glossário/ADR | `test -e CONTEXT.md GLOSSARY.md docs/adr` → ausentes | — |
 | Testes/CI | `package.json:8` `node --test`, sem devDependencies; `.github/workflows/ci.yml:45`, ignora `*.md` e `docs/**` (`:10-16`) | — |
 
+Comandos e saídas das linhas acima (executados em `HEAD` do worktree, 09/11/2026):
+
+```
+$ node -e "import('./src/guarda/despacho.js').then(d => console.log(JSON.stringify(d.perfilDoDespacho({toolInput:{subagent_type:'hadouken:auditor'}, cwd:process.cwd(), dirConfigClaude:'/tmp/x', env:{}, modeloSessao:'claude-opus-5'}))))"
+{"modelo":"desconhecido","effort":null,"origem":"desconhecido"}
+
+$ node -e "import('./src/roteamento/regras.js').then(r => { /* perfil: agente hadouken:busca, familia opus, origem parametro; config.subir = {'hadouken:busca':'opus'} */ })"
+{"decisao":"negar","regra":"N1"}          # hadouken:busca com subir opus: N1 ignora subir
+{"decisao":"passar","regra":null}         # hadouken:mecanico com subir opus: N2 respeita subir
+
+$ node -e "import('./src/roteamento/regras.js').then(r => { /* perfil: hadouken:auditor, fable·high, doArquivo fable·high, descricao 'Procurar quebras na spec' */ })"
+{"decisao":"avisar","regra":"A2"}          # auditor não é isento de A2
+
+$ grep -rn updatedInput src
+(vazio)
+```
+
+`roteamento.subir` não contradiz a precedência da Fatia 4: ele não injeta nem troca valor, só aprova um parâmetro explícito (em N2) e, pelo SessionStart, manda o Claude passá-lo.
+
 Fatos da doc oficial do Claude Code (plugins/dependencies, troubleshooting, loading, hooks, sub-agents), consultados em 09/11/2026:
 
 - Dependência sem `@` resolve no marketplace do plugin que a declara; dependência **desabilitada deixa o plugin dependente desabilitado** (`Dependency "<dep>" is disabled`).
 - Dois plugins habilitados com o mesmo nome vindos de marketplaces diferentes: os dois aparecem, os hooks de um não rodam; qual skill carrega não é documentado.
 - Agente de mesmo nome em `~/.claude/agents` vence o agente de plugin; `model` passado no despacho vence o frontmatter.
+- Hooks, PreToolUse (https://code.claude.com/docs/en/hooks, seção "PreToolUse decision control" e "PreToolUse `updatedInput` in auto mode"):
+  - `updatedInput`: "Replaces the entire input object, so include unchanged fields alongside modified ones. [...] Combine with `"allow"` to auto-approve, or `"ask"` to show the modified input to the user. For `"defer"`, ignored. With no `permissionDecision`, auto mode can deny the changed call";
+  - auto mode: "When your hook returns `updatedInput` with no `permissionDecision` in auto mode, Claude Code can deny the changed call. The server reviewed the input Claude wrote, not the input your hook returned." A negação traz o texto `a hook changed this call's input after auto mode reviewed it`;
+  - `permissionDecision`: "`"allow"` skips the permission prompt, except for actions no mode auto-approves and reads from network paths. [...] Deny and ask rules are still evaluated regardless of what the hook returns";
+  - precedência entre hooks: "`deny` > `defer` > `ask` > `allow`".
+  - Decorre da doc: a variante com `permissionDecision: "allow"` junto do `updatedInput` não contorna regra `deny`/`ask` do usuário; a variante sem `permissionDecision` pode ser negada em auto mode (o modo real do mantenedor). A Tarefa 6, passo 0, mede as duas variantes em `permissions.defaultMode: "auto"`.
+- Dependências de plugin (https://code.claude.com/docs/en/plugins/dependencies.md): a entrada é string (`"nome"`, `"nome@marketplace"`) ou objeto `{name, version, marketplace?}`; `version` é faixa semver (`>=1.4`, `~2.1.0`, `^2.0`). Plugin referenciado por caminho relativo no marketplace: "the install uses the marketplace's current copy instead, and the constraint is checked when the plugin loads. If that copy is outside the range, the dependent plugin stays disabled and `claude plugin list` shows `Requires "<dep>@<marketplace>" <faixa>, installed <versão>`". O `hadouken` é `"source": "./"` (`.claude-plugin/marketplace.json:13`) e o repo não tem tag `<plugin>--v<versão>` (`git tag | grep -c -- '--v'` → `0`; as tags são `v0.5.8` e anteriores).
 
 Fato medido em Claude Code 2.1.321 (experimento `claude -p`, transcript do subagente):
 
@@ -143,7 +172,7 @@ Roteamento
 
 ### Fatia 1 — Dedup das dependências do kit
 
-- `hadouken-kit` declara só `hadouken` em `dependencies`. As cinco dependências de terceiros (`superpowers`, `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills`, `ui-ux-pro-max`) saem do manifesto, porque dependência desabilitada derruba o kit. As entradas de terceiros do marketplace do hadouken ficam, com sha fixo e veto do robô.
+- `hadouken-kit` declara só `hadouken` em `dependencies`; no kit 1.2.0 a entrada é o objeto `{"name": "hadouken", "version": ">=0.6.0"}` (Fatia 6): a régua padrão cita `hadouken:auditor`, que só existe a partir da 0.6.0, e com a faixa a doc deixa o kit desabilitado quando o `hadouken` instalado é menor. As cinco dependências de terceiros (`superpowers`, `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills`, `ui-ux-pro-max`) saem do manifesto, porque dependência desabilitada derruba o kit. As entradas de terceiros do marketplace do hadouken ficam, com sha fixo e veto do robô.
 - `DEPENDENCIAS_KIT` continua sendo a lista do que o instalador garante.
 - `COPIAS_ANTIGAS` sai: `ligarAtualizacao` só liga a atualização automática do marketplace e não desliga plugin nenhum. Quem teve a cópia upstream desligada por versões anteriores fica como está (caso D1: cópia do usuário desabilitada não conta como equivalente).
 - **Equivalência.** Uma dependência `D` (id `nome@marketplace`) está satisfeita por outra cópia quando existe plugin **habilitado** no escopo do usuário, de marketplace diferente do de `D`, com **mesmo nome** de plugin **ou mesma origem** (mesmo repo **e** mesma subpasta dentro dele). Habilitado: no instalador, `enabled: true` e `scope: "user"` em `claude plugin list --json`; no SessionStart do kit, `installed_plugins.json` com entrada `scope: "user"` e `enabledPlugins[id] === true` no `settings.json` do usuário (ausente conta como desligado). Origem, normalizada para `dono/repo[/subpasta]` em minúsculas, sem `./` e sem `/` no fim:
@@ -190,21 +219,30 @@ Dez agentes em `agents/`, conteúdo genérico (sem prefixo de teste, e-mail, emp
 | redator | sonnet·medium | Read, Grep, Glob | texto para terceiros, devolvido sem publicar | decidir | (faça direto) |
 
 - Saem `executor` (→ `implementador`) e `revisor-critico` (→ `auditor`). `revisor` desce de opus para sonnet.
-- N1 e N2 incluem `hadouken:varredor` nas listas de agente barato; referências a `executor` e `revisor-critico` saem. N1/N2 avaliam os parâmetros **explícitos** do despacho, não os injetados pela config (a escolha do usuário na config não é negada).
-- Despacho para `hadouken:executor` ou `hadouken:revisor-critico` → negado com "saiu na 0.6.0; use `hadouken:<novo>`".
+- N1 e N2 incluem `hadouken:varredor` nas listas de agente barato; referências a `executor` e `revisor-critico` saem.
+- N1 e N2 avaliam o `tool_input` original do despacho, sem o que a paleta injeta (a escolha do usuário na config não é negada).
+- **Aprovação em N1 e N2.** Um parâmetro explícito do despacho é subida aprovada, e N1 e N2 não o negam, quando é igual a uma destas fontes: `roteamento.subir[<agente completo>]` (a família do `model`) ou `agentes.<nome>` da config (`model` por família, `effort` por valor), com `<nome>` o agente sem o prefixo `hadouken:`. N1 e N2 consultam as duas fontes. Exemplo: `agentes.busca.model = 'opus'` e despacho `hadouken:busca` com `model: 'opus'` passa; com `model: 'fable'` nega N1.
+- **Agentes de revisão** (`AGENTES_REVISAO`, em `src/agentes/paleta.js`): `revisor` e `auditor`. A isenção da regra A2 vale para `hadouken:<nome>` desses dois; a regra A1 isenta os mesmos dois, e o texto de A1 nomeia os dois e o substituto `hadouken:implementador`. Nenhum texto de roteamento (SessionStart, A1, A2, N2, aprendizado, skill) cita `executor` ou `revisor-critico`, salvo a mensagem de negação abaixo, que nomeia o removido de propósito.
+- Despacho para `hadouken:executor` ou `hadouken:revisor-critico` → negado com "saiu na 0.6.0; use `hadouken:<novo>`". A negação só alcança sessão aberta antes da atualização; depois dela o tipo some do harness.
 - `LINHAS_REGRA` vira texto gerado da paleta efetiva (padrão + config) no SessionStart.
 
 ### Fatia 4 — Paleta configurável
 
 - Chave `agentes` em `config.json`: `{"<nome>": {"model": "haiku|sonnet|opus|fable", "effort": "low|medium|high|xhigh|max", "ativo": true|false}}`. `<nome>` é o agente do plugin sem prefixo e vale para despachos `hadouken:<nome>`. Nome desconhecido, valor fora do enum ou tipo errado → campo ignorado + aviso no SessionStart.
-- **Hook de despacho** (o mesmo PreToolUse de `src/hooks/guarda-despacho.js`, para haver um só `updatedInput` por chamada): a aplicação da paleta roda **antes** do `return` da guarda desligada; só para `Agent`/`Task` (não `Workflow`).
-  1. `ativo: false` → `deny` com o substituto da tabela (se o substituto também estiver inativo, "faça direto").
-  2. `model` ausente no `tool_input` e presente na config → injeta; idem `effort`. Campo explícito no despacho nunca é sobrescrito.
-  3. `subagent_type: "fork"` → não injeta (o fork ignora model/effort).
-  4. Saída: `updatedInput` com o `tool_input` original inteiro mais os campos injetados.
-  5. Com guarda ligada, as regras de hoje (travas, G5, N1/N2) rodam depois e um `deny` delas prevalece.
-  6. Exceção no código da paleta → passa adiante sem injetar nem negar, e registra o erro.
-- A config é lida a cada despacho (mudança vale na hora); o texto do SessionStart reflete a config do início da sessão.
+- **Precedência do perfil de um despacho**: parâmetro explícito do despacho > `agentes.<nome>` da config > frontmatter do agente. `roteamento.subir` não entra na precedência: não injeta nem troca valor; só decide, em N1 e N2, se um parâmetro explícito acima do frontmatter é aprovado (Fatia 3, "Aprovação em N1 e N2"). Leitura de `src/roteamento/config.js:14,47-52,62-75` e `regras.js:24` confirma esse uso (§0).
+- **Perfil efetivo** (G5 `despachoCaro`, G6 trava do Fable, G7 contagem de despachos Fable): `perfilDoDespacho` aplica a precedência acima, com `agentes.<nome>` valendo para `hadouken:<nome>`, e acha o frontmatter em `<cwd>/.claude/agents`, em `~/.claude/agents` ou no agente de plugin `hadouken:<nome>`, pela mesma busca de `perfilRoteamento` (`<CLAUDE_PLUGIN_ROOT>/agents/<nome>.md`, `despacho.js:126,133-137`). Outro plugin, nome inexistente e nome hostil ficam com o perfil `desconhecido`, como em `test/guarda-despacho.test.js:58-62`. N1/N2 e A1–A3 avaliam o `tool_input` original (Fatia 3). Exemplos: `hadouken:auditor` sem `model` (padrão fable·high) é Fable para G5, G6 e G7; com `agentes.revisor = {model: 'fable', effort: 'max'}`, `hadouken:revisor` sem parâmetro é fable·max para G5.
+- **Hook de despacho** (o mesmo PreToolUse de `src/hooks/guarda-despacho.js`, para haver um só `updatedInput` por chamada). Ordem:
+  1. Ferramenta `Agent`/`Task`/`Workflow` e `dirDados()` válido; senão passa.
+  2. **Paleta, antes dos portões da guarda**: roda sem exigir `session_id` válido, sessão ativa, status da guarda diferente de `erro` nem guarda ligada, e só para `Agent`/`Task` (não `Workflow`). Lê a config a cada despacho.
+     - `subagent_type` removido (`executor`, `revisor-critico`) → `deny` com o substituto;
+     - `ativo: false` → `deny` com o substituto da tabela (se o substituto também estiver inativo, "faça direto");
+     - `model` ausente no `tool_input` e presente na config → injeta; idem `effort`. Campo explícito no despacho nunca é sobrescrito;
+     - `subagent_type: "fork"` → não injeta (o fork ignora model/effort);
+     - exceção no código da paleta → passa adiante sem injetar nem negar, e registra o erro.
+  3. Portões da guarda: `session_id` inválido, sessão inativa, status `erro`, guarda desligada. A saída é a injeção pendente (se houver) ou nada.
+  4. Com guarda ligada: travas, G5, G6, G7 (perfil efetivo), N1/N2 e A1–A3 (`tool_input` original). Um `deny` da guarda prevalece e sai sem `updatedInput`.
+  5. Saída final, quando há injeção: `updatedInput` com o `tool_input` original inteiro mais os campos injetados, com ou sem `permissionDecision: "allow"`: o passo 0 da Tarefa 6 mede as duas variantes em auto mode e fixa a que injeta e respeita as regras do usuário (§0: com `allow`, as regras `deny`/`ask` seguem valendo). `ask` da guarda (`guarda.perguntar`) leva o `updatedInput` também; o aviso A1–A3 mantém o `additionalContext`.
+- O texto do SessionStart reflete a config do início da sessão.
 - **Comando** `/hadouken:agentes` (skill + `UserPromptExpansion`): sem argumento mostra a tabela (agente, padrão, override, ativo); `<nome> <model> [effort]`, `<nome> off`, `<nome> on`, `<nome> padrao` gravam. Só o usuário grava.
 
 ### Fatia 5 — Skill roteamento
@@ -223,9 +261,9 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 
 ### Fatia 6 — Versão, README, notas de quebra
 
-- `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (hadouken 0.6.0, kit 1.2.0), `kit/.claude-plugin/plugin.json`, `kit/testado.json` (hadouken 0.6.0).
+- `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (hadouken 0.6.0, kit 1.2.0), `kit/.claude-plugin/plugin.json` (versão 1.2.0 e `dependencies` = `[{"name": "hadouken", "version": ">=0.6.0"}]`), `kit/testado.json` (hadouken 0.6.0).
 - README: paleta e `/hadouken:agentes`, janela e `/hadouken:janela`, dedup, régua e `/hadouken-kit:regua`, auditoria e mutação.
-- Notas de quebra: agentes renomeados ou removidos; `revisor` em sonnet; kit sem dependências de terceiros no manifesto; o hook de despacho atua com a guarda desligada.
+- Notas de quebra: agentes renomeados ou removidos; `revisor` em sonnet; kit sem dependências de terceiros no manifesto e com `hadouken` ≥ 0.6.0 como dependência (com um `hadouken` menor o kit fica desabilitado); o hook de despacho atua com a guarda desligada; a negação de agente removido só alcança sessão aberta antes da atualização.
 
 ### Fatia 7 — Régua de desenvolvimento
 
@@ -238,17 +276,24 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
    "transversais": [{"skill": "mattpocock-skills:diagnosing-bugs", "quando": "lentidão ou regressão"}]}
   ```
   Fase: `fase` (obrigatório), `usar` (lista), `alternativas` (lista de `{skill, quando}`), `agente` (opcional, um). Fase sem `usar` nem `agente` é inválida.
-- **Origem e precedência**: `<cwd da sessão>/.claude/hadouken.json` chave `regua` → senão `~/.claude/hadouken/regua.json` → senão a padrão. A de maior precedência substitui a outra por inteiro. Arquivo ilegível ou inválido → aviso e cai para o nível seguinte. A global fica em arquivo próprio, porque quem grava é o kit e `config.json` é do hadouken (evita dois plugins gravando o mesmo arquivo).
-- **Régua padrão** (em `kit/`): fases da tabela Processo de hoje mais Auditoria e Mutação, na ordem Ideia → Protótipo → Registrar a forma → Auditoria da spec → Quebrar o trabalho → Executar → Teste e bug → Revisar → Mutação → Auditoria do diff; transversais = momentos do Matt Pocock, Melhorar o sistema e Especialidades. Os textos e nomes de hoje se preservam (os testes de `test/kit-fluxo.test.js` seguem válidos).
+- **Raiz do projeto**: `CLAUDE_PROJECT_DIR` (caminho absoluto existente) → senão o diretório mais próximo, do cwd para cima, que contém `.git` (diretório ou arquivo, para worktree), achado por subida de pastas, sem executar `git` → senão o cwd.
+- **Origem e precedência**: `<raiz do projeto>/.claude/hadouken.json` chave `regua` → senão `~/.claude/hadouken/regua.json` → senão a padrão. A de maior precedência substitui a outra por inteiro; a substituição é decisão do Fernando. Arquivo ilegível ou inválido → aviso e cai para o nível seguinte. A global fica em arquivo próprio, porque quem grava é o kit e `config.json` é do hadouken (evita dois plugins gravando o mesmo arquivo).
+- **Régua do repo no lugar da do usuário**: com a origem `repo`, o SessionStart mostra ao usuário (`systemMessage`) uma linha fixa: `hadouken-kit: a régua deste repositório (.claude/hadouken.json) vale no lugar da sua; /hadouken-kit:regua mostra qual.` A linha não ecoa conteúdo do arquivo.
+- **Régua padrão** (em `kit/`): fases da tabela Processo de hoje mais Auditoria e Mutação, na ordem Ideia → Protótipo → Registrar a forma → Auditoria da spec → Quebrar o trabalho → Executar → Teste e bug → Revisar → Mutação → Auditoria do diff; transversais = momentos do Matt Pocock, Melhorar o sistema e Especialidades. Os nomes de skill e a marca `/` das só-do-usuário se preservam. O teto de `test/kit-fluxo.test.js:87-88` muda (ver "Injeção"), e as asserções de formato literal do texto passam a afirmar o formato novo (Tarefa 10).
 - **Auditoria** (fases "Auditoria da spec" e "Auditoria do diff"): roda quando a mudança cai no critério 1 da escolha de modelo ou muda contrato público (API, schema, config do usuário, hook, formato de arquivo); fora: doc, rename, fatia mecânica; segunda rodada só se a spec mudou materialmente.
 - **Mutação**: skill nova `hadouken-kit:mutacao`. Fim da frente, antes do PR; só linhas alteradas no branch; cada sobrevivente em linha alterada é morto com teste ou justificado no PR; sem nota percentual fixa. Ferramenta por stack: JS/TS → StrykerJS via `npx` (sem virar dependência do projeto), Python → mutmut, .NET → Stryker.NET, JVM → PIT; outras → a skill diz que não há ferramenta conhecida e pede a escolha.
-- **Validação**: nomes de skill conferidos contra as skills instaladas e habilitadas (plugins habilitados no cache, `~/.claude/skills`, `.claude/skills` do projeto), lendo `name` e `disable-model-invocation` do frontmatter; agente conferido contra agentes de plugin e de `~/.claude/agents`. Desconhecido → aviso de uma linha; o resto vale.
-- **Injeção** (SessionStart do kit): "Régua (<repo|global|padrão>): Fase → skills; …; Transversais: …"; skills só-do-usuário com `/`; campos `quando` sem quebra de linha e com até 120 caracteres; texto total até 2 000 caracteres, com "… (régua completa: /hadouken-kit:regua)" quando corta. A régua só orienta.
+- **Saneamento e limites** (todos os campos de uma régua de repo, global ou do rascunho):
+  - nomes (`usar[]`, `alternativas[].skill`, `agente`): regex `^[A-Za-z0-9_:-]{1,80}$` (a mesma de `NOME_ROTEAMENTO`, `src/guarda/despacho.js:125`); nome fora da regex ou acima de 80 caracteres → o item é descartado (de `usar`, de `alternativas` ou o campo `agente`) e conta como descarte;
+  - texto livre (`fase`, `quando`): caractere de controle e quebra de linha viram espaço, espaços repetidos viram um, corte em `LIMITE_FASE = 60` e `LIMITE_QUANDO = 120`; texto vazio depois do saneamento → `fase` vazia invalida a fase, `quando` vazio descarta a alternativa ou o transversal;
+  - contagens: até 20 fases, 12 itens em cada `usar`, 12 `alternativas` por fase e 40 transversais; o excedente é descartado e conta como descarte;
+  - o rascunho do `aplicar` passa pelo mesmo saneamento.
+- **Validação**: nomes de skill conferidos contra as skills instaladas e habilitadas (plugins habilitados no cache, `~/.claude/skills`, `.claude/skills` do projeto), lendo `name` e `disable-model-invocation` do frontmatter; agente conferido contra agentes de plugin e de `~/.claude/agents`. Desconhecido → o resto vale. O aviso ao usuário (`systemMessage`) tem texto fixo e contagem, nunca o nome ou texto cru da régua: `hadouken-kit: régua com N skill(s) e M agente(s) desconhecido(s) e K item(ns) descartado(s); /hadouken-kit:regua mostra a régua ativa.` (só as parcelas diferentes de zero). `/hadouken-kit:regua` sem argumento lista os nomes desconhecidos que passaram pela regex.
+- **Injeção** (SessionStart do kit): "Régua (<repo|global|padrão>): Fase → skills; …; Transversais: …"; skills só-do-usuário com `/`; o texto da régua tem até 2 000 caracteres, prefixo "Régua (<origem>): " incluído, com "… (régua completa: /hadouken-kit:regua)" quando corta. O `additionalContext` inteiro do SessionStart do kit (linha de abertura, régua e a linha de Web/Grafo/consumo) tem teto de 2 400 caracteres e 5 linhas: 2 000 da régua mais 336 das duas linhas fixas (175 e 158 caracteres, medidos em `node kit/hooks/fluxo.js`), com folga; o teste em `test/kit-fluxo.test.js:87-88` passa de 1 600 para 2 400 caracteres e mantém as 5 linhas. A régua só orienta.
 - **Skill `fluxo`**: aponta para a régua ativa no texto do SessionStart e mantém a tabela da padrão como referência.
 - **Comando** `/hadouken-kit:regua` (skill + `UserPromptExpansion` no `kit/hooks/hooks.json`):
   - sem argumento → régua ativa e origem;
   - `editar` → o Claude monta com o usuário, fase a fase, oferecendo as skills instaladas, mostra o JSON e grava o rascunho em `<tmp do SO>/hadouken/regua-rascunho.json`; nada vale até o `aplicar`;
-  - `aplicar` / `aplicar --projeto` → o hook valida o rascunho, grava atomicamente (`~/.claude/hadouken/regua.json` ou a chave `regua` de `<cwd>/.claude/hadouken.json`, preservando outras chaves), apaga o rascunho e responde com o resumo e os avisos;
+  - `aplicar` / `aplicar --projeto` → o hook valida o rascunho, grava atomicamente (`~/.claude/hadouken/regua.json` ou a chave `regua` de `<raiz do projeto>/.claude/hadouken.json`, preservando outras chaves), apaga o rascunho e responde com o resumo e os avisos;
   - `padrao` / `padrao --projeto` → remove a régua do nível.
 
 ## 5. Casos de borda
@@ -266,6 +311,7 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 | D15 | `duplicada` com plugin ligado que depende da cópia do kit (`dependencies` do manifesto, nos três formatos) | A cópia do kit fica ligada. O instalador mostra linha informativa que nomeia o dependente; o SessionStart não mostra linha. Manifesto ausente ou ilegível = sem dependências |
 | D16 | Formas de origem | Valem como origem: `url` de `github.com` em `https`, `https://www.` ou SSH `git@github.com:`, com ou sem `.git`; `source` relativo com ou sem `./`. `git-subdir` sem `path` não tem origem |
 | D17 | `prune` | Com o kit 1.2.0 sem dependências de terceiros no manifesto, as dependências que o kit instalou com `auto: true` ficam órfãs, e `claude plugin prune` as remove. O SessionStart avisa `falta <D>` com `claude plugin install <D>`, e o instalador as instala de novo. Comportamento previsto |
+| D18 | A dependência que o instalador 0.6.0 instala com `plugin install <D>` pode ficar sem `auto` em `installed_plugins.json` (a medir no e2e da T13) | Sem `auto`, um homônimo instalado depois gera só o aviso do D13 (as duas fazem o mesmo), sem desligar nada |
 | D5 | Plugin habilitado só no escopo de projeto | Fora da avaliação (só escopo do usuário); sem aviso |
 | D6 | `installed_plugins.json` ausente ou ilegível | Nenhuma equivalência; instalação como hoje; SessionStart em silêncio |
 | D7 | `claude plugin disable` falha ou a lista seguinte mostra a cópia do kit ainda ligada | Item ✗ com `rode claude plugin disable <D> --scope user`; nada mais muda. No SessionStart do kit, `settings.json` ilegível → silêncio |
@@ -286,20 +332,26 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 | J12 | Fim da janela às `24:00` | Inválido (aviso + 168 h): o fim máximo é `23:59` |
 | A1 | Despacho com `model` explícito e config com outro | Explícito vence |
 | A2 | `ativo:false` com `model` explícito | Nega (agente inativo) com substituto |
-| A3 | Config dá `opus` a `busca` com guarda ligada | N2 avalia só o explícito; não nega |
+| A3 | Config dá `opus` a `busca` com guarda ligada, despacho sem `model` | N1 e N2 avaliam o `tool_input` original; não negam |
 | A4 | Outro plugin também devolve `updatedInput` no Agent | Comportamento não documentado; e2e registra o que acontece; README avisa |
 | A5 | `effort` em haiku | Injeta; Claude Code aceitou `low` em haiku no experimento |
 | A6 | Agente local de mesmo nome em `~/.claude/agents` | Vence o do plugin no nome curto; a paleta vale para `hadouken:<nome>`; README orienta remover as cópias locais |
 | A7 | Despacho `Workflow` | Paleta não se aplica |
 | A8 | Erro de leitura da config | Passa adiante sem injetar; aviso no SessionStart |
+| A9 | Despacho com `model` ou `effort` explícito igual ao de `agentes.<nome>` ou, para o `model`, a `roteamento.subir[<agente>]` | Subida aprovada: N1 e N2 não negam. Explícito diferente do aprovado → N1/N2 negam como antes |
+| A10 | Guarda desligada, `session_id` inválido, sessão inativa ou status `erro` da guarda | A paleta injeta e nega agente removido mesmo assim; as regras da guarda não rodam |
+| A11 | `hadouken:auditor` sem `model` (padrão fable·high), ou `agentes.revisor = {model: 'fable', effort: 'max'}` sem parâmetro | G5, G6 e G7 usam o perfil efetivo: enxergam fable (e fable·max) |
+| A12 | `guarda.perguntar` ligado com injeção pendente; `deny` da guarda com injeção pendente | `ask` leva o `updatedInput`; `deny` sai sem `updatedInput` |
 | R1 | Régua do repo com JSON inválido | Aviso; cai para a global (ou padrão) |
 | R2 | Régua com zero fases | Inválida → nível seguinte + aviso |
 | R3 | Skill citada não instalada | Aviso de uma linha; fase segue com o resto |
-| R4 | Régua longa | Corte em 2 000 caracteres com ponteiro para o comando |
+| R4 | Régua longa | Corte do texto da régua em 2 000 caracteres com ponteiro para o comando; `additionalContext` inteiro até 2 400 caracteres |
 | R5 | Texto de régua de repo de terceiro injetado no contexto | Mesmo nível de confiança do CLAUDE.md do projeto; campos com limite e sem quebra de linha; origem rotulada "régua do repo" |
 | R6 | `aplicar` sem rascunho | Mensagem "sem rascunho; rode /hadouken-kit:regua editar" |
-| R7 | `aplicar --projeto` fora de um repo git | Grava em `<cwd>/.claude/hadouken.json` e avisa que não há repo |
-| R8 | Sessão aberta em subpasta do repo | Usa `<cwd>/.claude/hadouken.json`; se não existe, a global |
+| R7 | `aplicar --projeto` sem `CLAUDE_PROJECT_DIR` e sem `.git` do cwd para cima | Grava em `<cwd>/.claude/hadouken.json` e avisa que não há repo |
+| R8 | Sessão aberta em subpasta do repo | Usa `<raiz do projeto>/.claude/hadouken.json` (`CLAUDE_PROJECT_DIR`, senão o `.git` mais próximo acima); se não existe, a global |
+| R9 | Régua do repo válida | Vale no lugar da global ou padrão, com a linha fixa de aviso ao usuário (Fatia 7) |
+| R10 | Nome, `fase` ou `quando` fora do formato ou do tamanho; lista acima do limite | Saneamento e descarte da Fatia 7; o aviso mostra texto fixo e contagem, nunca o conteúdo |
 
 ## 6. Decisões de teste
 
@@ -309,7 +361,7 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
   2. **Instalador** — `instalar-tudo` com CLI falso (`HADOUKEN_CLAUDE`) e HOME com `known_marketplaces.json` e `marketplace.json` de fixture: não instala com equivalente, `plugin disable <D> --scope user` no log do falso com duplicata e `auto: true` no `installed_plugins.json` de fixture (sem `auto` ou com dependente ligado: nenhum `disable`), `plugin install <D>` com ausente, nunca `uninstall`, aviso de versão, kit < 1.2.0. Prior art: `test/instalar-tudo.test.js:30,328`, `test/dados/instalador/claude-falso.mjs:74`.
   3. **Config** — gravação atômica preservando chaves, valor inválido. Prior art: `test/config-gravar.test.js:19-20`, `test/configuracao.test.js:42-45`.
 - Paridade: a avaliação de dependências do kit e a do hadouken dão o mesmo resultado para o mesmo conjunto de fixtures.
-- Regressão: a suíte inteira passa; mudam só os testes que afirmam agentes removidos, a lista de dependências do manifesto e o texto fixo de `LINHAS_REGRA`.
+- Regressão: a suíte inteira passa; mudam só os testes que afirmam agentes removidos, a lista de dependências do manifesto (objeto `{name, version}` na 1.2.0), o texto fixo de `LINHAS_REGRA`, os textos A1 e N2 e o substituto do aprendizado (sem `executor` nem `revisor-critico`), o teto de caracteres do SessionStart do kit (`test/kit-fluxo.test.js:87`, de 1 600 para 2 400) e as asserções de formato literal do texto da régua (Tarefa 10).
 - **Mutação** no fim, antes do PR: StrykerJS via `npx`, runner de comando `node --test`, `mutate` = faixas de linha de `git diff -U0` do branch contra `main` em `src/` e `kit/`. Cada sobrevivente em linha alterada: teste novo ou justificativa no corpo do PR.
 
 ## 7. Fora do escopo
@@ -321,11 +373,23 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 - Override de paleta por projeto (a paleta é global).
 - Atualizar o CLAUDE.md pessoal do mantenedor e remover agentes locais (feito fora do repo, depois do merge).
 
-## 8. Perguntas abertas (fato a medir no início da fatia indicada)
+## 8. Perguntas abertas
 
-1. (Fatia 4) `updatedInput` com `permissionDecision: "allow"` contorna regra `deny`/`ask` do usuário para o Agent? E sem `permissionDecision`, a injeção vale nos modos padrão e auto? A fatia usa a variante que respeita as regras do usuário.
+### 8.1 Fatos a medir (início da fatia indicada)
+
+1. (Fatia 4, passo 0) A medição em `permissions.defaultMode: "auto"` confere com a doc (§0): a variante sem `permissionDecision` é negada com o texto `a hook changed this call's input after auto mode reviewed it`, e a variante com `"allow"` injeta e mantém as regras `deny`/`ask`? O registro da saída entra no §0, na linha "Medido no passo 0".
 2. (Fatia 4) `updatedInput` vence o `model` do frontmatter de um agente de plugin? (A doc diz que o parâmetro por invocação vence o frontmatter; falta medir quando ele vem do hook.)
 3. (e2e) Com `--plugin-dir` apontando para o branch e o mesmo plugin instalado do marketplace, quais hooks rodam?
+4. (e2e, D18) A dependência instalada por `plugin install <D>` do instalador 0.6.0 fica sem `auto` em `installed_plugins.json`?
+
+### 8.2 Decisões do Fernando (dono: Fernando)
+
+Nenhuma está decidida; cada uma traz a recomendação.
+
+- **P-a.** `/hadouken:consumo` (`src/relatorio.js:290`, `faixa7d({ usado: u, resetsAt: r, agoraMs })` sem `trabalho`) calcula a faixa de 7 dias com a janela? Recomendação: sim, para o relatório mostrar o mesmo esperado e a mesma faixa do SessionStart.
+- **P-b.** O trabalho fora da janela (ex.: sábado 13:00–16:00, uso a 96 % e subindo) silencia a previsão e a frase pode dizer "não esgota" sem que seja verdade? Recomendação: com consumo crescente fora da janela nas últimas 2 h, projetar em relógio de parede.
+- **P-c.** O limiar de `so-leitura` (`src/alerta.js:75`, `usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS`) usa 24 h de relógio, não horas úteis. Recomendação: com janela, exigir também ao menos 2 h úteis até o reset.
+- **P-d.** `/hadouken:limites` (hook `src/hooks/limites.js`, sobe `guarda.teto7d`) fica fora da vigia da guarda de agenda: `VIGIA = /liberar|aprender|hadouken:janela|\/janela\b/i` (`src/hooks/guarda-agenda.js:46`) não tem `limites` (`grep -n limites src/hooks/guarda-agenda.js` → vazio). Recomendação: incluir `hadouken:limites` e `/limites` na vigia.
 
 ## 9. e2e passo a passo
 
@@ -333,10 +397,10 @@ Artefatos com prefixo `ZZE2E`; cópia de `~/.claude/hadouken/config.json` antes 
 
 1. **Baseline**: `node --test` em `a73e458` → registrar total e falhas.
 2. **Cada fatia**: `node --test` verde; diff resumido.
-3. **Dedup (máquina real, com ok do mantenedor — muda `settings.json`)**: mostrar a tabela do que muda; `node src/instalar-tudo.js` do branch → `enabledPlugins["mattpocock-skills@claude-hadouken"] = false`, `mattpocock-skills@mattpocock` intacto, nenhum `uninstall` no log; nova sessão → nenhum aviso de duplicata; lista de skills com uma cópia de cada `mattpocock-skills:*`.
+3. **Dedup (máquina real, com ok do mantenedor — muda `settings.json`)**: mostrar a tabela do que muda; `node src/instalar-tudo.js` do branch → `enabledPlugins["mattpocock-skills@claude-hadouken"] = false`, `mattpocock-skills@mattpocock` intacto, nenhum `uninstall` no log; nova sessão → nenhum aviso de duplicata; lista de skills com uma cópia de cada `mattpocock-skills:*`; depois do `plugin install <D>` de uma dependência ausente, o campo `auto` da entrada em `installed_plugins.json` (D18); `claude plugin list` com o `hadouken-kit` 1.2.0 habilitado e sem a linha `Requires "hadouken@claude-hadouken"` (faixa `>=0.6.0`).
 4. **Janela**: `/hadouken:janela seg-sex 9-21` → chave gravada; SessionStart mostra esperado igual ao cálculo manual de `U` para o instante; `/hadouken:janela off` → número igual ao da baseline.
-5. **Agentes** (guarda desligada): `/hadouken:agentes revisor opus high`; despacho `hadouken:revisor` sem model → transcript do subagente `message.model` = opus, `meta.json` effort `high`; despacho com `model: sonnet` → sonnet; `/hadouken:agentes auditor off` → despacho negado com "use hadouken:revisor"; `fork` sem injeção; `padrao` restaura.
-6. **Régua**: `/hadouken-kit:regua` → padrão; `editar` → rascunho; `aplicar` → nova sessão mostra "Régua (global)"; repo `ZZE2E-regua` com `.claude/hadouken.json` → "Régua (repo)"; skill inexistente → aviso; `padrao` restaura.
+5. **Agentes** (guarda desligada): `/hadouken:agentes revisor opus high`; despacho `hadouken:revisor` sem model → transcript do subagente `message.model` = opus, `meta.json` effort `high`; despacho com `model: sonnet` → sonnet; `/hadouken:agentes auditor off` → despacho negado com "use hadouken:revisor"; `fork` sem injeção; em `permissions.defaultMode: "auto"` o despacho com injeção roda sem a negação `a hook changed this call's input after auto mode reviewed it`; `padrao` restaura.
+6. **Régua**: `/hadouken-kit:regua` → padrão; `editar` → rascunho; `aplicar` → nova sessão mostra "Régua (global)"; repo `ZZE2E-regua` com `.claude/hadouken.json` → "Régua (repo)" e a linha de aviso "vale no lugar da sua"; sessão aberta numa subpasta desse repo → o mesmo; skill inexistente → aviso com texto fixo e contagem; `padrao` restaura.
 7. **Mutação**: relatório do StrykerJS nas linhas alteradas; sobreviventes tratados.
 8. **Auditoria**: rodada do `auditor` no diff final.
 9. **Resíduo zero**: apagar diretórios e transcripts `ZZE2E`, restaurar `config.json`, conferir por `ls`/`jq`.
