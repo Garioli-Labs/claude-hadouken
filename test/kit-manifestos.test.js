@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VERSAO_REA } from '../rea/lancar.mjs';
 import { GRAPHIFY } from '../src/instalar-tudo.js';
+import { TERCEIROS_KIT } from '../src/instalar/dedup.js';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ler = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
@@ -67,19 +68,15 @@ test('marketplace: allowlist só com o oficial', () => {
   }
 });
 
-test('kit: versão igual à do marketplace, dependências só por nome (menos o superpowers) e sem faixa de versão', () => {
+// v0.6.0 (spec §4, Fatia 1): o manifesto declara só o hadouken. Dependência de
+// terceiro desabilitada derruba o kit; o instalador garante os terceiros
+// (DEPENDENCIAS_KIT) e o SessionStart do kit avisa de cópia em dobro.
+test('kit: versão igual à do marketplace e dependências só `hadouken` (sem terceiros, sem faixa de versão)', () => {
   const kit = ler('kit/.claude-plugin/plugin.json');
   assert.equal(kit.name, 'hadouken-kit');
   assert.match(kit.version, /^\d+\.\d+\.\d+$/);
   assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken-kit').version, kit.version);
-  assert.deepEqual(kit.dependencies, [
-    'hadouken',
-    { name: 'superpowers', marketplace: 'claude-plugins-official' },
-    'mattpocock-skills',
-    'poka-yoke',
-    'fullstack-dev-skills',
-    'ui-ux-pro-max',
-  ]);
+  assert.deepEqual(kit.dependencies, ['hadouken']);
   for (const d of kit.dependencies) if (typeof d === 'object') assert.equal(d.version, undefined, d.name);
 });
 
@@ -95,11 +92,9 @@ test('kit: o REA não é dependência do kit (dependência sobe sempre ligada)',
   assert.ok(!JSON.stringify(kit.dependencies).includes('rea'));
 });
 
-test('testado.json: uma versão para cada dependência, chaves novas e as mesmas versões', () => {
-  const kit = ler('kit/.claude-plugin/plugin.json');
+test('testado.json: uma versão para o hadouken e para cada terceiro do kit, chaves novas e as mesmas versões', () => {
   const t = ler('kit/testado.json');
-  const chaves = kit.dependencies.map((d) =>
-    typeof d === 'string' ? `${d}@claude-hadouken` : `${d.name}@${d.marketplace}`).sort();
+  const chaves = ['hadouken@claude-hadouken', ...TERCEIROS_KIT].sort();
   assert.deepEqual(Object.keys(t.dependencias).sort(), chaves);
   for (const v of Object.values(t.dependencias)) assert.match(v, /^\d+\.\d+\.\d+$/);
   // As versões dos terceiros e do rea-agents são do robô; aqui, só o que anda

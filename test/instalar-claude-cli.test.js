@@ -183,9 +183,10 @@ test('passoKit: dependência instalada e desligada pelo usuário, sem equivalent
   assert.match(r.item.detalhe, /rode claude plugin enable mattpocock-skills@claude-hadouken/);
 });
 
-test('DEPENDENCIAS_KIT casa com o plugin.json do kit', () => {
+test('DEPENDENCIAS_KIT é o que o instalador garante (hadouken + terceiros); o manifesto do kit declara só o hadouken', () => {
   const kit = JSON.parse(fs.readFileSync(new URL('../kit/.claude-plugin/plugin.json', import.meta.url), 'utf8'));
-  assert.deepEqual(DEPENDENCIAS_KIT, kit.dependencies.map((d) => (typeof d === 'string' ? `${d}@claude-hadouken` : `${d.name}@${d.marketplace}`)));
+  assert.deepEqual(DEPENDENCIAS_KIT, ['hadouken@claude-hadouken', ...TERCEIROS_KIT]);
+  assert.deepEqual(kit.dependencies, ['hadouken']);
 });
 
 test('passoRea: REA já instalado e desligado pelo usuário continua desligado, mesmo com Node aceito', async () => {

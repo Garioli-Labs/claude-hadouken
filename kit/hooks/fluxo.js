@@ -1,5 +1,9 @@
-// SessionStart do hadouken-kit (spec §5.2): só imprime uma constante.
-// Não lê stdin, arquivo nem ambiente; não importa módulo nenhum.
+// SessionStart do hadouken-kit (spec §5.2): imprime uma constante e, desde a
+// v0.6.0 (Fatia 1), um aviso de cópia em dobro. Este arquivo não lê stdin,
+// arquivo nem ambiente e não importa nada de forma estática: a avaliação das
+// dependências mora em ./dependencias.js, carregada com import() dentro de
+// try. Qualquer exceção (módulo ausente, leitura, avaliação) → só o
+// additionalContext de sempre, sem aviso.
 // Até 1 600 caracteres e 5 linhas (o teste confere): cada skill do Matt
 // Pocock que o superpowers não cobre vai com o seu momento, para o Claude
 // acioná-la sozinho (pedido do Sr. Garioli, 2026-10-14). As que têm
@@ -14,6 +18,11 @@ const TEXTO = [
   'Web: hadouken-kit:yu-ux-web-expert. Grafo do código: hadouken-kit:graphify. Antes de etapa cara (Fable, muitos subagentes, Workflow), leia a linha de consumo.',
 ].join('\n');
 
-process.stdout.write(JSON.stringify({
-  hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: TEXTO },
-}));
+let aviso = null;
+try {
+  aviso = (await import('./dependencias.js')).avisoDaSessao();
+} catch { /* sem aviso */ }
+
+const saida = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: TEXTO } };
+if (typeof aviso === 'string' && aviso !== '') saida.systemMessage = aviso;
+process.stdout.write(JSON.stringify(saida));
