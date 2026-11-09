@@ -252,7 +252,7 @@ test('SessionStart: o texto de roteamento sai da paleta (varredor e auditor), se
   assert.match(texto, /hadouken:roteamento/);
 });
 
-test('paletaEfetiva: nesta tarefa sempre o padrão, uma entrada por agente', () => {
+test('paletaEfetiva sem config: o padrão, uma entrada por agente', () => {
   const e = paletaEfetiva();
   assert.deepEqual(e.map((x) => x.nome), NOMES);
   for (const x of e) assert.deepEqual([x.ativo, x.override], [true, false], x.nome);
