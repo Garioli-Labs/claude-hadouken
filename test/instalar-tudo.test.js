@@ -68,6 +68,13 @@ function registrarMattpocock(c) {
   fs.writeFileSync(path.join(c.casa, 'plugins', 'known_marketplaces.json'), JSON.stringify({ mattpocock: { source: { source: 'github', repo: 'mattpocock/skills' }, installLocation: loc } }));
   fs.writeFileSync(path.join(loc, '.claude-plugin', 'marketplace.json'), JSON.stringify({ plugins: [{ name: 'mattpocock-skills', source: './' }] }));
 }
+// O registro como o claude grava: `auto: true` nas entradas que ele instalou como dependência.
+function registrarAuto(c, ids, extra = {}) {
+  const plugins = {};
+  for (const id of [...ids, ...Object.keys(extra)]) plugins[id] = [{ scope: 'user', version: '1.0.0', installPath: `${c.casa}/${id.split('@')[0]}`, ...(ids.includes(id) ? { auto: true } : {}), ...(extra[id] ?? {}) }];
+  fs.mkdirSync(path.join(c.casa, 'plugins'), { recursive: true });
+  fs.writeFileSync(path.join(c.casa, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins }));
+}
 const kitItem = (itens) => itens.find((i) => i.nome === 'hadouken-kit');
 const semUninstall = (c) => assert.ok(!c.estado.log.some((l) => l.includes('uninstall')), 'nunca desinstala');
 const estados = (itens) => itens.map((i) => [i.nome, i.estado]);
@@ -158,14 +165,15 @@ test('kit antigo: cada dependência chega por install próprio; a que não insta
 
 // ------------------------------------------------------------ dedup (v0.6.0, Fatia 1)
 
-test('dedup duplicada: as duas cópias ligadas e kit 1.2.0 → desliga a do kit pelo CLI, sem desinstalar', async () => {
+test('dedup duplicada: as duas cópias ligadas, a do kit instalada como dependência (auto) e kit 1.2.0 → desliga a do kit pelo CLI com --scope user, sem desinstalar', async () => {
   const c = cenario();
   registrarMattpocock(c);
+  registrarAuto(c, [MATT]);
   plugin(c, ID_KIT, '1.2.0');
   plugin(c, MATT, '1.3.2');
   plugin(c, MATT_UPSTREAM, '1.3.2');
   const itens = await rodarTudo(c);
-  assert.ok(c.estado.log.includes(`plugin disable ${MATT}`));
+  assert.ok(c.estado.log.includes(`plugin disable ${MATT} --scope user`));
   semUninstall(c);
   assert.equal(c.estado.plugins.find((x) => x.id === MATT).enabled, false);
   assert.equal(c.estado.plugins.find((x) => x.id === MATT_UPSTREAM).enabled, true);
@@ -242,6 +250,7 @@ test('dedup versão igual (D9): o equivalente na versão testada → o resumo n�
 test('dedup D2: kit < 1.2.0 com duplicata → não desliga e manda atualizar o kit', async () => {
   const c = cenario();
   registrarMattpocock(c);
+  registrarAuto(c, [MATT]);
   plugin(c, ID_KIT, '1.1.2');
   plugin(c, MATT, '1.3.2');
   plugin(c, MATT_UPSTREAM, '1.3.2');
@@ -255,20 +264,22 @@ test('dedup D2: kit < 1.2.0 com duplicata → não desliga e manda atualizar o k
 test('dedup D7: o disable não surte efeito → item ✗ com o comando para rodar', async () => {
   const c = cenario();
   registrarMattpocock(c);
+  registrarAuto(c, [MATT]);
   plugin(c, ID_KIT, '1.2.0');
   plugin(c, MATT, '1.3.2');
   plugin(c, MATT_UPSTREAM, '1.3.2');
-  c.estado.falhar = [`disable ${MATT}`];
+  c.estado.falhar = [`disable ${MATT} --scope user`];
   const itens = await rodarTudo(c);
   assert.equal(kitItem(itens).estado, 'falhou');
-  assert.equal(kitItem(itens).conserto, `rode claude plugin disable ${MATT}`);
-  assert.match(formatarResumo(itens), /✗ hadouken-kit: falhou \(.*rode claude plugin disable mattpocock-skills@claude-hadouken\)/);
+  assert.equal(kitItem(itens).conserto, `rode claude plugin disable ${MATT} --scope user`);
+  assert.match(formatarResumo(itens), /✗ hadouken-kit: falhou \(.*rode claude plugin disable mattpocock-skills@claude-hadouken --scope user\)/);
   assert.equal(itens.length, 7, 'o resto segue');
 });
 
 test('dedup: settings.json com a cópia do usuário ligada continua true depois da instalação', async () => {
   const c = cenario({ enabledPlugins: { [MATT_UPSTREAM]: true } });
   registrarMattpocock(c);
+  registrarAuto(c, [MATT]);
   plugin(c, ID_KIT, '1.2.0');
   plugin(c, MATT, '1.3.2');
   plugin(c, MATT_UPSTREAM, '1.3.2');
@@ -279,6 +290,7 @@ test('dedup: settings.json com a cópia do usuário ligada continua true depois 
 test('dedup: segunda rodada depois do disable é = no kit (a cópia do kit já está desligada)', async () => {
   const c = cenario();
   registrarMattpocock(c);
+  registrarAuto(c, [MATT]);
   plugin(c, ID_KIT, '1.2.0');
   plugin(c, MATT, '1.3.2');
   plugin(c, MATT_UPSTREAM, '1.3.2');
@@ -287,6 +299,50 @@ test('dedup: segunda rodada depois do disable é = no kit (a cópia do kit já e
   const itens = await rodarTudo(c);
   assert.equal(kitItem(itens).estado, 'igual');
   assert.ok(!c.estado.log.slice(n).some((l) => l.startsWith('plugin disable') || l.startsWith('plugin install hadouken-kit')));
+});
+
+const OFICIAL = 'superpowers@claude-plugins-official';
+
+test('G1 (A9): superpowers oficial instalado pelo usuário (sem auto) + homônimo de outro marketplace ligado → nenhum disable; o resumo avisa que as duas fazem o mesmo, com o comando', async () => {
+  const c = cenario();
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, OFICIAL, '7.0.0');
+  plugin(c, 'superpowers@outro-marketplace', '6.4.1');
+  registrarAuto(c, [], { [OFICIAL]: {}, [ID_KIT]: {} });
+  const itens = await rodarTudo(c);
+  assert.ok(!c.estado.log.some((l) => l.startsWith('plugin disable')), 'nada é desligado');
+  assert.equal(c.estado.plugins.find((x) => x.id === OFICIAL).enabled, true);
+  semUninstall(c);
+  assert.equal(kitItem(itens).estado, 'ok');
+  assert.match(formatarResumo(itens), new RegExp(`superpowers em dobro com superpowers@outro-marketplace; as duas fazem o mesmo\\. Para ficar com uma: claude plugin disable ${OFICIAL} --scope user`));
+});
+
+test('G1: sem installed_plugins.json legível nada conta como instalado pelo kit e nada é desligado', async () => {
+  const c = cenario();
+  registrarMattpocock(c);
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, MATT, '1.3.2');
+  plugin(c, MATT_UPSTREAM, '1.3.2');
+  await rodarTudo(c);
+  assert.ok(!c.estado.log.some((l) => l.startsWith('plugin disable')));
+});
+
+test('G3 (B5): outro plugin ligado depende da cópia do kit → nenhum disable; o resumo nomeia o dependente e o kit não falha', async () => {
+  const c = cenario();
+  registrarMattpocock(c);
+  registrarAuto(c, [MATT]);
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, MATT, '1.3.2');
+  plugin(c, MATT_UPSTREAM, '1.3.2');
+  const pasta = path.join(c.casa, 'app-dependente');
+  fs.mkdirSync(path.join(pasta, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(pasta, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'app', dependencies: ['mattpocock-skills'] }));
+  c.estado.plugins.push({ id: 'app@claude-hadouken', version: '1.0.0', scope: 'user', enabled: true, installPath: pasta });
+  const itens = await rodarTudo(c);
+  assert.ok(!c.estado.log.some((l) => l.startsWith('plugin disable')));
+  assert.equal(c.estado.plugins.find((x) => x.id === MATT).enabled, true);
+  assert.equal(kitItem(itens).estado, 'ok');
+  assert.match(formatarResumo(itens), /a cópia do kit fica ligada porque app@claude-hadouken depende dela/);
 });
 
 test('REA com Node 20 fica desligado e pulado', async () => {

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { nodeServe } from '../../rea/lancar.mjs';
 import { caminhoCmd, caminhoSeguro } from '../painel/instalar-painel.js';
-import { avaliarDependencias, TERCEIROS_KIT } from './dedup.js';
+import { avaliarDependencias, dependenciasDoManifesto, TERCEIROS_KIT } from './dedup.js';
 import { item } from './itens.js';
 
 // O `claude` do instalador (spec v0.5.2 §4 e §6). criarClaude devolve um
@@ -111,18 +111,34 @@ function kitSemDependencias(v) {
   const i = atual.findIndex((n, k) => n !== MINIMO_DEDUP[k]);
   return i === -1 || atual[i] > MINIMO_DEDUP[i];
 }
-const comando = (verbo, id) => `claude plugin ${verbo} ${id}`;
+// O disable do dedup é sempre no escopo do usuário (spec v0.6.0, G2): sem
+// --scope o claude detecta o escopo e pode escrever em outro arquivo.
+const comando = (verbo, id) => `claude plugin ${verbo} ${id}${verbo === 'disable' ? ' --scope user' : ''}`;
+const listaE = (nomes) => (nomes.length < 2 ? nomes.join('') : `${nomes.slice(0, -1).join(', ')} e ${nomes.at(-1)}`);
+const dependem = (nomes) => `${listaE(nomes)} ${nomes.length === 1 ? 'depende' : 'dependem'} dela`;
+// Leitor que lança conta como plugin sem dependências.
+function dependenciasDe(ler, e, id) {
+  try {
+    const r = ler(e.installPath, id);
+    return Array.isArray(r) ? r : [];
+  } catch {
+    return [];
+  }
+}
 
 // O kit e as dependências de terceiros dele (spec v0.6.0, Fatia 1). Cada
 // dependência é avaliada contra o que o usuário já tem (dedup.js):
 // `ausente` e não instalada → `plugin install`; `duplicada` (a do kit e a
-// equivalente ligadas) → `plugin disable` da do kit, só com o kit ≥ 1.2.0;
+// equivalente ligadas) → `plugin disable <D> --scope user` da do kit, só com o
+// kit ≥ 1.2.0, só se o registro marca a do kit como instalada como dependência
+// (`autos`: o que o usuário instalou ele mesmo só ganha aviso) e só sem outro
+// plugin ligado que dependa dela (G1 e G3);
 // `equivalente` → nada; `ausente` e instalada desligada → não religa e avisa;
 // `propria` com a cópia do usuário desligada → só informa qual vale. Nunca
 // desinstala. A verdade é a lista depois dos comandos (nula → ✗). Os avisos
 // vão no detalhe do item do kit; `lista` é a final e `dedup` a avaliação feita
 // antes dos comandos.
-export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({}) } = {}) {
+export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({}), autos = new Set(), lerDependencias = dependenciasDoManifesto } = {}) {
   const nome = 'hadouken-kit';
   const p = await passoPlugin(rodar, ID_KIT, nome);
   if (p.entrada === null) return { ...p, dedup: [] };
@@ -130,13 +146,14 @@ export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({
   try {
     testado = lerTestado(p.entrada.installPath);
   } catch { /* sem versão testada: só não avisa a versão */ }
-  const plugins = new Map([...p.lista].map(([id, e]) => [id, { ...e, scope: 'user' }]));
+  const instaladosPeloKit = autos instanceof Set ? autos : new Set();
+  const plugins = new Map([...p.lista].map(([id, e]) => [id, { ...e, scope: 'user', auto: instaladosPeloKit.has(id), dependencias: e.enabled === true ? dependenciasDe(lerDependencias, e, id) : [] }]));
   const dedup = avaliarDependencias({ deps: TERCEIROS_KIT, plugins, repos, testado });
   const instalar = dedup.filter((a) => a.estado === 'ausente' && !a.instalada);
   const podeDesligar = kitSemDependencias(p.entrada.version);
-  const desligar = podeDesligar ? dedup.filter((a) => a.estado === 'duplicada') : [];
+  const desligar = podeDesligar ? dedup.filter((a) => a.estado === 'duplicada' && a.auto && a.dependentes.length === 0) : [];
   for (const a of instalar) await rodar(['plugin', 'install', a.id]);
-  for (const a of desligar) await rodar(['plugin', 'disable', a.id]);
+  for (const a of desligar) await rodar(['plugin', 'disable', a.id, '--scope', 'user']);
   const lista = instalar.length + desligar.length > 0 ? await listarPlugins(rodar) : p.lista;
   const base = p.item.estado === 'igual' ? [] : [p.item.detalhe];
   // Sem a lista de depois dos comandos não há o que conferir: a velha não vale.
@@ -148,7 +165,12 @@ export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({
   const instaladas = instalar.filter((a) => lista.has(a.id));
   if (instaladas.length > 0) partes.push(`dependências instaladas: ${instaladas.map((a) => a.nome).join(', ')}`);
   for (const a of dedup) {
-    if (a.estado === 'duplicada' && !podeDesligar) partes.push(`${a.nome} em dobro com ${a.equivalente}; atualize o hadouken-kit para desligar a cópia em dobro`);
+    if (a.estado === 'duplicada' && !a.auto) {
+      partes.push(a.dependentes.length > 0
+        ? `${a.nome} em dobro com ${a.equivalente}; as duas fazem o mesmo, e ${a.id} fica ligada porque ${dependem(a.dependentes)}`
+        : `${a.nome} em dobro com ${a.equivalente}; as duas fazem o mesmo. Para ficar com uma: ${comando('disable', a.id)}`);
+    } else if (a.estado === 'duplicada' && !podeDesligar) partes.push(`${a.nome} em dobro com ${a.equivalente}; atualize o hadouken-kit para desligar a cópia em dobro`);
+    else if (a.estado === 'duplicada' && a.dependentes.length > 0) partes.push(`${a.nome} em dobro com ${a.equivalente}; a cópia do kit fica ligada porque ${dependem(a.dependentes)}`);
     else if (a.estado === 'duplicada' && !ligadas.includes(a)) partes.push(`${a.nome} já instalado via ${a.equivalente}; cópia do kit desligada`);
     else if (a.estado === 'ausente' && a.instalada) partes.push(`${a.id} está desligado e não há outra cópia. Religue: ${comando('enable', a.id)}`);
     else if (a.estado === 'propria' && a.desligada !== null) partes.push(`${a.desligada} está desligado; vale a cópia do kit ${a.id}`);

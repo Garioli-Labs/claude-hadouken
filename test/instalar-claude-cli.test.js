@@ -168,10 +168,10 @@ test('passoKit: repos e testado reais entram na avaliação; duplicada por orige
   const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(SKILLS, '1.3.1')], log: [], raiz: '/r' };
   const lerTestado = (caminho) => (caminho === '/r/hadouken-kit' ? { [MATT]: '1.3.2' } : {});
   const repos = new Map([[MATT, 'mattpocock/skills'], [SKILLS, 'mattpocock/skills']]);
-  const r = await passoKit(rodarFalso(estado), { repos, lerTestado });
+  const r = await passoKit(rodarFalso(estado), { repos, lerTestado, autos: new Set([MATT]) });
   const matt = r.dedup.find((a) => a.id === MATT);
   assert.deepEqual([matt.estado, matt.equivalente, matt.versao], ['duplicada', SKILLS, { equivalente: '1.3.1', testada: '1.3.2' }]);
-  assert.ok(estado.log.includes(`plugin disable ${MATT}`));
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`));
   assert.equal(r.lista.get(MATT).enabled, false);
   assert.match(r.item.detalhe, /mattpocock-skills já instalado via skills@outro; cópia do kit desligada/);
   assert.match(r.item.detalhe, /skills@outro na 1\.3\.1, testada 1\.3\.2/);
@@ -189,8 +189,8 @@ test('passoKit: lista nula depois dos install/disable é ✗ "não consegui conf
   assert.ok(estado.log.includes(`plugin install ${MATT}`), 'os installs rodaram; só a conferência falhou');
   assert.equal(r.lista, null);
   const desliga = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(MATT_UPSTREAM, '1.3.2'), ...TERCEIROS_KIT.filter((d) => d !== MATT).map((d) => entrada(d, '1.0.0'))], log: [], raiz: '/r', falharListaNa: 3 };
-  const d = await passoKit(rodarFalso(desliga));
-  assert.ok(desliga.log.includes(`plugin disable ${MATT}`));
+  const d = await passoKit(rodarFalso(desliga), { autos: new Set([MATT]) });
+  assert.ok(desliga.log.includes(`plugin disable ${MATT} --scope user`));
   assert.deepEqual(d.item, item.falhou('hadouken-kit', 'não consegui conferir a lista de plugins', 'rode claude plugin list'), 'não afirma "cópia desligada" sem ter conferido');
 });
 
@@ -240,4 +240,120 @@ test('passoRea: Node aceito instala e liga; Node 20 deixa desligado (e desliga s
   assert.equal((await passoRea(rodarFalso(ligado), '20.19.0')).estado, 'pulado');
   assert.ok(ligado.log.includes(`plugin disable ${ID_REA}`));
   assert.equal(ligado.plugins[0].enabled, false);
+});
+
+// ------------------------------------------------------------ v0.6.0, achados do auditor (G1, G2, G3)
+
+const OUTRAS = TERCEIROS_KIT.filter((d) => d !== MATT).map((d) => entrada(d, '1.0.0'));
+const duplicada = (extra = []) => ({ plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(MATT_UPSTREAM, '1.3.2'), ...OUTRAS, ...extra], log: [], raiz: '/r' });
+const semDisable = (estado) => assert.ok(!estado.log.some((l) => l.startsWith('plugin disable')), 'nenhum plugin disable');
+
+test('G1: duplicada sem `auto` (o usuário instalou as duas) → nada é desligado; o detalhe diz que fazem o mesmo e traz o comando', async () => {
+  const estado = duplicada();
+  const r = await passoKit(rodarFalso(estado), { autos: new Set() });
+  semDisable(estado);
+  assert.equal(estado.plugins.find((x) => x.id === MATT).enabled, true);
+  assert.equal(r.item.estado, 'ok');
+  assert.match(r.item.detalhe, new RegExp(`mattpocock-skills em dobro com ${MATT_UPSTREAM}; as duas fazem o mesmo\\. Para ficar com uma: claude plugin disable ${MATT} --scope user`));
+  assert.doesNotMatch(r.item.detalhe, /cópia do kit desligada/);
+  const [matt] = r.dedup.filter((a) => a.id === MATT);
+  assert.deepEqual([matt.estado, matt.auto], ['duplicada', false]);
+});
+
+test('G1: sem a opção `autos`, nada conta como instalado pelo kit e nada é desligado', async () => {
+  const estado = duplicada();
+  await passoKit(rodarFalso(estado));
+  semDisable(estado);
+});
+
+test('G1/G2: duplicada com `auto` → plugin disable com --scope user, conferido pela lista; a segunda rodada é = no kit', async () => {
+  const estado = duplicada();
+  const autos = new Set([MATT]);
+  const r = await passoKit(rodarFalso(estado), { autos });
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`));
+  assert.ok(!estado.log.includes(`plugin disable ${MATT}`), 'nunca sem o escopo');
+  assert.equal(r.lista.get(MATT).enabled, false);
+  assert.match(r.item.detalhe, /mattpocock-skills já instalado via mattpocock-skills@mattpocock; cópia do kit desligada/);
+  assert.deepEqual((await passoKit(rodarFalso(estado), { autos })).item, item.igual('hadouken-kit'));
+});
+
+test('G2: o disable que não surte efeito é ✗ com o comando que traz --scope user', async () => {
+  const estado = { ...duplicada(), falhar: [`disable ${MATT} --scope user`] };
+  const r = await passoKit(rodarFalso(estado), { autos: new Set([MATT]) });
+  assert.equal(r.item.estado, 'falhou');
+  assert.equal(r.item.conserto, `rode claude plugin disable ${MATT} --scope user`);
+});
+
+// Manifesto sintético em tmp: <pasta>/.claude-plugin/plugin.json.
+function pluginComManifesto(id, conteudo, enabled = true) {
+  const pasta = novoTmp('hdk dep ç ');
+  fs.mkdirSync(path.join(pasta, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(pasta, '.claude-plugin', 'plugin.json'), typeof conteudo === 'string' ? conteudo : JSON.stringify(conteudo));
+  return { id, version: '1.0.0', scope: 'user', enabled, installPath: pasta };
+}
+
+test('G3: outro plugin ligado depende da cópia do kit (nome solto ou nome@marketplace) → não roda disable; linha informativa nomeia o dependente', async () => {
+  for (const dependencies of [[MATT], ['mattpocock-skills'], [{ name: 'mattpocock-skills', version: '^1.3' }], [{ name: 'mattpocock-skills', marketplace: 'claude-hadouken' }]]) {
+    const estado = duplicada([pluginComManifesto('app@claude-hadouken', { name: 'app', dependencies })]);
+    const r = await passoKit(rodarFalso(estado), { autos: new Set([MATT]) });
+    semDisable(estado);
+    assert.equal(estado.plugins.find((x) => x.id === MATT).enabled, true, JSON.stringify(dependencies));
+    assert.equal(r.item.estado, 'ok', 'informa, não falha');
+    assert.match(r.item.detalhe, /mattpocock-skills em dobro com mattpocock-skills@mattpocock; a cópia do kit fica ligada porque app@claude-hadouken depende dela/, JSON.stringify(dependencies));
+    assert.deepEqual(r.dedup.find((a) => a.id === MATT).dependentes, ['app@claude-hadouken']);
+  }
+});
+
+test('G3: dois dependentes são nomeados; dependente desligado, nome solto de outro marketplace e dependência de outro plugin não impedem o disable', async () => {
+  const dois = duplicada([pluginComManifesto('b@m', { dependencies: [MATT] }), pluginComManifesto('a@m', { dependencies: [MATT] })]);
+  const r = await passoKit(rodarFalso(dois), { autos: new Set([MATT]) });
+  semDisable(dois);
+  assert.match(r.item.detalhe, /porque a@m e b@m dependem dela/);
+  const livre = duplicada([
+    pluginComManifesto('app@claude-hadouken', { dependencies: [MATT] }, false),
+    pluginComManifesto('app2@outro', { dependencies: ['mattpocock-skills'] }),
+    pluginComManifesto('app3@claude-hadouken', { dependencies: ['poka-yoke@outro'] }),
+  ]);
+  await passoKit(rodarFalso(livre), { autos: new Set([MATT]) });
+  assert.ok(livre.log.includes(`plugin disable ${MATT} --scope user`));
+});
+
+test('G3: manifesto ilegível, ausente ou de forma errada conta como sem dependências e não lança', async () => {
+  for (const conteudo of ['{quebrado', '[]', { dependencies: 'x' }]) {
+    const estado = duplicada([pluginComManifesto('app@claude-hadouken', conteudo)]);
+    await passoKit(rodarFalso(estado), { autos: new Set([MATT]) });
+    assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`), JSON.stringify(conteudo));
+  }
+  const estado = duplicada([{ ...pluginComManifesto('app@claude-hadouken', {}), installPath: '/nao/existe' }]);
+  await passoKit(rodarFalso(estado), { autos: new Set([MATT]) });
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`));
+});
+
+test('G3: o leitor de dependências é injetável e um leitor que lança conta como sem dependências', async () => {
+  const estado = duplicada([entrada('app@m', '1.0.0')]);
+  const lerDependencias = (caminho, id) => { if (id === 'app@m') throw new Error('x'); return []; };
+  await passoKit(rodarFalso(estado), { autos: new Set([MATT]), lerDependencias });
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`));
+  const outro = duplicada([entrada('app@m', '1.0.0')]);
+  const r = await passoKit(rodarFalso(outro), { autos: new Set([MATT]), lerDependencias: (caminho, id) => (id === 'app@m' ? [MATT] : []) });
+  semDisable(outro);
+  assert.match(r.item.detalhe, /porque app@m depende dela/);
+});
+
+test('G1/G3: kit < 1.2.0 com `auto` e dependente → continua mandando atualizar o kit (o kit antigo é o dependente)', async () => {
+  const estado = duplicada();
+  estado.plugins[0].version = '1.1.2';
+  estado.falhar = [`update ${ID_KIT}`];
+  const r = await passoKit(rodarFalso(estado), { autos: new Set([MATT]), lerDependencias: (caminho, id) => (id === ID_KIT ? TERCEIROS_KIT : []) });
+  semDisable(estado);
+  assert.match(r.item.detalhe, /atualize o hadouken-kit para desligar a cópia em dobro/);
+  assert.doesNotMatch(r.item.detalhe, /depende/);
+});
+
+test('G1/G3: duplicada sem `auto` e com dependente ligado da cópia do kit → nada é desligado; a linha diz que as duas fazem o mesmo e quem depende', async () => {
+  const estado = duplicada([pluginComManifesto('app@claude-hadouken', { dependencies: ['mattpocock-skills'] })]);
+  const r = await passoKit(rodarFalso(estado), { autos: new Set() });
+  semDisable(estado);
+  assert.match(r.item.detalhe, new RegExp(`mattpocock-skills em dobro com ${MATT_UPSTREAM}; as duas fazem o mesmo, e ${MATT} fica ligada porque app@claude-hadouken depende dela`));
+  assert.doesNotMatch(r.item.detalhe, /Para ficar com uma/, 'o comando falharia');
 });

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { avaliarDependencias, lerRepos, repoDeOrigem, TERCEIROS_KIT } from '../src/instalar/dedup.js';
+import * as dedup from '../src/instalar/dedup.js';
 
 // v0.6.0, Fatia 1 (spec §4 e casos D1–D10): a avaliação das dependências de
 // terceiros do kit é pura sobre o que o `claude plugin list --json` e os
@@ -38,7 +39,7 @@ test('duplicada por nome', () => {
     deps: ['mattpocock-skills@claude-hadouken'], repos: new Map(), testado: {},
     plugins: new Map([['mattpocock-skills@claude-hadouken', p('1.3.2', true)], ['mattpocock-skills@mattpocock', p('1.3.2', true)]]),
   });
-  assert.deepEqual(r[0], { id: 'mattpocock-skills@claude-hadouken', nome: 'mattpocock-skills', estado: 'duplicada', instalada: true, equivalente: 'mattpocock-skills@mattpocock', desligada: null, versao: null });
+  assert.deepEqual(r[0], { id: 'mattpocock-skills@claude-hadouken', nome: 'mattpocock-skills', estado: 'duplicada', instalada: true, equivalente: 'mattpocock-skills@mattpocock', desligada: null, versao: null, auto: false, dependentes: [] });
 });
 
 test('D4: mesmo repo com outro nome é equivalente; sem a cópia do kit, nada em dobro', () => {
@@ -72,7 +73,7 @@ test('D1: cópia do usuário desligada não conta; a do kit ligada é própria',
 
 test('sem cópia nenhuma: ausente e não instalada', () => {
   const [r] = avaliar([]);
-  assert.deepEqual(r, { id: MATT, nome: 'mattpocock-skills', estado: 'ausente', instalada: false, equivalente: null, desligada: null, versao: null });
+  assert.deepEqual(r, { id: MATT, nome: 'mattpocock-skills', estado: 'ausente', instalada: false, equivalente: null, desligada: null, versao: null, auto: false, dependentes: [] });
 });
 
 test('D5: escopo project é ignorado, na do usuário e na do kit', () => {
@@ -242,4 +243,128 @@ test('D1: cópia do usuário desligada (mesmo nome ou mesma origem) aparece em `
   assert.equal(c.desligada, null);
   const [d] = avaliar([[MATT, p('1.3.2', true)], ['mattpocock-skills@mattpocock', p('1.3.2', false, 'project')]]);
   assert.equal(d.desligada, null, 'escopo project é ignorado');
+});
+
+// ------------------------------------------------------------ v0.6.0, achados do auditor (G1, G3, G4)
+
+const pa = (version, enabled, extra = {}) => ({ version, enabled, scope: 'user', ...extra });
+
+test('G1: `auto` da avaliação é o `auto === true` da entrada da cópia do kit; ausente ou diferente de true → false', () => {
+  const ligada = [[MATT, pa('1.3.2', true, { auto: true })], ['mattpocock-skills@mattpocock', pa('1.3.2', true)]];
+  assert.equal(avaliar(ligada)[0].auto, true);
+  assert.equal(avaliar([[MATT, pa('1.3.2', true)], ['mattpocock-skills@mattpocock', pa('1.3.2', true)]])[0].auto, false);
+  assert.equal(avaliar([[MATT, pa('1.3.2', true, { auto: 'true' })]])[0].auto, false);
+  assert.equal(avaliar([['mattpocock-skills@mattpocock', pa('1.3.2', true, { auto: true })]])[0].auto, false, 'auto da cópia do usuário não vale para a do kit');
+  assert.equal(avaliar([])[0].auto, false);
+});
+
+test('G3: `dependentes` são os plugins ligados (user) cujas `dependencias` citam a cópia do kit; desligado, o próprio e o de projeto não contam; ordem alfabética', () => {
+  const base = [[MATT, pa('1.3.2', true, { auto: true })], ['mattpocock-skills@mattpocock', pa('1.3.2', true)]];
+  const [a] = avaliar([...base, ['z@m', pa('1', true, { dependencias: [MATT] })], ['a@m', pa('1', true, { dependencias: ['x@m', MATT] })]]);
+  assert.deepEqual(a.dependentes, ['a@m', 'z@m']);
+  const [b] = avaliar([...base, ['off@m', pa('1', false, { dependencias: [MATT] })], ['outro@m', pa('1', true, { dependencias: ['nao@m'] })], ['proj@m', { version: '1', enabled: true, scope: 'project', dependencias: [MATT] }]]);
+  assert.deepEqual(b.dependentes, [], 'desligado, outra dependência e escopo project não contam');
+  const [c] = avaliar([[MATT, pa('1.3.2', true, { auto: true, dependencias: [MATT] })], ['mattpocock-skills@mattpocock', pa('1.3.2', true)]]);
+  assert.deepEqual(c.dependentes, [], 'o plugin não é dependente de si');
+  const [d] = avaliar([...base, ['lixo@m', pa('1', true, { dependencias: 'x' })], ['lixo2@m', pa('1', true)]]);
+  assert.deepEqual(d.dependentes, []);
+});
+
+// ------------------------------------------------------------ G4: formas de origem
+
+test('G4: SSH git@github.com:dono/repo (com e sem .git) e https://www.github.com/dono/repo normalizam para dono/repo', () => {
+  assert.equal(repoDeOrigem({ source: 'url', url: 'git@github.com:A/B' }), 'a/b');
+  assert.equal(repoDeOrigem({ source: 'url', url: 'git@github.com:A/B.git' }), 'a/b');
+  assert.equal(repoDeOrigem({ source: 'url', url: 'https://www.github.com/A/B' }), 'a/b');
+  assert.equal(repoDeOrigem({ source: 'url', url: 'https://www.github.com/A/B.git/' }), 'a/b');
+  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'git@github.com:A/B.git', path: 'plugins/X' }), 'a/b/plugins/x');
+  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'https://www.github.com/A/B', path: './plugins/X/' }), 'a/b/plugins/x');
+  assert.equal(repoDeOrigem({ source: 'url', url: 'git@gitlab.com:A/B.git' }), null, 'outro host continua sem origem');
+  assert.equal(repoDeOrigem({ source: 'url', url: 'https://www.gitlab.com/A/B' }), null);
+  assert.equal(repoDeOrigem({ source: 'url', url: 'git@github.com:semBarra' }), null);
+});
+
+test('G4: source relativo sem "./" vale o mesmo que com "./"; URL, SSH, absoluto e vazio continuam sem origem', () => {
+  assert.equal(repoDeOrigem('plugins/x', 'Dono/Mono'), 'dono/mono/plugins/x');
+  assert.equal(repoDeOrigem('plugins/x', 'dono/mono'), repoDeOrigem('./plugins/x', 'dono/mono'));
+  assert.equal(repoDeOrigem('Plugins/X/', 'dono/mono'), 'dono/mono/plugins/x');
+  assert.equal(repoDeOrigem('plugins/x', null), null);
+  assert.equal(repoDeOrigem('https://github.com/a/b', 'dono/mono'), null);
+  assert.equal(repoDeOrigem('git@github.com:a/b.git', 'dono/mono'), null);
+  assert.equal(repoDeOrigem('/abs/x', 'dono/mono'), null);
+  assert.equal(repoDeOrigem('C:\\x', 'dono/mono'), null);
+  assert.equal(repoDeOrigem('', 'dono/mono'), null);
+});
+
+test('G4: git-subdir sem path continua sem origem (decisão do Fernando)', () => {
+  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'git@github.com:a/b.git' }), null);
+  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'https://www.github.com/a/b' }), null);
+});
+
+test('G4 pelos registros: marketplace relativo "plugins/x" e git-subdir por SSH casam com a origem da dependência', () => {
+  const d = novoTmp();
+  const POKA = 'poka-yoke@claude-hadouken';
+  registrar(d, {
+    'claude-hadouken': { repo: 'Garioli-Labs/claude-hadouken', plugins: [{ name: 'poka-yoke', source: { source: 'git-subdir', url: 'git@github.com:rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke' } }] },
+    'poka-yoke': { repo: 'rainmanjam/poka-yoke', plugins: [{ name: 'guardrails', source: 'plugins/poka-yoke' }] },
+  });
+  const repos = lerRepos(d);
+  assert.equal(repos.get(POKA), 'rainmanjam/poka-yoke/plugins/poka-yoke');
+  assert.equal(repos.get('guardrails@poka-yoke'), 'rainmanjam/poka-yoke/plugins/poka-yoke');
+  const [a] = avaliar([['guardrails@poka-yoke', p('0.2.0', true)]], { repos, deps: [POKA] });
+  assert.deepEqual([a.estado, a.equivalente], ['equivalente', 'guardrails@poka-yoke']);
+});
+
+// ------------------------------------------------------------ G1/G3: leitura do registro e do manifesto
+
+test('G1: lerAutos devolve os ids cuja entrada de escopo user tem auto === true; v1, ilegível ou forma errada → conjunto vazio', () => {
+  const d = novoTmp();
+  gravar(path.join(d, 'installed_plugins.json'), { version: 2, plugins: {
+    'a@m': [{ scope: 'user', version: '1', auto: true }],
+    'b@m': [{ scope: 'user', version: '1' }],
+    'c@m': [{ scope: 'project', projectPath: '/p', auto: true }, { scope: 'user', version: '1' }],
+    'd@m': [{ scope: 'project', projectPath: '/p', auto: true }, { scope: 'user', version: '1', auto: true }],
+    'e@m': [{ scope: 'user', version: '1', auto: 'true' }],
+    'f@m': { scope: 'user', auto: true },
+    'g@m': [null, 3],
+  } });
+  assert.deepEqual([...dedup.lerAutos(d)].sort(), ['a@m', 'd@m']);
+  const v1 = novoTmp();
+  gravar(path.join(v1, 'installed_plugins.json'), { version: 1, plugins: { 'a@m': { auto: true } } });
+  assert.equal(dedup.lerAutos(v1).size, 0);
+  assert.equal(dedup.lerAutos(novoTmp()).size, 0);
+  assert.equal(dedup.lerAutos(path.join(d, 'nao-existe')).size, 0);
+  assert.equal(dedup.lerAutos(undefined).size, 0);
+  fs.writeFileSync(path.join(v1, 'installed_plugins.json'), '{');
+  assert.equal(dedup.lerAutos(v1).size, 0);
+});
+
+function manifesto(d, conteudo) {
+  gravar(path.join(d, '.claude-plugin', 'plugin.json'), conteudo);
+  return d;
+}
+
+test('G3: dependenciasDoManifesto resolve nome solto no marketplace do dependente, nome@marketplace e objeto (com ou sem marketplace e versão)', () => {
+  const d = manifesto(novoTmp(), { name: 'x', dependencies: [
+    'solta', 'outra@mk2', { name: 'obj' }, { name: 'obj2', version: '^1.2' }, { name: 'obj3', marketplace: 'mk3', version: '~1.0.0' },
+  ] });
+  assert.deepEqual(dedup.dependenciasDoManifesto(d, 'x@mk1'), ['solta@mk1', 'outra@mk2', 'obj@mk1', 'obj2@mk1', 'obj3@mk3']);
+});
+
+test('G3: dependenciasDoManifesto ignora entrada inválida; manifesto ausente, ilegível, sem dependencies ou de forma errada → [] sem lançar', () => {
+  const d = manifesto(novoTmp(), { dependencies: ['ok', '', 7, null, { versao: '1' }, { name: 3 }, ['x'], 'a@b@c'] });
+  assert.deepEqual(dedup.dependenciasDoManifesto(d, 'x@mk1'), ['ok@mk1']);
+  assert.deepEqual(dedup.dependenciasDoManifesto(novoTmp(), 'x@mk1'), []);
+  assert.deepEqual(dedup.dependenciasDoManifesto(path.join(d, 'nao-existe'), 'x@mk1'), []);
+  assert.deepEqual(dedup.dependenciasDoManifesto(undefined, 'x@mk1'), []);
+  assert.deepEqual(dedup.dependenciasDoManifesto(null, 'x@mk1'), []);
+  fs.writeFileSync(path.join(d, '.claude-plugin', 'plugin.json'), '{quebrado');
+  assert.deepEqual(dedup.dependenciasDoManifesto(d, 'x@mk1'), []);
+  fs.writeFileSync(path.join(d, '.claude-plugin', 'plugin.json'), '[]');
+  assert.deepEqual(dedup.dependenciasDoManifesto(d, 'x@mk1'), []);
+  manifesto(d, { dependencies: 'solta' });
+  assert.deepEqual(dedup.dependenciasDoManifesto(d, 'x@mk1'), []);
+  manifesto(d, { name: 'x' });
+  assert.deepEqual(dedup.dependenciasDoManifesto(d, 'x@mk1'), []);
+  assert.deepEqual(dedup.dependenciasDoManifesto(d, 'semMarketplace'), [], 'id sem marketplace: nome solto não resolve');
 });

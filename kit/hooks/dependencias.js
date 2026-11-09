@@ -1,7 +1,7 @@
 // Avaliação das dependências de terceiros do kit no SessionStart (spec v0.6.0,
 // Fatia 1). O cache do kit não tem src/: este arquivo é a cópia autocontida de
 // src/instalar/dedup.js (TERCEIROS_KIT, repoDeOrigem, lerRepos,
-// avaliarDependencias), e test/kit-dependencias.test.js garante o mesmo
+// dependenciasDoManifesto, avaliarDependencias), e test/kit-dependencias.test.js garante o mesmo
 // resultado das duas cópias para as mesmas fixtures. Só importa node:. Nada
 // aqui escreve em disco nem lança: leitura falhou → null → sem aviso falso.
 import fs from 'node:fs';
@@ -16,7 +16,9 @@ export const TERCEIROS_KIT = Object.freeze([
 const TETO_JSON = 4 * 1024 * 1024;
 const ABRIR_LEITURA = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 const DONO_REPO = /^[^/\s]+\/[^/\s]+$/;
-const URL_GITHUB = /^https?:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i;
+const URL_GITHUB = /^(?:https?:\/\/(?:www\.)?github\.com\/|git@github\.com:)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i;
+// URL com esquema (inclui `C:`), SSH `git@` e caminho absoluto não são relativos.
+const NAO_RELATIVO = /^(?:[A-Za-z][A-Za-z0-9+.-]*:|git@|\/)/;
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const minusculo = (r) => (typeof r === 'string' && DONO_REPO.test(r) ? r.toLowerCase() : null);
@@ -39,15 +41,16 @@ function lerJson(arquivo) {
 }
 
 // A origem de um plugin, como `dono/repo[/subpasta]` em minúsculas, sem `./`
-// e sem `/` no fim (spec v0.6.0, D4 e D11): source relativo `./<sub>` → o repo
-// do marketplace e <sub> (`.` e `./` → só o repo); github → repo; url de
-// github.com → dono/repo sem `.git`; git-subdir de github.com → o repo e o
-// `path`; o resto → null (só o nome vale).
+// e sem `/` no fim (spec v0.6.0, D4 e D11): source relativo `./<sub>` ou
+// `<sub>` → o repo do marketplace e <sub> (`.` e `./` → só o repo); github →
+// repo; url de github.com (https, https://www. ou SSH git@github.com:) →
+// dono/repo sem `.git`; git-subdir de github.com → o repo e o `path`; o resto
+// → null (só o nome vale). git-subdir sem `path` não tem origem.
 const subpasta = (p) => p.toLowerCase().replace(/^(?:\.\/)+/, '').replace(/^\.$/, '').replace(/\/+$/, '');
 const comSubpasta = (repo, sub) => (repo === null || sub === '' ? repo : `${repo}/${sub}`);
 
 export function repoDeOrigem(source, repoMarketplace = null) {
-  if (typeof source === 'string') return source === '.' || source.startsWith('./') ? comSubpasta(minusculo(repoMarketplace), subpasta(source)) : null;
+  if (typeof source === 'string') return source !== '' && !NAO_RELATIVO.test(source) ? comSubpasta(minusculo(repoMarketplace), subpasta(source)) : null;
   if (!ehObjeto(source)) return null;
   if (source.source === 'github') return minusculo(source.repo);
   if ((source.source === 'url' || source.source === 'git-subdir') && typeof source.url === 'string') {
@@ -90,13 +93,48 @@ export function lerRepos(pastaPlugins) {
 const nomeDe = (id) => id.split('@')[0];
 const marketplaceDe = (id) => id.slice(id.indexOf('@') + 1);
 
-// plugins: Map<id, {version, enabled, scope}>; repos: Map<id, string|null>;
-// testado: Record<id, string>. Uma avaliação por dependência, na ordem de deps:
+// O id que uma entrada de `dependencies` do plugin.json nomeia (doc oficial):
+// "nome" (o marketplace do próprio dependente), "nome@marketplace" ou
+// { name, marketplace?, version? }. Entrada inválida → null.
+function idDaDependencia(d, marketplaceProprio) {
+  const nome = typeof d === 'string' ? d : (ehObjeto(d) ? d.name : null);
+  if (typeof nome !== 'string' || nome === '') return null;
+  const partes = nome.split('@');
+  if (typeof d === 'string') {
+    if (partes.length === 1) return `${nome}@${marketplaceProprio}`;
+    return partes.length === 2 && partes[0] !== '' && partes[1] !== '' ? nome : null;
+  }
+  if (partes.length !== 1) return null;
+  if (d.marketplace === undefined) return `${nome}@${marketplaceProprio}`;
+  return typeof d.marketplace === 'string' && d.marketplace !== '' ? `${nome}@${d.marketplace}` : null;
+}
+
+// Os ids de que o plugin depende, de <installPath>/.claude-plugin/plugin.json.
+// Manifesto ausente, ilegível ou de forma errada → [] (sem dependências).
+export function dependenciasDoManifesto(installPath, idDependente) {
+  try {
+    if (typeof installPath !== 'string' || installPath === '' || typeof idDependente !== 'string' || !idDependente.includes('@')) return [];
+    const r = lerJson(path.join(installPath, '.claude-plugin', 'plugin.json'));
+    if (!r.ok || !ehObjeto(r.valor) || !Array.isArray(r.valor.dependencies)) return [];
+    const proprio = marketplaceDe(idDependente);
+    return r.valor.dependencies.map((d) => idDaDependencia(d, proprio)).filter((id) => id !== null);
+  } catch {
+    return [];
+  }
+}
+
+// plugins: Map<id, {version, enabled, scope, auto?, dependencias?}>; repos:
+// Map<id, string|null>; testado: Record<id, string>. `auto` (instalado como
+// dependência) e `dependencias` (ids de que o plugin depende, lidos do
+// manifesto) vêm dos registros. Uma avaliação por dependência, na ordem de deps:
 //   propria     a cópia do kit está ligada e nenhuma outra a substitui
 //   equivalente outra cópia ligada satisfaz; a do kit está ausente ou desligada
 //   duplicada   a do kit e a equivalente estão ligadas
 //   ausente     nenhuma cópia ligada (a do kit pode estar instalada e desligada)
 // `desligada`: outra cópia (mesmo nome ou origem) instalada e desligada, ou null.
+// `auto`: a cópia do kit foi instalada como dependência (só essa pode ser
+// desligada pelo instalador). `dependentes`: os plugins ligados, no escopo do
+// usuário, que declaram depender dela (desligá-la falharia).
 export function avaliarDependencias({ deps, plugins, repos, testado } = {}) {
   const mapa = plugins instanceof Map ? plugins : new Map();
   const reposDe = repos instanceof Map ? repos : new Map();
@@ -115,13 +153,16 @@ export function avaliarDependencias({ deps, plugins, repos, testado } = {}) {
     const testada = versoesTestadas[id];
     const versaoDele = equivalente === null ? null : mapa.get(equivalente).version;
     const difere = typeof versaoDele === 'string' && typeof testada === 'string' && versaoDele !== testada;
-    return { id, nome, estado, instalada: propria !== undefined, equivalente, desligada, versao: difere ? { equivalente: versaoDele, testada } : null };
+    const dependentes = doUsuario.filter(([k, e]) => k !== id && e.enabled === true && Array.isArray(e.dependencias) && e.dependencias.includes(id)).map(([k]) => k).sort();
+    return { id, nome, estado, instalada: propria !== undefined, equivalente, desligada, versao: difere ? { equivalente: versaoDele, testada } : null, auto: propria?.auto === true, dependentes };
   });
 }
 
 // <pastaConfig>/plugins/installed_plugins.json (só entradas scope "user")
 // cruzado com enabledPlugins de <pastaConfig>/settings.json: enabled só quando
-// o valor é exatamente true; id sem chave conta como desligado. Qualquer
+// o valor é exatamente true; id sem chave conta como desligado. Cada entrada
+// leva o installPath, `auto` (a entrada user marca `auto: true`) e, se ligada,
+// as `dependencias` do manifesto dela (G1 e G3). Qualquer
 // leitura que falhe, ou arquivo de forma errada → null (silêncio): inclui
 // `plugins[id]` que não é lista (formato v1) e registro sem o hadouken-kit no
 // escopo do usuário (D12).
@@ -141,7 +182,12 @@ export function lerRegistro(pastaConfig) {
       if (!Array.isArray(entradas)) return null;
       const doUsuario = entradas.find((e) => ehObjeto(e) && e.scope === 'user');
       if (doUsuario === undefined) continue;
-      plugins.set(id, { version: typeof doUsuario.version === 'string' ? doUsuario.version : null, enabled: habilitados[id] === true, scope: 'user' });
+      const enabled = habilitados[id] === true;
+      const installPath = typeof doUsuario.installPath === 'string' ? doUsuario.installPath : null;
+      plugins.set(id, {
+        version: typeof doUsuario.version === 'string' ? doUsuario.version : null, enabled, scope: 'user',
+        installPath, auto: doUsuario.auto === true, dependencias: enabled ? dependenciasDoManifesto(installPath, id) : [],
+      });
     }
     if (!plugins.has(ID_KIT)) return null;
     return { plugins, repos: lerRepos(path.join(pastaConfig, 'plugins')) };
@@ -151,17 +197,23 @@ export function lerRegistro(pastaConfig) {
 }
 
 // Uma linha por problema, na ordem da avaliação; propria e equivalente não
-// geram linha.
+// geram linha. Todo comando é para o terminal (com a guarda ligada o Claude não
+// roda `claude` na sessão). Duplicada cuja cópia do kit tem dependente ligado:
+// sem linha, o disable falharia. Duplicada sem `auto` (o usuário instalou as
+// duas): só avisa que fazem o mesmo.
 export function linhasAviso(avaliacao) {
   const linhas = [];
   for (const a of Array.isArray(avaliacao) ? avaliacao : []) {
     if (!ehObjeto(a) || typeof a.id !== 'string') continue;
     if (a.estado === 'duplicada') {
-      linhas.push(`hadouken-kit: ${a.nome} em dobro (${a.equivalente} e ${a.id}). Desligue a cópia do kit: claude plugin disable ${a.id}`);
+      if (Array.isArray(a.dependentes) && a.dependentes.length > 0) continue;
+      linhas.push(a.auto === true
+        ? `hadouken-kit: ${a.nome} em dobro (${a.equivalente} e ${a.id}). Desligue a cópia do kit, no terminal: claude plugin disable ${a.id} --scope user`
+        : `hadouken-kit: ${a.nome} em dobro (${a.equivalente} e ${a.id}); as duas fazem o mesmo. Para ficar com uma, no terminal: claude plugin disable ${a.id} --scope user`);
     } else if (a.estado === 'ausente' && a.instalada === false) {
-      linhas.push(`hadouken-kit: falta ${a.nome}. Instale: claude plugin install ${a.id}`);
+      linhas.push(`hadouken-kit: falta ${a.nome}. Instale, no terminal: claude plugin install ${a.id}`);
     } else if (a.estado === 'ausente') {
-      linhas.push(`hadouken-kit: ${a.id} está desligado e não há outra cópia. Religue: claude plugin enable ${a.id}`);
+      linhas.push(`hadouken-kit: ${a.id} está desligado e não há outra cópia. Religue, no terminal: claude plugin enable ${a.id}`);
     }
   }
   return linhas;

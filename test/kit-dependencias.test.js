@@ -34,7 +34,7 @@ const gravar = (arquivo, conteudo) => {
   fs.writeFileSync(arquivo, typeof conteudo === 'string' ? conteudo : JSON.stringify(conteudo));
 };
 
-const p = (version, enabled, scope = 'user') => ({ version, enabled, scope });
+const p = (version, enabled, scope = 'user', extra = {}) => ({ version, enabled, scope, ...extra });
 const MATT = 'mattpocock-skills@claude-hadouken';
 const POKA = 'poka-yoke@claude-hadouken';
 const MATT_USUARIO = 'mattpocock-skills@mattpocock';
@@ -70,6 +70,14 @@ const CASOS = [
   ['D4 mesma subpasta, nome diferente', { deps: [POKA], repos: [[POKA, 'rainmanjam/poka-yoke/plugins/poka-yoke'], ['guardrails@poka-yoke', 'rainmanjam/poka-yoke/plugins/poka-yoke']], plugins: [['guardrails@poka-yoke', p('0.2.0', true)]] }],
   ['D1 desligada por origem', { deps: [MATT], repos: [[MATT, 'mattpocock/skills'], ['skills@x', 'mattpocock/skills']], plugins: [[MATT, p('1', true)], ['skills@x', p('1', false)]] }],
   ['uma avaliação por dependência, na ordem', { deps: ['a@m', 'b@m'], plugins: [['a@m', p('1', true)]] }],
+  ['G1 cópia do kit com auto', { deps: [MATT], plugins: [[MATT, p('1.3.2', true, 'user', { auto: true })], [MATT_USUARIO, p('1.3.2', true)]] }],
+  ['G1 auto que não é true', { deps: [MATT], plugins: [[MATT, p('1.3.2', true, 'user', { auto: 'true' })], [MATT_USUARIO, p('1.3.2', true)]] }],
+  ['G3 dependentes ligados, desligado, de projeto e o próprio', { deps: [MATT], plugins: [
+    [MATT, p('1.3.2', true, 'user', { auto: true, dependencias: [MATT] })], [MATT_USUARIO, p('1.3.2', true)],
+    ['z@m', p('1', true, 'user', { dependencias: [MATT] })], ['a@m', p('1', true, 'user', { dependencias: ['x@m', MATT] })],
+    ['off@m', p('1', false, 'user', { dependencias: [MATT] })], ['proj@m', p('1', true, 'project', { dependencias: [MATT] })],
+    ['lixo@m', p('1', true, 'user', { dependencias: 'x' })],
+  ] }],
 ];
 
 for (const [nome, f] of CASOS) {
@@ -99,6 +107,11 @@ test('paridade: repoDeOrigem', () => {
     [{ source: 'git-subdir', url: 'https://github.com/A/B', path: './Plugins/X/' }],
     [{ source: 'git-subdir', url: 'https://github.com/a/b.git', path: '' }], [{ source: 'git-subdir', url: 'https://github.com/a/b.git' }],
     [{ source: 'url', url: 'https://github.com/a/b.git', path: 'x' }], [{ source: 'github', repo: 'a/b', path: 'x' }],
+    [{ source: 'url', url: 'git@github.com:A/B' }], [{ source: 'url', url: 'git@github.com:A/B.git' }], [{ source: 'url', url: 'https://www.github.com/A/B' }],
+    [{ source: 'git-subdir', url: 'git@github.com:A/B.git', path: 'plugins/X' }], [{ source: 'git-subdir', url: 'git@github.com:A/B.git' }],
+    [{ source: 'url', url: 'git@gitlab.com:A/B.git' }], [{ source: 'url', url: 'git@github.com:semBarra' }],
+    ['plugins/x', 'Dono/Mono'], ['Plugins/X/', 'dono/mono'], ['plugins/x', null], ['https://github.com/a/b', 'dono/mono'],
+    ['git@github.com:a/b.git', 'dono/mono'], ['/abs/x', 'dono/mono'], ['C:\\x', 'dono/mono'], ['', 'dono/mono'],
   ];
   for (const e of entradas) assert.deepStrictEqual(kit.repoDeOrigem(...e), proj.repoDeOrigem(...e), JSON.stringify(e));
 });
@@ -177,7 +190,7 @@ function montarConfig({ instalados, habilitados, instaladosBruto, settingsBruto,
   else if (habilitados !== undefined) gravar(path.join(cfg, 'settings.json'), { enabledPlugins: habilitados });
   return cfg;
 }
-const usuario = (version = '1.0.0') => [{ scope: 'user', version, installPath: '/x' }];
+const usuario = (version = '1.0.0', auto = false) => [{ scope: 'user', version, installPath: '/x', ...(auto ? { auto: true } : {}) }];
 
 test('lerRegistro: só scope user, cruzado com enabledPlugins === true; o resto é desligado', () => {
   const cfg = montarConfig({
@@ -186,13 +199,52 @@ test('lerRegistro: só scope user, cruzado com enabledPlugins === true; o resto 
   });
   const r = kit.lerRegistro(cfg);
   assert.deepEqual([...r.plugins], [
-    [MATT, { version: '1.3.2', enabled: true, scope: 'user' }],
-    [POKA, { version: '0.2.0', enabled: false, scope: 'user' }],
-    ['a@m', { version: '2.0.0', enabled: false, scope: 'user' }],
-    ['b@m', { version: '3.0.0', enabled: false, scope: 'user' }],
-    [KIT, { version: '1.0.0', enabled: false, scope: 'user' }],
+    [MATT, { version: '1.3.2', enabled: true, scope: 'user', installPath: '/x', auto: false, dependencias: [] }],
+    [POKA, { version: '0.2.0', enabled: false, scope: 'user', installPath: '/x', auto: false, dependencias: [] }],
+    ['a@m', { version: '2.0.0', enabled: false, scope: 'user', installPath: '/x', auto: false, dependencias: [] }],
+    ['b@m', { version: '3.0.0', enabled: false, scope: 'user', installPath: '/x', auto: false, dependencias: [] }],
+    [KIT, { version: '1.0.0', enabled: false, scope: 'user', installPath: '/x', auto: false, dependencias: [] }],
   ]);
   assert.ok(r.repos instanceof Map);
+});
+
+test('G1/G3: lerRegistro lê `auto` da entrada de escopo user e as `dependencias` do manifesto só dos plugins ligados', () => {
+  const comManifesto = (dependencies) => {
+    const pasta = novoTmp();
+    gravar(path.join(pasta, '.claude-plugin', 'plugin.json'), { name: 'x', dependencies });
+    return pasta;
+  };
+  const cfg = montarConfig({
+    instalados: {
+      [MATT]: [{ scope: 'project', projectPath: '/p', auto: true }, { scope: 'user', version: '1.3.2', installPath: '/x', auto: true }],
+      'ligado@mk': [{ scope: 'user', version: '1', installPath: comManifesto(['solta', 'outra@m2', { name: 'obj', version: '^1' }]) }],
+      'desligado@mk': [{ scope: 'user', version: '1', installPath: comManifesto(['solta']) }],
+      'sem-caminho@mk': [{ scope: 'user', version: '1' }],
+    },
+    habilitados: { [MATT]: true, 'ligado@mk': true, 'sem-caminho@mk': true },
+  });
+  const { plugins } = kit.lerRegistro(cfg);
+  assert.equal(plugins.get(MATT).auto, true);
+  assert.equal(plugins.get('ligado@mk').auto, false);
+  assert.deepEqual(plugins.get('ligado@mk').dependencias, ['solta@mk', 'outra@m2', 'obj@mk']);
+  assert.deepEqual(plugins.get('desligado@mk').dependencias, [], 'desligado não tem o manifesto lido');
+  assert.deepEqual(plugins.get('sem-caminho@mk').dependencias, []);
+});
+
+test('G3: dependenciasDoManifesto do kit é igual ao do projeto (paridade) em formatos válidos e inválidos', () => {
+  const manifestos = [
+    { dependencies: ['solta', 'outra@mk2', { name: 'obj' }, { name: 'obj2', version: '^1.2' }, { name: 'obj3', marketplace: 'mk3' }] },
+    { dependencies: ['ok', '', 7, null, { versao: '1' }, { name: 3 }, ['x'], 'a@b@c'] },
+    { dependencies: 'solta' }, { name: 'x' }, [], '{quebrado',
+  ];
+  for (const m of manifestos) {
+    const d = novoTmp();
+    gravar(path.join(d, '.claude-plugin', 'plugin.json'), m);
+    assert.deepStrictEqual(kit.dependenciasDoManifesto(d, 'x@mk1'), proj.dependenciasDoManifesto(d, 'x@mk1'), JSON.stringify(m));
+    assert.ok(Array.isArray(kit.dependenciasDoManifesto(d, 'x@mk1')));
+  }
+  for (const alvo of [novoTmp(), undefined, null, 7]) assert.deepStrictEqual(kit.dependenciasDoManifesto(alvo, 'x@mk1'), proj.dependenciasDoManifesto(alvo, 'x@mk1'));
+  assert.deepEqual(kit.dependenciasDoManifesto((() => { const d = novoTmp(); gravar(path.join(d, '.claude-plugin', 'plugin.json'), { dependencies: ['solta'] }); return d; })(), 'x@mk1'), ['solta@mk1']);
 });
 
 test('lerRegistro: os repos vêm de <cfg>/plugins/known_marketplaces.json', () => {
@@ -223,7 +275,7 @@ test('RF2: duas entradas do mesmo id (project e user): só a de usuário conta; 
     habilitados: { [MATT_USUARIO]: true, 'so-projeto@m': true },
   });
   const { plugins } = kit.lerRegistro(cfg);
-  assert.deepEqual(plugins.get(MATT_USUARIO), { version: '1.3.2', enabled: true, scope: 'user' });
+  assert.deepEqual(plugins.get(MATT_USUARIO), { version: '1.3.2', enabled: true, scope: 'user', installPath: null, auto: false, dependencias: [] });
   assert.equal(plugins.has('so-projeto@m'), false);
   const [dup] = kit.avaliarDependencias({ deps: [MATT], plugins: new Map([...plugins, [MATT, p('1.3.2', true)]]), repos: new Map(), testado: {} });
   assert.deepEqual([dup.estado, dup.equivalente], ['duplicada', MATT_USUARIO]);
@@ -269,21 +321,45 @@ test('lerRegistro: settings sem enabledPlugins = tudo desligado; entrada de lixo
 
 // ------------------------------------------------------------ linhasAviso
 
-const av = (id, estado, extra = {}) => ({ id, nome: id.split('@')[0], estado, instalada: false, equivalente: null, versao: null, ...extra });
+const av = (id, estado, extra = {}) => ({ id, nome: id.split('@')[0], estado, instalada: false, equivalente: null, versao: null, auto: false, dependentes: [], ...extra });
 
-test('linhasAviso: os três textos do plano, na ordem da avaliação; propria e equivalente não geram linha', () => {
+test('linhasAviso: os textos da spec, na ordem da avaliação, cada comando dito para o terminal; propria e equivalente não geram linha', () => {
   const linhas = kit.linhasAviso([
-    av(MATT, 'duplicada', { instalada: true, equivalente: MATT_USUARIO }),
+    av(MATT, 'duplicada', { instalada: true, equivalente: MATT_USUARIO, auto: true }),
     av(POKA, 'ausente'),
     av('fullstack-dev-skills@claude-hadouken', 'ausente', { instalada: true }),
     av('ui-ux-pro-max@claude-hadouken', 'propria', { instalada: true }),
     av('superpowers@claude-plugins-official', 'equivalente', { equivalente: 'superpowers@outro' }),
   ]);
   assert.deepEqual(linhas, [
-    'hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken). Desligue a cópia do kit: claude plugin disable mattpocock-skills@claude-hadouken',
-    'hadouken-kit: falta poka-yoke. Instale: claude plugin install poka-yoke@claude-hadouken',
-    'hadouken-kit: fullstack-dev-skills@claude-hadouken está desligado e não há outra cópia. Religue: claude plugin enable fullstack-dev-skills@claude-hadouken',
+    'hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken). Desligue a cópia do kit, no terminal: claude plugin disable mattpocock-skills@claude-hadouken --scope user',
+    'hadouken-kit: falta poka-yoke. Instale, no terminal: claude plugin install poka-yoke@claude-hadouken',
+    'hadouken-kit: fullstack-dev-skills@claude-hadouken está desligado e não há outra cópia. Religue, no terminal: claude plugin enable fullstack-dev-skills@claude-hadouken',
   ]);
+});
+
+test('G1 no aviso: duplicada sem `auto` (o usuário instalou as duas) → só avisa que as duas fazem o mesmo e mostra o comando para desligar uma, no terminal', () => {
+  const linhas = kit.linhasAviso([av(MATT, 'duplicada', { instalada: true, equivalente: MATT_USUARIO, auto: false })]);
+  assert.deepEqual(linhas, [
+    'hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken); as duas fazem o mesmo. Para ficar com uma, no terminal: claude plugin disable mattpocock-skills@claude-hadouken --scope user',
+  ]);
+});
+
+test('G3 no aviso: duplicada cuja cópia do kit tem dependente ligado não gera linha (o comando falharia), com ou sem `auto`', () => {
+  for (const auto of [true, false]) {
+    assert.deepEqual(kit.linhasAviso([av(MATT, 'duplicada', { instalada: true, equivalente: MATT_USUARIO, auto, dependentes: ['app@m'] })]), [], `auto=${auto}`);
+  }
+});
+
+test('G5: todo comando "claude plugin" de aviso diz que é para o terminal', () => {
+  const linhas = kit.linhasAviso([
+    av(MATT, 'duplicada', { instalada: true, equivalente: MATT_USUARIO, auto: true }),
+    av(POKA, 'duplicada', { instalada: true, equivalente: 'guardrails@poka-yoke', auto: false }),
+    av('a@m', 'ausente'),
+    av('b@m', 'ausente', { instalada: true }),
+  ]);
+  assert.equal(linhas.length, 4);
+  for (const l of linhas) assert.match(l, /, no terminal: claude plugin (disable|install|enable) /, l);
 });
 
 test('linhasAviso: entrada vazia ou de lixo dá lista vazia, sem lançar', () => {
@@ -339,10 +415,35 @@ test('hook: tudo próprio → sem systemMessage e o mesmo additionalContext', ()
   assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
 });
 
-test('hook: duplicada → systemMessage com a linha de desligar a cópia do kit', () => {
-  const j = saida(cenario({ instalados: { [MATT_USUARIO]: usuario('1.3.2') }, habilitados: { [MATT_USUARIO]: true } }));
-  assert.equal(j.systemMessage, 'hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken). Desligue a cópia do kit: claude plugin disable mattpocock-skills@claude-hadouken');
+test('hook: duplicada com a cópia do kit instalada como dependência (auto) → systemMessage com a linha de desligar a cópia do kit, para o terminal, com --scope user', () => {
+  const j = saida(cenario({ instalados: { [MATT]: usuario('1.0.0', true), [MATT_USUARIO]: usuario('1.3.2') }, habilitados: { [MATT_USUARIO]: true } }));
+  assert.equal(j.systemMessage, 'hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken). Desligue a cópia do kit, no terminal: claude plugin disable mattpocock-skills@claude-hadouken --scope user');
   assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
+});
+
+test('G1 no hook: duplicada sem `auto` → o aviso diz que as duas fazem o mesmo; não manda desligar a cópia do kit', () => {
+  const j = saida(cenario({ instalados: { [MATT_USUARIO]: usuario('1.3.2') }, habilitados: { [MATT_USUARIO]: true } }));
+  assert.equal(j.systemMessage, 'hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken); as duas fazem o mesmo. Para ficar com uma, no terminal: claude plugin disable mattpocock-skills@claude-hadouken --scope user');
+  assert.doesNotMatch(j.systemMessage, /Desligue a cópia do kit/);
+});
+
+// Plugin do usuário, ligado, com manifesto sintético em tmp, que declara `dependencies`.
+function dependenteLigado(id, dependencies, manifestoBruto) {
+  const pasta = novoTmp();
+  gravar(path.join(pasta, '.claude-plugin', 'plugin.json'), manifestoBruto ?? { name: id.split('@')[0], dependencies });
+  return [{ scope: 'user', version: '1.0.0', installPath: pasta }];
+}
+
+test('G3 no hook: outro plugin ligado depende da cópia do kit → nenhuma linha de disable (o comando falharia); desligado ou manifesto ilegível, a linha volta', () => {
+  const base = { [MATT]: usuario('1.0.0', true), [MATT_USUARIO]: usuario('1.3.2') };
+  const ligado = cenario({ instalados: { ...base, 'app@claude-hadouken': dependenteLigado('app@claude-hadouken', ['mattpocock-skills']) }, habilitados: { [MATT_USUARIO]: true, 'app@claude-hadouken': true } });
+  assert.equal(saida(ligado).systemMessage, undefined);
+  const objeto = cenario({ instalados: { ...base, 'app@x': dependenteLigado('app@x', [{ name: 'mattpocock-skills', marketplace: 'claude-hadouken', version: '^1.3' }]) }, habilitados: { [MATT_USUARIO]: true, 'app@x': true } });
+  assert.equal(saida(objeto).systemMessage, undefined, 'objeto com marketplace');
+  const desligado = cenario({ instalados: { ...base, 'app@claude-hadouken': dependenteLigado('app@claude-hadouken', [MATT]) }, habilitados: { [MATT_USUARIO]: true } });
+  assert.match(saida(desligado).systemMessage, /Desligue a cópia do kit, no terminal: claude plugin disable mattpocock-skills@claude-hadouken --scope user/);
+  const quebrado = cenario({ instalados: { ...base, 'app@claude-hadouken': dependenteLigado('app@claude-hadouken', null, '{quebrado') }, habilitados: { [MATT_USUARIO]: true, 'app@claude-hadouken': true } });
+  assert.match(saida(quebrado).systemMessage, /^hadouken-kit: mattpocock-skills em dobro/, 'manifesto ilegível = sem dependências');
 });
 
 test('hook: ausente e não instalada → linha de instalar', () => {
@@ -351,13 +452,13 @@ test('hook: ausente e não instalada → linha de instalar', () => {
     habilitados: TODAS_LIGADAS,
   });
   const j = saida(cfg);
-  assert.equal(j.systemMessage, 'hadouken-kit: falta poka-yoke. Instale: claude plugin install poka-yoke@claude-hadouken');
+  assert.equal(j.systemMessage, 'hadouken-kit: falta poka-yoke. Instale, no terminal: claude plugin install poka-yoke@claude-hadouken');
   assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
 });
 
 test('D8: ausente, instalada e desligada, sem outra cópia → linha de religar', () => {
   const j = saida(cenario({ habilitados: { [POKA]: false } }));
-  assert.equal(j.systemMessage, 'hadouken-kit: poka-yoke@claude-hadouken está desligado e não há outra cópia. Religue: claude plugin enable poka-yoke@claude-hadouken');
+  assert.equal(j.systemMessage, 'hadouken-kit: poka-yoke@claude-hadouken está desligado e não há outra cópia. Religue, no terminal: claude plugin enable poka-yoke@claude-hadouken');
   assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
 });
 

@@ -12,7 +12,7 @@ import { instalarPainel, versaoDoPlugin } from './painel/instalar-painel.js';
 import { sincronizarShims } from './shim.js';
 import { ligarAtualizacao, marketplaceConhecido } from './instalar/atualizacao-auto.js';
 import { criarClaude, passoKit, passoRea } from './instalar/claude-cli.js';
-import { lerRepos, lerTestadoDoKit } from './instalar/dedup.js';
+import { lerAutos, lerRepos, lerTestadoDoKit } from './instalar/dedup.js';
 import { codigoDeSaida, formatarResumo, item } from './instalar/itens.js';
 
 // Instalador de um comando, passos 6 e 7 (spec v0.5.2). O install.sh ou o
@@ -305,7 +305,8 @@ export async function instalarTudo(o) {
   await passo(itens, 'hadouken-kit', async () => {
     const configDir = pastaConfig(ambiente);
     const repos = configDir === null ? new Map() : lerRepos(path.join(configDir, 'plugins'));
-    const p = await passoKit(rodar, { repos, lerTestado: lerTestadoDoKit });
+    const autos = configDir === null ? new Set() : lerAutos(path.join(configDir, 'plugins'));
+    const p = await passoKit(rodar, { repos, autos, lerTestado: lerTestadoDoKit });
     kitPath = p.entrada?.installPath ?? null;
     return p.item;
   });
