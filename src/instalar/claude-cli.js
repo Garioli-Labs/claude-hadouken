@@ -117,10 +117,11 @@ const comando = (verbo, id) => `claude plugin ${verbo} ${id}`;
 // dependência é avaliada contra o que o usuário já tem (dedup.js):
 // `ausente` e não instalada → `plugin install`; `duplicada` (a do kit e a
 // equivalente ligadas) → `plugin disable` da do kit, só com o kit ≥ 1.2.0;
-// `equivalente` → nada; `ausente` e instalada desligada foi o usuário quem
-// desligou → não religa e avisa. Nunca desinstala. A verdade é a lista depois
-// dos comandos. Os avisos vão no detalhe do item do kit; `lista` é a final e
-// `dedup` a avaliação feita antes dos comandos.
+// `equivalente` → nada; `ausente` e instalada desligada → não religa e avisa;
+// `propria` com a cópia do usuário desligada → só informa qual vale. Nunca
+// desinstala. A verdade é a lista depois dos comandos (nula → ✗). Os avisos
+// vão no detalhe do item do kit; `lista` é a final e `dedup` a avaliação feita
+// antes dos comandos.
 export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({}) } = {}) {
   const nome = 'hadouken-kit';
   const p = await passoPlugin(rodar, ID_KIT, nome);
@@ -136,10 +137,12 @@ export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({
   const desligar = podeDesligar ? dedup.filter((a) => a.estado === 'duplicada') : [];
   for (const a of instalar) await rodar(['plugin', 'install', a.id]);
   for (const a of desligar) await rodar(['plugin', 'disable', a.id]);
-  const lista = instalar.length + desligar.length > 0 ? ((await listarPlugins(rodar)) ?? p.lista) : p.lista;
+  const lista = instalar.length + desligar.length > 0 ? await listarPlugins(rodar) : p.lista;
+  const base = p.item.estado === 'igual' ? [] : [p.item.detalhe];
+  // Sem a lista de depois dos comandos não há o que conferir: a velha não vale.
+  if (lista === null) return { item: item.falhou(nome, [...base, 'não consegui conferir a lista de plugins'].join('; '), 'rode claude plugin list'), entrada: p.entrada, lista, dedup };
   const faltam = instalar.filter((a) => !lista.has(a.id));
   const ligadas = desligar.filter((a) => lista.get(a.id)?.enabled === true);
-  const base = p.item.estado === 'igual' ? [] : [p.item.detalhe];
   const partes = [...base];
   const consertos = [];
   const instaladas = instalar.filter((a) => lista.has(a.id));
@@ -147,7 +150,8 @@ export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({
   for (const a of dedup) {
     if (a.estado === 'duplicada' && !podeDesligar) partes.push(`${a.nome} em dobro com ${a.equivalente}; atualize o hadouken-kit para desligar a cópia em dobro`);
     else if (a.estado === 'duplicada' && !ligadas.includes(a)) partes.push(`${a.nome} já instalado via ${a.equivalente}; cópia do kit desligada`);
-    else if (a.estado === 'ausente' && a.instalada) partes.push(`${a.nome} desligado por você; para ligar, rode ${comando('enable', a.id)}`);
+    else if (a.estado === 'ausente' && a.instalada) partes.push(`${a.id} está desligado e não há outra cópia. Religue: ${comando('enable', a.id)}`);
+    else if (a.estado === 'propria' && a.desligada !== null) partes.push(`${a.desligada} está desligado; vale a cópia do kit ${a.id}`);
     if (a.versao !== null) partes.push(`${a.equivalente} na ${a.versao.equivalente}, testada ${a.versao.testada}`);
   }
   if (faltam.length > 0) {

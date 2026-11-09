@@ -194,16 +194,49 @@ test('dedup ausente: dependência sem nenhuma cópia → plugin install dela', a
   assert.match(kitItem(itens).detalhe, /poka-yoke/);
 });
 
-test('dedup versão: o equivalente numa versão diferente da testada → o resumo diz as duas', async () => {
+test('dedup D4 pelo instalador: plugin de outro nome e mesma origem de outro marketplace → a dependência do kit não é instalada', async () => {
   const c = cenario();
+  const raizes = path.join(c.casa, 'plugins', 'marketplaces');
+  const marketplaces = {
+    'claude-hadouken': { repo: 'Garioli-Labs/claude-hadouken', plugins: [{ name: 'mattpocock-skills', source: { source: 'url', url: 'https://github.com/mattpocock/skills.git' } }] },
+    outro: { repo: 'fulano/outro', plugins: [{ name: 'skills', source: { source: 'github', repo: 'MattPocock/Skills' } }] },
+  };
+  const conhecidos = {};
+  for (const [nome, m] of Object.entries(marketplaces)) {
+    conhecidos[nome] = { source: { source: 'github', repo: m.repo }, installLocation: path.join(raizes, nome) };
+    fs.mkdirSync(path.join(raizes, nome, '.claude-plugin'), { recursive: true });
+    fs.writeFileSync(path.join(raizes, nome, '.claude-plugin', 'marketplace.json'), JSON.stringify({ plugins: m.plugins }));
+  }
+  fs.writeFileSync(path.join(c.casa, 'plugins', 'known_marketplaces.json'), JSON.stringify(conhecidos));
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, 'skills@outro', '1.3.2');
+  await rodarTudo(c);
+  assert.ok(!c.estado.log.includes(`plugin install ${MATT}`), 'a origem (repo e subpasta) casa: já está satisfeita');
+  assert.ok(!c.estado.plugins.some((x) => x.id === MATT));
+  assert.ok(c.estado.log.includes('plugin install poka-yoke@claude-hadouken'), 'as outras seguem');
+});
+
+function kitComTestado(c, versaoEquivalente) {
   registrarMattpocock(c);
   plugin(c, ID_KIT, '1.2.0');
-  plugin(c, MATT_UPSTREAM, '1.3.1');
+  plugin(c, MATT_UPSTREAM, versaoEquivalente);
   fs.mkdirSync(path.join(c.casa, 'hadouken-kit'), { recursive: true });
   fs.writeFileSync(path.join(c.casa, 'hadouken-kit', 'testado.json'), JSON.stringify({ dependencias: { [MATT]: '1.3.2' } }));
+}
+
+test('dedup versão: o equivalente numa versão diferente da testada → o resumo diz as duas', async () => {
+  const c = cenario();
+  kitComTestado(c, '1.3.1');
   const resumo = formatarResumo(await rodarTudo(c));
-  assert.match(resumo, /1\.3\.1/);
-  assert.match(resumo, /testada 1\.3\.2/);
+  assert.match(resumo, /mattpocock-skills@mattpocock na 1\.3\.1, testada 1\.3\.2/);
+});
+
+test('dedup versão igual (D9): o equivalente na versão testada → o resumo não cita versão', async () => {
+  const c = cenario();
+  kitComTestado(c, '1.3.2');
+  const itens = await rodarTudo(c);
+  assert.doesNotMatch(formatarResumo(itens), /testada/);
+  assert.doesNotMatch(kitItem(itens).detalhe, /1\.3\.[12]/);
 });
 
 test('dedup D2: kit < 1.2.0 com duplicata → não desliga e manda atualizar o kit', async () => {

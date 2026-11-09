@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -69,8 +69,12 @@ const CACHE_DE = {
   'poka-yoke': primeiro(path.join(CACHE, 'claude-hadouken', 'poka-yoke', '0.2.0'), path.join(CACHE, 'poka-yoke', 'poka-yoke', '0.2.0')),
 };
 
+// O SessionStart lê o registro de plugins de CLAUDE_CONFIG_DIR: sempre uma
+// pasta vazia, nunca o ~/.claude de quem roda o teste.
+const CONFIG_VAZIA = fs.mkdtempSync(path.join(os.tmpdir(), 'kit fluxo cfg '));
+after(() => fs.rmSync(CONFIG_VAZIA, { recursive: true, force: true }));
 function rodar(cwd, input = '') {
-  return spawnSync(process.execPath, [FLUXO], { cwd, input, encoding: 'utf8', timeout: 5000 });
+  return spawnSync(process.execPath, [FLUXO], { cwd, input, encoding: 'utf8', timeout: 5000, env: { ...process.env, CLAUDE_CONFIG_DIR: CONFIG_VAZIA } });
 }
 const contexto = () => JSON.parse(rodar(repo).stdout).hookSpecificOutput.additionalContext;
 

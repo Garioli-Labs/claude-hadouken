@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 // Desde o kit 1.2.0 o manifesto do kit só declara o hadouken: o `install` do
 // kit não traz as dependências de terceiros, e cada uma é um `install` à
 // parte (as de estado.semDeps nunca instalam). O `update` só troca a versão.
+// estado.falharListaNa = n faz só a n-ésima chamada de `plugin list` falhar.
 
 export const CATALOGO = Object.freeze({
   'hadouken@claude-hadouken': '0.5.2',
@@ -35,7 +36,12 @@ export function responder(estado, args) {
   if (a !== 'plugin') return nada(1);
   if ((estado.falhar ?? []).includes(args.slice(1).join(' '))) return nada(1);
   if (b === 'marketplace') return nada(0);
-  if (b === 'list') return { codigo: 0, saida: JSON.stringify(estado.plugins) };
+  if (b === 'list') {
+    // estado.falharListaNa: o número (1, 2, ...) da chamada de `plugin list` que falha, e só ela.
+    estado.chamadasLista = (estado.chamadasLista ?? 0) + 1;
+    if (estado.falharListaNa === estado.chamadasLista) return nada(1);
+    return { codigo: 0, saida: JSON.stringify(estado.plugins) };
+  }
   const p = estado.plugins.find((x) => x.id === c);
   if (b === 'install') {
     if (!Object.hasOwn(CATALOGO, c) || (estado.semDeps ?? []).includes(c)) return nada(1);

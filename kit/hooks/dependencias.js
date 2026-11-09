@@ -7,7 +7,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 export const TERCEIROS_KIT = Object.freeze([
   'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken', 'poka-yoke@claude-hadouken',
@@ -39,16 +38,23 @@ function lerJson(arquivo) {
   }
 }
 
-// O repo de origem de um plugin, como `dono/repo` em minúsculas: source
-// relativo → o repo do marketplace; github → repo; url ou git-subdir de
-// github.com → dono/repo sem `.git`; o resto → null (só o nome vale).
+// A origem de um plugin, como `dono/repo[/subpasta]` em minúsculas, sem `./`
+// e sem `/` no fim (spec v0.6.0, D4 e D11): source relativo `./<sub>` → o repo
+// do marketplace e <sub> (`.` e `./` → só o repo); github → repo; url de
+// github.com → dono/repo sem `.git`; git-subdir de github.com → o repo e o
+// `path`; o resto → null (só o nome vale).
+const subpasta = (p) => p.toLowerCase().replace(/^(?:\.\/)+/, '').replace(/^\.$/, '').replace(/\/+$/, '');
+const comSubpasta = (repo, sub) => (repo === null || sub === '' ? repo : `${repo}/${sub}`);
+
 export function repoDeOrigem(source, repoMarketplace = null) {
-  if (typeof source === 'string') return source === '.' || source.startsWith('./') ? minusculo(repoMarketplace) : null;
+  if (typeof source === 'string') return source === '.' || source.startsWith('./') ? comSubpasta(minusculo(repoMarketplace), subpasta(source)) : null;
   if (!ehObjeto(source)) return null;
   if (source.source === 'github') return minusculo(source.repo);
   if ((source.source === 'url' || source.source === 'git-subdir') && typeof source.url === 'string') {
     const m = URL_GITHUB.exec(source.url);
-    return m === null ? null : minusculo(`${m[1]}/${m[2]}`);
+    const repo = m === null ? null : minusculo(`${m[1]}/${m[2]}`);
+    if (source.source === 'url') return repo;
+    return typeof source.path === 'string' ? comSubpasta(repo, subpasta(source.path)) : null;
   }
   return null;
 }
@@ -90,6 +96,7 @@ const marketplaceDe = (id) => id.slice(id.indexOf('@') + 1);
 //   equivalente outra cópia ligada satisfaz; a do kit está ausente ou desligada
 //   duplicada   a do kit e a equivalente estão ligadas
 //   ausente     nenhuma cópia ligada (a do kit pode estar instalada e desligada)
+// `desligada`: outra cópia (mesmo nome ou origem) instalada e desligada, ou null.
 export function avaliarDependencias({ deps, plugins, repos, testado } = {}) {
   const mapa = plugins instanceof Map ? plugins : new Map();
   const reposDe = repos instanceof Map ? repos : new Map();
@@ -99,23 +106,27 @@ export function avaliarDependencias({ deps, plugins, repos, testado } = {}) {
     const nome = nomeDe(id);
     const repo = reposDe.get(id) ?? null;
     const propria = doUsuario.find(([k]) => k === id)?.[1];
-    const equivalente = doUsuario
-      .filter(([k, p]) => p.enabled === true && marketplaceDe(k) !== marketplaceDe(id) && (nomeDe(k) === nome || (repo !== null && reposDe.get(k) === repo)))
-      .map(([k]) => k)
-      .sort()[0] ?? null;
+    const outraCopia = ([k]) => marketplaceDe(k) !== marketplaceDe(id) && (nomeDe(k) === nome || (repo !== null && reposDe.get(k) === repo));
+    const primeiro = (lista) => lista.map(([k]) => k).sort()[0] ?? null;
+    const equivalente = primeiro(doUsuario.filter((e) => e[1].enabled === true && outraCopia(e)));
+    const desligada = primeiro(doUsuario.filter((e) => e[1].enabled !== true && outraCopia(e)));
     const ligada = propria?.enabled === true;
     const estado = equivalente === null ? (ligada ? 'propria' : 'ausente') : (ligada ? 'duplicada' : 'equivalente');
     const testada = versoesTestadas[id];
     const versaoDele = equivalente === null ? null : mapa.get(equivalente).version;
     const difere = typeof versaoDele === 'string' && typeof testada === 'string' && versaoDele !== testada;
-    return { id, nome, estado, instalada: propria !== undefined, equivalente, versao: difere ? { equivalente: versaoDele, testada } : null };
+    return { id, nome, estado, instalada: propria !== undefined, equivalente, desligada, versao: difere ? { equivalente: versaoDele, testada } : null };
   });
 }
 
 // <pastaConfig>/plugins/installed_plugins.json (só entradas scope "user")
 // cruzado com enabledPlugins de <pastaConfig>/settings.json: enabled só quando
 // o valor é exatamente true; id sem chave conta como desligado. Qualquer
-// leitura que falhe, ou arquivo de forma errada → null (silêncio).
+// leitura que falhe, ou arquivo de forma errada → null (silêncio): inclui
+// `plugins[id]` que não é lista (formato v1) e registro sem o hadouken-kit no
+// escopo do usuário (D12).
+const ID_KIT = 'hadouken-kit@claude-hadouken';
+
 export function lerRegistro(pastaConfig) {
   try {
     if (typeof pastaConfig !== 'string' || pastaConfig === '') return null;
@@ -127,11 +138,12 @@ export function lerRegistro(pastaConfig) {
     if (!ehObjeto(habilitados)) return null;
     const plugins = new Map();
     for (const [id, entradas] of Object.entries(instalados.valor.plugins)) {
-      if (!Array.isArray(entradas)) continue;
+      if (!Array.isArray(entradas)) return null;
       const doUsuario = entradas.find((e) => ehObjeto(e) && e.scope === 'user');
       if (doUsuario === undefined) continue;
       plugins.set(id, { version: typeof doUsuario.version === 'string' ? doUsuario.version : null, enabled: habilitados[id] === true, scope: 'user' });
     }
+    if (!plugins.has(ID_KIT)) return null;
     return { plugins, repos: lerRepos(path.join(pastaConfig, 'plugins')) };
   } catch {
     return null;
@@ -161,23 +173,13 @@ export function pastaConfig(env = process.env, casa = os.homedir()) {
   return typeof c === 'string' && path.isAbsolute(c) ? c : path.join(casa, '.claude');
 }
 
-// O testado.json do kit instalado: ${CLAUDE_PLUGIN_ROOT}/testado.json (sem a
-// variável, a pasta acima de hooks/). Ilegível → {}.
-function lerTestado(env) {
-  const raiz = typeof env?.CLAUDE_PLUGIN_ROOT === 'string' && path.isAbsolute(env.CLAUDE_PLUGIN_ROOT)
-    ? env.CLAUDE_PLUGIN_ROOT
-    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const r = lerJson(path.join(raiz, 'testado.json'));
-  return r.ok && ehObjeto(r.valor) && ehObjeto(r.valor.dependencias) ? r.valor.dependencias : {};
-}
-
 // O texto do systemMessage do SessionStart: as linhas de aviso unidas por \n,
 // ou null quando não há problema ou a leitura falhou. Nunca lança.
 export function avisoDaSessao(env = process.env) {
   try {
     const registro = lerRegistro(pastaConfig(env));
     if (registro === null) return null;
-    const avaliacao = avaliarDependencias({ deps: TERCEIROS_KIT, plugins: registro.plugins, repos: registro.repos, testado: lerTestado(env) });
+    const avaliacao = avaliarDependencias({ deps: TERCEIROS_KIT, plugins: registro.plugins, repos: registro.repos });
     const linhas = linhasAviso(avaliacao);
     return linhas.length === 0 ? null : linhas.join('\n');
   } catch {

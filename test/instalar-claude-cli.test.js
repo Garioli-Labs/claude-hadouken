@@ -163,16 +163,44 @@ test('passoKit: dependência que não instala é ✗ com o nome e o install dela
   assert.ok(!bom.log.slice(n).some((l) => l.startsWith('plugin install')), 'nada falta: sem install a mais');
 });
 
-test('passoKit: repos e testado entram na avaliação; duplicada com kit 1.2.0 desliga e confere pela lista', async () => {
-  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(MATT_UPSTREAM, '1.3.1')], log: [], raiz: '/r' };
+test('passoKit: repos e testado reais entram na avaliação; duplicada por origem (nome diferente) com kit 1.2.0 desliga e confere pela lista', async () => {
+  const SKILLS = 'skills@outro';
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(SKILLS, '1.3.1')], log: [], raiz: '/r' };
   const lerTestado = (caminho) => (caminho === '/r/hadouken-kit' ? { [MATT]: '1.3.2' } : {});
-  const r = await passoKit(rodarFalso(estado), { repos: new Map(), lerTestado });
+  const repos = new Map([[MATT, 'mattpocock/skills'], [SKILLS, 'mattpocock/skills']]);
+  const r = await passoKit(rodarFalso(estado), { repos, lerTestado });
   const matt = r.dedup.find((a) => a.id === MATT);
-  assert.deepEqual([matt.estado, matt.equivalente, matt.versao], ['duplicada', MATT_UPSTREAM, { equivalente: '1.3.1', testada: '1.3.2' }]);
+  assert.deepEqual([matt.estado, matt.equivalente, matt.versao], ['duplicada', SKILLS, { equivalente: '1.3.1', testada: '1.3.2' }]);
   assert.ok(estado.log.includes(`plugin disable ${MATT}`));
   assert.equal(r.lista.get(MATT).enabled, false);
-  assert.match(r.item.detalhe, /mattpocock-skills já instalado via mattpocock-skills@mattpocock; cópia do kit desligada/);
-  assert.match(r.item.detalhe, /testada 1\.3\.2/);
+  assert.match(r.item.detalhe, /mattpocock-skills já instalado via skills@outro; cópia do kit desligada/);
+  assert.match(r.item.detalhe, /skills@outro na 1\.3\.1, testada 1\.3\.2/);
+  const sem = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(SKILLS, '1.3.1')], log: [], raiz: '/r' };
+  const rSem = await passoKit(rodarFalso(sem));
+  assert.equal(rSem.dedup.find((a) => a.id === MATT).estado, 'propria', 'sem repos nem testado, o nome diferente não casa');
+  assert.ok(!sem.log.includes(`plugin disable ${MATT}`));
+});
+
+test('passoKit: lista nula depois dos install/disable é ✗ "não consegui conferir", sem usar a lista velha', async () => {
+  // kit já em 1.2.0: list #1 (antes), update, list #2 (depois do update), installs, list #3 (a conferência)
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0')], log: [], raiz: '/r', falharListaNa: 3 };
+  const r = await passoKit(rodarFalso(estado));
+  assert.deepEqual(r.item, item.falhou('hadouken-kit', 'não consegui conferir a lista de plugins', 'rode claude plugin list'));
+  assert.ok(estado.log.includes(`plugin install ${MATT}`), 'os installs rodaram; só a conferência falhou');
+  assert.equal(r.lista, null);
+  const desliga = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(MATT_UPSTREAM, '1.3.2'), ...TERCEIROS_KIT.filter((d) => d !== MATT).map((d) => entrada(d, '1.0.0'))], log: [], raiz: '/r', falharListaNa: 3 };
+  const d = await passoKit(rodarFalso(desliga));
+  assert.ok(desliga.log.includes(`plugin disable ${MATT}`));
+  assert.deepEqual(d.item, item.falhou('hadouken-kit', 'não consegui conferir a lista de plugins', 'rode claude plugin list'), 'não afirma "cópia desligada" sem ter conferido');
+});
+
+test('passoKit D1: cópia do usuário instalada e desligada, a do kit própria → o detalhe diz qual vale; nada é ligado nem desligado', async () => {
+  const outras = TERCEIROS_KIT.filter((d) => d !== MATT).map((d) => entrada(d, '1.0.0'));
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(MATT_UPSTREAM, '1.3.2', false), ...outras], log: [], raiz: '/r' };
+  const r = await passoKit(rodarFalso(estado));
+  assert.deepEqual(r.item, item.ok('hadouken-kit', `${MATT_UPSTREAM} está desligado; vale a cópia do kit ${MATT}`));
+  assert.ok(!estado.log.some((l) => /^plugin (enable|disable|install)/.test(l)), 'só informa');
+  assert.equal(estado.plugins.find((x) => x.id === MATT_UPSTREAM).enabled, false);
 });
 
 test('passoKit: dependência instalada e desligada pelo usuário, sem equivalente, não é religada; o aviso traz o enable', async () => {
@@ -180,7 +208,8 @@ test('passoKit: dependência instalada e desligada pelo usuário, sem equivalent
   const r = await passoKit(rodarFalso(estado));
   assert.ok(!estado.log.includes(`plugin enable ${MATT}`));
   assert.ok(!estado.log.includes(`plugin install ${MATT}`));
-  assert.match(r.item.detalhe, /rode claude plugin enable mattpocock-skills@claude-hadouken/);
+  assert.match(r.item.detalhe, new RegExp(`${MATT} está desligado e não há outra cópia\\. Religue: claude plugin enable ${MATT}`));
+  assert.doesNotMatch(r.item.detalhe, /por você/);
 });
 
 test('DEPENDENCIAS_KIT é o que o instalador garante (hadouken + terceiros); o manifesto do kit declara só o hadouken', () => {

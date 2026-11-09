@@ -38,6 +38,7 @@ const p = (version, enabled, scope = 'user') => ({ version, enabled, scope });
 const MATT = 'mattpocock-skills@claude-hadouken';
 const POKA = 'poka-yoke@claude-hadouken';
 const MATT_USUARIO = 'mattpocock-skills@mattpocock';
+const KIT = 'hadouken-kit@claude-hadouken';
 
 // ------------------------------------------------------------ paridade
 
@@ -65,6 +66,9 @@ const CASOS = [
   ['versão diferente da testada', { deps: [MATT], testado: { [MATT]: '1.3.2' }, plugins: [[MATT_USUARIO, p('1.3.1', true)]] }],
   ['versão igual à testada (D9)', { deps: [MATT], testado: { [MATT]: '1.3.2' }, plugins: [[MATT_USUARIO, p('1.3.2', true)]] }],
   ['D10 superpowers de outro marketplace', { deps: ['superpowers@claude-plugins-official'], plugins: [['superpowers@claude-plugins-official', p('6.4.1', false)], ['superpowers@outro', p('6.4.0', true)]] }],
+  ['D11 irmão de monorepo em subpasta não casa com a raiz', { deps: ['fullstack-dev-skills@claude-hadouken'], repos: [['fullstack-dev-skills@claude-hadouken', 'mono/repo'], ['outro-plugin@mk', 'mono/repo/plugins/outro']], plugins: [['fullstack-dev-skills@claude-hadouken', p('1', true)], ['outro-plugin@mk', p('1', true)]] }],
+  ['D4 mesma subpasta, nome diferente', { deps: [POKA], repos: [[POKA, 'rainmanjam/poka-yoke/plugins/poka-yoke'], ['guardrails@poka-yoke', 'rainmanjam/poka-yoke/plugins/poka-yoke']], plugins: [['guardrails@poka-yoke', p('0.2.0', true)]] }],
+  ['D1 desligada por origem', { deps: [MATT], repos: [[MATT, 'mattpocock/skills'], ['skills@x', 'mattpocock/skills']], plugins: [[MATT, p('1', true)], ['skills@x', p('1', false)]] }],
   ['uma avaliação por dependência, na ordem', { deps: ['a@m', 'b@m'], plugins: [['a@m', p('1', true)]] }],
 ];
 
@@ -91,6 +95,10 @@ test('paridade: repoDeOrigem', () => {
     [{ source: 'git-subdir', url: 'https://github.com/rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke' }],
     [{ source: 'url', url: 'https://gitlab.com/x/y.git' }], [{ source: 'npm', package: 'x' }],
     [undefined, 'a/b'], [null], [42], [[]],
+    ['./plugins/outro', 'Dono/Mono'], ['./plugins/Outro/', 'dono/mono'], ['./plugins/outro', null], ['.', 'a/b'],
+    [{ source: 'git-subdir', url: 'https://github.com/A/B', path: './Plugins/X/' }],
+    [{ source: 'git-subdir', url: 'https://github.com/a/b.git', path: '' }], [{ source: 'git-subdir', url: 'https://github.com/a/b.git' }],
+    [{ source: 'url', url: 'https://github.com/a/b.git', path: 'x' }], [{ source: 'github', repo: 'a/b', path: 'x' }],
   ];
   for (const e of entradas) assert.deepStrictEqual(kit.repoDeOrigem(...e), proj.repoDeOrigem(...e), JSON.stringify(e));
 });
@@ -128,14 +136,43 @@ test('paridade: lerRepos em pasta de fixture (e nos casos de pasta ruim)', () =>
   }
 });
 
+test('paridade: lerRepos com marketplace monorepo (subpasta) e a avaliação D11 e D4 por subpasta nas duas cópias', () => {
+  const d = novoTmp();
+  const FULL = 'fullstack-dev-skills@claude-hadouken';
+  const conhecidos = {};
+  for (const [nome, repo, plugins] of [
+    ['claude-hadouken', 'Garioli-Labs/claude-hadouken', [
+      { name: 'fullstack-dev-skills', source: { source: 'url', url: 'https://github.com/Mono/Repo.git' } },
+      { name: 'poka-yoke', source: { source: 'git-subdir', url: 'https://github.com/rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke' } },
+    ]],
+    ['mk', 'mono/repo', [{ name: 'outro-plugin', source: './plugins/outro' }]],
+    ['poka-yoke', 'rainmanjam/poka-yoke', [{ name: 'guardrails', source: './plugins/poka-yoke' }]],
+  ]) {
+    const loc = path.join(d, 'marketplaces', nome);
+    conhecidos[nome] = { source: { source: 'github', repo }, installLocation: loc };
+    gravar(path.join(loc, '.claude-plugin', 'marketplace.json'), { plugins });
+  }
+  gravar(path.join(d, 'known_marketplaces.json'), conhecidos);
+  const esperado = proj.lerRepos(d);
+  assert.deepStrictEqual(kit.lerRepos(d), esperado);
+  assert.equal(esperado.get('outro-plugin@mk'), 'mono/repo/plugins/outro');
+  assert.equal(esperado.get(POKA), 'rainmanjam/poka-yoke/plugins/poka-yoke');
+  const plugins = () => new Map([[FULL, p('1.0.0', true)], [POKA, p('0.2.0', true)], ['outro-plugin@mk', p('1.0.0', true)], ['guardrails@poka-yoke', p('0.2.0', true)]]);
+  const avaliacao = proj.avaliarDependencias({ deps: [FULL, POKA], plugins: plugins(), repos: esperado, testado: {} });
+  assert.deepEqual(avaliacao.map((a) => [a.id, a.estado, a.equivalente]), [[FULL, 'propria', null], [POKA, 'duplicada', 'guardrails@poka-yoke']]);
+  assert.deepStrictEqual(kit.avaliarDependencias({ deps: [FULL, POKA], plugins: plugins(), repos: kit.lerRepos(d), testado: {} }), avaliacao);
+});
+
 // ------------------------------------------------------------ lerRegistro
 
 // Monta <cfg>/plugins/installed_plugins.json e <cfg>/settings.json.
 // instalados: { id: [entradas] }; habilitados: { id: valor }.
-function montarConfig({ instalados, habilitados, instaladosBruto, settingsBruto } = {}) {
+// O registro de um usuário que usa o kit tem o hadouken-kit no escopo user;
+// semKit: true tira essa entrada.
+function montarConfig({ instalados, habilitados, instaladosBruto, settingsBruto, semKit = false } = {}) {
   const cfg = novoTmp();
   if (instaladosBruto !== undefined) gravar(path.join(cfg, 'plugins', 'installed_plugins.json'), instaladosBruto);
-  else if (instalados !== undefined) gravar(path.join(cfg, 'plugins', 'installed_plugins.json'), { version: 2, plugins: instalados });
+  else if (instalados !== undefined) gravar(path.join(cfg, 'plugins', 'installed_plugins.json'), { version: 2, plugins: semKit ? instalados : { ...instalados, [KIT]: usuario() } });
   if (settingsBruto !== undefined) gravar(path.join(cfg, 'settings.json'), settingsBruto);
   else if (habilitados !== undefined) gravar(path.join(cfg, 'settings.json'), { enabledPlugins: habilitados });
   return cfg;
@@ -153,6 +190,7 @@ test('lerRegistro: só scope user, cruzado com enabledPlugins === true; o resto 
     [POKA, { version: '0.2.0', enabled: false, scope: 'user' }],
     ['a@m', { version: '2.0.0', enabled: false, scope: 'user' }],
     ['b@m', { version: '3.0.0', enabled: false, scope: 'user' }],
+    [KIT, { version: '1.0.0', enabled: false, scope: 'user' }],
   ]);
   assert.ok(r.repos instanceof Map);
 });
@@ -208,14 +246,24 @@ test('lerRegistro: qualquer falha de leitura dá null (D6, D7 e formas erradas)'
   assert.equal(kit.lerRegistro(undefined), null);
 });
 
+test('D12: formato v1 (plugins[id] objeto), plugins {} e registro só de projeto → lerRegistro null', () => {
+  const habilitados = { [MATT]: true };
+  const v1 = { version: 1, plugins: { [KIT]: { version: '1.0.0', installPath: '/x' }, [MATT]: { version: '1.3.2', installPath: '/y' } } };
+  assert.equal(kit.lerRegistro(montarConfig({ habilitados, instaladosBruto: v1 })), null, 'v1');
+  assert.equal(kit.lerRegistro(montarConfig({ habilitados, instaladosBruto: { version: 2, plugins: {} } })), null, 'plugins {}');
+  const soProjeto = { [KIT]: [{ scope: 'project', version: '1.0.0', projectPath: '/p' }], [MATT]: usuario('1.3.2') };
+  assert.equal(kit.lerRegistro(montarConfig({ habilitados, instalados: soProjeto, semKit: true })), null, 'kit só no escopo project');
+  assert.equal(kit.lerRegistro(montarConfig({ habilitados, instalados: { [MATT]: usuario('1.3.2') }, semKit: true })), null, 'sem o kit');
+  assert.notEqual(kit.lerRegistro(montarConfig({ habilitados, instalados: { [MATT]: usuario('1.3.2') } })), null, 'controle: com o kit no escopo user');
+});
+
 test('lerRegistro: settings sem enabledPlugins = tudo desligado; entrada de lixo em um id não derruba os outros', () => {
   const cfg = montarConfig({
-    instalados: { [MATT]: usuario(), lixo1: 'x', lixo2: [null, 7], lixo3: [{ scope: 'user' }] },
+    instalados: { [MATT]: usuario(), lixo2: [null, 7], lixo3: [{ scope: 'user' }] },
     settingsBruto: {},
   });
   const { plugins } = kit.lerRegistro(cfg);
   assert.equal(plugins.get(MATT).enabled, false);
-  assert.equal(plugins.has('lixo1'), false);
   assert.equal(plugins.has('lixo2'), false);
 });
 
@@ -258,8 +306,8 @@ test('pastaConfig: CLAUDE_CONFIG_DIR absoluto; senão ~/.claude', () => {
 
 // ------------------------------------------------------------ hook (SessionStart do kit)
 
-function rodar(cwd, cfg, { fluxo = FLUXO, raiz = RAIZ_KIT } = {}) {
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg, CLAUDE_PLUGIN_ROOT: raiz };
+function rodar(cwd, cfg, { fluxo = FLUXO } = {}) {
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
   return spawnSync(process.execPath, [fluxo], { cwd, input: '', encoding: 'utf8', timeout: 10000, env });
 }
 function saida(cfg, opcoes) {
@@ -344,16 +392,24 @@ test('RF2 no hook: cópia do usuário só em escopo project → não conta; com 
   assert.match(saida(comUsuario).systemMessage, /^hadouken-kit: mattpocock-skills em dobro/);
 });
 
+test('D12 no hook: registro v1, plugins {} ou kit só em project → sem systemMessage e o mesmo additionalContext', () => {
+  const v1 = { version: 1, plugins: Object.fromEntries([KIT, ...proj.TERCEIROS_KIT].map((id) => [id, { version: '1.0.0', installPath: '/x' }])) };
+  const soProjeto = { ...TODAS, [KIT]: [{ scope: 'project', version: '1.0.0', projectPath: '/p' }] };
+  for (const [nome, cfg] of [
+    ['v1', montarConfig({ instaladosBruto: v1, habilitados: TODAS_LIGADAS })],
+    ['plugins {}', montarConfig({ instaladosBruto: { version: 2, plugins: {} }, habilitados: TODAS_LIGADAS })],
+    ['kit só em project', montarConfig({ instalados: soProjeto, habilitados: TODAS_LIGADAS, semKit: true })],
+  ]) {
+    const j = saida(cfg);
+    assert.equal(j.systemMessage, undefined, nome);
+    assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO, nome);
+  }
+});
+
 test('D7: settings.json inválido → sem systemMessage, additionalContext igual ao de hoje', () => {
   const cfg = montarConfig({ instalados: { ...TODAS, [MATT_USUARIO]: usuario() }, settingsBruto: '{quebrado' });
   const j = saida(cfg);
   assert.equal(j.systemMessage, undefined);
-  assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
-});
-
-test('hook: o testado.json do kit vem de CLAUDE_PLUGIN_ROOT; raiz sem ele não derruba nem cria aviso', () => {
-  const j = saida(cenario({ instalados: { [MATT_USUARIO]: usuario('0.0.1') }, habilitados: { [MATT_USUARIO]: true } }), { raiz: novoTmp() });
-  assert.match(j.systemMessage, /em dobro/);
   assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
 });
 
@@ -366,6 +422,21 @@ test('hook: exceção ao carregar a avaliação → só o additionalContext (flu
   const j = saida(cfg, { fluxo: path.join(sozinho, 'fluxo.js') });
   assert.deepEqual(Object.keys(j), ['hookSpecificOutput']);
   assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
+});
+
+test('hook sem package.json ao lado (Node sem detecção de módulo): sai 0 e imprime o additionalContext, sem aviso', () => {
+  const sozinho = path.join(novoTmp(), 'hooks');
+  fs.mkdirSync(sozinho, { recursive: true });
+  fs.copyFileSync(FLUXO, path.join(sozinho, 'fluxo.js'));
+  fs.copyFileSync(path.join(RAIZ_KIT, 'hooks', 'dependencias.js'), path.join(sozinho, 'dependencias.js'));
+  assert.equal(fs.existsSync(path.join(sozinho, '..', 'package.json')), false);
+  const cfg = cenario({ instalados: { [MATT_USUARIO]: usuario() }, habilitados: { [MATT_USUARIO]: true } });
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
+  const r = spawnSync(process.execPath, ['--no-experimental-detect-module', path.join(sozinho, 'fluxo.js')], { cwd: repo, input: '', encoding: 'utf8', timeout: 10000, env });
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
+  assert.equal(j.systemMessage, undefined, 'sem package.json o aviso some, o contexto fica');
 });
 
 test('kit autocontido: dependencias.js não importa src/ nem módulo fora de node:', () => {

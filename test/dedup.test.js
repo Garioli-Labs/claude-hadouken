@@ -38,7 +38,7 @@ test('duplicada por nome', () => {
     deps: ['mattpocock-skills@claude-hadouken'], repos: new Map(), testado: {},
     plugins: new Map([['mattpocock-skills@claude-hadouken', p('1.3.2', true)], ['mattpocock-skills@mattpocock', p('1.3.2', true)]]),
   });
-  assert.deepEqual(r[0], { id: 'mattpocock-skills@claude-hadouken', nome: 'mattpocock-skills', estado: 'duplicada', instalada: true, equivalente: 'mattpocock-skills@mattpocock', versao: null });
+  assert.deepEqual(r[0], { id: 'mattpocock-skills@claude-hadouken', nome: 'mattpocock-skills', estado: 'duplicada', instalada: true, equivalente: 'mattpocock-skills@mattpocock', desligada: null, versao: null });
 });
 
 test('D4: mesmo repo com outro nome é equivalente; sem a cópia do kit, nada em dobro', () => {
@@ -72,7 +72,7 @@ test('D1: cópia do usuário desligada não conta; a do kit ligada é própria',
 
 test('sem cópia nenhuma: ausente e não instalada', () => {
   const [r] = avaliar([]);
-  assert.deepEqual(r, { id: MATT, nome: 'mattpocock-skills', estado: 'ausente', instalada: false, equivalente: null, versao: null });
+  assert.deepEqual(r, { id: MATT, nome: 'mattpocock-skills', estado: 'ausente', instalada: false, equivalente: null, desligada: null, versao: null });
 });
 
 test('D5: escopo project é ignorado, na do usuário e na do kit', () => {
@@ -127,11 +127,24 @@ test('repoDeOrigem: relativo, github, url e git-subdir normalizados; o resto é 
   assert.equal(repoDeOrigem('./', null), null);
   assert.equal(repoDeOrigem({ source: 'github', repo: 'A/B' }), 'a/b');
   assert.equal(repoDeOrigem({ source: 'url', url: 'https://github.com/jeffallan/claude-skills.git' }), 'jeffallan/claude-skills');
-  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'https://github.com/rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke' }), 'rainmanjam/poka-yoke');
+  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'https://github.com/rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke' }), 'rainmanjam/poka-yoke/plugins/poka-yoke');
   assert.equal(repoDeOrigem({ source: 'url', url: 'https://gitlab.com/x/y.git' }), null);
   assert.equal(repoDeOrigem({ source: 'npm', package: 'x' }), null);
   assert.equal(repoDeOrigem(undefined, 'a/b'), null);
   assert.equal(repoDeOrigem({ source: 'github', repo: 'semBarra' }), null);
+});
+
+test('repoDeOrigem: origem = repo + subpasta (D4, D11), minúsculas, sem ./ e sem / no fim', () => {
+  assert.equal(repoDeOrigem('./plugins/outro', 'Dono/Mono'), 'dono/mono/plugins/outro');
+  assert.equal(repoDeOrigem('./plugins/Outro/', 'dono/mono'), 'dono/mono/plugins/outro');
+  assert.equal(repoDeOrigem('./', 'dono/mono'), 'dono/mono');
+  assert.equal(repoDeOrigem('.', 'dono/mono'), 'dono/mono');
+  assert.equal(repoDeOrigem('./plugins/outro', null), null);
+  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'https://github.com/A/B', path: './Plugins/X/' }), 'a/b/plugins/x');
+  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'https://github.com/a/b.git', path: '' }), 'a/b');
+  assert.equal(repoDeOrigem({ source: 'git-subdir', url: 'https://github.com/a/b.git' }), null, 'git-subdir sem path não tem origem');
+  assert.equal(repoDeOrigem({ source: 'url', url: 'https://github.com/a/b.git', path: 'x' }), 'a/b', 'url vale só o repo');
+  assert.equal(repoDeOrigem({ source: 'github', repo: 'a/b', path: 'x' }), 'a/b', 'github vale só o repo');
 });
 
 // ------------------------------------------------------------ lerRepos
@@ -156,7 +169,7 @@ test('lerRepos: repo de cada plugin pelo known_marketplaces.json e pelo marketpl
   const repos = lerRepos(d);
   assert.equal(repos.get('mattpocock-skills@mattpocock'), 'mattpocock/skills');
   assert.equal(repos.get('hadouken@claude-hadouken'), 'garioli-labs/claude-hadouken');
-  assert.equal(repos.get('poka-yoke@claude-hadouken'), 'rainmanjam/poka-yoke');
+  assert.equal(repos.get('poka-yoke@claude-hadouken'), 'rainmanjam/poka-yoke/plugins/poka-yoke');
   assert.equal(repos.get('sem-repo@claude-hadouken'), null);
   assert.equal(repos.size, 4, 'marketplace ilegível é pulado');
 });
@@ -170,4 +183,63 @@ test('lerRepos: pasta sem known_marketplaces.json, JSON inválido ou forma errad
   assert.equal(lerRepos(d).size, 0);
   fs.writeFileSync(path.join(d, 'known_marketplaces.json'), '[]');
   assert.equal(lerRepos(d).size, 0);
+});
+
+// ------------------------------------------------------------ D11 e D4 com subpasta, pelos registros
+
+function gravar(arquivo, conteudo) {
+  fs.mkdirSync(path.dirname(arquivo), { recursive: true });
+  fs.writeFileSync(arquivo, JSON.stringify(conteudo));
+}
+// known_marketplaces.json + marketplace.json de cada marketplace: { nome: { repo, plugins } }.
+function registrar(d, marketplaces) {
+  const conhecidos = {};
+  for (const [nome, m] of Object.entries(marketplaces)) {
+    const loc = path.join(d, 'marketplaces', nome);
+    conhecidos[nome] = { source: { source: 'github', repo: m.repo }, installLocation: loc };
+    gravar(path.join(loc, '.claude-plugin', 'marketplace.json'), { plugins: m.plugins });
+  }
+  gravar(path.join(d, 'known_marketplaces.json'), conhecidos);
+}
+
+test('D11: plugin irmão de um marketplace monorepo (subpasta) não é equivalente de uma dependência do mesmo repo na raiz', () => {
+  const d = novoTmp();
+  const FULL = 'fullstack-dev-skills@claude-hadouken';
+  registrar(d, {
+    'claude-hadouken': { repo: 'Garioli-Labs/claude-hadouken', plugins: [{ name: 'fullstack-dev-skills', source: { source: 'url', url: 'https://github.com/Mono/Repo.git' } }] },
+    mk: { repo: 'mono/repo', plugins: [{ name: 'outro-plugin', source: './plugins/outro' }, { name: 'raiz-plugin', source: './' }] },
+  });
+  const repos = lerRepos(d);
+  assert.equal(repos.get('outro-plugin@mk'), 'mono/repo/plugins/outro');
+  assert.equal(repos.get(FULL), 'mono/repo');
+  const [irmao] = avaliar([[FULL, p('1.0.0', true)], ['outro-plugin@mk', p('1.0.0', true)]], { repos, deps: [FULL] });
+  assert.deepEqual([irmao.estado, irmao.equivalente], ['propria', null]);
+  const [raiz] = avaliar([[FULL, p('1.0.0', true)], ['raiz-plugin@mk', p('1.0.0', true)]], { repos, deps: [FULL] });
+  assert.deepEqual([raiz.estado, raiz.equivalente], ['duplicada', 'raiz-plugin@mk'], 'a mesma raiz do mesmo repo é equivalente');
+});
+
+test('D4 com subpasta: poka-yoke de um marketplace relativo em plugins/poka-yoke é equivalente ao git-subdir do kit', () => {
+  const d = novoTmp();
+  const POKA = 'poka-yoke@claude-hadouken';
+  registrar(d, {
+    'claude-hadouken': { repo: 'Garioli-Labs/claude-hadouken', plugins: [{ name: 'poka-yoke', source: { source: 'git-subdir', url: 'https://github.com/rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke' } }] },
+    'poka-yoke': { repo: 'rainmanjam/poka-yoke', plugins: [{ name: 'guardrails', source: './plugins/poka-yoke' }, { name: 'poka-yoke-docs', source: './docs' }] },
+  });
+  const repos = lerRepos(d);
+  const [a] = avaliar([['guardrails@poka-yoke', p('0.2.0', true)]], { repos, deps: [POKA] });
+  assert.deepEqual([a.estado, a.equivalente], ['equivalente', 'guardrails@poka-yoke']);
+  const [b] = avaliar([['poka-yoke-docs@poka-yoke', p('0.2.0', true)]], { repos, deps: [POKA] });
+  assert.equal(b.estado, 'ausente', 'outra subpasta do mesmo repo não conta');
+});
+
+test('D1: cópia do usuário desligada (mesmo nome ou mesma origem) aparece em `desligada`; ligada ou de outra origem, não', () => {
+  const [a] = avaliar([[MATT, p('1.3.2', true)], ['mattpocock-skills@mattpocock', p('1.3.2', false)]]);
+  assert.deepEqual([a.estado, a.desligada], ['propria', 'mattpocock-skills@mattpocock']);
+  const repos = new Map([[MATT, 'mattpocock/skills'], ['skills@x', 'mattpocock/skills'], ['skills@y', 'outro/skills']]);
+  const [b] = avaliar([[MATT, p('1.3.2', true)], ['skills@x', p('1', false)], ['skills@y', p('1', false)]], { repos });
+  assert.equal(b.desligada, 'skills@x');
+  const [c] = avaliar([[MATT, p('1.3.2', true)], ['skills@y', p('1', false)]], { repos });
+  assert.equal(c.desligada, null);
+  const [d] = avaliar([[MATT, p('1.3.2', true)], ['mattpocock-skills@mattpocock', p('1.3.2', false, 'project')]]);
+  assert.equal(d.desligada, null, 'escopo project é ignorado');
 });
