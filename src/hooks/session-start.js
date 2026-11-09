@@ -142,7 +142,13 @@ rodarHook(async (entrada) => {
   const shims = sincronizarShims(raizEmUso);
   const lido = lerJson(path.join(dir, ARQ_ESTADO));
   const estado = lido.ok ? validarEstado(lido.valor, agoraMs) : null;
-  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs))];
+  // v0.6.0: a janela de trabalho do config.json; inválida, o aviso vai ao
+  // usuário (aoUsuario, abaixo) e a conta fica nas 168 h.
+  let janela = { janela: null, aviso: null };
+  try {
+    janela = (await import('../janela.js')).lerJanela(dir);
+  } catch { /* sem janela nesta sessão: 168 h */ }
+  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs), janela.janela)];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
   // v0.5.2: a instalação do item do VS Code falhou e a versão atual não está
@@ -189,7 +195,7 @@ rodarHook(async (entrada) => {
   // retomada (spec v0.4.0 §10, item 11: ao retomar com o cache expirado) e
   // as do aprendizado (R13).
   const retomada = linhas.linhaRetomada(entrada);
-  const aoUsuario = [retomada, ...aprendizado, saude.usuario].filter((x) => typeof x === 'string' && x.length > 0);
+  const aoUsuario = [retomada, janela.aviso, ...aprendizado, saude.usuario].filter((x) => typeof x === 'string' && x.length > 0);
   // Spec roteamento §2: a regra curta vai sempre, por último; um import que
   // falha só a tira.
   try {

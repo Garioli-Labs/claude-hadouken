@@ -1,3 +1,5 @@
+import { minutosUteis } from './janela.js';
+
 const HORA_MS = 3600_000;
 const JANELA_H = 168;
 // Pontos de distância entre usado e esperado que mudam o modo de 7d. Único
@@ -14,10 +16,17 @@ const arred = (x) => Math.round(x * 10) / 10;
 // modos diferentes e "60%/50%" nunca aparece como econômico. Os limiares são
 // inteiros, então o piso só atrasa a troca em menos de 1 ponto. `desvio` é
 // essa distância inteira.
-export function calcularRitmo({ usado7d, resetsAt7d, agoraMs }) {
+//
+// `trabalho` (janela.js, v0.6.0): com a janela de trabalho, esperado =
+// minutos úteis desde o início da semana ÷ minutos úteis da semana inteira
+// (spec Fatia 2); fora da janela o esperado congela, e com o início da semana
+// fora dela (J3) vale 0. Sem `trabalho` (null), a conta de 168 h de sempre.
+export function calcularRitmo({ usado7d, resetsAt7d, agoraMs, trabalho = null }) {
   const inicioMs = resetsAt7d * 1000 - JANELA_H * HORA_MS;
   const horas = (agoraMs - inicioMs) / HORA_MS;
-  const esperado = arred(Math.min(100, Math.max(0, (horas / JANELA_H) * 100)));
+  const util = trabalho === null ? 0 : minutosUteis(trabalho, inicioMs, resetsAt7d * 1000);
+  const razao = util > 0 ? minutosUteis(trabalho, inicioMs, agoraMs) / util : horas / JANELA_H;
+  const esperado = arred(Math.min(100, Math.max(0, razao * 100)));
   const desvio = Math.floor(usado7d) - Math.floor(esperado);
   let modo = 'normal';
   if (desvio > LIMIAR_PONTOS) modo = 'economico';

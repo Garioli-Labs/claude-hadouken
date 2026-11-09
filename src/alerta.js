@@ -70,8 +70,8 @@ export function faixa5h(pct) {
 // esperado contra ±10), com uma faixa a mais: só leitura quando o uso chega a
 // 90% e o reset está a mais de 24 h. O limiar de 90% é inteiro e compara o uso
 // cru, o que concorda com o piso exibido. `desvio` é a distância de ritmo.js.
-export function faixa7d({ usado, resetsAt, agoraMs }) {
-  const { esperado, desvio, modo } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs });
+export function faixa7d({ usado, resetsAt, agoraMs, trabalho = null }) {
+  const { esperado, desvio, modo } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs, trabalho });
   const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS ? 'so-leitura' : modo;
   return { faixa, esperado, desvio };
 }
@@ -81,14 +81,15 @@ export function faixa7d({ usado, resetsAt, agoraMs }) {
 // no instante da última leitura, se o reset daquela janela ainda não passou;
 // senão, normal (decisão 3 do plano da parte 2). Só o horário de quandoLocal
 // e um rótulo de NOME_MODO entram. Sem última leitura, ou entrada ilegível:
-// LINHA_SEM_LEITURA_NUNCA. Nunca lança.
-export function linhaSemLeitura(ultima, agoraMs) {
+// LINHA_SEM_LEITURA_NUNCA. `trabalho`: a janela de trabalho (janela.js) da
+// faixa de 7d; null, as 168 h. Nunca lança.
+export function linhaSemLeitura(ultima, agoraMs, trabalho = null) {
   try {
     if (!ehObjeto(ultima) || !numeroFinito(ultima.desdeMs) || !numeroFinito(agoraMs)) return LINHA_SEM_LEITURA_NUNCA;
     const desdeMs = ultima.desdeMs;
     const f7 = janelaValida(ultima.seven_day);
     const faixa = f7 !== null && f7.resets_at * 1000 > agoraMs
-      ? faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs: desdeMs }).faixa
+      ? faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs: desdeMs, trabalho }).faixa
       : 'normal';
     const quando = quandoLocal(desdeMs / 1000, agoraMs);
     return `Consumo sem leitura nova desde ${quando}; trate como o último modo conhecido (${NOME_MODO[faixa] ?? 'normal'}).`;
@@ -267,7 +268,7 @@ export function avaliarAlertas(entrada) {
   }
 }
 
-function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH, limiares }) {
+function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH, limiares, trabalho = null }) {
   const ant = anteriores ?? ALERTAS_VAZIO;
   const novos = {
     five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura }, projecao: { ...ant.projecao },
@@ -279,7 +280,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
   // (spec v0.4.0 §10, item 1: nunca "sem leitura" e uma faixa juntos).
   if (!janelas.five_hour && !janelas.seven_day) {
     if (!novos.sem_leitura[sessionId]) {
-      linhas.push(linhaSemLeitura(ultima, agoraMs));
+      linhas.push(linhaSemLeitura(ultima, agoraMs, trabalho));
       novos.sem_leitura[sessionId] = true;
     }
     return { linhas, novos };
@@ -303,7 +304,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
 
   const f7 = janelas.seven_day;
   if (f7) {
-    const calculada = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs });
+    const calculada = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs, trabalho });
     const esperado = calculada.esperado;
     // O piso é "pelo menos X%": folga com leitura velha pode ser falsa, vale
     // como normal (menor M-3 do portão v0.4.0).

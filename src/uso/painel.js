@@ -6,6 +6,7 @@ import { ARQ_ESTADO, gravarJsonAtomico, lerJson, LIMITE_VELHO_MS, limitesValidos
 import { diaHora, horaLocal } from '../util.js';
 import { acharClaude, ambienteUso, rodarUso } from './oficial.js';
 import { fraseEsgota } from './frase.js';
+import { lerJanela } from '../janela.js';
 import { registrarEvento } from '../eventos/eventos.js';
 import { faixasDoPainel, intervaloDoPainelMs } from '../aprendizado/registro.js';
 import {
@@ -336,12 +337,12 @@ const quandoReinicia = (ms, agoraMs) => (mesmoDia(ms, agoraMs) ? horaLocal(ms / 
 
 // Linha de uma janela na dica: só o rótulo fixo, números e a frase de
 // previsão (E5), que é feita de números e palavras fixas de frase.js.
-function linhaJanela(rotulo, j, janelaMs, agoraMs) {
+function linhaJanela(rotulo, j, janelaMs, agoraMs, trabalho = null) {
   if (j === null) return `${rotulo} sem leitura`;
   const partes = [pctTexto(j)];
   if (j.resetsAtMs !== null) {
     partes.push(`reinicia ${quandoReinicia(j.resetsAtMs, agoraMs)}`);
-    const frase = fraseEsgota({ usado: j.pct, resetsAtMs: j.resetsAtMs, janelaMs, agoraMs });
+    const frase = fraseEsgota({ usado: j.pct, resetsAtMs: j.resetsAtMs, janelaMs, agoraMs, trabalho });
     if (typeof frase === 'string') partes.push(frase);
   }
   return `${rotulo} ${partes.join(' · ')}`;
@@ -422,10 +423,11 @@ export function estadoPainel(opcoes) {
       const faixas = faixasDoPainel(dir, agoraMs);
       nivel = pior >= faixas.vermelho ? 'erro' : pior >= faixas.amarelo ? 'aviso' : 'ok';
     }
+    const { janela: trabalho } = lerJanela(dir);
     const linhas = [
       linhaJanela('**Sessão (5h):**', sessao, JANELA_5H_MS, agoraMs),
-      linhaJanela('**Semana (todos os modelos):**', semana, JANELA_7D_MS, agoraMs),
-      linhaJanela('**Semana (Fable):**', fable, JANELA_7D_MS, agoraMs),
+      linhaJanela('**Semana (todos os modelos):**', semana, JANELA_7D_MS, agoraMs, trabalho),
+      linhaJanela('**Semana (Fable):**', fable, JANELA_7D_MS, agoraMs, trabalho),
       `Sessões ativas: ${sessoesAtivas(estado, agoraMs)}`,
       linhaIdade(lidoMs, agoraMs),
     ];

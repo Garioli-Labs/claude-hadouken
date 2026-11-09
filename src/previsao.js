@@ -1,4 +1,5 @@
 import { numeroFinito } from './base.js';
+import { avancarUteis, minutosUteis } from './janela.js';
 
 // Previsão de estouro das janelas de limite (spec v0.2.0 §12.3). Puro: sem
 // I/O e sem relógio; quem chama passa o agora. Entram o histórico que
@@ -13,6 +14,11 @@ import { numeroFinito } from './base.js';
 // sessões, registradas ou não. Sem previsão abaixo do mínimo por janela em
 // REGRAS_JANELA (pontos e cobertura), inclinação ≤ 0 ou não finita, ou
 // previsão que não cai antes do reset (o reset chega primeiro). Nunca lança.
+//
+// Com `trabalho` (janela de trabalho, janela.js, v0.6.0), só no 7d: o ritmo é
+// por minuto útil (inclinação × minutos corridos da amostra ÷ minutos úteis
+// dela, que é Δuso ÷ úteis) e o instante avança só dentro da janela. Amostra
+// sem nenhum minuto útil (J3) dá null. O 5h nunca usa a janela.
 //
 // Com o aprendizado ligado (spec aprendizado §4.3, R10), o UserPromptSubmit
 // passa `perfil` ({ peso, h5, d7 } de perfilDaPrevisao): o ritmo atual é
@@ -132,8 +138,9 @@ export function ritmoMisturado(b, perfil, coluna, agoraMs) {
 // Previsão de uma janela: os pontos da coluna dentro do alcance (de agora −
 // alcance até agora + FUTURO_MS, porcentagem em [0, 100]), a inclinação deles
 // e agora + (100 − usado) ÷ inclinação (com as regras da janela), arredondado
-// ao ms. Só vale se cair depois de agora e antes do reset.
-function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfil = null) {
+// ao ms. Só vale se cair depois de agora e antes do reset. Com `trabalho`, o
+// ritmo é por minuto útil e o instante avança em minutos úteis.
+function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfil = null, trabalho = null) {
   if (janela === null || typeof janela !== 'object') return null;
   const usado = janela.used_percentage;
   const resetS = janela.resets_at;
@@ -143,9 +150,17 @@ function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfi
   const resetMs = resetS * 1000;
   if (!numeroFinito(resetMs) || resetMs <= agoraMs) return null;
   const pontos = pontosDaColuna(historico, coluna, alcance, agoraMs);
-  const b = ritmoMisturado(inclinacao(pontos, regras), perfil, coluna, agoraMs);
+  let b = inclinacao(pontos, regras);
+  if (trabalho !== null && b !== null) {
+    const inicioMs = Math.min(...pontos.map((p) => p[0]));
+    const uteis = minutosUteis(trabalho, inicioMs, agoraMs);
+    if (!(uteis > 0)) return null;
+    b *= (agoraMs - inicioMs) / MINUTO_MS / uteis;
+  }
+  b = ritmoMisturado(b, perfil, coluna, agoraMs);
   if (b === null || b <= 0) return null;
-  const quando = Math.round(agoraMs + ((100 - usado) / b) * MINUTO_MS);
+  const faltaMin = (100 - usado) / b;
+  const quando = Math.round(trabalho === null ? agoraMs + faltaMin * MINUTO_MS : avancarUteis(trabalho, agoraMs, faltaMin));
   return numeroFinito(quando) && quando > agoraMs && quando < resetMs ? quando : null;
 }
 
@@ -156,10 +171,10 @@ function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfi
 export function preverEstouro(opcoes) {
   const previsao = { five_hour: null, seven_day: null };
   try {
-    const { historico, limites, agoraMs, perfil = null } = opcoes ?? {};
+    const { historico, limites, agoraMs, perfil = null, trabalho = null } = opcoes ?? {};
     if (!Array.isArray(historico) || !numeroFinito(agoraMs) || limites === null || typeof limites !== 'object') return previsao;
     for (const [k, [coluna, alcance, regras]] of Object.entries(ALCANCE)) {
-      previsao[k] = preverJanela(historico, coluna, alcance, regras, limites[k], agoraMs, perfil);
+      previsao[k] = preverJanela(historico, coluna, alcance, regras, limites[k], agoraMs, perfil, k === 'seven_day' ? trabalho : null);
     }
     return previsao;
   } catch {

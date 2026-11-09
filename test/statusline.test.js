@@ -446,7 +446,7 @@ test('gate antes dos imports: sessão não registrada não carrega estado.js nem
   // escrita; com saude.json fresco, não (teste abaixo).
   assert.deepEqual(dentro.nomes, [
     'aperto.js', 'arquivo.js', 'arquivos.js', 'ativas.js', 'avaliar.js', 'barra.js', 'barrinha.js', 'base.js', 'config.js', 'estado.js',
-    'eventos.js', 'faixas.js', 'fila.js', 'formato.js', 'gatilhos.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'modo.js',
+    'eventos.js', 'faixas.js', 'fila.js', 'formato.js', 'gatilhos.js', 'janela.js', 'ler-uso.js', 'ler.js', 'liberacao.js', 'mensagens.js', 'modo.js',
     'previsao.js', 'registros.js', 'statusline.js', 'tabela.js', 'trava-pid.js', 'travas.js', 'util.js',
   ]);
   // Com saude.json fresco, o caminho leve só: nada de trava-pid.js.

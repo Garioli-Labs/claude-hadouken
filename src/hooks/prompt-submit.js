@@ -92,7 +92,8 @@ rodarHook(async (entrada) => {
   } catch {
     perfil = null;
   }
-  const previsao = (await tetos.rodar('previsao', () => preverEstouro({ historico: estado?.historico, limites, agoraMs, perfil }))) ?? null;
+  const { janela: trabalho } = (await import('../janela.js')).lerJanela(dir);
+  const previsao = (await tetos.rodar('previsao', () => preverEstouro({ historico: estado?.historico, limites, agoraMs, perfil, trabalho }))) ?? null;
   const ativas = sessoesAtivas(estado, agoraMs, sessionId);
   const arqAlertas = join(dir, ARQ_ALERTAS);
   const lidoAlertas = lerJson(arqAlertas, ALERTAS_MAX_BYTES);
@@ -108,7 +109,7 @@ rodarHook(async (entrada) => {
   } catch { /* limiares de sempre */ }
   const { linhas, novos } = avaliarAlertas({
     limites, leituras, ultima, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
-    previsao, limiares,
+    previsao, limiares, trabalho,
     ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs }),
     sessoesAtivas: ativas,
   });
