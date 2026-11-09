@@ -2,8 +2,11 @@
 // estruturados (agente, família, effort, origem); avisar pode olhar a
 // descrição. Ordem: N1, N2, A1, A2, A3; a primeira que casa decide. Nunca
 // lança: falha é 'passar'.
-const BUSCA = new Set(['Explore', 'hadouken:busca']);
-const BARATOS = new Set(['hadouken:busca', 'hadouken:mecanico']);
+import { AGENTES_REVISAO } from '../agentes/paleta.js';
+
+const BUSCA = new Set(['Explore', 'hadouken:busca', 'hadouken:varredor']);
+const BARATOS = new Set(['hadouken:busca', 'hadouken:varredor', 'hadouken:mecanico']);
+const REVISAO = new Set(AGENTES_REVISAO.map((nome) => `hadouken:${nome}`));
 const FORTES = new Set(['opus', 'fable']);
 const EFFORT_ALTO = new Set(['xhigh', 'max']);
 const VERBOS_BUSCA = /^\s*(encontr|procur|list|localiz|onde fica|find|search|locate)/i;
@@ -24,12 +27,12 @@ export function avaliarRoteamento({ perfil, descricao, prompt, recentes, config,
     const subiu = config.subir !== null && typeof config.subir === 'object' && Object.hasOwn(config.subir, agente) && config.subir[agente] === familia;
     if (!liberado && config.negarN2 && BARATOS.has(agente) && origem === 'parametro' && FORTES.has(familia) && !subiu) return { decisao: 'negar', regra: 'N2' };
     if (!config.avisos) return PASSA;
-    // A1: Fable ou effort max fora do revisor-crítico. Um agente cujo próprio
+    // A1: Fable ou effort max fora dos agentes de revisão. Um agente cujo próprio
     // arquivo declara Fable ou max foi escolhido de propósito: passa.
     const declarado = doArquivo !== null && (/fable/i.test(doArquivo.model ?? '') || doArquivo.effort === 'max');
-    if ((familia === 'fable' || effort === 'max') && agente !== 'hadouken:revisor-critico' && !declarado) return { decisao: 'avisar', regra: 'A1' };
-    // A2: os revisores do plugin ficam de fora; "listar os riscos" é revisão.
-    if (FORTES.has(familia) && pareceBusca(descricao) && !agente.startsWith('hadouken:revisor')) return { decisao: 'avisar', regra: 'A2' };
+    if ((familia === 'fable' || effort === 'max') && !REVISAO.has(agente) && !declarado) return { decisao: 'avisar', regra: 'A1' };
+    // A2: os agentes de revisão do plugin ficam de fora; "listar os riscos" é revisão.
+    if (FORTES.has(familia) && pareceBusca(descricao) && !REVISAO.has(agente)) return { decisao: 'avisar', regra: 'A2' };
     const curtos = (Array.isArray(recentes) ? recentes : []).filter((r) => agoraMs - r.em <= A3_JANELA_MS && r.tamPrompt < A3_PROMPT);
     if (typeof prompt === 'string' && prompt.length < A3_PROMPT && curtos.length >= A3_MAX) return { decisao: 'avisar', regra: 'A3' };
     return PASSA;

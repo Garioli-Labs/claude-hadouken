@@ -1,7 +1,7 @@
 ---
 name: revisor
-description: Revisa um diff ou plano: correção, casos de borda, testes que faltam. Só leitura. Não use para segurança, autenticação ou dinheiro (use hadouken:revisor-critico).
-model: opus
+description: Revisa um diff ou plano: correção, casos de borda, testes que faltam. Só leitura. Não use para segurança, autenticação ou dinheiro (use hadouken:auditor).
+model: sonnet
 effort: high
 tools: Read, Grep, Glob, Bash
 ---

@@ -40,14 +40,22 @@ function casa() {
 }
 
 async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
-  const [{ avaliarGuarda }, desp, reg, msg] = await Promise.all([
+  const [{ avaliarGuarda }, desp, reg, msg, { avaliarPaleta }] = await Promise.all([
     import('../guarda/avaliar.js'),
     import('../guarda/despacho.js'),
     import('../guarda/registros.js'),
     import('../guarda/mensagens.js'),
+    import('../agentes/despacho.js'),
   ]);
   reg.marcarSessao(dir, sessionId);
   const g = avaliarGuarda({ dir, agoraMs, sessionId });
+  // Spec v0.6.0 Fatia 3: agente removido na 0.6.0 é negado com o substituto,
+  // com a guarda ligada ou não; o turno não para (o modelo relança).
+  const paleta = avaliarPaleta({ toolName: entrada.tool_name, toolInput: entrada.tool_input });
+  if (paleta.acao === 'negar') {
+    negar(paleta.razao, null);
+    return;
+  }
   if (g.status === 'erro') {
     reg.anexarEvento(dir, 'erro', 'P1', agoraMs);
     return;

@@ -32,7 +32,7 @@ test('liberação e config desligam N1/N2; avisos seguem', () => {
 test('A1: Fable fora do revisor-crítico avisa; agente do usuário que declara Fable passa', () => {
   assert.deepEqual(av({ perfil: perfil('general-purpose', 'fable', 'high', 'sessao') }), { decisao: 'avisar', regra: 'A1' });
   assert.equal(av({ perfil: perfil('fable-xhigh', 'fable', 'xhigh', 'frontmatter', { model: 'fable', effort: 'xhigh' }) }).decisao, 'passar');
-  assert.equal(av({ perfil: perfil('hadouken:revisor-critico', 'fable', 'xhigh', 'frontmatter', { model: 'fable', effort: 'xhigh' }) }).decisao, 'passar');
+  assert.equal(av({ perfil: perfil('hadouken:auditor', 'fable', 'high', 'frontmatter', { model: 'fable', effort: 'high' }) }).decisao, 'passar');
 });
 
 test('A2: Opus/Fable com descrição de busca avisa; revisor listando riscos não nega (só A2)', () => {
@@ -45,8 +45,8 @@ test('A2: Opus/Fable com descrição de busca avisa; revisor listando riscos nã
 
 test('A3: o sexto despacho curto em 10 min avisa', () => {
   const recentes = [1, 2, 3, 4, 5].map((i) => ({ em: ag - i * M, tamPrompt: 100 }));
-  assert.deepEqual(av({ perfil: perfil('hadouken:executor', 'sonnet', 'medium', 'frontmatter'), prompt: 'curto', recentes }), { decisao: 'avisar', regra: 'A3' });
-  assert.equal(av({ perfil: perfil('hadouken:executor', 'sonnet', 'medium', 'frontmatter'), prompt: 'curto', recentes: recentes.slice(1) }).decisao, 'passar');
+  assert.deepEqual(av({ perfil: perfil('hadouken:implementador', 'sonnet', 'high', 'frontmatter'), prompt: 'curto', recentes }), { decisao: 'avisar', regra: 'A3' });
+  assert.equal(av({ perfil: perfil('hadouken:implementador', 'sonnet', 'high', 'frontmatter'), prompt: 'curto', recentes: recentes.slice(1) }).decisao, 'passar');
 });
 
 test('config.avisos=false cala A1–A3; perfil vazio passa', () => {

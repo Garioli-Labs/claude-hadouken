@@ -13,10 +13,10 @@ Use o mais barato que dá conta sem errar. Cada degrau acima só quando a tarefa
 |---|---|---|
 | `hadouken:busca` | Haiku · low | Achar arquivos e símbolos, ler e resumir trechos, listar. Só leitura. |
 | `hadouken:mecanico` | Haiku · low | Edição mecânica com instrução exata: renomear, aplicar mudança já escrita, trocar textos. |
-| `hadouken:executor` | Sonnet · medium | Implementar uma tarefa bem especificada, com testes. |
+| `hadouken:implementador` | Sonnet · medium | Implementar uma tarefa bem especificada, com testes. |
 | `hadouken:pesquisa` | Sonnet · low | Conferir doc, API ou versão e trazer a resposta com a fonte. |
 | `hadouken:revisor` | Opus · high | Revisar diff ou plano: correção e casos de borda. Só leitura. |
-| `hadouken:revisor-critico` | Fable · xhigh | Só segurança, autenticação, dinheiro e arquitetura cara de desfazer. Só leitura. |
+| `hadouken:auditor` | Fable · xhigh | Só segurança, autenticação, dinheiro e arquitetura cara de desfazer. Só leitura. |
 
 O effort de cada agente é o da tabela. Mudar o effort de um despacho só com o motivo escrito no próprio prompt.
 
@@ -36,11 +36,11 @@ O effort de cada agente é o da tabela. Mudar o effort de um despacho só com o 
 
 **Escolher o mais barato que dá conta.** Um degrau acima só quando a tarefa pede julgamento: decidir entre abordagens, lidar com spec ambígua ou mexer em segurança.
 
-**Modelo principal mais barato.** Com a sessão em Sonnet ou Haiku, só sobe o que pede julgamento: `hadouken:revisor` ou `hadouken:revisor-critico`.
+**Modelo principal mais barato.** Com a sessão em Sonnet ou Haiku, só sobe o que pede julgamento: `hadouken:revisor` ou `hadouken:auditor`.
 
 ## Brief
 
-Todo despacho para `hadouken:busca`, `hadouken:mecanico`, `hadouken:executor` ou `hadouken:pesquisa` leva os 5 itens:
+Todo despacho para `hadouken:busca`, `hadouken:mecanico`, `hadouken:implementador` ou `hadouken:pesquisa` leva os 5 itens:
 
 ```text
 Objetivo: <uma frase>
@@ -57,6 +57,6 @@ Relatório: Feito / Arquivos / Não feito / Certeza
 ## O que a guarda barra
 
 - Busca (`Explore` ou `hadouken:busca`) em Opus ou Fable, ou com effort `xhigh` ou `max`: relance com `hadouken:busca`.
-- `hadouken:busca` ou `hadouken:mecanico` com o modelo trocado para Opus ou Fable: use `hadouken:executor` ou `hadouken:revisor`.
+- `hadouken:busca` ou `hadouken:mecanico` com o modelo trocado para Opus ou Fable: use `hadouken:implementador` ou `hadouken:revisor`.
 
 Só o usuário solta essas negações, com /hadouken:liberar.

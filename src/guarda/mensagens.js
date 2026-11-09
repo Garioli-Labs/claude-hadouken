@@ -83,9 +83,9 @@ export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuári
 
 // Spec roteamento §6: textos fixos; nada do despacho entra aqui.
 export const N1_CLAUDE = 'hadouken: busca não usa Opus/Fable nem effort alto. Relance com hadouken:busca (ou Explore sem model/effort). Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
-export const N2_CLAUDE = 'hadouken: este agente existe para ser barato. Use hadouken:executor ou hadouken:revisor se a tarefa pede mais. Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
+export const N2_CLAUDE = 'hadouken: este agente existe para ser barato. Use hadouken:implementador ou hadouken:revisor se a tarefa pede mais. Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
 export const N_SUBAGENTE = 'hadouken: despacho negado pelo roteamento (modelo ou effort caro para esta tarefa). Relance com o agente barato indicado ou termine sem ele e relate.';
-export const A1_CLAUDE = 'hadouken (aviso): despacho em Fable ou effort max fora de hadouken:revisor-critico. Fable só vale para segurança, autenticação, dinheiro e arquitetura; no resto use hadouken:revisor ou hadouken:executor.';
+export const A1_CLAUDE = 'hadouken (aviso): despacho em Fable ou effort max fora de hadouken:revisor e hadouken:auditor. Fable só vale para segurança, autenticação, dinheiro e arquitetura; no resto use hadouken:revisor ou hadouken:implementador.';
 export const A2_CLAUDE = 'hadouken (aviso): parece busca em Opus/Fable. hadouken:busca (Haiku) faz isso mais barato.';
 export const A3_CLAUDE = 'hadouken (aviso): muitos despachos curtos em 10 min. Faça direto ou junte num agente só.';
 // P5 estendida (Task 0 da parte 2): os settings do usuário e o próprio

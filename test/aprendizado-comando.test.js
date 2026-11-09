@@ -358,7 +358,7 @@ test('aprovar subir agente grava roteamento.subir no config.json e cita o substi
   assert.equal(lerSugestoes(c.dir, Date.now()).lista.length, 1, 'a sugestão gravada é lida de volta');
   const base = { dir: c.dir, agoraMs: Date.now(), entrypoint: 'cli', ambiente: {}, arquivo: c.arquivo, ...ORIGEM_OK };
   const t = await executarComando({ ...base, texto: 'aprovar s2' });
-  assert.equal(t, 'hadouken: aplicado: use hadouken:executor para tarefas mecânicas (roteamento.subir no config.json). O modelo do hadouken:mecanico não muda; o hadouken nunca troca o modelo sozinho.');
+  assert.equal(t, 'hadouken: aplicado: use hadouken:implementador para tarefas mecânicas (roteamento.subir no config.json). O modelo do hadouken:mecanico não muda; o hadouken nunca troca o modelo sozinho.');
   const cfg = JSON.parse(fs.readFileSync(path.join(c.dir, 'config.json'), 'utf8'));
   assert.deepEqual(cfg, { guarda: { teto7d: 80 }, roteamento: { avisos: false, subir: { 'hadouken:mecanico': 'sonnet' } } });
   assert.deepEqual(lerSugestoes(c.dir, Date.now()).lista, []);
