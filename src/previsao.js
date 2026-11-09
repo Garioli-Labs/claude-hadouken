@@ -18,7 +18,8 @@ import { avancarUteis, minutosUteis } from './janela.js';
 // Com `trabalho` (janela de trabalho, janela.js, v0.6.0), só no 7d: o ritmo é
 // por minuto útil (inclinação × minutos corridos da amostra ÷ minutos úteis
 // dela, que é Δuso ÷ úteis) e o instante avança só dentro da janela. Amostra
-// sem nenhum minuto útil (J3) dá null. O 5h nunca usa a janela.
+// com menos minutos úteis que a cobertura mínima do 7d (2 h; inclui J3, a
+// amostra sem nenhum) dá null. O 5h nunca usa a janela.
 //
 // Com o aprendizado ligado (spec aprendizado §4.3, R10), o UserPromptSubmit
 // passa `perfil` ({ peso, h5, d7 } de perfilDaPrevisao): o ritmo atual é
@@ -154,7 +155,10 @@ function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfi
   if (trabalho !== null && b !== null) {
     const inicioMs = Math.min(...pontos.map((p) => p[0]));
     const uteis = minutosUteis(trabalho, inicioMs, agoraMs);
-    if (!(uteis > 0)) return null;
+    // Amostra com poucos minutos úteis: Δt ÷ úteis amplifica a taxa (uma
+    // noite de amostra e 30 s de janela aberta projetariam estouro em 10 min).
+    // Vale a mesma cobertura mínima da regra da janela, agora em minutos úteis.
+    if (!(uteis >= regras.coberturaMinMs / MINUTO_MS)) return null;
     b *= (agoraMs - inicioMs) / MINUTO_MS / uteis;
   }
   b = ritmoMisturado(b, perfil, coluna, agoraMs);

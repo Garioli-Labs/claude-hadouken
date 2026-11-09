@@ -74,6 +74,15 @@ test('sem argumento: mostra a janela gravada; sem janela, diz que o ritmo é de 
   assert.equal(fs.readFileSync(arqConfig(home), 'utf8'), antes);
 });
 
+test('F5: sem argumento com a janela do config.json inválida: mostra o aviso e as 168 h', () => {
+  const home = novoHome();
+  const original = JSON.stringify({ janela: { dias: [] } });
+  fs.writeFileSync(arqConfig(home), original);
+  const reason = bloqueio(rodar('', home));
+  assert.ok(reason.includes('janela inválida; usando 168 h'), reason);
+  assert.equal(fs.readFileSync(arqConfig(home), 'utf8'), original);
+});
+
 test('off remove só a chave janela', () => {
   const home = novoHome();
   fs.writeFileSync(arqConfig(home), JSON.stringify({ guarda: { ligada: true }, janela: SEG_SEX }));
@@ -146,6 +155,14 @@ test('lerArgsJanela: as quatro ações e as formas de hora e de dia', () => {
   assert.deepEqual(lerArgsJanela('seg-sex 09-21'), { acao: 'gravar', valor: SEG_SEX });
   assert.deepEqual(lerArgsJanela('SEG-SEX 9:00-21:00'), { acao: 'gravar', valor: SEG_SEX });
   assert.deepEqual(lerArgsJanela('sáb,dom 10-14'), { acao: 'gravar', valor: { dias: ['dom', 'sab'], inicio: '10:00', fim: '14:00' } });
+});
+
+test('F4: lerArgsJanela normaliza para NFC: "sáb" decomposto (a + acento combinante) vale sáb', () => {
+  const nfd = 'sáb 9-21';
+  assert.notEqual(nfd, nfd.normalize('NFC'), 'a entrada de teste precisa estar decomposta');
+  assert.deepEqual(lerArgsJanela(nfd), { acao: 'gravar', valor: { dias: ['sab'], inicio: '09:00', fim: '21:00' } });
+  assert.deepEqual(lerArgsJanela('SÁB,seg 9-21').valor.dias, ['seg', 'sab']);
+  assert.deepEqual(lerArgsJanela('sáb 9-21'), { acao: 'gravar', valor: { dias: ['sab'], inicio: '09:00', fim: '21:00' } });
 });
 
 test('lerArgsJanela: intervalo de dias só em ordem; hora e formato inválidos viram erro', () => {

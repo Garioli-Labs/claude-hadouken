@@ -165,7 +165,7 @@ Roteamento
 - Sem a chave → cálculo de 168 horas idêntico ao de hoje. Valor inválido (dias vazio, dia desconhecido, `inicio >= fim`, formato) → aviso "janela inválida; usando 168 h" e cálculo de 168 horas.
 - **Minutos úteis** `U(t1, t2)`: minutos de `[t1, t2]` dentro da janela, dia a dia em hora local (DST incluído).
 - **% esperado** do limite de 7 dias = `U(início_7d, agora) ÷ U(início_7d, reset) × 100`, com `início_7d = reset − 168 h`.
-- **Projeções** ("esgota", "chega a 100%", instante em `previsao.js`): a taxa é consumo por minuto útil; o tempo restante avança só em minutos úteis e é convertido para relógio pela janela; fora da janela o consumo projetado é zero. Se o instante projetado passa do reset, a frase diz que não esgota antes do reset.
+- **Projeções** ("esgota", "chega a 100%", instante em `previsao.js`): a taxa é consumo por minuto útil; o tempo restante avança só em minutos úteis e é convertido para relógio pela janela; fora da janela o consumo projetado é zero. A projeção de 7 dias exige 2 h úteis na amostra e a frase "esgota" exige 2 h úteis decorridas (J7, J8). Se o instante projetado passa do reset, a frase diz que não esgota antes do reset.
 - Limite de 5 horas: sem mudança.
 - **Comando** `/hadouken:janela` (skill + `UserPromptExpansion`, padrão do `liberar`): sem argumento mostra a janela; `seg-sex 9-21`, `seg,qua,sex 08:30-18:00` grava; `off` remove a chave. Gravação atômica por `gravarJsonAtomico`, preservando as outras chaves.
 
@@ -270,6 +270,12 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 | J4 | Dia de troca de horário (DST) | `U` calculado por dia em hora local |
 | J5 | Janela que cruza meia-noite (`22:00-06:00`) | Inválida nesta versão (aviso + 168 h) |
 | J6 | Reset dentro ou fora da janela | `U` usa os limites reais; sem caso especial |
+| J7 | Poucos minutos úteis na amostra da projeção de 7 dias (ex.: histórico da noite e 30 s de janela aberta) | A projeção de 7 dias exige 2 h úteis na amostra (`REGRAS_JANELA.seven_day.coberturaMinMs`, em minutos úteis); abaixo disso, sem projeção e sem G2 |
+| J8 | Poucos minutos úteis decorridos desde o início da semana (ex.: segunda 09:30) | A frase "esgota" com janela exige 120 min úteis decorridos (a mesma constante de J7); abaixo disso, sem frase. Sem janela, o mínimo continua 30 min corridos |
+| J9 | Uso fora da janela (noite, fim de semana) | Conta como adiantamento no ritmo: `calcularRitmo` não muda e o esperado congela; 12 % às 09:30 de segunda é econômico |
+| J10 | `/hadouken:janela` em prompt agendado (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger`, scheduler MCP) | O comando só vale digitado: o hook da agenda nega todo texto que contenha `hadouken:janela` ou `/janela` (como palavra) e o texto do deny pede para tirá-lo do prompt. A palavra solta "janela" ("janela de 5 h") não é vigiada |
+| J11 | Container ou sessão SSH em outro fuso que o do usuário | A janela usa o fuso do sistema (hora local do processo); outro fuso desloca a janela |
+| J12 | Fim da janela às `24:00` | Inválido (aviso + 168 h): o fim máximo é `23:59` |
 | A1 | Despacho com `model` explícito e config com outro | Explícito vence |
 | A2 | `ativo:false` com `model` explícito | Nega (agente inativo) com substituto |
 | A3 | Config dá `opus` a `busca` com guarda ligada | N2 avalia só o explícito; não nega |

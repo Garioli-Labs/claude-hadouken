@@ -111,8 +111,9 @@ export const CONFIG_BLOQUEADA_TEXTO = 'hadouken: bloqueado: uma mudança em disa
 export const P4_LIBERAR_TEXTO = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
 // Hook da agenda (C1 da revisão final da parte 1): CronCreate, ScheduleWakeup
 // e RemoteTrigger com o pedido de liberação no texto, negados sempre. Desde a
-// Task 11 do aprendizado, também o /hadouken:aprender.
-export const AGENDA_LIBERAR_TEXTO = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar ou /hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
+// Task 11 do aprendizado, também o /hadouken:aprender; desde os achados da
+// fatia 2 da v0.6.0, também o /hadouken:janela (a janela adia a projeção G2).
+export const AGENDA_LIBERAR_TEXTO = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda, não mexe no aprendizado nem muda a janela de trabalho. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar, /hadouken:aprender ou /hadouken:janela. Se o texto só cita o comando, tire-o do prompt agendado.';
 
 // v0.5.6 (Task 4): CronCreate ou ScheduleWakeup com a trava de 5h ou de 7d
 // ativa e sem liberação. Uma linha de contexto, não um deny: diz até quando

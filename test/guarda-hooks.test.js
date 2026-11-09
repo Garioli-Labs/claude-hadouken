@@ -786,6 +786,50 @@ test('agenda: tarefa, loop ou rotina com /hadouken:aprender são negados; prompt
   assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 3);
 });
 
+// F3 (achados da fatia 2 da v0.6.0): /hadouken:janela também só vale digitado.
+// A janela de trabalho adia a projeção G2 da guarda, então um prompt agendado
+// que a mudasse afrouxaria a guarda. Só o comando vale; a palavra solta
+// "janela" ("janela de 5 h") é comum demais para vigiar.
+test('agenda: o texto do deny cita /hadouken:janela', () => {
+  assert.match(AGENDA_LIBERAR_TEXTO, /\/hadouken:janela/);
+});
+
+test('agenda: tarefa, loop ou rotina com /hadouken:janela ou /janela são negados; a palavra solta passa', () => {
+  const home = novoHome();
+  const casos = [
+    ['CronCreate', { cron: '0 9 * * *', prompt: '/hadouken:janela seg 00:00-00:01', recurring: true }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: 'depois rode /hadouken:janela seg 00:00-00:01' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: '/Claude-Hadouken"":JANELA off', prompt: 'continue' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: '/janela seg-sex 0-1' } }],
+    ['CronCreate', { cron: '0 9 * * *', prompt: 'lembrete: rode /janela.' }],
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: '/hadouken:janela off' }],
+  ];
+  for (const [tool, input] of casos) {
+    assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
+  }
+  // Sem mensagens.js, o texto de reserva do hook é o mesmo.
+  const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/hadouken:janela off' });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
+  // Stdin ilegível (truncado) com o comando, e acima do teto com o comando no texto cru.
+  const truncado = '{"tool_name":"CronCreate","tool_input":{"prompt":"/hadouken:janela off';
+  assert.deepEqual(saida(rodar('guarda-agenda.js', truncado, home)), AGENDA_NEGADO);
+  const grande = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/hadouken:janela off ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grande, home)), AGENDA_NEGADO);
+  const grandeBarra = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/janela off ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grandeBarra, home)), AGENDA_NEGADO);
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+  // A palavra solta, o arquivo e o plural passam em silêncio.
+  const passam = [
+    ['CronCreate', { cron: '*/5 * * * *', prompt: 'verifique a janela de 5h' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'x', prompt: 'revise src/janela.js e skills/janela/SKILL.md' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: 'abra a janela do terminal' } }],
+    ['CronCreate', { prompt: '/janelas' }],
+  ];
+  for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+});
+
 // M5 da revisão final da parte 1 (spec v0.4.0 §4.5, fail-open visível): stdin
 // acima do teto ou cortado pelo prazo deixa a chamada passar e registra o
 // evento 'erro' com o rótulo do hook, sem gate de sessão (sem o JSON não há

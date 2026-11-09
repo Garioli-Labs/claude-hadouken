@@ -14,7 +14,8 @@ import { pedeLiberacao, desfazEscapesJson } from '../guarda/caminho.js';
 // campo da entrada (prompt, reason, o body livre do RemoteTrigger) com o
 // pedido (pedeLiberacao em guarda/caminho.js: 'hadouken:liberar' no texto
 // normalizado ou '/liberar' como palavra; desde a Task 11 do aprendizado,
-// também 'hadouken:aprender' ou '/aprender'). A decisão é só texto (import
+// também 'hadouken:aprender' ou '/aprender'; e 'hadouken:janela' ou '/janela'
+// desde os achados da fatia 2 da v0.6.0). A decisão é só texto (import
 // estático) e, na dúvida, nega: sem mensagens.js, sai o texto de reserva;
 // sem registros.js, o deny sai sem o evento 'liberacao-recusada'.
 // As outras camadas: o liberar recusa a origem que não é o comando digitado
@@ -35,14 +36,17 @@ const rotuloDe = (nome) => {
   return typeof nome === 'string' && MCP_AGENDA.test(nome) ? 'agenda:mcp' : null;
 };
 // Acima de 1 MiB de stdin (o teto comum, spec 8.1, S9) o JSON não é lido;
-// 'liberar' ou 'aprender' em qualquer ponto do texto cru nega
-// (lerStdinVigiando em base.js), como a vigia da P4. 'aprender' desde a
-// Task 11 do aprendizado: o /hadouken:aprender também só vale
-// digitado (aprovar afrouxa a guarda; desligar tira o aprendizado).
-const VIGIA = /liberar|aprender/i;
+// 'liberar', 'aprender', 'hadouken:janela' ou '/janela' (com fronteira de
+// palavra) em qualquer ponto do texto cru nega (lerStdinVigiando em base.js),
+// como a vigia da P4. 'aprender' desde a Task 11 do aprendizado: o
+// /hadouken:aprender também só vale digitado (aprovar afrouxa a guarda;
+// desligar tira o aprendizado). A janela desde os achados da fatia 2 da
+// v0.6.0: ela adia a projeção G2, então também só vale digitada. A palavra
+// solta "janela" não entra ("janela de 5 h" é comum demais).
+const VIGIA = /liberar|aprender|hadouken:janela|\/janela\b/i;
 // O mesmo texto de AGENDA_LIBERAR_TEXTO (mensagens.js), só para quando o
 // import dele falha. test/guarda-hooks.test.js confere que os dois são iguais.
-const AGENDA_LIBERAR_RESERVA = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar ou /hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
+const AGENDA_LIBERAR_RESERVA = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda, não mexe no aprendizado nem muda a janela de trabalho. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar, /hadouken:aprender ou /hadouken:janela. Se o texto só cita o comando, tire-o do prompt agendado.';
 
 // Todo texto da entrada, a qualquer profundidade, sem recursão: o JSON.parse
 // aceita 200 mil níveis de lista, e uma varredura recursiva estouraria a pilha.

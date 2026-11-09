@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DIAS, validarJanela, lerJanela, minutosUteis, avancarUteis } from '../src/janela.js';
 import { calcularRitmo } from '../src/ritmo.js';
-import { preverEstouro } from '../src/previsao.js';
+import { preverEstouro, REGRAS_JANELA } from '../src/previsao.js';
 import { fraseEsgota } from '../src/uso/frase.js';
 import { linhaEstado } from '../src/hooks/linha-estado.js';
 import { estadoPainel } from '../src/uso/painel.js';
@@ -75,6 +75,7 @@ test('validarJanela: valor inválido dá o aviso e nenhuma janela (J5 incluído)
     { ...CFG, inicio: '09:00', fim: '09:00' },
     { ...CFG, inicio: '9h' },
     { ...CFG, fim: '25:00' },
+    { ...CFG, fim: '24:00' },
     { ...CFG, fim: undefined },
     null, 'seg-sex', 42, [],
   ];
@@ -369,4 +370,104 @@ test('prompt-submit: o % esperado e o aviso de projeção de 7 dias usam a janel
   const com = textoDe(hook('prompt-submit.js', montar({ janela: CFG }), prompt, { agoraMs }));
   assert.match(com, /7d 80% vs 61% esperado/);
   assert.doesNotMatch(com, /chega a 100%/);
+});
+
+// --- achados do revisor e do auditor da fatia 2 (F1, F2, F5) -----------------
+
+// F1: a projeção de 7 dias com janela exige 2 h de minutos úteis na amostra
+// (REGRAS_JANELA.seven_day.coberturaMinMs). Uma amostra quase toda fora da
+// janela (a noite, o fim de semana) multiplicaria a taxa por Δt ÷ úteis e
+// projetaria estouro a partir de poucos minutos de uso.
+const serieAte = (fimMs, de, ate, passoMs) => Array.from({ length: 13 }, (_, i) => ({
+  at: iso(fimMs - (12 - i) * passoMs), h5: null, d7: de + ((ate - de) * i) / 12,
+}));
+
+test('F1: 150 min de amostra, só 30 s úteis (segunda 09:00:30) → seven_day null', () => {
+  const agoraMs = D(9, 9, 0) + 30_000;
+  const historico = serieAte(agoraMs, 37, 40, 12.5 * MIN);
+  assert.equal(preverEstouro({ historico, limites: limites7d(40, D(15, 19)), agoraMs, trabalho: J }).seven_day, null);
+  // Sem janela a mesma série projeta.
+  assert.ok(preverEstouro({ historico, limites: limites7d(40, D(15, 19)), agoraMs }).seven_day !== null);
+});
+
+test('F1: a mesma série em segunda 09:30 (30 min úteis) → seven_day null', () => {
+  const agoraMs = D(9, 9, 30);
+  const historico = serieAte(agoraMs, 37, 40, 12.5 * MIN);
+  assert.equal(preverEstouro({ historico, limites: limites7d(40, D(15, 19)), agoraMs, trabalho: J }).seven_day, null);
+});
+
+test('F1: fronteira de 120 min úteis na amostra (119 → null, 120 → projeta)', () => {
+  // Amostra de 3 h (o alcance do 7d) que começa às 08:00: úteis = agora − 09:00.
+  const em = (h, m) => {
+    const agoraMs = D(9, h, m);
+    return preverEstouro({ historico: serieAte(agoraMs, 37, 40, 15 * MIN), limites: limites7d(40, D(15, 19)), agoraMs, trabalho: J }).seven_day;
+  };
+  assert.equal(em(10, 59), null);
+  assert.ok(em(11, 0) !== null);
+});
+
+test('F1: amostra de terça 06:30 a 09:10 (10 min úteis) a 0,75 %/h → seven_day null', () => {
+  const agoraMs = D(10, 9, 10);
+  const historico = serieAte(agoraMs, 78, 80, (160 / 12) * MIN);
+  assert.equal(preverEstouro({ historico, limites: limites7d(80, D(15, 19)), agoraMs, trabalho: J }).seven_day, null);
+});
+
+test('F1: a mesma amostra de terça não dispara G2 na guarda', () => {
+  const agoraMs = D(10, 9, 10);
+  const historico = serieAte(agoraMs, 78, 80, (160 / 12) * MIN);
+  const montar = (config) => {
+    const d = novoDir();
+    const at = iso(agoraMs);
+    fs.writeFileSync(path.join(d, 'estado.json'), JSON.stringify({
+      versao: 1, at,
+      five_hour: { used_percentage: 20, resets_at: (agoraMs + 3 * 3_600_000) / 1000, at },
+      seven_day: { used_percentage: 80, resets_at: D(15, 19) / 1000, at },
+      sessoes: {}, historico,
+    }));
+    if (config !== undefined) gravarConfig(d, config);
+    return d;
+  };
+  const com = avaliarGuarda({ dir: montar({ janela: CFG }), agoraMs, sessionId: 's' });
+  assert.deepEqual(com.ativas, []);
+  assert.equal(com.status, 'armada');
+});
+
+// F2: a frase "esgota" com janela exige 120 min úteis decorridos (o mesmo
+// valor de REGRAS_JANELA.seven_day.coberturaMinMs); sem janela, os 30 min de sempre.
+test('F2: segunda 09:30 com 5% (30 min úteis) → sem frase com janela, com frase sem janela', () => {
+  const base = { usado: 5, resetsAtMs: D(15, 19), janelaMs: SETE_DIAS, agoraMs: D(9, 9, 30) };
+  assert.equal(fraseEsgota({ ...base, trabalho: J }), null);
+  // Sem janela, 30 min decorridos desde o início corrido da semana já bastam.
+  assert.equal(typeof fraseEsgota(base), 'string');
+});
+
+test('F2: fronteira de 119 vs 120 min úteis decorridos', () => {
+  const base = { usado: 5, resetsAtMs: D(15, 19), janelaMs: SETE_DIAS, trabalho: J };
+  assert.equal(fraseEsgota({ ...base, agoraMs: D(9, 10, 59) }), null);
+  assert.match(fraseEsgota({ ...base, agoraMs: D(9, 11, 0) }), /^Nesse ritmo, /);
+});
+
+test('F2: o mínimo da frase com janela é o da projeção de 7 dias (uma constante)', () => {
+  assert.equal(REGRAS_JANELA.seven_day.coberturaMinMs, 120 * MIN);
+});
+
+// F5: calcularRitmo depois do último minuto útil e com agora ≥ reset (o
+// comportamento atual, fixado). O uso fora da janela conta como adiantamento:
+// o esperado congela, então 12% às 09:30 de segunda já é econômico.
+test('F5: calcularRitmo no sábado depois do último minuto útil → esperado 100', () => {
+  const r = calcularRitmo({ usado7d: 60, resetsAt7d: D(15, 19) / 1000, agoraMs: D(14, 12), trabalho: J });
+  assert.equal(r.esperado, 100);
+});
+
+test('F5: calcularRitmo com agora ≥ reset fica em 100 (sem passar disso)', () => {
+  const resetsAt7d = D(15, 19) / 1000;
+  assert.equal(calcularRitmo({ usado7d: 60, resetsAt7d, agoraMs: D(15, 19), trabalho: J }).esperado, 100);
+  assert.equal(calcularRitmo({ usado7d: 60, resetsAt7d, agoraMs: D(16, 12), trabalho: J }).esperado, 100);
+  assert.equal(calcularRitmo({ usado7d: 60, resetsAt7d, agoraMs: D(20, 12), trabalho: J }).esperado, 100);
+});
+
+test('F5: uso fora da janela conta como adiantamento: 12% às 09:30 de segunda é econômico', () => {
+  const r = calcularRitmo({ usado7d: 12, resetsAt7d: D(15, 19) / 1000, agoraMs: D(9, 9, 30), trabalho: J });
+  assert.equal(r.esperado, 0.8);
+  assert.equal(r.modo, 'economico');
 });

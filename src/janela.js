@@ -189,7 +189,9 @@ export function lerArgsJanela(texto) {
   try {
     if (texto === undefined || texto === null || texto === '') return { acao: 'mostrar' };
     if (typeof texto !== 'string' || texto.length > ARGS_MAX) return ERRO;
-    const t = texto.trim().toLowerCase();
+    // NFC antes de validar: "sáb" decomposto (a + acento combinante, como o
+    // macOS e alguns teclados entregam) não casaria com o `á` de numeroDoDia.
+    const t = texto.normalize('NFC').trim().toLowerCase();
     if (t === '') return { acao: 'mostrar' };
     if (t === 'off') return { acao: 'remover' };
     const partes = t.split(/\s+/);

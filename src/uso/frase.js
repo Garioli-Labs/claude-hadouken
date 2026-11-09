@@ -1,5 +1,6 @@
 import { numeroFinito, DATA_MAX_MS } from '../base.js';
 import { avancarUteis, minutosUteis } from '../janela.js';
+import { REGRAS_JANELA } from '../previsao.js';
 
 // Frase de previsão no estilo da aba Uso do claude.ai (spec, emenda E5):
 // ritmo médio da janela inteira, não a regressão das últimas horas
@@ -71,8 +72,9 @@ function sufixoReinicio(resetsAtMs, agoraMs) {
 // reinício no futuro; com menos de DECORRIDO_MIN_MS decorridos, null.
 // `trabalho` (janela.js, v0.6.0), só na janela de 7 dias: o decorrido e o
 // ritmo contam minutos úteis, e o instante avança só dentro da janela de
-// trabalho. Decorrido útil zero (J3: o início da semana fora da janela) é
-// "sem frase", como o decorrido curto.
+// trabalho, e o mínimo sobe para o da projeção de 7 dias (REGRAS_JANELA, 2 h
+// úteis). Decorrido útil zero (J3: o início da semana fora da janela) é "sem
+// frase", como o decorrido curto.
 export function fraseEsgota(entrada) {
   try {
     const { usado, resetsAtMs, janelaMs, agoraMs } = entrada;
@@ -90,7 +92,10 @@ export function fraseEsgota(entrada) {
     const decorrido = trabalho === null
       ? janelaMs - (resetsAtMs - agoraMs)
       : minutosUteis(trabalho, resetsAtMs - janelaMs, agoraMs) * MIN_MS;
-    if (!(decorrido >= DECORRIDO_MIN_MS)) return null;
+    // Com janela, o mínimo é o da projeção de 7 dias em minutos úteis (2 h):
+    // 30 min úteis são só o começo do expediente, e o ritmo médio vira ruído.
+    const minimo = trabalho === null ? DECORRIDO_MIN_MS : REGRAS_JANELA.seven_day.coberturaMinMs;
+    if (!(decorrido >= minimo)) return null;
     const sufixo = sufixoReinicio(resetsAtMs, agoraMs);
     const ritmo = usado / decorrido;
     const faltaMs = (100 - usado) / ritmo;
