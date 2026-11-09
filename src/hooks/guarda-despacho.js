@@ -14,8 +14,10 @@ import { sessaoAtiva } from '../ativas.js';
 // Erro ao avaliar: passa e registra 'erro' (fail-open visível, §4.5), tanto
 // o status 'erro' de avaliarGuarda quanto qualquer exceção depois do gate
 // (falharAberto, em comum.js).
-// Caminho curto até o gate, como os outros hooks; a guarda vem por import
-// dinâmico depois dele.
+// Antes do gate roda só a paleta (spec v0.6.0 §4 Fatia 4): agente removido ou
+// desligado na config é negado com a guarda ligada ou não. Fora isso, caminho
+// curto até o gate, como os outros hooks; a guarda vem por import dinâmico
+// depois dele.
 
 const FERRAMENTAS = new Set(['Agent', 'Task', 'Workflow']);
 const GERAIS = new Set(['ilegivel', 'five_hour', 'seven_day']);
@@ -39,23 +41,34 @@ function casa() {
   try { return os.homedir(); } catch { return null; }
 }
 
-async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
-  const [{ avaliarGuarda }, desp, reg, msg, { avaliarPaleta }] = await Promise.all([
+// Spec v0.6.0 §4 Fatia 4, passo 2: a paleta roda antes de todos os portões da
+// guarda (session_id, sessão ativa, status erro, guarda desligada). Agente
+// removido na 0.6.0 ou desligado na config (`ativo: false`) é negado com o
+// substituto; o turno não para (o modelo relança). Só despachos `hadouken:*`
+// carregam os módulos da paleta: o resto segue no caminho curto. Devolve o
+// `agentes` lido (para N1/N2) e se já negou. `dir` null: sem config, e a
+// remoção (pura) ainda nega.
+async function aplicarPaleta(entrada, dir) {
+  const ti = entrada.tool_input;
+  const tipo = ti !== null && typeof ti === 'object' ? ti.subagent_type : undefined;
+  if (entrada.tool_name === 'Workflow' || typeof tipo !== 'string' || !tipo.startsWith('hadouken:')) return { negou: false, agentes: {} };
+  const [{ avaliarPaleta }, { lerAgentes }] = await Promise.all([import('../agentes/despacho.js'), import('../agentes/config.js')]);
+  const { agentes } = lerAgentes(dir);
+  const paleta = avaliarPaleta({ toolName: entrada.tool_name, toolInput: ti, agentes });
+  if (paleta.acao !== 'negar') return { negou: false, agentes };
+  negar(paleta.razao, null);
+  return { negou: true, agentes };
+}
+
+async function avaliarDespacho(entrada, dir, sessionId, agoraMs, agentes) {
+  const [{ avaliarGuarda }, desp, reg, msg] = await Promise.all([
     import('../guarda/avaliar.js'),
     import('../guarda/despacho.js'),
     import('../guarda/registros.js'),
     import('../guarda/mensagens.js'),
-    import('../agentes/despacho.js'),
   ]);
   reg.marcarSessao(dir, sessionId);
   const g = avaliarGuarda({ dir, agoraMs, sessionId });
-  // Spec v0.6.0 Fatia 3: agente removido na 0.6.0 é negado com o substituto,
-  // com a guarda ligada ou não; o turno não para (o modelo relança).
-  const paleta = avaliarPaleta({ toolName: entrada.tool_name, toolInput: entrada.tool_input });
-  if (paleta.acao === 'negar') {
-    negar(paleta.razao, null);
-    return;
-  }
   if (g.status === 'erro') {
     reg.anexarEvento(dir, 'erro', 'P1', agoraMs);
     return;
@@ -64,7 +77,7 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
   const noSubagente = typeof entrada.agent_id === 'string' && entrada.agent_id.length > 0;
   const perfil = entrada.tool_name === 'Workflow' ? DESCONHECIDO : desp.perfilDoDespacho({
     toolInput: entrada.tool_input, cwd: entrada.cwd, dirConfigClaude: desp.dirConfigClaude(process.env, casa()),
-    env: process.env, modeloSessao: g.modeloSessao,
+    env: process.env, modeloSessao: g.modeloSessao, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT,
   });
 
   const chaves = g.ativas.filter((k) => GERAIS.has(k) || (perfil.modelo === 'fable' && DO_FABLE.has(k)));
@@ -107,7 +120,7 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
     const pr = desp.perfilRoteamento({ toolInput: ti, cwd: entrada.cwd, dirConfigClaude: desp.dirConfigClaude(process.env, casa()), env: process.env, modeloSessao: g.modeloSessao, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT });
     const prompt = typeof ti.prompt === 'string' ? ti.prompt : '';
     const { config } = lerConfigRoteamento(dir);
-    const d = avaliarRoteamento({ perfil: pr, descricao: ti.description, prompt, recentes: rot.despachosRecentes(dir, sessionId, agoraMs), config, liberado: g.cobertura.ativa === true, agoraMs });
+    const d = avaliarRoteamento({ perfil: pr, descricao: ti.description, prompt, recentes: rot.despachosRecentes(dir, sessionId, agoraMs), config, liberado: g.cobertura.ativa === true, agoraMs, agentes });
     if (pr.agente !== null) rot.registrarDespacho(dir, { sessao: sessionId, agente: pr.agente, familia: pr.familia, effort: pr.effort, regra: d.regra, decisao: d.decisao, em: agoraMs, tamPrompt: Math.min(prompt.length, 1e6), palavras: rot.hashesDePalavras(ti.description) });
     if (d.decisao === 'negar') {
       negar(noSubagente ? msg.N_SUBAGENTE : (d.regra === 'N1' ? msg.N1_CLAUDE : msg.N2_CLAUDE), null);
@@ -126,12 +139,18 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs) {
 
 rodarHook(async (entrada) => {
   if (entrada === null || !FERRAMENTAS.has(entrada.tool_name)) return;
+  const dir = dirDados();
+  const agoraMs = Date.now();
+  // Ordem dos portões (spec v0.6.0 §4 Fatia 4): paleta, session_id válido,
+  // pasta de dados, sessão ativa, e só então a guarda. Exceção na paleta passa
+  // e vira evento 'erro' (falharAberto), como na guarda.
+  let paleta = { negou: false, agentes: {} };
+  await falharAberto(dir, 'P1', agoraMs, async () => { paleta = await aplicarPaleta(entrada, dir); });
+  if (paleta.negou) return;
   const sessionId = entrada.session_id;
   if (!idValido(sessionId)) return;
-  const dir = dirDados();
   if (dir === null) return;
-  const agoraMs = Date.now();
   if (!sessaoAtiva(sessionId, agoraMs)) return;
   // Depois do gate, toda exceção passa e vira evento 'erro' (§4.5).
-  await falharAberto(dir, 'P1', agoraMs, () => avaliarDespacho(entrada, dir, sessionId, agoraMs));
+  await falharAberto(dir, 'P1', agoraMs, () => avaliarDespacho(entrada, dir, sessionId, agoraMs, paleta.agentes));
 }, undefined, undefined, 'P1');

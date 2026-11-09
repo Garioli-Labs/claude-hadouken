@@ -74,7 +74,10 @@ function frontmatterDoAgente(nome, cwd, dirCfg) {
 
 const classificar = (m) => (FABLE.test(m) ? 'fable' : 'outro');
 
-export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env, modeloSessao } = {}) {
+// Para `hadouken:<nome>` o frontmatter vem de <raizPlugin>/agents/<nome>.md
+// (frontmatterRoteamento, a mesma busca do perfil do roteamento); outro
+// plugin e nome inexistente ficam desconhecidos.
+export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env, modeloSessao, raizPlugin } = {}) {
   const desconhecido = { modelo: 'desconhecido', effort: null, origem: 'desconhecido' };
   try {
     const ti = toolInput !== null && typeof toolInput === 'object' ? toolInput : {};
@@ -86,7 +89,7 @@ export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env,
       if (ehTexto(modeloSessao)) return { modelo: classificar(modeloSessao), effort: effortSessao, origem: 'sessao' };
       return { modelo: 'desconhecido', effort: effortSessao, origem: 'desconhecido' };
     }
-    const fm = frontmatterDoAgente(nome, cwd, dirCfg);
+    const fm = typeof nome === 'string' ? frontmatterRoteamento(nome, cwd, dirCfg, raizPlugin) : null;
     // O parâmetro effort vence o frontmatter, como o model (portão v0.4.0, I1).
     const effort = effortValido(ti.effort) ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
     if (ehTexto(ti.model) && ti.model !== 'inherit') return { modelo: classificar(ti.model), effort, origem: 'parametro' };
@@ -123,7 +126,7 @@ export function despachoCaro(perfil) {
 // <raiz do plugin>/agents/<x>.md. Só o prefixo hadouken: é resolvido aqui;
 // outro plugin fica desconhecido, como no perfil da guarda.
 const NOME_ROTEAMENTO = /^[A-Za-z0-9_:-]{1,80}$/;
-const DO_PLUGIN = /^hadouken:([a-z][a-z-]{0,40})$/;
+const DO_PLUGIN = /^hadouken:([a-z][a-z0-9-]{0,40})$/;
 export function familiaDoModelo(nome) {
   if (typeof nome !== 'string') return 'desconhecido';
   for (const f of ['haiku', 'sonnet', 'opus', 'fable']) if (nome.toLowerCase().includes(f)) return f;

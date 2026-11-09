@@ -31,8 +31,15 @@ export const REMOVIDOS = Object.freeze({ executor: 'implementador', 'revisor-cri
 // Opus/Fable) do roteamento.
 export const AGENTES_REVISAO = Object.freeze(['revisor', 'auditor']);
 
-// A paleta com o override da config. Sem a chave `agentes` implementada
-// (Fatia 4), é sempre o padrão.
-export function paletaEfetiva(_agentes = {}) {
-  return PALETA.map((p) => ({ nome: p.nome, model: p.model, effort: p.effort, ativo: true, override: false }));
+// A paleta com o override da config (`agentes` já validado por validarAgentes).
+// `ativo` é false só com `ativo: false`; `override` é true quando a config
+// troca o model ou o effort por um valor diferente do padrão. Pura.
+export function paletaEfetiva(agentes = {}) {
+  const config = agentes !== null && typeof agentes === 'object' ? agentes : {};
+  return PALETA.map((p) => {
+    const c = Object.hasOwn(config, p.nome) && config[p.nome] !== null && typeof config[p.nome] === 'object' ? config[p.nome] : {};
+    const model = typeof c.model === 'string' ? c.model : p.model;
+    const effort = typeof c.effort === 'string' ? c.effort : p.effort;
+    return { nome: p.nome, model, effort, ativo: c.ativo !== false, override: model !== p.model || effort !== p.effort };
+  });
 }

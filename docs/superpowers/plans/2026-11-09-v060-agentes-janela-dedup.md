@@ -28,10 +28,10 @@ Entradas que a spec implica e nenhum teste de tarefa cobria. Cada uma tem teste 
 1. **RF1** — plugin em `installed_plugins.json` sem chave em `enabledPlugins` → conta como desligado: não vira equivalente, nem dispara desligamento. Teste na Tarefa 2.
 2. **RF2** — o mesmo id com duas entradas em `installed_plugins.json` (`scope: "project"` e `"user"`) → só a de usuário conta. Teste na Tarefa 2.
 3. **RF3** — `config.json` com `guarda`, `janela` e `agentes` gravados por comandos diferentes, em sequência → nenhum comando apaga a chave do outro. Teste na Tarefa 7.
-4. **RF4** — despacho `Agent` sem `subagent_type` (vai para o general-purpose) ou com nome de outro plugin → a paleta não injeta nem nega, e o perfil efetivo fica `desconhecido` (sem G5, G6 nem G7 por plugin alheio). Teste na Tarefa 6.
+4. **RF4** — despacho `Agent` sem `subagent_type` (vai para o general-purpose) ou com nome de outro plugin → a paleta não injeta nem nega, e o perfil efetivo fica `desconhecido` (sem G5, G6 nem G7 por plugin alheio). Testes nas Tarefas 6a (sem deny) e 6b (sem injeção).
 5. **RF5** — com janela de trabalho: uso já ≥ 100 %, ou taxa ≤ 0 (o uso caiu entre amostras) → projeção `null`, sem exceção. Teste na Tarefa 3.
-6. **RF6** — a paleta (injeção e negação de agente removido) roda antes dos portões da guarda: guarda desligada, `session_id` inválido, sessão inativa e status `erro` não a impedem. Testes na Tarefa 6.
-7. **RF7** — G5, G6 e G7 enxergam o perfil efetivo (parâmetro > config > frontmatter local ou de plugin): `hadouken:auditor` sem `model` é Fable; N1 e N2 continuam avaliando o `tool_input` original e aprovam o parâmetro explícito igual a `agentes.<nome>` ou a `roteamento.subir`. Testes nas Tarefas 6 e 7.
+6. **RF6** — a paleta (injeção e negação de agente removido) roda antes dos portões da guarda: guarda desligada, `session_id` inválido, sessão inativa e status `erro` não a impedem. Testes nas Tarefas 6a (negação) e 6b (injeção).
+7. **RF7** — G5, G6 e G7 enxergam o perfil efetivo (parâmetro > config > frontmatter local ou de plugin): `hadouken:auditor` sem `model` é Fable; N1 e N2 continuam avaliando o `tool_input` original e aprovam o parâmetro explícito igual a `agentes.<nome>` ou a `roteamento.subir`. Testes nas Tarefas 6a, 6b e 7.
 8. **RF8** — régua: nome fora da regex, texto longo, lista acima do limite e nome desconhecido nunca chegam crus ao `systemMessage`; a régua do repo avisa que vale no lugar da do usuário; a raiz do projeto é `CLAUDE_PROJECT_DIR` → `.git` → cwd. Testes nas Tarefas 10 e 11.
 9. **RF9** — o teto de `test/kit-fluxo.test.js:87-88` muda para 2400 caracteres com a régua padrão; o kit 1.2.0 declara o `hadouken` com `version: ">=0.6.0"`. Testes nas Tarefas 9 e 10.
 
@@ -265,7 +265,66 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
 
 ## Fatia 4 — Paleta configurável
 
-### Tarefa 6: injeção de model/effort no despacho
+### Tarefa 6a: config `agentes`, paleta antes dos portões e perfil efetivo
+
+Sem injeção: nenhuma saída leva `updatedInput` (é a Tarefa 6b). Não depende do passo 0 da 6b.
+
+**Arquivos:**
+- Criar: `src/agentes/config.js`, `test/agentes-config.test.js`
+- Modificar:
+  - `src/agentes/paleta.js` (`paletaEfetiva` com override), `src/agentes/despacho.js` (negação de agente com `ativo: false`);
+  - `src/guarda/despacho.js` (perfil efetivo: `perfilDoDespacho` com `raizPlugin` e o frontmatter do plugin; `DO_PLUGIN` aceita dígito, como em `hadouken:e2e`);
+  - `src/roteamento/regras.js:22-25` (aprovação por `agentes.<nome>` e por `subir` em N1 e N2);
+  - `src/hooks/guarda-despacho.js` (a paleta roda antes de `idValido`, de `sessaoAtiva`, do status `erro` e do `return` da guarda desligada).
+
+**Interfaces:**
+- Consome `PALETA`, `REMOVIDOS`, `AGENTES_REVISAO`, `paletaEfetiva` e `avaliarPaleta` (Tarefa 5).
+- Produz:
+  - `validarAgentes(valor) → {agentes: Record<nome, {model?, effort?, ativo?}>, avisos: string[]}`. Nome fora da `PALETA`, `model ∉ {haiku,sonnet,opus,fable}`, `effort ∉ {low,medium,high,xhigh,max}` ou `ativo` não booleano → campo descartado e aviso `agentes.<nome>.<campo> inválido; ignorado`.
+  - `lerAgentes(dir) → {agentes, avisos}`. Leitura falhou (A8) → `{agentes: {}, avisos: ['não consegui ler agentes em config.json']}`.
+  - `paletaEfetiva(agentes)` aplica o override (`override: true` quando a config muda `model` ou `effort`).
+  - `avaliarPaleta`: remoção e `ativo: false` → `deny` (substituto da tabela; se também inativo, "faça direto"), na ordem da spec §4 Fatia 4.
+  - `perfilDoDespacho({..., raizPlugin})`: `model` = parâmetro > frontmatter; `effort` = parâmetro > frontmatter > `CLAUDE_EFFORT`. O frontmatter vem de `<cwd>/.claude/agents`, de `<dirCfg>/agents` ou, para `hadouken:<nome>`, de `<raizPlugin>/agents/<nome>.md` (`DO_PLUGIN`, a busca de `perfilRoteamento`).
+  - `avaliarRoteamento({..., agentes = {}})`: N1 e N2 não negam o parâmetro explícito aprovado: `config.subir[agente] === familia` ou `agentes[<nome sem prefixo>].model === familia` (e `effort` explícito igual a `agentes[<nome>].effort`).
+
+- [x] **Passo 1 — testes que falham** (costura de hook, guarda desligada salvo quando indicado; `ti = {subagent_type:'hadouken:revisor', prompt:'x', description:'y'}`):
+  - **config e paleta efetiva** (unidade): `validarAgentes` e `lerAgentes` conforme as Interfaces (campo e nome inválidos, chave hostil fora do aviso, config ilegível); `paletaEfetiva` com override, `ativo: false` e `override` só quando o valor difere do padrão.
+  - **negação**:
+    - `{auditor:{ativo:false}}` → `deny`, razão contém `hadouken:revisor`;
+    - `{auditor:{ativo:false}, revisor:{ativo:false}}` → razão contém `faça direto`;
+    - inativo com `model` explícito (A2) → `deny`.
+  - **config** (guarda de regressão): `config.json` inválido → sem saída (passa).
+  - **RF4**: sem `subagent_type`, ou com `outro-plugin:revisor` → sem `deny` da paleta.
+  - **paleta antes dos portões (A10)**:
+    - config `{guarda:{ligada:false}}` com `ti.subagent_type: 'hadouken:executor'` → `deny` com `use hadouken:implementador`;
+    - a mesma config com `session_id` inválido (`'../x'`) → `deny`;
+    - sessão não registrada em `ativas/` → `deny`;
+    - `avaliarGuarda` com `status: 'erro'` (`src/guarda/avaliar.js:74,141`; molde `test/guarda-despacho-erro.test.js`) → `deny`;
+    - `dirDados()` nulo → a remoção ainda nega.
+  - **aprovação em N1/N2** (guarda ligada):
+    - `{busca:{model:'opus'}}`, `ti` de `hadouken:busca` com `model:'opus'` explícito → passa (vermelho: N1 nega sem a implementação);
+    - `{mecanico:{model:'opus'}}`, `ti` de `hadouken:mecanico` com `model:'opus'` → passa (vermelho: N2 nega sem a implementação);
+    - `{busca:{model:'sonnet'}}` e `hadouken:busca` com `model:'sonnet'` → passa; com `model:'opus'` → nega N1 (os dois são guarda de regressão: passam sem a implementação);
+    - `{busca:{effort:'xhigh'}}` e `hadouken:busca` com `effort:'xhigh'` explícito → passa; sem a config → nega N1;
+    - `roteamento.subir = {'hadouken:busca':'opus'}` e `hadouken:busca` com `model:'opus'` → passa (vermelho: `regras.js:22` ignora `subir`); `hadouken:mecanico` com `subir` `opus` e `model:'opus'` → passa (já passa);
+    - N2 negando um `model:'opus'` explícito, sem config → só `deny`, sem `updatedInput`.
+  - **perfil efetivo (G5, G6, G7)**, guarda ligada:
+    - `hadouken:auditor` sem `model`, config vazia, trava do Fable ativa (molde `test/guarda-hooks.test.js:1067`) → `deny` (G6 enxerga fable; vermelho: o perfil é `desconhecido`);
+    - o quinto despacho de `hadouken:auditor` sem `model` em 5 h é negado (molde `test/guarda-hooks.test.js:207`, G7) e os quatro primeiros contam como Fable;
+    - agente desconhecido (`outro-plugin:x`, `hadouken:inexistente`) → perfil `desconhecido` (sem G5/G6/G7), como `test/guarda-despacho.test.js:58-62`;
+    - `perfilDoDespacho` direto: precedência parâmetro > frontmatter para `model` e para `effort`; `hadouken:auditor` → `{modelo:'fable', effort:'high', origem:'frontmatter'}`; `hadouken:e2e` → `{modelo:'outro', effort:'high', origem:'frontmatter'}`;
+    - `perfilRoteamento` de `hadouken:e2e` acha o frontmatter do plugin (`DO_PLUGIN` com dígito).
+- [x] **Passo 2** — `node --test test/agentes-config.test.js` → FAIL.
+- [x] **Passo 3** — implementar:
+  - O hook calcula a paleta logo depois de `dirDados()` e antes de `idValido`, `sessaoAtiva`, do status `erro` e do `return` da guarda desligada (`src/hooks/guarda-despacho.js`), dentro de `falharAberto` (erro → passa e registro pelo log do hook). Só despacho `Agent`/`Task` de `hadouken:*` carrega os módulos da paleta.
+  - `lerAgentes(dir)` roda a cada despacho.
+  - N1, N2 e A1–A3 recebem o `tool_input` original; N1 e N2 recebem também `agentes`. G5, G6 e G7 recebem o perfil efetivo (`perfilDoDespacho` com `raizPlugin: process.env.CLAUDE_PLUGIN_ROOT`).
+- [x] **Passo 4** — `node --test` → 0 falhas.
+- [x] **Passo 5** — commit `feat(agentes): guarda enxerga o perfil efetivo; paleta antes dos portões`.
+
+### Tarefa 6b: injeção de model/effort no despacho
+
+Depende da 6a.
 
 **Passo 0 (portão, antes de qualquer código):** medir as perguntas 1 e 2 da spec §8.1 com `claude -p` e o plugin do worktree, em `permissions.defaultMode: "auto"` (o modo real do mantenedor).
 - A guarda bloqueia sessão `claude` filha: o Fernando precisa digitar `/hadouken:liberar` antes.
@@ -283,65 +342,42 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
 - Se só a variante `"allow"` injetar, pare e traga a decisão ao Fernando (a doc espera esse resultado em auto mode; o `allow` pula o prompt do modo e mantém as regras `deny`/`ask`).
 
 **Arquivos:**
-- Criar: `src/agentes/config.js`, `test/agentes-config.test.js`
 - Modificar:
-  - `src/agentes/paleta.js` (`paletaEfetiva` com override), `src/agentes/despacho.js`;
-  - `src/guarda/despacho.js` (perfil efetivo: `perfilDoDespacho` e `frontmatterDoAgente`, `:14,63-73,77-107`);
-  - `src/roteamento/regras.js:22-25` (aprovação por `agentes.<nome>` e por `subir` em N1 e N2);
-  - `src/hooks/guarda-despacho.js` (a paleta roda antes de `:121-126` e de `:51-55`; as saídas de passar, de avisar e de perguntar levam `updatedInput`).
+  - `src/agentes/despacho.js` (`avaliarPaleta` completo: injeção e fork);
+  - `src/guarda/despacho.js` (`perfilDoDespacho` com a camada `agentes` da config);
+  - `src/hooks/guarda-despacho.js` (as saídas de passar, de avisar e de perguntar levam `updatedInput`);
+  - `test/agentes-config.test.js`.
 
 **Interfaces:**
-- Consome `PALETA`, `REMOVIDOS`, `AGENTES_REVISAO`, `paletaEfetiva` e `avaliarPaleta` (Tarefa 5).
+- Consome o que a Tarefa 6a produz.
 - Produz:
-  - `validarAgentes(valor) → {agentes: Record<nome, {model?, effort?, ativo?}>, avisos: string[]}`. Nome fora da `PALETA`, `model ∉ {haiku,sonnet,opus,fable}`, `effort ∉ {low,medium,high,xhigh,max}` ou `ativo` não booleano → campo descartado e aviso `agentes.<nome>.<campo> inválido; ignorado`.
-  - `lerAgentes(dir) → {agentes, avisos}`. Leitura falhou (A8) → `{agentes: {}, avisos: ['não consegui ler agentes em config.json']}`.
-  - `paletaEfetiva(agentes)` passa a aplicar o override (`override: true` quando a config muda `model` ou `effort`).
   - `avaliarPaleta` completo, na ordem da spec §4 Fatia 4 (remoção, `ativo`, injeção, fork).
-  - `perfilDoDespacho({..., agentes = {}, raizPlugin})` com a precedência da spec §4 Fatia 4: `model` = parâmetro > `agentes[<nome>].model` > frontmatter; `effort` = parâmetro > `agentes[<nome>].effort` > frontmatter > `CLAUDE_EFFORT`; `origem: 'config'` quando a config decide. O frontmatter vem de `<cwd>/.claude/agents`, de `<dirCfg>/agents` ou, para `hadouken:<nome>`, de `<raizPlugin>/agents/<nome>.md` (`DO_PLUGIN`, a busca de `perfilRoteamento`).
-  - `avaliarRoteamento({..., agentes = {}})`: N1 e N2 não negam o parâmetro explícito aprovado: `config.subir[agente] === familia` ou `agentes[<nome sem prefixo>].model === familia` (e `effort` explícito igual a `agentes[<nome>].effort`).
+  - `perfilDoDespacho({..., agentes = {}, raizPlugin})` com a precedência da spec §4 Fatia 4: `model` = parâmetro > `agentes[<nome>].model` > frontmatter; `effort` = parâmetro > `agentes[<nome>].effort` > frontmatter > `CLAUDE_EFFORT`; `origem: 'config'` quando a config decide.
 
 - [ ] **Passo 1 — testes que falham** (costura de hook, guarda desligada salvo quando indicado; `ti = {subagent_type:'hadouken:revisor', prompt:'x', description:'y'}`):
   - **injeção**:
     - config `{agentes:{revisor:{model:'opus', effort:'high'}}}` → `hookSpecificOutput.updatedInput` deepEqual `{...ti, model:'opus', effort:'high'}`;
     - `ti` com `model:'sonnet'` (A1) → `updatedInput.model === 'sonnet'` e `effort === 'high'`.
-  - **negação**:
-    - `{auditor:{ativo:false}}` → `deny`, razão contém `hadouken:revisor`;
-    - `{auditor:{ativo:false}, revisor:{ativo:false}}` → razão contém `faça direto`;
-    - inativo com `model` explícito (A2) → `deny`.
-  - **fork, Workflow, config**:
+  - **fork, Workflow**:
     - `subagent_type:'fork'` → sem `updatedInput`;
-    - `tool_name:'Workflow'` (A7) → sem saída;
-    - `config.json` inválido → sem saída (passa).
-  - **RF4**: sem `subagent_type`, ou com `outro-plugin:revisor` → sem `updatedInput` e sem `deny`.
+    - `tool_name:'Workflow'` (A7) → sem saída.
   - **injeção antes dos portões (A10)**:
     - config `{guarda:{ligada:false}, agentes:{revisor:{model:'opus'}}}` → `updatedInput.model === 'opus'`;
-    - a mesma config com `ti.subagent_type: 'hadouken:executor'` → `deny` com `use hadouken:implementador`;
     - `session_id` inválido (`'../x'`) → injeta;
     - sessão não registrada em `ativas/` → injeta;
     - `avaliarGuarda` com `status: 'erro'` (`src/guarda/avaliar.js:74,141`; molde `test/guarda-despacho-erro.test.js`) → injeta.
-  - **A3 e aprovação em N1/N2** (guarda ligada):
-    - `{busca:{model:'opus'}}`, `ti` de `hadouken:busca` sem `model` → injeta `opus` e não nega (N1 e N2 veem o `tool_input` original);
-    - `{busca:{model:'opus'}}`, `ti` de `hadouken:busca` com `model:'opus'` explícito → passa (vermelho: N1 nega sem a implementação);
-    - `{mecanico:{model:'opus'}}`, `ti` de `hadouken:mecanico` com `model:'opus'` → passa (vermelho: N2 nega sem a implementação);
-    - `{busca:{model:'sonnet'}}` e `hadouken:busca` com `model:'sonnet'` → passa; com `model:'opus'` → nega N1 (os dois são guarda de regressão: passam sem a implementação);
-    - `{busca:{effort:'xhigh'}}` e `hadouken:busca` com `effort:'xhigh'` explícito → passa; sem a config → nega N1;
-    - `roteamento.subir = {'hadouken:busca':'opus'}` e `hadouken:busca` com `model:'opus'` → passa (vermelho: `regras.js:22` ignora `subir`); `hadouken:mecanico` com `subir` `opus` e `model:'opus'` → passa (já passa);
-    - N2 negando um `model:'opus'` explícito, sem config → só `deny`, sem `updatedInput`.
-  - **perfil efetivo (G5, G6, G7)**, guarda ligada:
-    - `hadouken:auditor` sem `model`, config vazia, trava do Fable ativa (molde `test/guarda-hooks.test.js:1067`) → `deny` (G6 enxerga fable; vermelho: o perfil é `desconhecido`);
-    - o quinto despacho de `hadouken:auditor` sem `model` em 5 h é negado (molde `test/guarda-hooks.test.js:207`, G7) e os quatro primeiros contam como Fable;
+  - **A3** (guarda ligada):
+    - `{busca:{model:'opus'}}`, `ti` de `hadouken:busca` sem `model` → injeta `opus` e não nega (N1 e N2 veem o `tool_input` original).
+  - **perfil efetivo (G5)**, guarda ligada:
     - config `{revisor:{model:'fable', effort:'max'}}`, `hadouken:revisor` sem parâmetro → G5 enxerga fable·max (`deny` ou `ask` de G5, sem liberação `despacho-caro`);
-    - agente desconhecido (`outro-plugin:x`, `hadouken:inexistente`) → perfil `desconhecido` (sem G5/G6/G7), como `test/guarda-despacho.test.js:58-62`;
-    - `perfilDoDespacho` direto: precedência parâmetro > config > frontmatter para `model` e para `effort`; `hadouken:auditor` → `{modelo:'fable', effort:'high', origem:'frontmatter'}`.
+    - `perfilDoDespacho` direto: precedência parâmetro > config > frontmatter para `model` e para `effort`; `origem: 'config'` quando a config decide.
   - **saída final**:
     - `guarda.perguntar` ligado e injeção pendente → `permissionDecision: 'ask'` com `updatedInput`;
     - `deny` da guarda (trava) com injeção pendente → só `deny`, sem `updatedInput`;
     - aviso A1–A3 com injeção pendente → `additionalContext` e `updatedInput` na mesma saída.
 - [ ] **Passo 2** — `node --test test/agentes-config.test.js` → FAIL.
 - [ ] **Passo 3** — implementar:
-  - O hook calcula `avaliarPaleta` logo depois de `dirDados()` e antes de `idValido`, `sessaoAtiva`, do status `erro` e do `return` da guarda desligada (`src/hooks/guarda-despacho.js:51-55,121-126`), dentro de `try` (erro → `passa` e registro pelo log do hook).
-  - `lerAgentes(dir)` roda a cada despacho.
-  - As regras de N1, N2 e A1–A3 recebem o `tool_input` original; G5, G6 e G7 recebem o perfil efetivo (`perfilDoDespacho` com `agentes` e `raizPlugin: process.env.CLAUDE_PLUGIN_ROOT`).
+  - `avaliarPaleta` devolve `{acao: 'injetar', updatedInput}` quando falta `model` ou `effort` no despacho e a config os define (campo explícito nunca é sobrescrito; `fork` e `Workflow` não recebem). O hook guarda a injeção e a aplica na saída final.
   - `deny` da guarda prevalece; nos outros casos, a saída final leva `updatedInput` (com ou sem `permissionDecision: "allow"`, conforme o passo 0) mais o `additionalContext` que já existia.
 - [ ] **Passo 4** — `node --test` → 0 falhas.
 - [ ] **Passo 5** — commit `feat(agentes): paleta configurável aplicada no despacho`.
@@ -369,7 +405,7 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - **RF3**: em sequência, `/hadouken:janela seg-sex 9-21`, `/hadouken:agentes revisor opus` e `/hadouken:liberar off` → `config.json` tem `janela`, `agentes` e a chave da guarda.
   - **SessionStart**: com `{revisor:{model:'opus'}}` a linha do revisor contém `opus`; com `{auditor:{ativo:false}}` não há linha do auditor; com nome inválido aparece o aviso.
   - **Aprovação em N1/N2 pelo comando** (guarda ligada, hook de despacho depois do comando):
-    - `/hadouken:agentes busca sonnet`, despacho `hadouken:busca` com `model:'sonnet'` → passa; com `model:'opus'` → nega N1 (os dois passam sem a implementação da tarefa: guarda de regressão da Tarefa 6);
+    - `/hadouken:agentes busca sonnet`, despacho `hadouken:busca` com `model:'sonnet'` → passa; com `model:'opus'` → nega N1 (os dois passam sem a implementação da tarefa: guarda de regressão da Tarefa 6a);
     - `/hadouken:agentes mecanico opus`, despacho `hadouken:mecanico` com `model:'opus'` → passa (a config gravada pelo comando é a aprovação);
     - `/hadouken:agentes mecanico padrao`, o mesmo despacho → nega N2.
 - [ ] **Passo 2** — `node --test test/agentes-comando.test.js` → FAIL.
