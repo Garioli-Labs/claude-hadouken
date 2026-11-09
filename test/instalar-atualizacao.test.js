@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { COPIAS_ANTIGAS, FONTE, ligarAtualizacao, marketplaceConhecido } from '../src/instalar/atualizacao-auto.js';
+import * as atualizacao from '../src/instalar/atualizacao-auto.js';
+import { FONTE, ligarAtualizacao, marketplaceConhecido } from '../src/instalar/atualizacao-auto.js';
 
 // v0.5.2, atualização automática (spec, peça 2): extraKnownMarketplaces com
-// autoUpdate e as cópias antigas dos terceiros desligadas, pelo gravador
-// seguro da barra. Settings sempre em pasta temporária.
+// autoUpdate, pelo gravador seguro da barra; nenhum plugin é ligado nem
+// desligado (v0.6.0, Fatia 1). Settings sempre em pasta temporária.
 
 const pastas = [];
 after(() => {
@@ -25,14 +26,14 @@ const lerArq = (a) => JSON.parse(fs.readFileSync(a, 'utf8'));
 const backups = (a) => fs.readdirSync(path.dirname(a)).filter((n) => n.startsWith(`${path.basename(a)}.bak-hadouken-`)).sort();
 const NOSSA = { source: 'github', repo: 'Garioli-Labs/claude-hadouken' };
 
-test('constantes: a fonte do marketplace e as quatro cópias antigas', () => {
+test('constantes: a fonte do marketplace; as cópias antigas não existem mais', () => {
   assert.deepEqual(FONTE, NOSSA);
-  assert.deepEqual(COPIAS_ANTIGAS, ['mattpocock-skills@mattpocock', 'poka-yoke@poka-yoke', 'fullstack-dev-skills@fullstack-dev-skills', 'ui-ux-pro-max@ui-ux-pro-max-skill']);
+  assert.equal(atualizacao.COPIAS_ANTIGAS, undefined);
 });
 
 test('settings ausente: cria com a entrada do marketplace e autoUpdate', () => {
   const arq = path.join(novoTmp(), 'settings.json');
-  assert.deepEqual(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA }), { ok: true, acao: 'gravado', desligadas: [], mantidas: [], backup: null });
+  assert.deepEqual(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA }), { ok: true, acao: 'gravado', backup: null });
   assert.deepEqual(lerArq(arq), { extraKnownMarketplaces: { 'claude-hadouken': { source: NOSSA, autoUpdate: true } } });
 });
 
@@ -59,34 +60,23 @@ test('segunda rodada: não regrava nem cria backup', () => {
   assert.equal(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA }).acao, 'gravado');
   const bytes = fs.readFileSync(arq);
   const bk = backups(arq);
-  assert.deepEqual(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA + 1000 }), { ok: true, acao: 'ja-estava', desligadas: [], mantidas: [], backup: null });
+  assert.deepEqual(ligarAtualizacao({ arquivo: arq, agoraMs: AGORA + 1000 }), { ok: true, acao: 'ja-estava', backup: null });
   assert.deepEqual(fs.readFileSync(arq), bytes);
   assert.deepEqual(backups(arq), bk);
 });
 
-test('cópias antigas: true vira false; ausente não entra; false fica; outros plugins intactos', () => {
+test('enabledPlugins não é tocado: cópias do usuário ligadas continuam true, e prontas é ignorado', () => {
   const arq = path.join(novoTmp(), 'settings.json');
-  fs.writeFileSync(arq, JSON.stringify({
-    extraKnownMarketplaces: { 'claude-hadouken': { source: NOSSA, autoUpdate: true } },
-    enabledPlugins: { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': false, 'outro@x': true },
-  }));
+  const enabledPlugins = { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': false, 'outro@x': true };
+  fs.writeFileSync(arq, JSON.stringify({ extraKnownMarketplaces: { 'claude-hadouken': { source: NOSSA, autoUpdate: true } }, enabledPlugins }));
+  const bytes = fs.readFileSync(arq);
   const r = ligarAtualizacao({ arquivo: arq, agoraMs: AGORA, prontas: ['mattpocock-skills@claude-hadouken'] });
-  assert.equal(r.acao, 'gravado', 'a entrada já estava, mas havia cópia antiga ligada');
-  assert.deepEqual(r.desligadas, ['mattpocock-skills@mattpocock']);
-  assert.deepEqual(lerArq(arq).enabledPlugins, { 'mattpocock-skills@mattpocock': false, 'poka-yoke@poka-yoke': false, 'outro@x': true });
-});
-
-test('cópia antiga cuja nova não está pronta fica ligada e volta em mantidas', () => {
-  const arq = path.join(novoTmp(), 'settings.json');
-  fs.writeFileSync(arq, JSON.stringify({
-    extraKnownMarketplaces: { 'claude-hadouken': { source: NOSSA, autoUpdate: true } },
-    enabledPlugins: { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': true },
-  }));
-  const r = ligarAtualizacao({ arquivo: arq, agoraMs: AGORA, prontas: ['poka-yoke@claude-hadouken'] });
-  assert.deepEqual([r.desligadas, r.mantidas], [['poka-yoke@poka-yoke'], ['mattpocock-skills@mattpocock']]);
-  assert.deepEqual(lerArq(arq).enabledPlugins, { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': false });
-  const sem = ligarAtualizacao({ arquivo: arq, agoraMs: AGORA + 1000 });
-  assert.deepEqual([sem.acao, sem.desligadas, sem.mantidas], ['ja-estava', [], ['mattpocock-skills@mattpocock']], 'sem prontas, nada é desligado');
+  assert.deepEqual(r, { ok: true, acao: 'ja-estava', backup: null });
+  assert.deepEqual(fs.readFileSync(arq), bytes);
+  const vazio = path.join(novoTmp(), 'settings.json');
+  fs.writeFileSync(vazio, JSON.stringify({ enabledPlugins }));
+  assert.equal(ligarAtualizacao({ arquivo: vazio, agoraMs: AGORA, prontas: ['mattpocock-skills@claude-hadouken'] }).acao, 'gravado');
+  assert.deepEqual(lerArq(vazio).enabledPlugins, enabledPlugins);
 });
 
 test('entrada de outra fonte (ex.: directory de quem desenvolve) não é tocada', () => {

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { criarClaude, DEPENDENCIAS_KIT, ID_KIT, ID_PRINCIPAL, ID_REA, listarPlugins, passoKit, passoPlugin, passoRea } from '../src/instalar/claude-cli.js';
+import { TERCEIROS_KIT } from '../src/instalar/dedup.js';
 import { codigoDeSaida, formatarResumo, item } from '../src/instalar/itens.js';
 import { instalarFalso, rodarFalso } from './dados/instalador/claude-falso.mjs';
 
@@ -118,13 +119,13 @@ test('passoPlugin: novo instala; mesma versão é igual; versão nova é atualiz
   const estado = { plugins: [], log: [], raiz: '/r' };
   const rodar = rodarFalso(estado);
   const novo = await passoPlugin(rodar, ID_KIT, 'hadouken-kit');
-  assert.deepEqual(novo.item, item.ok('hadouken-kit', 'instalado (1.1.0)'));
+  assert.deepEqual(novo.item, item.ok('hadouken-kit', 'instalado (1.2.0)'));
   assert.equal(novo.entrada.installPath, '/r/hadouken-kit');
   assert.deepEqual(estado.log, ['plugin list --json', `plugin install ${ID_KIT}`, 'plugin list --json']);
   assert.deepEqual((await passoPlugin(rodar, ID_KIT, 'hadouken-kit')).item, item.igual('hadouken-kit'));
   assert.equal(estado.log.at(-2), `plugin update ${ID_KIT}`);
   estado.plugins[0].version = '1.0.1';
-  assert.deepEqual((await passoPlugin(rodar, ID_KIT, 'hadouken-kit')).item, item.ok('hadouken-kit', 'atualizado (1.0.1 → 1.1.0)'));
+  assert.deepEqual((await passoPlugin(rodar, ID_KIT, 'hadouken-kit')).item, item.ok('hadouken-kit', 'atualizado (1.0.1 → 1.2.0)'));
   const ruim = { plugins: [], log: [], raiz: '/r', falhar: [`install ${ID_PRINCIPAL}`] };
   const r = await passoPlugin(rodarFalso(ruim), ID_PRINCIPAL, 'claude-hadouken');
   assert.equal(r.entrada, null);
@@ -134,26 +135,52 @@ test('passoPlugin: novo instala; mesma versão é igual; versão nova é atualiz
   assert.deepEqual(semLista.item, item.falhou('hadouken-kit', 'claude plugin list falhou', 'rode claude plugin list'));
 });
 
-test('passoKit: o update do kit é seguido do install, que traz as dependências novas', async () => {
-  const kitVelho = { id: ID_KIT, version: '1.0.1', scope: 'user', enabled: true, installPath: '/r/hadouken-kit' };
-  const principal = { id: ID_PRINCIPAL, version: '0.5.2', scope: 'user', enabled: true, installPath: '/r/claude-hadouken' };
-  const estado = { plugins: [kitVelho, principal], log: [], raiz: '/r' };
+const MATT = 'mattpocock-skills@claude-hadouken';
+const MATT_UPSTREAM = 'mattpocock-skills@mattpocock';
+const entrada = (id, version, enabled = true) => ({ id, version, scope: 'user', enabled, installPath: `/r/${id.split('@')[0]}` });
+
+test('passoKit: o kit não traz as dependências; cada uma que falta ganha o install dela, e a lista final as tem', async () => {
+  const estado = { plugins: [entrada(ID_KIT, '1.0.1'), entrada(ID_PRINCIPAL, '0.5.2')], log: [], raiz: '/r' };
   const r = await passoKit(rodarFalso(estado));
-  assert.deepEqual(r.item, item.ok('hadouken-kit', 'atualizado (1.0.1 → 1.1.0)'));
-  assert.ok(estado.log.indexOf(`plugin install ${ID_KIT}`) > estado.log.indexOf(`plugin update ${ID_KIT}`));
-  for (const d of DEPENDENCIAS_KIT) assert.equal(r.lista.get(d)?.enabled, true, d);
+  assert.deepEqual(r.item, item.ok('hadouken-kit', 'atualizado (1.0.1 → 1.2.0); dependências instaladas: superpowers, mattpocock-skills, poka-yoke, fullstack-dev-skills, ui-ux-pro-max'));
+  assert.ok(!estado.log.includes(`plugin install ${ID_KIT}`), 'o install do kit não é mais o caminho das dependências');
+  for (const d of TERCEIROS_KIT) {
+    assert.ok(estado.log.indexOf(`plugin install ${d}`) > estado.log.indexOf(`plugin update ${ID_KIT}`), d);
+    assert.equal(r.lista.get(d)?.enabled, true, d);
+  }
+  assert.deepEqual(r.dedup.map((a) => a.estado), TERCEIROS_KIT.map(() => 'ausente'), 'a avaliação é a de antes dos installs');
 });
 
-test('passoKit: dependência que não instala é ✗ com o nome dela; segunda rodada completa é =', async () => {
+test('passoKit: dependência que não instala é ✗ com o nome e o install dela; segunda rodada completa é =', async () => {
   const estado = { plugins: [], log: [], raiz: '/r', semDeps: ['poka-yoke@claude-hadouken'] };
   const r = await passoKit(rodarFalso(estado));
-  assert.deepEqual(r.item, item.falhou('hadouken-kit', 'faltam dependências: poka-yoke', `rode claude plugin install ${ID_KIT}`));
+  assert.deepEqual(r.item, item.falhou('hadouken-kit', 'instalado (1.2.0); dependências instaladas: superpowers, mattpocock-skills, fullstack-dev-skills, ui-ux-pro-max; faltam dependências: poka-yoke', 'rode claude plugin install poka-yoke@claude-hadouken'));
   assert.equal(r.entrada.installPath, '/r/hadouken-kit', 'o kit em si instalou');
   const bom = { plugins: [], log: [], raiz: '/r' };
   await passoKit(rodarFalso(bom));
   const n = bom.log.length;
   assert.deepEqual((await passoKit(rodarFalso(bom))).item, item.igual('hadouken-kit'));
-  assert.ok(!bom.log.slice(n).includes(`plugin install ${ID_KIT}`), 'nada falta: sem install a mais');
+  assert.ok(!bom.log.slice(n).some((l) => l.startsWith('plugin install')), 'nada falta: sem install a mais');
+});
+
+test('passoKit: repos e testado entram na avaliação; duplicada com kit 1.2.0 desliga e confere pela lista', async () => {
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(MATT_UPSTREAM, '1.3.1')], log: [], raiz: '/r' };
+  const lerTestado = (caminho) => (caminho === '/r/hadouken-kit' ? { [MATT]: '1.3.2' } : {});
+  const r = await passoKit(rodarFalso(estado), { repos: new Map(), lerTestado });
+  const matt = r.dedup.find((a) => a.id === MATT);
+  assert.deepEqual([matt.estado, matt.equivalente, matt.versao], ['duplicada', MATT_UPSTREAM, { equivalente: '1.3.1', testada: '1.3.2' }]);
+  assert.ok(estado.log.includes(`plugin disable ${MATT}`));
+  assert.equal(r.lista.get(MATT).enabled, false);
+  assert.match(r.item.detalhe, /mattpocock-skills já instalado via mattpocock-skills@mattpocock; cópia do kit desligada/);
+  assert.match(r.item.detalhe, /testada 1\.3\.2/);
+});
+
+test('passoKit: dependência instalada e desligada pelo usuário, sem equivalente, não é religada; o aviso traz o enable', async () => {
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2', false)], log: [], raiz: '/r' };
+  const r = await passoKit(rodarFalso(estado));
+  assert.ok(!estado.log.includes(`plugin enable ${MATT}`));
+  assert.ok(!estado.log.includes(`plugin install ${MATT}`));
+  assert.match(r.item.detalhe, /rode claude plugin enable mattpocock-skills@claude-hadouken/);
 });
 
 test('DEPENDENCIAS_KIT casa com o plugin.json do kit', () => {

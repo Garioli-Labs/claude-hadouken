@@ -7,13 +7,13 @@ import { fileURLToPath } from 'node:url';
 // (pelo invólucro de instalarFalso), lê e regrava o estado no arquivo de
 // FALSO_ESTADO. Com FALSO_COMER_STDIN=1, lê a entrada inteira antes, como um
 // comando que comeria o resto de um `curl | bash`.
-// Dependências do kit: o `install` do kit traz as que faltam (menos as de
-// estado.semDeps, que nunca instalam); o `update` só troca a versão do kit,
-// como o de verdade (revisão final da v0.5.2, Critical 2).
+// Desde o kit 1.2.0 o manifesto do kit só declara o hadouken: o `install` do
+// kit não traz as dependências de terceiros, e cada uma é um `install` à
+// parte (as de estado.semDeps nunca instalam). O `update` só troca a versão.
 
 export const CATALOGO = Object.freeze({
   'hadouken@claude-hadouken': '0.5.2',
-  'hadouken-kit@claude-hadouken': '1.1.0',
+  'hadouken-kit@claude-hadouken': '1.2.0',
   'hadouken-rea@claude-hadouken': '1.0.1',
   'superpowers@claude-plugins-official': '6.4.1',
   'mattpocock-skills@claude-hadouken': '1.0.0',
@@ -21,10 +21,6 @@ export const CATALOGO = Object.freeze({
   'fullstack-dev-skills@claude-hadouken': '1.0.0',
   'ui-ux-pro-max@claude-hadouken': '1.0.0',
 });
-export const DEPS_KIT = Object.freeze([
-  'hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
-  'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
-]);
 const ARQUIVO = fileURLToPath(import.meta.url);
 
 export function responder(estado, args) {
@@ -42,12 +38,9 @@ export function responder(estado, args) {
   if (b === 'list') return { codigo: 0, saida: JSON.stringify(estado.plugins) };
   const p = estado.plugins.find((x) => x.id === c);
   if (b === 'install') {
-    if (!Object.hasOwn(CATALOGO, c)) return nada(1);
+    if (!Object.hasOwn(CATALOGO, c) || (estado.semDeps ?? []).includes(c)) return nada(1);
     const novo = (id) => estado.plugins.push({ id, version: CATALOGO[id], scope: 'user', enabled: !id.startsWith('hadouken-rea@'), installPath: `${estado.raiz}/${id.split('@')[0]}` });
     if (!p) novo(c);
-    if (c === 'hadouken-kit@claude-hadouken') {
-      for (const d of DEPS_KIT) if (!(estado.semDeps ?? []).includes(d) && !estado.plugins.some((x) => x.id === d)) novo(d);
-    }
     return nada(0);
   }
   if (b === 'update') {

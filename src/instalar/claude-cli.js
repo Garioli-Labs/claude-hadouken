@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { nodeServe } from '../../rea/lancar.mjs';
 import { caminhoCmd, caminhoSeguro } from '../painel/instalar-painel.js';
+import { avaliarDependencias, TERCEIROS_KIT } from './dedup.js';
 import { item } from './itens.js';
 
 // O `claude` do instalador (spec v0.5.2 §4 e §6). criarClaude devolve um
@@ -17,7 +18,8 @@ import { item } from './itens.js';
 export const ID_PRINCIPAL = 'hadouken@claude-hadouken';
 export const ID_KIT = 'hadouken-kit@claude-hadouken';
 export const ID_REA = 'hadouken-rea@claude-hadouken';
-// As dependências do kit/.claude-plugin/plugin.json, como ids da lista.
+// As dependências do kit/.claude-plugin/plugin.json, como ids da lista. O que
+// o instalador garante por conta própria são as de terceiros (TERCEIROS_KIT).
 export const DEPENDENCIAS_KIT = Object.freeze([
   'hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
   'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
@@ -98,24 +100,67 @@ export async function passoPlugin(rodar, id, nome) {
   return { item: item.ok(nome, `atualizado (${versao(tinha.version)} → ${versao(e.version)})`), entrada: e, lista };
 }
 
-// O kit e as dependências dele. O `plugin update` só troca a versão do kit e
-// não instala uma dependência nova (revisão final da v0.5.2, Critical 2): se
-// falta alguma, roda o `plugin install` do kit, que as traz, e confere de
-// novo. Devolve também a lista final, que diz quais cópias novas estão
-// prontas para a atualização automática.
-export async function passoKit(rodar) {
+const MINIMO_DEDUP = [1, 2, 0];
+// O kit 1.2.0 declara só o hadouken no manifesto: só com ele instalado
+// desligar a cópia do kit de uma dependência não derruba o kit (spec v0.6.0,
+// caso D2).
+function kitSemDependencias(v) {
+  const m = typeof v === 'string' ? /^(\d+)\.(\d+)\.(\d+)$/.exec(v) : null;
+  if (m === null) return false;
+  const atual = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const i = atual.findIndex((n, k) => n !== MINIMO_DEDUP[k]);
+  return i === -1 || atual[i] > MINIMO_DEDUP[i];
+}
+const comando = (verbo, id) => `claude plugin ${verbo} ${id}`;
+
+// O kit e as dependências de terceiros dele (spec v0.6.0, Fatia 1). Cada
+// dependência é avaliada contra o que o usuário já tem (dedup.js):
+// `ausente` e não instalada → `plugin install`; `duplicada` (a do kit e a
+// equivalente ligadas) → `plugin disable` da do kit, só com o kit ≥ 1.2.0;
+// `equivalente` → nada; `ausente` e instalada desligada foi o usuário quem
+// desligou → não religa e avisa. Nunca desinstala. A verdade é a lista depois
+// dos comandos. Os avisos vão no detalhe do item do kit; `lista` é a final e
+// `dedup` a avaliação feita antes dos comandos.
+export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({}) } = {}) {
   const nome = 'hadouken-kit';
   const p = await passoPlugin(rodar, ID_KIT, nome);
-  if (p.entrada === null) return p;
-  const faltam = (l) => DEPENDENCIAS_KIT.filter((d) => !l?.has(d));
-  let lista = p.lista;
-  if (faltam(lista).length > 0) {
-    await rodar(['plugin', 'install', ID_KIT]);
-    lista = await listarPlugins(rodar);
+  if (p.entrada === null) return { ...p, dedup: [] };
+  let testado = {};
+  try {
+    testado = lerTestado(p.entrada.installPath);
+  } catch { /* sem versão testada: só não avisa a versão */ }
+  const plugins = new Map([...p.lista].map(([id, e]) => [id, { ...e, scope: 'user' }]));
+  const dedup = avaliarDependencias({ deps: TERCEIROS_KIT, plugins, repos, testado });
+  const instalar = dedup.filter((a) => a.estado === 'ausente' && !a.instalada);
+  const podeDesligar = kitSemDependencias(p.entrada.version);
+  const desligar = podeDesligar ? dedup.filter((a) => a.estado === 'duplicada') : [];
+  for (const a of instalar) await rodar(['plugin', 'install', a.id]);
+  for (const a of desligar) await rodar(['plugin', 'disable', a.id]);
+  const lista = instalar.length + desligar.length > 0 ? ((await listarPlugins(rodar)) ?? p.lista) : p.lista;
+  const faltam = instalar.filter((a) => !lista.has(a.id));
+  const ligadas = desligar.filter((a) => lista.get(a.id)?.enabled === true);
+  const base = p.item.estado === 'igual' ? [] : [p.item.detalhe];
+  const partes = [...base];
+  const consertos = [];
+  const instaladas = instalar.filter((a) => lista.has(a.id));
+  if (instaladas.length > 0) partes.push(`dependências instaladas: ${instaladas.map((a) => a.nome).join(', ')}`);
+  for (const a of dedup) {
+    if (a.estado === 'duplicada' && !podeDesligar) partes.push(`${a.nome} em dobro com ${a.equivalente}; atualize o hadouken-kit para desligar a cópia em dobro`);
+    else if (a.estado === 'duplicada' && !ligadas.includes(a)) partes.push(`${a.nome} já instalado via ${a.equivalente}; cópia do kit desligada`);
+    else if (a.estado === 'ausente' && a.instalada) partes.push(`${a.nome} desligado por você; para ligar, rode ${comando('enable', a.id)}`);
+    if (a.versao !== null) partes.push(`${a.equivalente} na ${a.versao.equivalente}, testada ${a.versao.testada}`);
   }
-  const ainda = faltam(lista);
-  if (ainda.length === 0) return { ...p, lista };
-  return { item: item.falhou(nome, `faltam dependências: ${ainda.map((d) => d.split('@')[0]).join(', ')}`, `rode claude plugin install ${ID_KIT}`), entrada: p.entrada, lista };
+  if (faltam.length > 0) {
+    partes.push(`faltam dependências: ${faltam.map((a) => a.nome).join(', ')}`);
+    consertos.push(...faltam.map((a) => comando('install', a.id)));
+  }
+  if (ligadas.length > 0) {
+    partes.push(`não desligou a cópia do kit: ${ligadas.map((a) => a.nome).join(', ')}`);
+    consertos.push(...ligadas.map((a) => comando('disable', a.id)));
+  }
+  if (consertos.length > 0) return { item: item.falhou(nome, partes.join('; '), consertos.map((c) => `rode ${c}`).join('; ')), entrada: p.entrada, lista, dedup };
+  if (partes.length === base.length) return { ...p, lista, dedup };
+  return { item: item.ok(nome, partes.join('; ')), entrada: p.entrada, lista, dedup };
 }
 
 // O REA: instala ou atualiza; liga com Node aceito pelo rea-agents

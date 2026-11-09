@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { instalarTudo, lerOpcoes, respostaSim, ARQ_DESLIGADO } from '../src/instalar-tudo.js';
 import { ID_KIT, ID_REA } from '../src/instalar/claude-cli.js';
+import { formatarResumo } from '../src/instalar/itens.js';
 import { versaoDoPlugin } from '../src/painel/instalar-painel.js';
 import { ARQ_DESLIGADO_USUARIO } from '../src/aprendizado/ligar.js';
 import { instalarFalso, rodarFalso } from './dados/instalador/claude-falso.mjs';
@@ -54,6 +55,21 @@ function rodarTudo(c, { argv = ['--sim', '--sem-extras'], deps = {}, ...resto } 
     perguntar: naoPergunta, escrever: () => {}, deps: { instalar: painelBom, aprendizado: aprendizadoFalso(), ...deps }, ...resto,
   });
 }
+const MATT = 'mattpocock-skills@claude-hadouken';
+const MATT_UPSTREAM = 'mattpocock-skills@mattpocock';
+const TERCEIROS = ['superpowers@claude-plugins-official', MATT, 'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken'];
+const plugin = (c, id, version, enabled = true) => c.estado.plugins.push({ id, version, scope: 'user', enabled, installPath: `${c.casa}/${id.split('@')[0]}` });
+const kitDe = (c) => c.estado.plugins.find((x) => x.id === ID_KIT);
+// O marketplace do mattpocock registrado como o claude registra: o repo no
+// known_marketplaces.json e o marketplace.json com source relativo.
+function registrarMattpocock(c) {
+  const loc = path.join(c.casa, 'plugins', 'marketplaces', 'mattpocock');
+  fs.mkdirSync(path.join(loc, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(c.casa, 'plugins', 'known_marketplaces.json'), JSON.stringify({ mattpocock: { source: { source: 'github', repo: 'mattpocock/skills' }, installLocation: loc } }));
+  fs.writeFileSync(path.join(loc, '.claude-plugin', 'marketplace.json'), JSON.stringify({ plugins: [{ name: 'mattpocock-skills', source: './' }] }));
+}
+const kitItem = (itens) => itens.find((i) => i.nome === 'hadouken-kit');
+const semUninstall = (c) => assert.ok(!c.estado.log.some((l) => l.includes('uninstall')), 'nunca desinstala');
 const estados = (itens) => itens.map((i) => [i.nome, i.estado]);
 const backups = (arq) => fs.readdirSync(path.dirname(arq)).filter((n) => n.startsWith(`${path.basename(arq)}.bak-hadouken-`)).sort();
 
@@ -78,6 +94,7 @@ test('instalação nova: cada item, na ordem, e os comandos do claude', async ()
   assert.deepEqual(c.estado.log, [
     'plugin marketplace add anthropics/claude-plugins-official',
     'plugin list --json', `plugin install ${ID_KIT}`, 'plugin list --json',
+    ...TERCEIROS.map((d) => `plugin install ${d}`), 'plugin list --json',
     'plugin list --json', `plugin install ${ID_REA}`, 'plugin list --json', `plugin enable ${ID_REA}`, 'plugin list --json',
   ]);
   const s = JSON.parse(fs.readFileSync(c.arq, 'utf8'));
@@ -125,18 +142,118 @@ test('outra barra: --sim não troca; --substituir-barra troca; a pergunta decide
   }
 });
 
-test('kit antigo: as dependências novas chegam; cópia antiga sem a nova pronta fica ligada e a atualização é ✗', async () => {
+test('kit antigo: cada dependência chega por install próprio; a que não instala é ✗ no kit; settings.json intacto em enabledPlugins', async () => {
   const antigas = { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': true, 'fullstack-dev-skills@fullstack-dev-skills': true, 'ui-ux-pro-max@ui-ux-pro-max-skill': true };
   const c = cenario({ enabledPlugins: antigas });
   c.estado.plugins.push({ id: ID_KIT, version: '1.0.1', scope: 'user', enabled: true, installPath: `${c.casa}/hadouken-kit` });
   c.estado.semDeps = ['poka-yoke@claude-hadouken'];
   const itens = await rodarTudo(c);
-  assert.equal(itens.find((i) => i.nome === 'hadouken-kit').detalhe, 'faltam dependências: poka-yoke');
-  assert.deepEqual(itens.find((i) => i.nome === 'atualização automática'), {
-    nome: 'atualização automática', estado: 'falhou', detalhe: 'ligada; 3 cópia(s) antiga(s) desligada(s); poka-yoke antigo continua ligado: falta o novo', conserto: `rode claude plugin install ${ID_KIT}`,
+  assert.deepEqual(itens.find((i) => i.nome === 'hadouken-kit'), {
+    nome: 'hadouken-kit', estado: 'falhou', detalhe: 'atualizado (1.0.1 → 1.2.0); dependências instaladas: superpowers, mattpocock-skills, fullstack-dev-skills, ui-ux-pro-max; faltam dependências: poka-yoke', conserto: 'rode claude plugin install poka-yoke@claude-hadouken',
   });
-  assert.deepEqual(JSON.parse(fs.readFileSync(c.arq, 'utf8')).enabledPlugins, { ...antigas, 'mattpocock-skills@mattpocock': false, 'fullstack-dev-skills@fullstack-dev-skills': false, 'ui-ux-pro-max@ui-ux-pro-max-skill': false });
-  assert.ok(c.estado.plugins.some((x) => x.id === 'mattpocock-skills@claude-hadouken'), 'o install depois do update trouxe as novas');
+  assert.deepEqual(itens.find((i) => i.nome === 'atualização automática'), { nome: 'atualização automática', estado: 'ok', detalhe: 'ligada' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(c.arq, 'utf8')).enabledPlugins, antigas, 'ligarAtualizacao não toca enabledPlugins');
+  assert.ok(c.estado.plugins.some((x) => x.id === MATT), 'o install de cada dependência trouxe as que faltavam');
+});
+
+// ------------------------------------------------------------ dedup (v0.6.0, Fatia 1)
+
+test('dedup duplicada: as duas cópias ligadas e kit 1.2.0 → desliga a do kit pelo CLI, sem desinstalar', async () => {
+  const c = cenario();
+  registrarMattpocock(c);
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, MATT, '1.3.2');
+  plugin(c, MATT_UPSTREAM, '1.3.2');
+  const itens = await rodarTudo(c);
+  assert.ok(c.estado.log.includes(`plugin disable ${MATT}`));
+  semUninstall(c);
+  assert.equal(c.estado.plugins.find((x) => x.id === MATT).enabled, false);
+  assert.equal(c.estado.plugins.find((x) => x.id === MATT_UPSTREAM).enabled, true);
+  assert.equal(kitItem(itens).estado, 'ok');
+  assert.match(formatarResumo(itens), /mattpocock-skills já instalado via mattpocock-skills@mattpocock; cópia do kit desligada/);
+});
+
+test('dedup equivalente: só a cópia do usuário ligada → a do kit não é instalada; versão igual não avisa', async () => {
+  const c = cenario();
+  registrarMattpocock(c);
+  plugin(c, MATT_UPSTREAM, '1.0.0');
+  await rodarTudo(c);
+  assert.ok(!c.estado.log.includes(`plugin install ${MATT}`));
+  assert.ok(!c.estado.plugins.some((x) => x.id === MATT));
+  assert.ok(c.estado.log.includes('plugin install poka-yoke@claude-hadouken'), 'as outras seguem');
+  semUninstall(c);
+});
+
+test('dedup ausente: dependência sem nenhuma cópia → plugin install dela', async () => {
+  const c = cenario();
+  plugin(c, ID_KIT, '1.2.0');
+  const itens = await rodarTudo(c);
+  assert.ok(c.estado.log.includes('plugin install poka-yoke@claude-hadouken'));
+  assert.equal(c.estado.plugins.find((x) => x.id === 'poka-yoke@claude-hadouken').enabled, true);
+  assert.equal(kitItem(itens).estado, 'ok');
+  assert.match(kitItem(itens).detalhe, /poka-yoke/);
+});
+
+test('dedup versão: o equivalente numa versão diferente da testada → o resumo diz as duas', async () => {
+  const c = cenario();
+  registrarMattpocock(c);
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, MATT_UPSTREAM, '1.3.1');
+  fs.mkdirSync(path.join(c.casa, 'hadouken-kit'), { recursive: true });
+  fs.writeFileSync(path.join(c.casa, 'hadouken-kit', 'testado.json'), JSON.stringify({ dependencias: { [MATT]: '1.3.2' } }));
+  const resumo = formatarResumo(await rodarTudo(c));
+  assert.match(resumo, /1\.3\.1/);
+  assert.match(resumo, /testada 1\.3\.2/);
+});
+
+test('dedup D2: kit < 1.2.0 com duplicata → não desliga e manda atualizar o kit', async () => {
+  const c = cenario();
+  registrarMattpocock(c);
+  plugin(c, ID_KIT, '1.1.2');
+  plugin(c, MATT, '1.3.2');
+  plugin(c, MATT_UPSTREAM, '1.3.2');
+  c.estado.falhar = [`update ${ID_KIT}`];
+  const itens = await rodarTudo(c);
+  assert.ok(!c.estado.log.some((l) => l.startsWith('plugin disable')));
+  assert.equal(c.estado.plugins.find((x) => x.id === MATT).enabled, true);
+  assert.match(formatarResumo(itens), /atualize o hadouken-kit para desligar a cópia em dobro/);
+});
+
+test('dedup D7: o disable não surte efeito → item ✗ com o comando para rodar', async () => {
+  const c = cenario();
+  registrarMattpocock(c);
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, MATT, '1.3.2');
+  plugin(c, MATT_UPSTREAM, '1.3.2');
+  c.estado.falhar = [`disable ${MATT}`];
+  const itens = await rodarTudo(c);
+  assert.equal(kitItem(itens).estado, 'falhou');
+  assert.equal(kitItem(itens).conserto, `rode claude plugin disable ${MATT}`);
+  assert.match(formatarResumo(itens), /✗ hadouken-kit: falhou \(.*rode claude plugin disable mattpocock-skills@claude-hadouken\)/);
+  assert.equal(itens.length, 7, 'o resto segue');
+});
+
+test('dedup: settings.json com a cópia do usuário ligada continua true depois da instalação', async () => {
+  const c = cenario({ enabledPlugins: { [MATT_UPSTREAM]: true } });
+  registrarMattpocock(c);
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, MATT, '1.3.2');
+  plugin(c, MATT_UPSTREAM, '1.3.2');
+  await rodarTudo(c);
+  assert.deepEqual(JSON.parse(fs.readFileSync(c.arq, 'utf8')).enabledPlugins, { [MATT_UPSTREAM]: true });
+});
+
+test('dedup: segunda rodada depois do disable é = no kit (a cópia do kit já está desligada)', async () => {
+  const c = cenario();
+  registrarMattpocock(c);
+  plugin(c, ID_KIT, '1.2.0');
+  plugin(c, MATT, '1.3.2');
+  plugin(c, MATT_UPSTREAM, '1.3.2');
+  await rodarTudo(c);
+  const n = c.estado.log.length;
+  const itens = await rodarTudo(c);
+  assert.equal(kitItem(itens).estado, 'igual');
+  assert.ok(!c.estado.log.slice(n).some((l) => l.startsWith('plugin disable') || l.startsWith('plugin install hadouken-kit')));
 });
 
 test('REA com Node 20 fica desligado e pulado', async () => {
@@ -330,7 +447,7 @@ test('ponta a ponta: o instalar-tudo de verdade com o claude falso, isolado em p
   };
   const r = spawnSync(process.execPath, [path.join(repo, 'src', 'instalar-tudo.js'), '--sim', '--sem-extras'], { env, encoding: 'utf8', timeout: 60_000, input: '' });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /✓ hadouken-kit: instalado \(1\.1\.0\)/);
+  assert.match(r.stdout, /✓ hadouken-kit: instalado \(1\.2\.0\)/);
   assert.match(r.stdout, /– item do VS Code: pulado \(HADOUKEN_SEM_PAINEL=1\)/);
   assert.match(r.stdout, /Abra uma sessão nova do Claude Code\.\n$/);
 });
