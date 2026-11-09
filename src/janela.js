@@ -1,6 +1,7 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { numeroFinito } from './base.js';
-import { lerJson } from './estado.js';
+import { lerJson, gravarJsonAtomico } from './estado.js';
 
 // Janela de trabalho (spec v0.6.0 §4, Fatia 2): a chave `janela` do
 // config.json do hadouken, `{ "dias": ["seg", ...], "inicio": "09:00", "fim":
@@ -147,5 +148,105 @@ export function avancarUteis(janela, t0Ms, minutos) {
     return Number.POSITIVE_INFINITY;
   } catch {
     return Number.NaN;
+  }
+}
+
+// --- Comando /hadouken:janela (spec v0.6.0 §4, Tarefa 4) ---
+
+const ERRO_ARGS = 'janela inválida. Uso: /hadouken:janela [seg-sex 9-21 | seg,qua,sex 08:30-18:00 | off]';
+const ERRO = Object.freeze({ acao: 'erro', msg: ERRO_ARGS });
+const ARGS_MAX = 128;
+const HORA_ARG = /^(\d{1,2})(?::(\d{2}))?$/;
+const par = (n) => String(n).padStart(2, '0');
+
+// "9", "09", "9:30" → "09:00", "09:30"; qualquer outra forma → null. O
+// intervalo (0–23 h, 0–59 min) é conferido depois, por validarJanela.
+function normalizarHora(texto) {
+  const m = HORA_ARG.exec(texto);
+  return m === null ? null : `${par(Number(m[1]))}:${m[2] ?? '00'}`;
+}
+
+// "seg-sex", "seg,qua,sex" ou uma mistura ("seg-qua,sex") → números dos dias em
+// ordem de DIAS, sem repetição; null se algum item é desconhecido ou se um
+// intervalo a-b tem a depois de b na ordem de DIAS (sex-seg não dá a volta).
+function lerDiasArg(texto) {
+  const dias = new Set();
+  for (const item of texto.split(',')) {
+    const [de, ate, resto] = item.split('-');
+    const a = numeroDoDia(de);
+    const b = ate === undefined ? a : numeroDoDia(ate);
+    if (resto !== undefined || a === null || b === null || a > b) return null;
+    for (let d = a; d <= b; d++) dias.add(d);
+  }
+  return [...dias].sort((x, y) => x - y).map((d) => DIAS[d]);
+}
+
+// O texto digitado depois de /hadouken:janela. Vazio → mostrar; `off` →
+// remover; `<dias> <início>-<fim>` → gravar o valor já normalizado (dias por
+// nome, HH:MM) e conferido por validarJanela; o resto → erro com o uso. O
+// texto digitado nunca volta na mensagem. Nunca lança.
+export function lerArgsJanela(texto) {
+  try {
+    if (texto === undefined || texto === null || texto === '') return { acao: 'mostrar' };
+    if (typeof texto !== 'string' || texto.length > ARGS_MAX) return ERRO;
+    const t = texto.trim().toLowerCase();
+    if (t === '') return { acao: 'mostrar' };
+    if (t === 'off') return { acao: 'remover' };
+    const partes = t.split(/\s+/);
+    if (partes.length !== 2) return ERRO;
+    const dias = lerDiasArg(partes[0]);
+    const horas = partes[1].split('-');
+    if (dias === null || horas.length !== 2) return ERRO;
+    const valor = { dias, inicio: normalizarHora(horas[0]), fim: normalizarHora(horas[1]) };
+    return validarJanela(valor).janela === null ? ERRO : { acao: 'gravar', valor };
+  } catch {
+    return ERRO;
+  }
+}
+
+// Janela validada (validarJanela: dias numéricos, inicioMin, fimMin) → texto:
+// 'seg–sex 09:00–21:00'. Três ou mais dias seguidos viram `a–b`; o resto, a
+// lista separada por vírgula. Nunca lança (entrada que não é janela: '').
+export function descreverJanela(janela) {
+  try {
+    const partes = [];
+    for (let i = 0; i < janela.dias.length;) {
+      let j = i;
+      while (j + 1 < janela.dias.length && janela.dias[j + 1] === janela.dias[j] + 1) j++;
+      if (j - i >= 2) partes.push(`${DIAS[janela.dias[i]]}–${DIAS[janela.dias[j]]}`);
+      else for (let k = i; k <= j; k++) partes.push(DIAS[janela.dias[k]]);
+      i = j + 1;
+    }
+    const hora = (min) => `${par(Math.floor(min / 60))}:${par(min % 60)}`;
+    return `${partes.join(',')} ${hora(janela.inicioMin)}–${hora(janela.fimMin)}`;
+  } catch {
+    return '';
+  }
+}
+
+// Troca só a chave `janela` do config.json de <dir>, preservando as outras
+// (guarda, agentes), por gravarJsonAtomico. `valor` null remove a chave (sem
+// config.json, não há nada a remover e nada é criado). Arquivo presente mas
+// ilegível, ou que não é objeto: não grava ({ ok: false }), para não apagar o
+// que o usuário escreveu. `valor` que validarJanela recusa: { ok: false }.
+// Nunca lança.
+export function gravarJanela(dir, valor) {
+  try {
+    if (typeof dir !== 'string' || dir === '') return { ok: false, motivo: 'dir' };
+    if (valor !== null && validarJanela(valor).janela === null) return { ok: false, motivo: 'valor' };
+    const arquivo = path.join(dir, ARQ_CONFIG);
+    const lido = lerJson(arquivo, CONFIG_MAX_BYTES);
+    let config = {};
+    if (lido.ok) config = lido.valor;
+    else if (lido.motivo !== 'ausente' || fs.existsSync(arquivo)) return { ok: false, motivo: 'ilegivel' };
+    if (!ehObjeto(config)) return { ok: false, motivo: 'formato' };
+    if (valor === null) {
+      if (!Object.hasOwn(config, 'janela')) return { ok: true };
+      const { janela: _removida, ...resto } = config;
+      return gravarJsonAtomico(arquivo, resto);
+    }
+    return gravarJsonAtomico(arquivo, { ...config, janela: valor });
+  } catch {
+    return { ok: false, motivo: 'erro' };
   }
 }

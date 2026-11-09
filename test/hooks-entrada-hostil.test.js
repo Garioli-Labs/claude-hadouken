@@ -35,10 +35,10 @@ function ambiente() {
   };
 }
 
-test('a lista cobre os 15 hooks do hooks.json', () => {
+test('a lista cobre os 16 hooks do hooks.json', () => {
   assert.deepEqual(SCRIPTS, [
     'aprender.js', 'guarda-agenda.js', 'guarda-arquivos.js', 'guarda-config.js', 'guarda-despacho.js', 'guarda-filha.js',
-    'guarda-modelo.js', 'liberar.js', 'limite-atingido.js', 'limites.js', 'modelo-trocado.js', 'prompt-submit.js',
+    'guarda-modelo.js', 'janela.js', 'liberar.js', 'limite-atingido.js', 'limites.js', 'modelo-trocado.js', 'prompt-submit.js',
     'saude.js', 'session-end.js', 'session-start.js',
   ]);
 });
