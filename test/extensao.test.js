@@ -44,8 +44,11 @@ export function estadoPainel(o) { g().desenhos++; return { texto: '5h 25% · sem
 export async function talvezAtualizar(o) { g().leituras.push(o); return { feito: true, motivo: 'ok' }; }
 `;
 
-async function esperar(cond, voltas = 20_000) {
-  for (let i = 0; i < voltas && !cond(); i++) await new Promise((r) => setImmediate(r));
+// Espera em tempo real (Date não está no relógio falso), não em voltas: num
+// runner lento do macOS o import() do shim novo passava das 20 mil voltas.
+async function esperar(cond, limiteMs = 10_000) {
+  const fim = Date.now() + limiteMs;
+  while (!cond() && Date.now() < fim) await new Promise((r) => setImmediate(r));
   return cond();
 }
 
