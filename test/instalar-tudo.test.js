@@ -72,13 +72,11 @@ test('instalação nova: cada item, na ordem, e os comandos do claude', async ()
   const c = cenario();
   const itens = await rodarTudo(c);
   assert.deepEqual(estados(itens), [
-    ['hadouken-kit', 'ok'], ['hadouken-rea', 'ok'], ['atualização automática', 'ok'], ['arquivos da barra', 'ok'],
+    ['hadouken-kit', 'ok'], ...['superpowers', 'mattpocock-skills', 'poka-yoke', 'fullstack-dev-skills', 'ui-ux-pro-max', 'hadouken-rea'].map((n) => [n, 'sugerido']), ['atualização automática', 'ok'], ['arquivos da barra', 'ok'],
     ['barra', 'ok'], ['item do VS Code', 'ok'], ['aprendizado', 'ok'],
   ]);
   assert.deepEqual(c.estado.log, [
-    'plugin marketplace add anthropics/claude-plugins-official',
     'plugin list --json', `plugin install ${ID_KIT}`, 'plugin list --json',
-    'plugin list --json', `plugin install ${ID_REA}`, 'plugin list --json', `plugin enable ${ID_REA}`, 'plugin list --json',
   ]);
   const s = JSON.parse(fs.readFileSync(c.arq, 'utf8'));
   assert.equal(s.extraKnownMarketplaces['claude-hadouken'].autoUpdate, true);
@@ -93,7 +91,7 @@ test('segunda rodada: = em tudo, settings e backups intocados', async () => {
   const bk = backups(c.arq);
   const itens = await rodarTudo(c, { deps: { aprendizado } });
   assert.deepEqual(estados(itens), [
-    ['hadouken-kit', 'igual'], ['hadouken-rea', 'igual'], ['atualização automática', 'igual'], ['arquivos da barra', 'igual'],
+    ['hadouken-kit', 'igual'], ...['superpowers', 'mattpocock-skills', 'poka-yoke', 'fullstack-dev-skills', 'ui-ux-pro-max', 'hadouken-rea'].map((n) => [n, 'sugerido']), ['atualização automática', 'igual'], ['arquivos da barra', 'igual'],
     ['barra', 'igual'], ['item do VS Code', 'igual'], ['aprendizado', 'igual'],
   ]);
   assert.deepEqual(fs.readFileSync(c.arq), bytes);
@@ -125,25 +123,23 @@ test('outra barra: --sim não troca; --substituir-barra troca; a pergunta decide
   }
 });
 
-test('kit antigo: as dependências novas chegam; cópia antiga sem a nova pronta fica ligada e a atualização é ✗', async () => {
+test('cópias antigas instaladas: contam como instaladas, ficam ligadas e não são falha', async () => {
   const antigas = { 'mattpocock-skills@mattpocock': true, 'poka-yoke@poka-yoke': true, 'fullstack-dev-skills@fullstack-dev-skills': true, 'ui-ux-pro-max@ui-ux-pro-max-skill': true };
   const c = cenario({ enabledPlugins: antigas });
   c.estado.plugins.push({ id: ID_KIT, version: '1.0.1', scope: 'user', enabled: true, installPath: `${c.casa}/hadouken-kit` });
-  c.estado.semDeps = ['poka-yoke@claude-hadouken'];
+  for (const id of Object.keys(antigas)) c.estado.plugins.push({ id, version: '1.0.0', scope: 'user', enabled: true, installPath: `${c.casa}/${id.split('@')[0]}` });
   const itens = await rodarTudo(c);
-  assert.equal(itens.find((i) => i.nome === 'hadouken-kit').detalhe, 'faltam dependências: poka-yoke');
-  assert.deepEqual(itens.find((i) => i.nome === 'atualização automática'), {
-    nome: 'atualização automática', estado: 'falhou', detalhe: 'ligada; 3 cópia(s) antiga(s) desligada(s); poka-yoke antigo continua ligado: falta o novo', conserto: `rode claude plugin install ${ID_KIT}`,
-  });
-  assert.deepEqual(JSON.parse(fs.readFileSync(c.arq, 'utf8')).enabledPlugins, { ...antigas, 'mattpocock-skills@mattpocock': false, 'fullstack-dev-skills@fullstack-dev-skills': false, 'ui-ux-pro-max@ui-ux-pro-max-skill': false });
-  assert.ok(c.estado.plugins.some((x) => x.id === 'mattpocock-skills@claude-hadouken'), 'o install depois do update trouxe as novas');
+  assert.deepEqual(itens.find((i) => i.nome === 'atualização automática'), { nome: 'atualização automática', estado: 'ok', detalhe: 'ligada' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(c.arq, 'utf8')).enabledPlugins, antigas);
+  for (const n of ['mattpocock-skills', 'poka-yoke', 'fullstack-dev-skills', 'ui-ux-pro-max']) assert.equal(itens.find((i) => i.nome === n).estado, 'igual', n);
+  assert.ok(!c.estado.log.some((l) => /install (superpowers|mattpocock|poka|fullstack|ui-ux|hadouken-rea)/.test(l)), c.estado.log.join('\n'));
 });
 
-test('REA com Node 20 fica desligado e pulado', async () => {
+test('skill solta em <CLAUDE_CONFIG_DIR>/skills conta como instalada', async () => {
   const c = cenario();
-  const itens = await rodarTudo(c, { versaoNode: '20.19.0' });
-  assert.equal(itens.find((i) => i.nome === 'hadouken-rea').estado, 'pulado');
-  assert.equal(c.estado.plugins.find((p) => p.id === ID_REA).enabled, false);
+  fs.mkdirSync(path.join(c.casa, 'skills', 'superpowers'), { recursive: true });
+  const itens = await rodarTudo(c);
+  assert.equal(itens.find((i) => i.nome === 'superpowers').estado, 'igual');
 });
 
 test('falha de um passo não derruba os seguintes, e o resumo sai com ✗', async () => {
@@ -151,7 +147,7 @@ test('falha de um passo não derruba os seguintes, e o resumo sai com ✗', asyn
   c.estado.falhar = [`install ${ID_KIT}`];
   const itens = await rodarTudo(c);
   assert.equal(itens.find((i) => i.nome === 'hadouken-kit').estado, 'falhou');
-  assert.equal(itens.length, 7);
+  assert.equal(itens.length, 12);
   assert.equal(itens.find((i) => i.nome === 'barra').estado, 'ok');
   const lanca = cenario();
   const outros = await rodarTudo(lanca, { deps: { sincronizar: () => { throw new Error('x'); } } });
@@ -305,7 +301,7 @@ test('extras: graphify já no venv é =; Python < 3.10 e sem venv são pulados; 
   assert.deepEqual(await graf({ semVenv: true }), { nome: 'graphify', estado: 'pulado', detalhe: 'falta o python3-venv: sudo apt install python3-venv' });
   assert.deepEqual(await graf({}, null), { nome: 'graphify', estado: 'pulado', detalhe: 'sem Python 3' });
   const sem = await rodarTudo(cenario(), { argv: ['--sim', '--sem-extras'], deps: { python: '/x', bash: '/x' } });
-  assert.equal(sem.length, 7);
+  assert.equal(sem.length, 12);
 });
 
 // ------------------------------------------------------------ processo

@@ -21,10 +21,8 @@ export const CATALOGO = Object.freeze({
   'fullstack-dev-skills@claude-hadouken': '1.0.0',
   'ui-ux-pro-max@claude-hadouken': '1.0.0',
 });
-export const DEPS_KIT = Object.freeze([
-  'hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
-  'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
-]);
+// v0.5.9: o kit só depende do hadouken; os de terceiros são só sugeridos.
+export const DEPS_KIT = Object.freeze(['hadouken@claude-hadouken']);
 const ARQUIVO = fileURLToPath(import.meta.url);
 
 export function responder(estado, args) {

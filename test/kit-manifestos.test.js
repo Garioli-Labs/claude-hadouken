@@ -72,14 +72,8 @@ test('kit: versão igual à do marketplace, dependências só por nome (menos o 
   assert.equal(kit.name, 'hadouken-kit');
   assert.match(kit.version, /^\d+\.\d+\.\d+$/);
   assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken-kit').version, kit.version);
-  assert.deepEqual(kit.dependencies, [
-    'hadouken',
-    { name: 'superpowers', marketplace: 'claude-plugins-official' },
-    'mattpocock-skills',
-    'poka-yoke',
-    'fullstack-dev-skills',
-    'ui-ux-pro-max',
-  ]);
+  // v0.5.9: só o hadouken; os de terceiros são só sugeridos pelo instalador.
+  assert.deepEqual(kit.dependencies, ['hadouken']);
   for (const d of kit.dependencies) if (typeof d === 'object') assert.equal(d.version, undefined, d.name);
 });
 
@@ -98,8 +92,11 @@ test('kit: o REA não é dependência do kit (dependência sobe sempre ligada)',
 test('testado.json: uma versão para cada dependência, chaves novas e as mesmas versões', () => {
   const kit = ler('kit/.claude-plugin/plugin.json');
   const t = ler('kit/testado.json');
-  const chaves = kit.dependencies.map((d) =>
-    typeof d === 'string' ? `${d}@claude-hadouken` : `${d.name}@${d.marketplace}`).sort();
+  // v0.5.9: as dependências do kit e as skills sugeridas (menos o REA, nosso),
+  // que o instalador só sugere mas seguem com a versão testada aqui.
+  const sugeridas = ['superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken', 'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken'];
+  const chaves = [...new Set([...kit.dependencies.map((d) =>
+    typeof d === 'string' ? `${d}@claude-hadouken` : `${d.name}@${d.marketplace}`), ...sugeridas])].sort();
   assert.deepEqual(Object.keys(t.dependencias).sort(), chaves);
   for (const v of Object.values(t.dependencias)) assert.match(v, /^\d+\.\d+\.\d+$/);
   // As versões dos terceiros e do rea-agents são do robô; aqui, só o que anda

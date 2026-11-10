@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { nodeServe } from '../../rea/lancar.mjs';
 import { caminhoCmd, caminhoSeguro } from '../painel/instalar-painel.js';
-import { item } from './itens.js';
+import { item, SUGERIDAS } from './itens.js';
 
 // O `claude` do instalador (spec v0.5.2 §4 e §6). criarClaude devolve um
 // `rodar(args)` que nunca rejeita. O caminho do claude vem do script
@@ -17,11 +17,7 @@ import { item } from './itens.js';
 export const ID_PRINCIPAL = 'hadouken@claude-hadouken';
 export const ID_KIT = 'hadouken-kit@claude-hadouken';
 export const ID_REA = 'hadouken-rea@claude-hadouken';
-// As dependências do kit/.claude-plugin/plugin.json, como ids da lista.
-export const DEPENDENCIAS_KIT = Object.freeze([
-  'hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
-  'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
-]);
+export { SUGERIDAS } from './itens.js';
 export const PRAZO_CLAUDE_MS = 600_000;
 const PRAZO_LISTA_MS = 60_000;
 const ARG = /^[A-Za-z0-9@._:/=-]+$/;
@@ -98,42 +94,23 @@ export async function passoPlugin(rodar, id, nome) {
   return { item: item.ok(nome, `atualizado (${versao(tinha.version)} → ${versao(e.version)})`), entrada: e, lista };
 }
 
-// O kit e as dependências dele. O `plugin update` só troca a versão do kit e
-// não instala uma dependência nova (revisão final da v0.5.2, Critical 2): se
-// falta alguma, roda o `plugin install` do kit, que as traz, e confere de
-// novo. Devolve também a lista final, que diz quais cópias novas estão
-// prontas para a atualização automática.
-export async function passoKit(rodar) {
-  const nome = 'hadouken-kit';
-  const p = await passoPlugin(rodar, ID_KIT, nome);
-  if (p.entrada === null) return p;
-  const faltam = (l) => DEPENDENCIAS_KIT.filter((d) => !l?.has(d));
-  let lista = p.lista;
-  if (faltam(lista).length > 0) {
-    await rodar(['plugin', 'install', ID_KIT]);
-    lista = await listarPlugins(rodar);
-  }
-  const ainda = faltam(lista);
-  if (ainda.length === 0) return { ...p, lista };
-  return { item: item.falhou(nome, `faltam dependências: ${ainda.map((d) => d.split('@')[0]).join(', ')}`, `rode claude plugin install ${ID_KIT}`), entrada: p.entrada, lista };
+// O kit: instala ou atualiza. Ele só depende do hadouken (v0.5.9). Devolve
+// também a lista final, que diz o que já está instalado.
+export function passoKit(rodar) {
+  return passoPlugin(rodar, ID_KIT, 'hadouken-kit');
 }
 
-// O REA: instala ou atualiza; liga com Node aceito pelo rea-agents
-// (nodeServe) só na primeira instalação; já instalado e desligado, foi o
-// usuário quem desligou, e fica desligado (revisão final, Important 9). Com
-// Node fora da faixa, desliga e marca pulado.
-export async function passoRea(rodar, versaoNode) {
-  const nome = 'hadouken-rea';
-  const p = await passoPlugin(rodar, ID_REA, nome);
-  if (p.entrada === null) return p.item;
-  const quer = nodeServe(versaoNode);
-  const pulado = item.pulado(nome, `Node ${versao(versaoNode)}; o REA pede 22.19+, 24.11+ ou 26+`);
-  if (p.entrada.enabled === quer) return quer ? p.item : pulado;
-  if (quer && p.item.estado === 'igual') return { ...item.igual(nome), detalhe: 'desligado por você' };
-  if (quer && !p.item.detalhe.startsWith('instalado')) return item.ok(nome, `${p.item.detalhe}; continua desligado por você`);
-  await rodar(['plugin', quer ? 'enable' : 'disable', ID_REA]);
-  const e = (await listarPlugins(rodar))?.get(ID_REA);
-  if (!e || e.enabled !== quer) return item.falhou(nome, quer ? 'não ligou' : 'não desligou', `rode claude plugin ${quer ? 'enable' : 'disable'} ${ID_REA}`);
-  if (!quer) return pulado;
-  return p.item.estado === 'igual' ? item.ok(nome, 'ligado') : item.ok(nome, `${p.item.detalhe}, ligado`);
+// Cada sugerida: instalada é o plugin com o mesmo nome em qualquer
+// marketplace (ligado ou não) ou a skill solta <pastaSkills>/<nome>; aí é
+// "= já instalado" e nada muda. Faltando, "○ sugerido" com o comando. Nunca
+// instala nem lança.
+export function conferirSugeridas({ lista, pastaSkills, existe = fs.existsSync } = {}) {
+  const ids = lista instanceof Map ? [...lista.keys()] : [];
+  return SUGERIDAS.map(({ nome, comando }) => {
+    let tem = ids.some((id) => id.startsWith(`${nome}@`));
+    if (!tem && typeof pastaSkills === 'string' && path.isAbsolute(pastaSkills)) {
+      try { tem = existe(path.join(pastaSkills, nome)) === true; } catch { tem = false; }
+    }
+    return tem ? { nome, estado: 'igual', detalhe: 'já instalado' } : item.sugerido(nome, comando);
+  });
 }

@@ -190,8 +190,8 @@ test('v0.5.7: a linha Instal. vem depois da Compat e acusa a extensão que falta
   const linhas = rel(dir).split('\n');
   const i = linhas.findIndex((l) => l.startsWith('Instal. '));
   assert.ok(i > 0 && linhas[i - 1].startsWith('Compat '), linhas.join('\n'));
-  assert.equal(linhas[i], 'Instal. extensão do VS Code não instalada: rode node ~/.claude/hadouken/bin/cli.mjs painel instalar');
+  assert.equal(linhas[i], 'Instal. extensão do VS Code não instalada: rode node ~/.claude/hadouken/bin/cli.mjs painel instalar; sugeridas não instaladas: superpowers, mattpocock-skills, poka-yoke, fullstack-dev-skills, ui-ux-pro-max, hadouken-rea');
   fs.mkdirSync(path.join(dir, 'painel'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'painel', 'instalado.json'), JSON.stringify({ versao, em: 'x' }));
-  assert.ok(rel(dir).split('\n').includes(`Instal. em dia (plugin, extensão do VS Code e atalhos na ${versao})`));
+  assert.ok(rel(dir).split('\n').some((l) => l.startsWith(`Instal. em dia (plugin, extensão do VS Code e atalhos na ${versao})`)));
 });

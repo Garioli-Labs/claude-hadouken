@@ -11,7 +11,7 @@ import { lerJson } from './estado.js';
 import { instalarPainel, versaoDoPlugin } from './painel/instalar-painel.js';
 import { sincronizarShims } from './shim.js';
 import { ligarAtualizacao, marketplaceConhecido } from './instalar/atualizacao-auto.js';
-import { criarClaude, ID_KIT, passoKit, passoRea } from './instalar/claude-cli.js';
+import { conferirSugeridas, criarClaude, ID_KIT, passoKit } from './instalar/claude-cli.js';
 import { codigoDeSaida, formatarResumo, item } from './instalar/itens.js';
 
 // Instalador de um comando, passos 6 e 7 (spec v0.5.2). O install.sh ou o
@@ -121,10 +121,9 @@ function passoAtualizacao({ settings, configDir, agoraMs, ligar, prontas }) {
     const mantidas = r.mantidas ?? [];
     if (r.acao === 'ja-estava' && mantidas.length === 0) return item.igual(nome);
     const feito = r.desligadas.length > 0 ? `ligada; ${r.desligadas.length} cópia(s) antiga(s) desligada(s)` : 'ligada';
-    if (mantidas.length === 0) return item.ok(nome, feito);
-    const nomes = mantidas.map((k) => k.split('@')[0]).join(', ');
-    const resto = mantidas.length === 1 ? 'antigo continua ligado: falta o novo' : 'antigos continuam ligados: faltam os novos';
-    return item.falhou(nome, `${feito}; ${nomes} ${resto}`, `rode claude plugin install ${ID_KIT}`);
+    // v0.5.9: cópia antiga sem a nova é skill de terceiro já instalada; fica
+    // ligada, e não é falha.
+    return item.ok(nome, feito);
   }
   return r.motivo === 'outra-fonte' ? outra : item.falhou(nome, r.motivo, DE_NOVO);
 }
@@ -308,18 +307,18 @@ export async function instalarTudo(o) {
   const itens = [];
   const dir = dirDados();
   const settings = arquivoSettings();
-  // O superpowers, dependência do kit, vem do marketplace oficial. Já
-  // registrado é falha esperada: a lista depois do install é a verdade.
-  await rodar(['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official']);
   let kitPath = null;
   let prontas = [];
+  let lista = null;
   await passo(itens, 'hadouken-kit', async () => {
     const p = await passoKit(rodar);
     kitPath = p.entrada?.installPath ?? null;
+    lista = p.lista ?? null;
     prontas = p.lista ? [...p.lista].filter(([, e]) => e.enabled).map(([id]) => id) : [];
     return p.item;
   });
-  await passo(itens, 'hadouken-rea', () => passoRea(rodar, versaoNode));
+  const config = pastaConfig(ambiente);
+  itens.push(...conferirSugeridas({ lista, pastaSkills: config === null ? null : path.join(config, 'skills'), existe }));
   await passo(itens, 'atualização automática', () => passoAtualizacao({ settings, configDir: pastaConfig(ambiente), agoraMs, ligar: ligarAuto, prontas }));
   await passo(itens, 'arquivos da barra', () => passoShims({ raizPlugin, sincronizar }));
   await passo(itens, 'barra', () => passoBarra({ settings, opcoes, perguntar, agoraMs: agoraMs + 1, aplicar }));

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ID_PRINCIPAL, DEPENDENCIAS_KIT } from '../src/instalar/claude-cli.js';
+import { ID_PRINCIPAL } from '../src/instalar/claude-cli.js';
 import { pedeLiberacao } from '../src/guarda/caminho.js';
 
 // Task 11 da v0.5.2: o plugin claude-hadouken passa a se chamar hadouken. O
@@ -29,7 +29,6 @@ test('o plugin principal se chama hadouken, e o renames migra o nome antigo', ()
 
 test('os ids e as dependências usam hadouken@claude-hadouken', () => {
   assert.equal(ID_PRINCIPAL, NOVO);
-  assert.ok(DEPENDENCIAS_KIT.includes(NOVO));
   const deps = json('kit/.claude-plugin/plugin.json').dependencies;
   assert.ok(deps.includes('hadouken') && !deps.includes('claude-hadouken'));
   for (const rel of ['kit/testado.json', 'test/dados/kit-robo/testado.json']) {
