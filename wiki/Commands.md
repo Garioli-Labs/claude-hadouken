@@ -53,5 +53,6 @@ The `agentes` key of `config.json` holds your choice, per agent (without the `ha
 - **`executor` and `revisor-critico` left in 0.6.0.** A dispatch to them is denied with the substitute (`implementador` and `auditor`); this only reaches a session opened before the update, because after it the type is gone. See the [breaking changes](Home-en#breaking-changes-in-060).
 - **A local agent with the same name.** An agent of yours with the same name in `~/.claude/agents` beats the plugin's on the short name (`revisor`); the palette applies to `hadouken:<name>`. Remove the local copies of the palette's names so you do not end up with two.
 - **Another plugin on the dispatch.** Another plugin that also returns `updatedInput` on Agent has undocumented behaviour: the result between the two is not guaranteed.
+- **Auto mode.** The palette changes the dispatch without approving it: hadouken never answers `allow`, and in auto mode Claude Code's classifier reviews the dispatch with what the palette added. On Claude Code 2.1.322, a `deny` rule of yours for `Agent(...)` on a changed dispatch was enforced by the classifier; in default mode, by the rule itself (S31 in [SECURITY.md](https://github.com/Garioli-Labs/claude-hadouken/blob/main/SECURITY.md)).
 
 ---
