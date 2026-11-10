@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  ARQ_PLANO, arquivoClaudeJson, atualizarPlano, planoDoClaude, planoEfetivo, ROTULO_PLANO,
+  ARQ_PLANO, arquivoClaudeJson, atualizarPlano, planoDoClaude, planoEfetivo, ROTULO_PLANO, semCincoHoras, textoPlano,
 } from '../src/conta/plano.js';
 import { rodarColetor } from '../src/saude/coletor-main.js';
 
@@ -21,8 +21,8 @@ const H = 3600_000;
 const claudeJson = (tier) => JSON.stringify({ oauthAccount: { emailAddress: 'a@b.c', organizationRateLimitTier: tier }, organizationRateLimitTier: tier });
 
 test('planoDoClaude: os três planos e o resto', () => {
-  assert.equal(planoDoClaude(JSON.stringify({ organizationRateLimitTier: 'default_claude_max_20x' })), 'max20');
-  assert.equal(planoDoClaude(JSON.stringify({ organizationRateLimitTier: 'default_claude_max_5x' })), 'max5');
+  assert.equal(planoDoClaude(JSON.stringify({ organizationRateLimitTier: 'default_claude_max_20x' })), 'ultra');
+  assert.equal(planoDoClaude(JSON.stringify({ organizationRateLimitTier: 'default_claude_max_5x' })), 'max');
   assert.equal(planoDoClaude(JSON.stringify({ organizationRateLimitTier: 'default_claude_pro' })), 'pro');
   assert.equal(planoDoClaude(JSON.stringify({ organizationRateLimitTier: 'enterprise_x' })), null);
   assert.equal(planoDoClaude(JSON.stringify({ outro: 1 })), null);
@@ -35,14 +35,14 @@ test('planoDoClaude: os três planos e o resto', () => {
 
 test('planoDoClaude: BOM no início é aceito', () => {
   const bom = String.fromCodePoint(0xfeff);
-  assert.equal(planoDoClaude(bom + JSON.stringify({ organizationRateLimitTier: 'default_claude_max_20x' })), 'max20');
+  assert.equal(planoDoClaude(bom + JSON.stringify({ organizationRateLimitTier: 'default_claude_max_20x' })), 'ultra');
 });
 
 test('planoDoClaude: só devolve rótulo fixo, nunca outro campo do arquivo', () => {
   const r = planoDoClaude(claudeJson('default_claude_max_5x'));
-  assert.equal(r, 'max5');
+  assert.equal(r, 'max');
   for (const t of ['x', 'a@b.c', 'default_claude_max_20x_a@b.c']) {
-    assert.ok([null, 'pro', 'max5', 'max20'].includes(planoDoClaude(claudeJson(t))));
+    assert.ok([null, 'pro', 'max', 'ultra'].includes(planoDoClaude(claudeJson(t))));
   }
 });
 
@@ -62,15 +62,17 @@ test('planoEfetivo: arquivo ausente, corrompido ou plano estranho → desconheci
   assert.equal(planoEfetivo(d), 'desconhecido');
   fs.writeFileSync(path.join(d, ARQ_PLANO), '{x');
   assert.equal(planoEfetivo(d), 'desconhecido');
-  fs.writeFileSync(path.join(d, ARQ_PLANO), JSON.stringify({ v: 1, plano: 'ultra', em: AGORA }));
+  fs.writeFileSync(path.join(d, ARQ_PLANO), JSON.stringify({ v: 1, plano: 'platina', em: AGORA }));
   assert.equal(planoEfetivo(d), 'desconhecido');
   fs.writeFileSync(path.join(d, ARQ_PLANO), JSON.stringify({ v: 1, plano: 'max20', em: AGORA }));
-  assert.equal(planoEfetivo(d), 'max20');
+  assert.equal(planoEfetivo(d), 'ultra');
+  fs.writeFileSync(path.join(d, ARQ_PLANO), JSON.stringify({ v: 1, plano: 'max5', em: AGORA }));
+  assert.equal(planoEfetivo(d), 'max');
   assert.equal(planoEfetivo(null), 'desconhecido');
 });
 
 test('ROTULO_PLANO', () => {
-  assert.deepEqual(ROTULO_PLANO, { pro: 'Pro', max5: 'Max 5x', max20: 'Max 20x' });
+  assert.deepEqual(ROTULO_PLANO, { pro: 'Pro', max: 'Max', ultra: 'Ultra' });
 });
 
 test('atualizarPlano: grava, não relê em 24 h, relê depois', () => {
@@ -78,9 +80,9 @@ test('atualizarPlano: grava, não relê em 24 h, relê depois', () => {
   let leituras = 0;
   const ler = () => { leituras++; return { ok: true, texto: claudeJson('default_claude_max_20x') }; };
   assert.deepEqual(atualizarPlano({ dir: d, agoraMs: AGORA, arquivo: '/c/.claude.json', ler }), { lido: true });
-  assert.equal(planoEfetivo(d), 'max20');
+  assert.equal(planoEfetivo(d), 'ultra');
   const gravado = JSON.parse(fs.readFileSync(path.join(d, ARQ_PLANO), 'utf8'));
-  assert.deepEqual(gravado, { v: 1, plano: 'max20', em: AGORA });
+  assert.deepEqual(gravado, { v: 1, plano: 'ultra', em: AGORA });
   assert.deepEqual(atualizarPlano({ dir: d, agoraMs: AGORA + 23 * H, arquivo: '/c/.claude.json', ler }), { lido: false });
   assert.equal(leituras, 1);
   assert.deepEqual(atualizarPlano({ dir: d, agoraMs: AGORA + 25 * H, arquivo: '/c/.claude.json', ler }), { lido: true });
@@ -107,7 +109,7 @@ test('atualizarPlano: ler que lança, falha ou arquivo null → nada lido, e a t
   const k = novoDir();
   fs.writeFileSync(path.join(k, ARQ_PLANO), JSON.stringify({ v: 1, plano: 'max20', em: AGORA - 25 * H }));
   assert.deepEqual(atualizarPlano({ dir: k, agoraMs: AGORA, arquivo: null, ler: () => ({ ok: true, texto: '{}' }) }), { lido: false });
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(k, ARQ_PLANO), 'utf8')), { v: 1, plano: 'max20', em: AGORA });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(k, ARQ_PLANO), 'utf8')), { v: 1, plano: 'ultra', em: AGORA });
 });
 
 test('atualizarPlano: lê com teto de 8 MB', () => {
@@ -126,4 +128,14 @@ test('rodarColetor: chama o plano depois do saude.json, e erro nele não derruba
   const r = await rodarColetor({ dir: d, agoraMs: AGORA, coletar: async () => leitura, matar: () => {}, config, plano });
   assert.equal(viuSaude, true);
   assert.equal(r.ok, true);
+});
+
+test('v0.5.9: nomes novos Max e Ultra', () => {
+  assert.equal(planoDoClaude(JSON.stringify({ organizationRateLimitTier: 'default_claude_ultra' })), 'ultra');
+  assert.equal(planoDoClaude(JSON.stringify({ organizationRateLimitTier: 'default_claude_max' })), 'max');
+  assert.equal(textoPlano('ultra'), 'Ultra (do Claude Code)');
+  assert.equal(textoPlano('max'), 'Max (do Claude Code)');
+  assert.equal(semCincoHoras('ultra', null), true);
+  assert.equal(semCincoHoras('ultra', { pct: 3 }), false);
+  assert.equal(semCincoHoras('max', null), false);
 });

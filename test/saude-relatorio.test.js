@@ -168,7 +168,7 @@ test('plano da conta e caminho do .vsix do painel', () => {
   const vsix = path.join(d, 'painel', `claude-hadouken-painel-${versao}.vsix`);
   fs.writeFileSync(vsix, 'PK');
   t = rel(d);
-  assert.match(t, /^Plano  Max 20x \(do Claude Code\)$/m);
+  assert.match(t, /^Plano  Ultra \(do Claude Code\)$/m);
   assert.ok(t.split('\n').includes(`Painel ${vsix} (outro PC: code --install-extension <esse arquivo>)`), t);
 });
 

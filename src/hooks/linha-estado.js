@@ -70,7 +70,8 @@ function parte(nome, l, reset) {
 // leitura", nunca como 0; sem nenhuma, a linha "sem leitura nova" de
 // alerta.js, com `ultima` (ultimaLeitura). A cauda de 7d só com a leitura
 // fresca. Nunca lança.
-export function linhaEstado(leituras, agoraMs, ultima = null) {
+// v0.5.9: no Ultra sem leitura de 5 h, a parte do 5h sai (plano 'ultra').
+export function linhaEstado(leituras, agoraMs, ultima = null, plano = null) {
   try {
     const l = ehObjeto(leituras) ? leituras : {};
     // Cada janela passa de novo por janelaValida (util.js). Sem agora
@@ -78,13 +79,14 @@ export function linhaEstado(leituras, agoraMs, ultima = null) {
     const j5 = janelaValida(l.five_hour);
     const j7 = numeroFinito(agoraMs) ? janelaValida(l.seven_day) : null;
     if (j5 === null && j7 === null) return linhaSemLeitura(ultima, agoraMs);
+    const sem5h = plano === 'ultra' && j5 === null;
     // Os dois números conferidos por cima; `fresca` e `idadeMs` ficam.
     const f5 = j5 === null ? null : { ...l.five_hour, ...j5 };
     const f7 = j7 === null ? null : { ...l.seven_day, ...j7 };
     const partes = [
       f5 ? parte('5h', f5, horaLocal(f5.resets_at)) : '5h sem leitura',
       f7 ? parte('7d', f7, quandoLocal(f7.resets_at, agoraMs)) : '7d sem leitura',
-    ];
+    ].slice(sem5h ? 1 : 0);
     const cauda = f7 && f7.fresca !== false ? cauda7d(f7, agoraMs) : '';
     return `Consumo: ${partes.join(' · ')}${cauda}.`;
   } catch {

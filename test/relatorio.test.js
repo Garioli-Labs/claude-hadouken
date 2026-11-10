@@ -89,8 +89,8 @@ test('relatório completo em JSON versionado', () => {
 // v0.5.6, Task 6: o plano da conta sai no JSON e abaixo dos limites, só pela
 // lista fixa de rótulos.
 test('plano da conta: rótulo conhecido ou "não identificado", nunca o texto de fora', () => {
-  assert.equal(montarRelatorio({ estado, agoraMs: agora, claude, github, plano: 'max20' }).plano, 'max20');
-  assert.match(md({ plano: 'max20' }), /^Plano: Max 20x \(do Claude Code\)$/m);
+  assert.equal(montarRelatorio({ estado, agoraMs: agora, claude, github, plano: 'ultra' }).plano, 'ultra');
+  assert.match(md({ plano: 'ultra' }), /^Plano: Ultra \(do Claude Code\)$/m);
   for (const plano of [undefined, 'desconhecido', 'ultra\u001b[31m', 7]) {
     assert.equal(montarRelatorio({ estado, agoraMs: agora, claude, github, plano }).plano, 'desconhecido');
     const t = md({ plano });

@@ -877,3 +877,11 @@ test('linhaRetomada (spec v0.4.0 §10, item 11): só resume com cache expirado e
   ]) assert.equal(linhaRetomada(e), null, JSON.stringify(e));
   assert.ok(!linhaRetomada(base).includes('0.68'), 'sem dólar');
 });
+
+test('linhaEstado: Ultra sem leitura de 5 h não cita o 5h; outro plano, sim', () => {
+  const agora = Date.UTC(2026, 10, 9, 12);
+  const l = { five_hour: null, seven_day: { used_percentage: 41, resets_at: agora / 1000 + 86400, fresca: true } };
+  assert.doesNotMatch(linhaEstado(l, agora, null, 'ultra'), /5h/);
+  assert.match(linhaEstado(l, agora, null, 'max'), /5h sem leitura/);
+  assert.match(linhaEstado(l, agora), /5h sem leitura/);
+});

@@ -11,7 +11,11 @@ import { lerTextoSemLink } from '../guarda/arquivo.js';
 // o comportamento da v0.5.5.
 
 export const ARQ_PLANO = 'conta-plano.json';
-export const ROTULO_PLANO = Object.freeze({ pro: 'Pro', max5: 'Max 5x', max20: 'Max 20x' });
+// v0.5.9: o Max 20x virou Ultra (sem a janela de 5 h em conta verificada) e o
+// Max 5x virou só Max. Os nomes antigos gravados são lidos como os novos.
+export const ROTULO_PLANO = Object.freeze({ pro: 'Pro', max: 'Max', ultra: 'Ultra' });
+const ANTIGOS = Object.freeze({ max5: 'max', max20: 'ultra' });
+const migrar = (p) => (Object.hasOwn(ANTIGOS, p) ? ANTIGOS[p] : p);
 
 const VALE_MS = 24 * 3600_000;
 const TETO_BYTES = 8 * 1024 * 1024;
@@ -33,8 +37,8 @@ export function planoDoClaude(texto) {
     const j = JSON.parse(texto.startsWith(BOM) ? texto.slice(1) : texto);
     const tier = j !== null && typeof j === 'object' ? j.organizationRateLimitTier : null;
     if (typeof tier !== 'string') return null;
-    if (tier.endsWith('_max_20x')) return 'max20';
-    if (tier.endsWith('_max_5x')) return 'max5';
+    if (tier.endsWith('_max_20x') || tier.includes('ultra')) return 'ultra';
+    if (tier.endsWith('_max_5x') || tier.includes('max')) return 'max';
     return tier.includes('pro') ? 'pro' : null;
   } catch {
     return null;
@@ -53,7 +57,7 @@ export function atualizarPlano({ dir, agoraMs = Date.now(), arquivo, ler = lerTe
     if (Number.isFinite(em) && em <= agoraMs && agoraMs - em < VALE_MS) return { lido: false };
     const alvo = arquivo === undefined ? arquivoClaudeJson(process.env, os.homedir()) : arquivo;
     const l = alvo === null ? null : ler(alvo, TETO_BYTES);
-    const anterior = atual.ok && PLANOS.has(atual.valor?.plano) ? atual.valor.plano : 'desconhecido';
+    const anterior = atual.ok && PLANOS.has(migrar(atual.valor?.plano)) ? migrar(atual.valor.plano) : 'desconhecido';
     const plano = l?.ok ? planoDoClaude(l.texto) ?? 'desconhecido' : anterior;
     gravarJsonAtomico(path.join(dir, ARQ_PLANO), { v: 1, plano, em: agoraMs }, { compacto: true });
     return { lido: l?.ok === true };
@@ -68,12 +72,16 @@ export function textoPlano(plano) {
   return Object.hasOwn(ROTULO_PLANO, plano) ? `${ROTULO_PLANO[plano]} (do Claude Code)` : 'não identificado (os relatórios mostram só tokens)';
 }
 
-// O plano guardado pelo coletor: 'pro' | 'max5' | 'max20' | 'desconhecido'.
+// No Ultra sem leitura da janela de 5 h, ela não aparece (barra, dica, avisos).
+// Com leitura (conta não verificada), aparece e vale.
+export const semCincoHoras = (plano, janela5h) => plano === 'ultra' && (janela5h === null || janela5h === undefined);
+
+// O plano guardado pelo coletor: 'pro' | 'max' | 'ultra' | 'desconhecido'.
 export function planoEfetivo(dir) {
   try {
     if (typeof dir !== 'string' || dir === '') return 'desconhecido';
     const l = lerJson(path.join(dir, ARQ_PLANO));
-    const plano = l.ok ? l.valor?.plano : null;
+    const plano = l.ok ? migrar(l.valor?.plano) : null;
     return PLANOS.has(plano) ? plano : 'desconhecido';
   } catch {
     return 'desconhecido';

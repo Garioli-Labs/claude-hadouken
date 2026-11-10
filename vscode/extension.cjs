@@ -236,7 +236,9 @@ function descartar(m) {
 function estadoValido(e) {
   if (e === null || typeof e !== 'object' || typeof e.texto !== 'string') return SEM_LEITURA;
   const p = e.pcts;
-  const pcts = p !== null && typeof p === 'object' && pctValido(p.h5) && pctValido(p.d7) && pctValido(p.fable) ? { h5: p.h5, d7: p.d7, fable: p.fable } : null;
+  // Sem h5 (Ultra sem a janela de 5 h): o item mostra só semana e Fable.
+  const ok = p !== null && typeof p === 'object' && (p.h5 === undefined || pctValido(p.h5)) && pctValido(p.d7) && pctValido(p.fable);
+  const pcts = !ok ? null : p.h5 === undefined ? { d7: p.d7, fable: p.fable } : { h5: p.h5, d7: p.d7, fable: p.fable };
   return { texto: e.texto.slice(0, TEXTO_MAX), nivel: e.nivel, dica: typeof e.dica === 'string' ? e.dica : '', pcts };
 }
 
@@ -281,7 +283,8 @@ const barraSaudeValida = (b) => (typeof b === 'string' && BARRA_SAUDE.test(b) ? 
 // "5h ▮▮▮▮▯▯▯▯ 55% · sem — · Fable …", com os glifos da fonte hadouken.
 function textoComSegmentos(pcts) {
   const parte = (rotulo, p) => (p === null ? `${rotulo} —` : `${rotulo} ${segmentos(p).join('')} ${Math.floor(p)}%`);
-  return [parte('5h', pcts.h5), parte('sem', pcts.d7), parte('Fable', pcts.fable)].join(' · ');
+  const partes = [parte('sem', pcts.d7), parte('Fable', pcts.fable)];
+  return (pcts.h5 === undefined ? partes : [parte('5h', pcts.h5), ...partes]).join(' · ');
 }
 
 function activate(ctx) {

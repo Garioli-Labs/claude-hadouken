@@ -514,3 +514,13 @@ test('versão nova: "Depois" só grava; plugin velho não consulta nem lança', 
     v.fim();
   }
 });
+
+test('Ultra: sem h5 nos pcts, o item mostra só semana e Fable', async (t) => {
+  const m = await montar(t, { hdk: { pcts: { d7: 55, fable: null } } });
+  try {
+    const segs = ['cheio', 'cheio', 'cheio', 'cheio', 'meio', 'vazio', 'vazio', 'vazio'].map((s) => `$(hadouken-seg-${s})`).join('');
+    assert.equal(m.uso.text, `$(hadouken-0) sem ${segs} 55% · Fable —`);
+  } finally {
+    m.fim();
+  }
+});
