@@ -100,7 +100,7 @@ Medido no passo 0 (Claude Code 2.1.322, 10/11/2026). Comando: `claude -p --model
 - O stdin do hook traz `effort: {"level": "medium"}`; o `tool_use` do stream mostra o input original, não o injetado.
 - Haiku aceita `effort`: `lerArgsAgentes` e `validarAgentes` aceitam qualquer combinação modelo·effort da lista.
 
-Decisão do Fernando (10/11/2026): a saída do hook com injeção usa a variante A, `updatedInput` sem `permissionDecision`. O classificador do auto mode segue revisando todo despacho injetado; a regra `deny` do usuário segurou nas 4 rodadas com `deny` (default pela regra; auto pelo classificador, 2 de 2). Risco aceito: em auto mode, `deny` e `ask` do usuário sobre despacho injetado dependem do classificador, e o `ask` em auto não se mede em `-p`.
+Decisão do Fernando (10/11/2026): a saída do hook com injeção usa a variante A, `updatedInput` sem `permissionDecision`. O hook não aprova nada: o auto mode segue valendo para todo despacho injetado e pode negar o despacho alterado; a regra `deny` do usuário segurou nas 4 rodadas com `deny` (default pela regra; auto pelo classificador, 2 de 2). Risco aceito: em auto mode, `deny` e `ask` do usuário sobre despacho injetado dependem do classificador, e o `ask` em auto não se mede em `-p`.
 
 ## 1. Problema
 
@@ -266,6 +266,8 @@ Dez agentes em `agents/`, conteúdo genérico (sem prefixo de teste, e-mail, emp
   3. Portões da guarda: `session_id` inválido, sessão inativa, status `erro`, guarda desligada. A saída é a injeção pendente (se houver) ou nada.
   4. Com guarda ligada: travas, G5, G6, G7 (perfil efetivo), N1/N2 e A1–A3 (`tool_input` original). Um `deny` da guarda prevalece e sai sem `updatedInput`.
   5. Saída final, quando há injeção: `updatedInput` com o `tool_input` original inteiro mais os campos injetados, sem `permissionDecision` (variante A, decisão do Fernando em §0, "Medido no passo 0"); nenhuma saída do hook devolve `"allow"`. `ask` da guarda (`guarda.perguntar`) leva o `updatedInput` também; o aviso A1–A3 mantém o `additionalContext`.
+  6. Campo ausente, na paleta e no perfil efetivo, é o mesmo predicado: `undefined`, `null` ou `''`. Campo presente com qualquer outro valor (`'inherit'`, número, effort fora da lista) não recebe injeção e decide o perfil como parâmetro. A injeção só usa valores das listas fechadas de modelo e effort, mesmo com `agentes` não validado.
+  7. O registro de roteamento (`registrarDespacho`) grava a família e o effort efetivos, com a injeção: é o que o subagente roda e o que o relatório por agente e o aprendizado leem. A regra A3 lê do registro só o instante e o tamanho do prompt.
 - O texto do SessionStart reflete a config do início da sessão.
 - **Comando** `/hadouken:agentes` (skill + `UserPromptExpansion`): sem argumento mostra a tabela (agente, padrão, override, ativo); `<nome> <model> [effort]`, `<nome> off`, `<nome> on`, `<nome> padrao` gravam. Só o usuário grava.
 
