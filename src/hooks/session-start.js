@@ -199,8 +199,12 @@ rodarHook(async (entrada) => {
   // Spec roteamento §2: a regra curta vai sempre, por último; um import que
   // falha só a tira.
   try {
-    const [{ linhasRegra }, { paletaEfetiva }] = await Promise.all([import('../roteamento/regra.js'), import('../agentes/paleta.js')]);
-    saida.push(...linhasRegra(paletaEfetiva()));
+    const [{ linhasRegra }, { paletaEfetiva }, { lerAgentes }] = await Promise.all([import('../roteamento/regra.js'), import('../agentes/paleta.js'), import('../agentes/config.js').catch(() => ({ lerAgentes: () => ({ agentes: {}, avisos: [] }) }))]);
+    // v0.6.0: a paleta efetiva (padrão + `agentes` do config.json); os avisos
+    // da config vão ao usuário, fora do contexto do Claude.
+    const { agentes, avisos } = lerAgentes(dir);
+    aoUsuario.push(...avisos);
+    saida.push(...linhasRegra(paletaEfetiva(agentes)));
   } catch { /* sem a regra nesta sessão */ }
   // As subidas de agente aprovadas pelo usuário (roteamento.subir): o Claude
   // passa o model no despacho, e a N2 não o nega.

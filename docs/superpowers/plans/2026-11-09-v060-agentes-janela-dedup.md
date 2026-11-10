@@ -389,7 +389,8 @@ Depende da 6a.
 - Modificar:
   - `hooks/hooks.json` (matcher `hadouken:agentes`);
   - `src/agentes/config.js`;
-  - `src/hooks/session-start.js`: `linhasRegra(paletaEfetiva(lerAgentes(dir).agentes))` mais os avisos.
+  - `src/hooks/session-start.js`: `linhasRegra(paletaEfetiva(lerAgentes(dir).agentes))` mais os avisos;
+  - `src/hooks/guarda-agenda.js`, `src/guarda/caminho.js` (`pedeLiberacao`) e `src/guarda/mensagens.js` (`AGENDA_LIBERAR_TEXTO`): prompt agendado com `/hadouken:agentes` ou `/agentes` é negado; a palavra solta "agentes" passa (spec Fatia 4: só o usuário grava). Teste em `test/guarda-hooks.test.js`, no molde da janela.
 
 **Interfaces produzidas:**
 - `lerArgsAgentes(texto) → {acao:'mostrar'} | {acao:'gravar', nome, valor:{model?, effort?, ativo?}} | {acao:'remover', nome} | {acao:'erro', msg}`, para `revisor opus high`, `revisor opus`, `auditor off`, `auditor on` e `revisor padrao`.

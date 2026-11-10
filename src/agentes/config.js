@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { lerJson } from '../estado.js';
+import { lerJson, gravarJsonAtomico } from '../estado.js';
 import { ARQ_CONFIG } from '../guarda/config.js';
 import { PALETA } from './paleta.js';
 
@@ -11,8 +11,8 @@ import { PALETA } from './paleta.js';
 // usuário nunca entram no aviso, salvo um nome que já cabe na regex abaixo.
 // Nunca lança.
 const CONFIG_MAX_BYTES = 64 * 1024;
-const MODELS = new Set(['haiku', 'sonnet', 'opus', 'fable']);
-const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+export const MODELS = new Set(['haiku', 'sonnet', 'opus', 'fable']);
+export const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 const NOMES = new Set(PALETA.map((p) => p.nome));
 const NOME_NO_AVISO = /^[A-Za-z0-9_-]{1,64}$/;
 const AVISO_LEITURA = 'não consegui ler agentes em config.json';
@@ -72,5 +72,98 @@ export function lerAgentes(dir) {
     return validarAgentes(lido.valor.agentes);
   } catch {
     return { agentes: {}, avisos: [AVISO_LEITURA] };
+  }
+}
+
+// --- Comando /hadouken:agentes (spec v0.6.0 §4 Fatia 4, Tarefa 7) ---
+
+const ARGS_MAX = 128;
+const NOME_NO_ERRO = /^[a-z0-9_-]{1,32}$/;
+const USO = 'Uso: /hadouken:agentes [<agente> <modelo> [effort] | <agente> off | <agente> on | <agente> padrao]';
+const erro = (msg) => ({ acao: 'erro', msg });
+const lista = (conjunto) => [...conjunto].join(', ');
+
+// O texto digitado depois de /hadouken:agentes. Vazio → mostrar; `<nome> padrao`
+// → remover; `<nome> on|off` → gravar {ativo}; `<nome> <model> [effort]` →
+// gravar {model, effort?}. Modelo e effort vêm de validarAgentes (a mesma
+// lista da leitura). O nome digitado só volta na mensagem se couber em
+// NOME_NO_ERRO; o resto do texto nunca volta. Nunca lança.
+export function lerArgsAgentes(texto) {
+  try {
+    if (texto === undefined || texto === null || texto === '') return { acao: 'mostrar' };
+    if (typeof texto !== 'string' || texto.length > ARGS_MAX) return erro(USO);
+    // NFC antes de comparar: "padrão" decomposto (a + til combinante) não
+    // casaria com o literal.
+    const t = texto.normalize('NFC').trim().toLowerCase();
+    if (t === '') return { acao: 'mostrar' };
+    const [nome, a, b, ...resto] = t.split(/\s+/);
+    if (!NOMES.has(nome)) {
+      return erro(`agente desconhecido${NOME_NO_ERRO.test(nome) ? `: ${nome}` : ''}. Agentes: ${[...NOMES].join(', ')}.`);
+    }
+    if (a === undefined || resto.length > 0) return erro(USO);
+    if (a === 'on' || a === 'off' || a === 'padrao' || a === 'padrão') {
+      if (b !== undefined) return erro(USO);
+      if (a === 'padrao' || a === 'padrão') return { acao: 'remover', nome };
+      return { acao: 'gravar', nome, valor: { ativo: a === 'on' } };
+    }
+    if (!MODELS.has(a)) return erro(`modelo inválido. Use: ${lista(MODELS)}.`);
+    if (b === undefined) return { acao: 'gravar', nome, valor: { model: a } };
+    if (!EFFORTS.has(b)) return erro(`effort inválido. Use: ${lista(EFFORTS)}.`);
+    return { acao: 'gravar', nome, valor: { model: a, effort: b } };
+  } catch {
+    return erro(USO);
+  }
+}
+
+// A entrada nova de agentes.<nome> a partir da atual e do pedido de
+// lerArgsAgentes. Com model, troca o par model·effort (sem effort, o effort
+// volta ao padrão do agente) e mantém `ativo`; sem model, troca só `ativo`.
+// Pura.
+export function combinarAgente(atual, valor) {
+  const base = ehObjeto(atual) ? atual : {};
+  if (!Object.hasOwn(valor, 'model')) return { ...base, ...valor };
+  const nova = { model: valor.model };
+  if (Object.hasOwn(valor, 'effort')) nova.effort = valor.effort;
+  if (base.ativo === false) nova.ativo = false;
+  return nova;
+}
+
+// Troca só agentes.<nome> do config.json de <dir>, preservando as outras
+// chaves (guarda, janela) e os outros agentes, por gravarJsonAtomico. `valor`
+// é validado por validarAgentes; `ativo: true` é o padrão e não é gravado, e
+// uma entrada que fica vazia sai, como `valor` null; `agentes` sai quando
+// esvazia. Sem config.json, remover não cria nada. Arquivo presente mas
+// ilegível ou fora do formato (config ou `agentes` que não é objeto): não
+// grava ({ ok: false }), para não apagar o que o usuário escreveu. Nunca lança.
+export function gravarAgente(dir, nome, valor) {
+  try {
+    if (typeof dir !== 'string' || dir === '') return { ok: false, motivo: 'dir' };
+    if (typeof nome !== 'string' || !NOMES.has(nome)) return { ok: false, motivo: 'nome' };
+    let entrada = null;
+    if (valor !== null) {
+      const v = validarAgentes({ [nome]: valor });
+      if (v.avisos.length > 0 || !Object.hasOwn(v.agentes, nome)) return { ok: false, motivo: 'valor' };
+      const { ativo, ...resto } = v.agentes[nome];
+      entrada = ativo === false ? { ...resto, ativo } : resto;
+      if (Object.keys(entrada).length === 0) entrada = null;
+    }
+    const arquivo = path.join(dir, ARQ_CONFIG);
+    const lido = lerJson(arquivo, CONFIG_MAX_BYTES);
+    let config = {};
+    if (lido.ok) config = lido.valor;
+    else if (lido.motivo !== 'ausente' || fs.existsSync(arquivo)) return { ok: false, motivo: 'ilegivel' };
+    if (!ehObjeto(config)) return { ok: false, motivo: 'formato' };
+    const tem = Object.hasOwn(config, 'agentes');
+    if (tem && !ehObjeto(config.agentes)) return { ok: false, motivo: 'formato' };
+    const agentes = tem ? config.agentes : {};
+    if (entrada === null) {
+      if (!Object.hasOwn(agentes, nome)) return { ok: true };
+      const { [nome]: _removido, ...sobra } = agentes;
+      const { agentes: _antigos, ...semAgentes } = config;
+      return gravarJsonAtomico(arquivo, Object.keys(sobra).length === 0 ? semAgentes : { ...config, agentes: sobra });
+    }
+    return gravarJsonAtomico(arquivo, { ...config, agentes: { ...agentes, [nome]: entrada } });
+  } catch {
+    return { ok: false, motivo: 'erro' };
   }
 }

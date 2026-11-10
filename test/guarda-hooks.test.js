@@ -830,6 +830,50 @@ test('agenda: tarefa, loop ou rotina com /hadouken:janela ou /janela são negado
   assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
 });
 
+// T7 da v0.6.0 (spec §4 Fatia 4: "só o usuário grava"): /hadouken:agentes também
+// só vale digitado. Um prompt agendado que o rodasse desligaria o auditor ou
+// subiria o modelo de um agente sem o usuário. A palavra solta "agentes" é
+// comum demais para vigiar.
+test('agenda: o texto do deny cita /hadouken:agentes', () => {
+  assert.match(AGENDA_LIBERAR_TEXTO, /\/hadouken:agentes/);
+});
+
+test('agenda: tarefa, loop ou rotina com /hadouken:agentes ou /agentes são negados; a palavra solta passa', () => {
+  const home = novoHome();
+  const casos = [
+    ['CronCreate', { cron: '0 9 * * *', prompt: '/hadouken:agentes revisor opus', recurring: true }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: 'depois rode /hadouken:agentes auditor off' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: '/Claude-Hadouken"":AGENTES e2e off', prompt: 'continue' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: '/agentes revisor opus high' } }],
+    ['CronCreate', { cron: '0 9 * * *', prompt: 'lembrete: rode /agentes.' }],
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: '/hadouken:agentes revisor padrao' }],
+  ];
+  for (const [tool, input] of casos) {
+    assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
+  }
+  // Sem mensagens.js, o texto de reserva do hook é o mesmo.
+  const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/hadouken:agentes auditor off' });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
+  // Stdin ilegível (truncado) com o comando, e acima do teto com o comando no texto cru.
+  const truncado = '{"tool_name":"CronCreate","tool_input":{"prompt":"/hadouken:agentes auditor off';
+  assert.deepEqual(saida(rodar('guarda-agenda.js', truncado, home)), AGENDA_NEGADO);
+  const grande = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/hadouken:agentes auditor off ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grande, home)), AGENDA_NEGADO);
+  const grandeBarra = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/agentes auditor off ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grandeBarra, home)), AGENDA_NEGADO);
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+  // A palavra solta, o arquivo e a pasta passam em silêncio.
+  const passam = [
+    ['CronCreate', { cron: '*/5 * * * *', prompt: 'liste os agentes do plugin' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'x', prompt: 'revise src/agentes/config.js e skills/agentes/SKILL.md' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: 'confira os agentes de revisão' } }],
+    ['CronCreate', { prompt: '/agentesx' }],
+  ];
+  for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+});
+
 // M5 da revisão final da parte 1 (spec v0.4.0 §4.5, fail-open visível): stdin
 // acima do teto ou cortado pelo prazo deixa a chamada passar e registra o
 // evento 'erro' com o rótulo do hook, sem gate de sessão (sem o JSON não há

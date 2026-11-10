@@ -85,7 +85,8 @@ test('hooks.json liga cada hook novo em forma exec, com os timeouts da spec', ()
   // do /hadouken:limites (limites.js).
   // 48 desde a v0.5.5: + 1 do /hadouken:saude (saude.js).
   // 49 desde a v0.6.0: + 1 do /hadouken:janela (janela.js).
-  assert.equal(novos.length, 49);
+  // 50 desde a Tarefa 7: + 1 do /hadouken:agentes (agentes.js).
+  assert.equal(novos.length, 50);
   for (const x of novos) {
     assert.equal(x.command, 'node');
     assert.equal(x.args.length, 1);
