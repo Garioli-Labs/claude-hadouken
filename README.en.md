@@ -27,6 +27,7 @@
 | 🖥️ **PC health** | `/hadouken:saude`: RAM, temperatures, battery, disk, idle sessions, light mode and the install check. |
 | ⚙️ **VS Code window** | Every setting one click away on the status bar: caps, bands, alerts, routing and protections. |
 | 🧰 **Kit and REA** | `hadouken-kit`, the daily skills with a map of which to use; `hadouken-rea`, reverse engineering (off by default). |
+| 📏 **Development ruler** | `/hadouken-kit:regua`: the skill for each work phase, with audit and mutation testing before the PR; the repo's ruler applies in place of yours. [Details](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit-en#development-ruler) |
 
 ## Install
 

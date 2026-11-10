@@ -262,7 +262,7 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 ### Fatia 6 — Versão, README, notas de quebra
 
 - `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (hadouken 0.6.0, kit 1.2.0), `kit/.claude-plugin/plugin.json` (versão 1.2.0 e `dependencies` = `[{"name": "hadouken", "version": ">=0.6.0"}]`), `kit/testado.json` (hadouken 0.6.0).
-- README: paleta e `/hadouken:agentes`, janela e `/hadouken:janela`, dedup, régua e `/hadouken-kit:regua`, auditoria e mutação.
+- README: uma linha em "Recursos" por recurso novo (paleta e `/hadouken:agentes`, janela e `/hadouken:janela`, dedup, régua e `/hadouken-kit:regua`, auditoria e mutação), com link para a wiki; o README fica em até 60 linhas (`test/wiki.test.js`, "README curto"). O detalhe vai para as páginas da wiki em pt e en: `wiki/Kit.md`/`wiki/Kit-en.md` (régua, auditoria, mutação) e `wiki/Comandos.md`/`wiki/Commands.md` (comandos).
 - Notas de quebra: agentes renomeados ou removidos; `revisor` em sonnet; kit sem dependências de terceiros no manifesto e com `hadouken` ≥ 0.6.0 como dependência (com um `hadouken` menor o kit fica desabilitado); o hook de despacho atua com a guarda desligada; a negação de agente removido só alcança sessão aberta antes da atualização.
 
 ### Fatia 7 — Régua de desenvolvimento

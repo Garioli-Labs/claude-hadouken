@@ -569,11 +569,11 @@ O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois
 
 **Arquivos:**
 - Criar: `kit/skills/mutacao/SKILL.md`, `test/kit-mutacao.test.js`
-- Modificar: `README.md`, `README.en.md` (régua, `/hadouken-kit:regua`, critério da auditoria, mutação)
+- Modificar: `README.md`, `README.en.md` (régua, `/hadouken-kit:regua`, critério da auditoria, mutação), `wiki/Kit.md`, `wiki/Kit-en.md`
 
 - [ ] **Passo 1 — teste que falha.** O texto da skill contém `StrykerJS`, `npx`, `git diff -U0`, `mutmut`, `Stryker.NET`, `PIT` e `sobrevivente`. Não contém meta percentual (`/\d+\s*%/`). Frontmatter com `name: mutacao`.
 - [ ] **Passo 2** — `node --test test/kit-mutacao.test.js` → FAIL.
-- [ ] **Passo 3** — escrever a skill com o conteúdo da spec §4 Fatia 7 ("Mutação") e os READMEs. Os READMEs também dizem que a régua do repo (`<raiz do projeto>/.claude/hadouken.json`) substitui a do usuário por inteiro, com a linha de aviso no SessionStart, e que a raiz é `CLAUDE_PROJECT_DIR`, senão o `.git` mais próximo, senão o cwd.
+- [ ] **Passo 3** — escrever a skill com o conteúdo da spec §4 Fatia 7 ("Mutação") a seção da régua em `wiki/Kit.md` e `wiki/Kit-en.md` e uma linha em "Recursos" dos dois READMEs (até 60 linhas). A wiki também diz que a régua do repo (`<raiz do projeto>/.claude/hadouken.json`) substitui a do usuário por inteiro, com a linha de aviso no SessionStart, e que a raiz é `CLAUDE_PROJECT_DIR`, senão o `.git` mais próximo, senão o cwd.
 - [ ] **Passo 4** — `node --test` → 0 falhas.
 - [ ] **Passo 5** — commit `feat(kit): skill de teste de mutação`.
 - [ ] **Passo 6** — `revisor` na fatia 7.

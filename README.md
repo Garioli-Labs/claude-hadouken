@@ -27,6 +27,7 @@
 | 🖥️ **Saúde do PC** | `/hadouken:saude`: RAM, temperaturas, bateria, disco, sessões paradas, modo leve e a instalação conferida. |
 | ⚙️ **Janela no VS Code** | Todas as configurações num clique na barra: tetos, faixas, alertas, roteamento e proteções. |
 | 🧰 **Kit e REA** | `hadouken-kit`, as skills do dia a dia com o mapa de qual usar; `hadouken-rea`, engenharia reversa (desligado por padrão). |
+| 📏 **Régua de desenvolvimento** | `/hadouken-kit:regua`: a skill de cada fase do trabalho, com auditoria e teste de mutação antes do PR; a do repo vale no lugar da sua. [Detalhes](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit#régua-de-desenvolvimento) |
 
 ## Instalar
 

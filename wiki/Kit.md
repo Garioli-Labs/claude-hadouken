@@ -24,4 +24,23 @@ claude plugin install hadouken-kit@claude-hadouken
 - **REA, desligado por padrão quando instalado à mão.** O instalador de um comando o liga só na primeira instalação, se o Node servir; desligado por você, continua desligado. Para ligar à mão: `claude plugin install hadouken-rea@claude-hadouken` e `claude plugin enable hadouken-rea@claude-hadouken`. Ele abre `npx -y rea-agents@6.1.0 mcp` (versão exata; no Windows, pelo `cmd.exe /d /c`) com o cwd na pasta do plugin, nunca no projeto aberto (um `node_modules` ou `.npmrc` do repositório não entra); passe caminhos absolutos ao REA. Precisa de Node 22.19+, 24.11+ ou 26+ e **executa os programas analisados com as permissões do seu usuário**. Na primeira vez, o `npx` baixa o pacote (uns 20 a 30 s) e o `/mcp` pode acusar tempo esgotado; com o pacote no cache, conecta em segundos (reconecte pelo `/mcp` ou abra uma sessão nova).
 - **Versões e atualização automática.** Os terceiros do kit (`mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` e `ui-ux-pro-max`) são entradas do marketplace do Hadouken com o commit fixado (`sha`); o `superpowers` segue no marketplace oficial. O instalador de um comando liga `autoUpdate` no marketplace do Hadouken (no seu `settings.json`, com backup) e desliga as cópias antigas dos terceiros, que vinham dos marketplaces de cada um, para as skills não aparecerem em dobro (nada é desinstalado; desfazer é pôr `true` de volta em `enabledPlugins`). Toda segunda, um robô no GitHub Actions confere as versões publicadas: versão nova de um terceiro ou do `rea-agents` vai para um ramo, a suíte roda em Linux, Windows e macOS com Node 20, 22 e 24 e, tudo verde, o robô publica sozinho (tag `kit-v<versão>`); algum vermelho vira issue e nada é publicado. Versão nova do `graphifyy` (pip) só abre issue. O kit só fala com a rede quando o `setup.sh` da yu-ux roda (npm, pip, Playwright) e o REA, quando ligado, no primeiro `npx`.
 
+## Régua de desenvolvimento
+
+O `hadouken-kit` injeta no início da sessão a **régua**: a lista de fases do trabalho (ideia, protótipo, spec, auditoria, execução, teste, revisão, mutação...) com a skill de cada uma. Ela só orienta; quem decide é você. `/hadouken-kit:regua` mostra e muda a régua:
+
+| Comando | Faz |
+|---|---|
+| `/hadouken-kit:regua` | Mostra a régua ativa e de onde ela vem (repo, global ou padrão). |
+| `/hadouken-kit:regua editar` | O Claude monta a régua com você, fase a fase, e grava um rascunho em `<tmp do SO>/hadouken/regua-rascunho.json`. Nada vale até o `aplicar`. |
+| `/hadouken-kit:regua aplicar [--projeto]` | Valida o rascunho e grava: sem `--projeto`, em `~/.claude/hadouken/regua.json` (global); com `--projeto`, na chave `regua` de `<raiz do projeto>/.claude/hadouken.json`. |
+| `/hadouken-kit:regua padrao [--projeto]` | Remove a régua do nível e volta à seguinte. |
+
+**Precedência**: régua do repo, senão a global, senão a padrão. A de maior precedência substitui a outra **por inteiro**, sem mesclar. Quando a do repo vale no lugar da sua, o SessionStart mostra uma linha de aviso. Arquivo ilegível ou inválido → aviso e cai para o nível seguinte.
+
+**Raiz do projeto**: `CLAUDE_PROJECT_DIR`; senão o `.git` mais próximo, subindo do diretório atual; senão o próprio diretório atual.
+
+**Auditoria**: as fases "Auditoria da spec" e "Auditoria do diff" (agente `hadouken:auditor`) rodam quando a mudança custa caro se errar (produção, dinheiro, autenticação, dado real, irreversível) ou muda contrato público (API, schema, config do usuário, hook, formato de arquivo). Ficam de fora doc, rename e fatia mecânica. A segunda rodada só vale se a spec mudou materialmente.
+
+**Mutação** (`hadouken-kit:mutacao`): no fim da frente, antes do PR, roda teste de mutação só nas linhas alteradas no branch. Cada sobrevivente em linha alterada é morto com um teste ou justificado no PR; não há nota percentual fixa. Ferramenta por stack: StrykerJS via `npx` (JS/TS, sem virar dependência do projeto), mutmut (Python), Stryker.NET (.NET) e PIT (JVM); para outras, a skill avisa que não há ferramenta conhecida e pede a escolha.
+
 ---
