@@ -15,6 +15,11 @@ export * from './painel.js';
 // Dois níveis acima de src/uso/.
 const RAIZ_PLUGIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ERRO = Object.freeze({ ok: false, motivo: 'erro' });
+
+// A raiz do plugin, para a extensão rodar o instalador numa conta nova (v0.5.9).
+export async function raizDoPlugin() {
+  return RAIZ_PLUGIN;
+}
 const erro = () => ({ ...ERRO });
 
 // O interruptor do aprendizado mostra o estado real (ligado.json), não a

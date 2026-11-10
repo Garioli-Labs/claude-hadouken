@@ -12,6 +12,8 @@ function criar() {
     criacoesDePainel: 0,
     mensagens: [],
     respostas: [],
+    avisos: [], respostasAviso: [], quickPicks: [], escolhas: [], inputBoxes: [], digitados: [],
+    config: {}, atualizacoes: [], ouvintesConfig: [], pastas: undefined,
     terminais: [],
     comandos: new Map(),
     executados: [],
@@ -85,15 +87,42 @@ function criar() {
         estado.mensagens.push(args);
         return Promise.resolve(estado.respostas.shift());
       },
+      showWarningMessage(...args) {
+        estado.avisos.push(args);
+        return Promise.resolve(estado.respostasAviso.shift());
+      },
+      showQuickPick(itens, opcoes) {
+        estado.quickPicks.push({ itens, opcoes });
+        const f = estado.escolhas.shift();
+        return Promise.resolve(typeof f === 'function' ? f(itens) : undefined);
+      },
+      showInputBox(opcoes) {
+        estado.inputBoxes.push(opcoes);
+        return Promise.resolve(estado.digitados.shift());
+      },
       createTerminal(opcoes) {
         const t = { opcoes, enviados: [], mostrado: false, sendText(s) { t.enviados.push(s); }, show() { t.mostrado = true; } };
         estado.terminais.push(t);
         return t;
       },
     },
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     workspace: {
+      get workspaceFolders() { return estado.pastas; },
       getConfiguration(secao) {
-        return { get: (chave) => (secao === 'workbench' && chave === 'reduceMotion' ? estado.reduceMotion : undefined) };
+        return {
+          get: (chave) => (secao === 'workbench' && chave === 'reduceMotion' ? estado.reduceMotion : estado.config[`${secao}.${chave}`]),
+          update: (chave, valor, alvo) => {
+            estado.atualizacoes.push({ chave: `${secao}.${chave}`, valor, alvo });
+            estado.config[`${secao}.${chave}`] = valor;
+            for (const f of estado.ouvintesConfig) f({ affectsConfiguration: (s) => `${secao}.${chave}`.startsWith(s) });
+            return Promise.resolve();
+          },
+        };
+      },
+      onDidChangeConfiguration(f) {
+        estado.ouvintesConfig.push(f);
+        return { dispose() { estado.ouvintesConfig = estado.ouvintesConfig.filter((x) => x !== f); } };
       },
     },
     commands: {

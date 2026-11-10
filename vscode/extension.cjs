@@ -105,7 +105,7 @@ const chamar = (m, nome) => Promise.resolve().then(() => (typeof m[nome] === 'fu
 
 // Spec vscode §4.4: só esta lista de mensagens da janela, cada uma com a forma
 // conferida; o resto é ignorado.
-const TIPOS_MENSAGEM = new Set(['pronto', 'salvar', 'voltarPadrao', 'desfazer', 'atualizarUso', 'atualizarHadouken', 'ligarAprendizado', 'desligarAprendizado', 'ligarLeve', 'desligarLeve']);
+const TIPOS_MENSAGEM = new Set(['pronto', 'salvar', 'voltarPadrao', 'desfazer', 'atualizarUso', 'atualizarHadouken', 'ligarAprendizado', 'desligarAprendizado', 'ligarLeve', 'desligarLeve', 'conta']);
 const CHAVE_CONFIG = /^[a-zA-Z0-9.]{1,60}$/;
 const VERSAO_CONFIG = /^([0-9a-f]{16}|ausente)$/;
 const MAX_CHAVES = 40;
@@ -170,6 +170,78 @@ function dirDados() {
   } catch {
     return null;
   }
+}
+
+// ------------------------------------------------------- conta por janela (v0.5.9)
+// Cada conta é uma pasta em ~/.claude-contas/<nome>, usada como
+// CLAUDE_CONFIG_DIR. A janela guarda a escolha nas configurações do workspace
+// (claudeCode.environmentVariables e terminal.integrated.env.<so>); a conta é
+// só a pasta e o nome que a pessoa deu: nada de e-mail nem credencial.
+const COMANDO_CONTA = 'claudeHadouken.conta';
+const PASTA_CONTAS = '.claude-contas';
+const NOME_CONTA = /^[a-z0-9-]{1,32}$/;
+
+// "Ação 2" -> "acao-2"; null para o que não serve (ou "principal").
+function nomeDeConta(texto) {
+  if (typeof texto !== 'string') return null;
+  const n = texto.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '-');
+  return NOME_CONTA.test(n) && n !== 'principal' ? n : null;
+}
+const rotuloConta = (n) => n.charAt(0).toUpperCase() + n.slice(1).replace(/-/g, ' ');
+
+// As variáveis do Claude Code com a conta (ou sem ela, para a Principal),
+// mantendo as outras da pessoa.
+function varsComConta(vars, pasta) {
+  const resto = Array.isArray(vars) ? vars.filter((v) => objetoSimples(v) && v.name !== 'CLAUDE_CONFIG_DIR') : [];
+  return pasta === null ? resto : [...resto, { name: 'CLAUDE_CONFIG_DIR', value: pasta }];
+}
+function envComConta(env, pasta) {
+  const r = objetoSimples(env) ? { ...env } : {};
+  delete r.CLAUDE_CONFIG_DIR;
+  if (pasta !== null) r.CLAUDE_CONFIG_DIR = pasta;
+  return r;
+}
+function pastaDaJanela(vars) {
+  if (!Array.isArray(vars)) return null;
+  const v = vars.find((x) => objetoSimples(x) && x.name === 'CLAUDE_CONFIG_DIR');
+  return v !== undefined && completo(v.value) && !v.value.includes('\0') ? path.resolve(v.value) : null;
+}
+function listarContas(raiz) {
+  try {
+    return fs.readdirSync(raiz, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && NOME_CONTA.test(d.name) && d.name !== 'principal')
+      .map((d) => d.name).sort();
+  } catch {
+    return [];
+  }
+}
+// Instalador do plugin (que traz o kit) na conta nova, e o claude para o
+// /login. null para uma raiz que não dá para pôr entre aspas com segurança.
+function comandoNovaConta(raiz, plataforma) {
+  if (typeof raiz !== 'string') return null;
+  if (plataforma === 'win32') {
+    if (!COMPLETO_WIN.test(raiz) || /["`$\0\r\n]/.test(raiz)) return null;
+    return { shellPath: 'powershell.exe', texto: `powershell -NoProfile -ExecutionPolicy Bypass -File "${path.win32.join(raiz, 'install.ps1')}" --sim --sem-extras; claude` };
+  }
+  if (!raiz.startsWith('/') || /["`$\\\0\r\n]/.test(raiz)) return null;
+  return { shellPath: undefined, texto: `bash "${path.posix.join(raiz, 'install.sh')}" --sim --sem-extras; claude` };
+}
+const soDoTerminal = () => (process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux');
+// O valor do workspace (não o mesclado com o do usuário), para não copiar as
+// configurações globais para o projeto.
+function valorDoWorkspace(cfg, chave) {
+  const i = typeof cfg.inspect === 'function' ? cfg.inspect(chave) : undefined;
+  return i !== undefined ? i.workspaceValue : cfg.get(chave);
+}
+// .vscode/settings.json versionado no git? Nunca lança; sem git, false.
+function versionadoNoGit(pasta) {
+  return new Promise((resolve) => {
+    try {
+      require('node:child_process').execFile('git', ['ls-files', '--error-unmatch', '.vscode/settings.json'], { cwd: pasta, timeout: 3_000, windowsHide: true }, (erro) => resolve(erro === null));
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 // Estado do módulo, dividido entre as ativações do mesmo processo.
@@ -322,6 +394,8 @@ function activate(ctx) {
     let versaoNova = null;
     let versaoInstalada = null;
     let saudeBarra = null;
+    // Nome da conta desta janela, ou null quando só existe a Principal.
+    let contaRotulo = null;
     // A janela (§4): uma só; o token de desfazer fica aqui, nunca na página.
     let janela = null;
     let tokenDesfazer = null;
@@ -384,7 +458,13 @@ function activate(ctx) {
         pintar();
         const cor = typeof e.nivel === 'string' ? COR[e.nivel] : undefined;
         item.backgroundColor = cor === undefined ? undefined : new vscode.ThemeColor(cor);
-        item.tooltip = e.dica === '' ? undefined : new vscode.MarkdownString(e.dica);
+        if (contaRotulo === null) {
+          item.tooltip = e.dica === '' ? undefined : new vscode.MarkdownString(e.dica);
+        } else {
+          const md = new vscode.MarkdownString(`**Conta:** ${contaRotulo} · [trocar](command:${COMANDO_CONTA})${e.dica === '' ? '' : `\n\n${e.dica}`}`);
+          md.isTrusted = { enabledCommands: [COMANDO_CONTA] };
+          item.tooltip = md;
+        }
       } catch {
         descartar(m);
         comLogo = false;
@@ -417,6 +497,7 @@ function activate(ctx) {
           versaoInstalada,
           roteamento,
           saude: saudeValida(saude),
+          conta: contaRotulo ?? 'Principal',
           movimentoReduzido: movimentoReduzido(),
         });
       } catch {
@@ -486,6 +567,7 @@ function activate(ctx) {
             break;
           }
           case 'atualizarUso': await vscode.commands.executeCommand(COMANDO); break;
+          case 'conta': await vscode.commands.executeCommand(COMANDO_CONTA); return;
           case 'atualizarHadouken': await abrirTerminalAtualizar(m); return;
           case 'ligarAprendizado': await chamar(m, 'ligarAprendizado'); break;
           case 'desligarAprendizado': await chamar(m, 'desligarAprendizado'); break;
@@ -622,6 +704,107 @@ function activate(ctx) {
       }
     }));
     ctx.subscriptions.push(vscode.commands.registerCommand(COMANDO_JANELA, abrirJanela));
+
+    // Conta desta janela (v0.5.9). O processo da extensão é um por janela:
+    // pôr o CLAUDE_CONFIG_DIR nele leva o painel para os dados da conta.
+    const raizContas = () => {
+      const home = os.homedir();
+      return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, PASTA_CONTAS) : null;
+    };
+    const atualizarRotulo = () => {
+      const raiz = raizContas();
+      const contas = raiz === null ? [] : listarContas(raiz);
+      if (contas.length === 0) {
+        contaRotulo = null;
+        return;
+      }
+      const c = process.env.CLAUDE_CONFIG_DIR;
+      const p = completo(c) ? path.resolve(c) : null;
+      const igual = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+      contaRotulo = p !== null && igual(path.dirname(p), raiz) && contas.includes(path.basename(p)) ? rotuloConta(path.basename(p)) : 'Principal';
+    };
+    const aplicarConta = (pasta) => {
+      if (pasta === null) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = pasta;
+      atualizarRotulo();
+      carregar(false).then((m) => redesenhar(m), () => null);
+    };
+    const gravarConta = async (pasta) => {
+      const cc = vscode.workspace.getConfiguration('claudeCode');
+      await cc.update('environmentVariables', varsComConta(valorDoWorkspace(cc, 'environmentVariables'), pasta), vscode.ConfigurationTarget.Workspace);
+      const ti = vscode.workspace.getConfiguration('terminal.integrated');
+      const chave = `env.${soDoTerminal()}`;
+      await ti.update(chave, envComConta(valorDoWorkspace(ti, chave), pasta), vscode.ConfigurationTarget.Workspace);
+      aplicarConta(pasta);
+    };
+    const escolherConta = async () => {
+      try {
+        const pastas = vscode.workspace.workspaceFolders;
+        const raiz = raizContas();
+        if (!Array.isArray(pastas) || pastas.length === 0 || raiz === null) {
+          void vscode.window.showInformationMessage('Abra uma pasta nesta janela para escolher a conta do Claude dela.');
+          return;
+        }
+        const contas = listarContas(raiz);
+        const atual = contaRotulo ?? 'Principal';
+        const itens = [
+          { label: 'Principal', pasta: null },
+          ...contas.map((n) => ({ label: rotuloConta(n), pasta: path.join(raiz, n) })),
+          { label: '$(add) Nova conta…', nova: true },
+        ].map((i) => (i.label === atual ? { ...i, description: 'esta janela' } : i));
+        const e = await vscode.window.showQuickPick(itens, { placeHolder: 'Conta do Claude nesta janela' });
+        if (e === undefined || e === null) return;
+        let pasta = e.pasta ?? null;
+        let nome = null;
+        if (e.nova === true) {
+          const digitado = await vscode.window.showInputBox({
+            prompt: 'Nome da conta (ex.: Trabalho)',
+            validateInput: (t) => {
+              const n = nomeDeConta(t);
+              if (n === null) return 'Use letras, números e espaços, até 32 (e não "Principal").';
+              return contas.includes(n) ? 'Já existe uma conta com esse nome.' : null;
+            },
+          });
+          nome = nomeDeConta(digitado);
+          if (nome === null || contas.includes(nome)) return;
+          pasta = path.join(raiz, nome);
+        }
+        if (await versionadoNoGit(pastas[0].uri.fsPath)) {
+          const r = await vscode.window.showWarningMessage('O .vscode/settings.json deste projeto está no git, e a pasta da conta fica gravada nele. Se não quiser compartilhar, ponha-o no .gitignore.', { modal: true }, 'Continuar');
+          if (r !== 'Continuar') return;
+        }
+        if (nome !== null) fs.mkdirSync(pasta, { recursive: true });
+        await gravarConta(pasta);
+        if (nome === null) {
+          void vscode.window.showInformationMessage(`Conta desta janela: ${e.label}. Sessões novas do Claude Code usam ela; feche e reabra as que estão abertas.`);
+          return;
+        }
+        const m = await carregar(false);
+        const raizPlugin = m !== null && typeof m.raizDoPlugin === 'function' ? await Promise.resolve().then(() => m.raizDoPlugin()).catch(() => null) : null;
+        const c = comandoNovaConta(raizPlugin, process.platform) ?? { shellPath: process.platform === 'win32' ? 'powershell.exe' : undefined, texto: 'claude' };
+        const t = vscode.window.createTerminal({ name: `hadouken: ${rotuloConta(nome)}`, ...(c.shellPath === undefined ? {} : { shellPath: c.shellPath }), env: { CLAUDE_CONFIG_DIR: pasta } });
+        t.sendText(c.texto);
+        t.show();
+        void vscode.window.showInformationMessage(`Conta ${rotuloConta(nome)} criada. No terminal que abriu, o hadouken se instala nela e o claude abre: digite /login e entre com a conta ${rotuloConta(nome)}. Uma vez só.`);
+      } catch {
+        // a troca de conta nunca derruba a extensão
+      }
+    };
+    ctx.subscriptions.push(vscode.commands.registerCommand(COMANDO_CONTA, escolherConta));
+    try {
+      const inicial = pastaDaJanela(vscode.workspace.getConfiguration('claudeCode').get('environmentVariables'));
+      if (inicial !== null) process.env.CLAUDE_CONFIG_DIR = inicial;
+      atualizarRotulo();
+      if (typeof vscode.workspace.onDidChangeConfiguration === 'function') {
+        ctx.subscriptions.push(vscode.workspace.onDidChangeConfiguration((ev) => {
+          if (!ev.affectsConfiguration('claudeCode.environmentVariables')) return;
+          const p = pastaDaJanela(vscode.workspace.getConfiguration('claudeCode').get('environmentVariables'));
+          if ((p ?? undefined) !== process.env.CLAUDE_CONFIG_DIR) aplicarConta(p);
+        }));
+      }
+    } catch {
+      // sem conta: a Principal
+    }
     tique();
   } catch {
     // a extensão nunca lança
@@ -637,4 +820,4 @@ function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, _teste: { quadros, segmentos, dirDados } };
+module.exports = { activate, deactivate, _teste: { quadros, segmentos, dirDados, nomeDeConta, varsComConta, envComConta, pastaDaJanela, comandoNovaConta } };

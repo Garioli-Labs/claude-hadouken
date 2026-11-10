@@ -418,6 +418,7 @@
     $('texto-versao').textContent = typeof m.versaoNova === 'string' ? `hadouken ${m.versaoNova} disponível` : '';
     montarFeixes();
     montarSaude(m.saude);
+    $('conta-nome').textContent = typeof m.conta === 'string' ? m.conta : 'Principal';
     if (m.config && Array.isArray(m.config.itens)) {
       const versaoAntes = versaoMontada;
       config = m.config;
@@ -505,6 +506,7 @@
   });
   $('atualizar-uso').addEventListener('click', () => vscode.postMessage({ tipo: 'atualizarUso' }));
   $('atualizar-hadouken').addEventListener('click', () => vscode.postMessage({ tipo: 'atualizarHadouken' }));
+  $('trocar-conta').addEventListener('click', () => vscode.postMessage({ tipo: 'conta' }));
 
   vscode.postMessage({ tipo: 'pronto' });
 }());
