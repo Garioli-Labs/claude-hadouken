@@ -77,6 +77,24 @@ Every release ends early if the week rises 10 points. It applies to every sessio
 
 Since v0.5.6, when Claude schedules the next turn of a loop (`ScheduleWakeup`) or creates a scheduled task (`CronCreate`) while the guard is locked on the 5-hour or 7-day window, it gets a line with the reset time: waking up before that only spends quota. A `ScheduleWakeup` waits at most 1 h, so the guidance is to repeat the wait until the reset. For a fixed-interval task, the guidance is to switch to a `ScheduleWakeup` after the reset. Nothing is denied because of this; with an active release, the line does not show.
 
+### The work window
+
+By default, the week's pace counts the 168 hours of 7 days, and the overrun forecast assumes use around the clock. If you work fixed hours, say which, and the pace counts only those hours. The command only counts when typed:
+
+- `/hadouken:janela`: shows the current window (`hadouken: janela seg–sex 09:00–21:00.`) or "sem janela: ritmo em 168 h" (no window: pace over 168 h).
+- `/hadouken:janela seg-sex 9-21` or `/hadouken:janela seg,qua,sex 08:30-18:00`: saves it. Days accept a list (`seg,qua,sex`), a range (`seg-sex`) and a mix (`seg-qua,sex`); a range follows the order of the week (`sex-seg` does not wrap around). Days: `dom seg ter qua qui sex sab` (also `sáb`). The time goes from `9` to `09:30`, to the minute, in the computer's local time.
+- `/hadouken:janela off`: removes the window.
+
+The window lives under the `janela` key of `config.json` (`{"dias": ["seg","ter","qua","qui","sex"], "inicio": "09:00", "fim": "21:00"}`); saving keeps the other keys. The start must be before the end on the same day, and the end goes up to `23:59` (`24:00` is invalid). An invalid window (no days, an unknown day, `inicio` after `fim`, a wrong format) becomes the warning "janela inválida; usando 168 h" (invalid window; using 168 h) and the 168-hour calculation.
+
+What changes, only on the 7-day window:
+
+- **The expected value.** The expected percentage is the working minutes already elapsed over the working minutes of the week, not the clock hours. Outside the window, the expected value stands still.
+- **The forecast.** The rate is usage per working minute, the time left moves only in working minutes, and outside the window the projected usage is zero. The week's forecast needs 2 working hours of sample, and the "esgota" (runs out) phrase needs 2 working hours elapsed. If the forecast instant falls past the reset, the phrase says it does not run out before the reset. The G2 lock uses this forecast.
+- **The 5 h window** does not change.
+
+A scheduled prompt (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` or an MCP scheduler) that contains `hadouken:janela` or `/janela` as a word is denied, and the message asks you to take the command out of the text: it only counts when typed. The bare word "janela" ("janela de 5 h") is not watched. The window uses the system time zone; a container or an SSH session in another time zone shifts the hours.
+
 ### What the bar says
 
 - `guarda: 7d`: tripped, with the window or `Fable` (guard: 7d).

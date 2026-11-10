@@ -212,10 +212,10 @@ test('passoKit: dependência instalada e desligada pelo usuário, sem equivalent
   assert.doesNotMatch(r.item.detalhe, /por você/);
 });
 
-test('DEPENDENCIAS_KIT é o que o instalador garante (hadouken + terceiros); o manifesto do kit declara só o hadouken', () => {
+test('DEPENDENCIAS_KIT é o que o instalador garante (hadouken + terceiros); o manifesto do kit declara só o hadouken, com a faixa >=0.6.0', () => {
   const kit = JSON.parse(fs.readFileSync(new URL('../kit/.claude-plugin/plugin.json', import.meta.url), 'utf8'));
   assert.deepEqual(DEPENDENCIAS_KIT, ['hadouken@claude-hadouken', ...TERCEIROS_KIT]);
-  assert.deepEqual(kit.dependencies, ['hadouken']);
+  assert.deepEqual(kit.dependencies, [{ name: 'hadouken', version: '>=0.6.0' }]);
 });
 
 test('passoRea: REA já instalado e desligado pelo usuário continua desligado, mesmo com Node aceito', async () => {

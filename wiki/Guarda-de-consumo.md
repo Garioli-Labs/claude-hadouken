@@ -75,6 +75,24 @@ Toda liberação acaba antes do prazo se a semana subir 10 pontos. Ela vale para
 
 Desde a v0.5.6, quando o Claude agenda a próxima volta de um loop (`ScheduleWakeup`) ou cria uma tarefa agendada (`CronCreate`) com a guarda travada na janela de 5 h ou de 7 dias, ele recebe uma linha com o horário do reset: acordar antes disso só gasta cota. Um `ScheduleWakeup` espera no máximo 1 h, então a orientação é repetir a espera até o reset. Numa tarefa com intervalo fixo, a orientação é trocar por um `ScheduleWakeup` depois do reset. Nada é negado por isso; com uma liberação ativa, a linha não aparece.
 
+### A janela de trabalho
+
+Por padrão, o ritmo da semana conta as 168 horas de 7 dias, e a previsão de estouro presume uso o tempo todo. Quem trabalha em horário fixo diz qual é, e o ritmo passa a contar só esse horário. O comando só vale digitado:
+
+- `/hadouken:janela`: mostra a janela atual (`hadouken: janela seg–sex 09:00–21:00.`) ou "sem janela: ritmo em 168 h".
+- `/hadouken:janela seg-sex 9-21` ou `/hadouken:janela seg,qua,sex 08:30-18:00`: grava. Os dias aceitam lista (`seg,qua,sex`), intervalo (`seg-sex`) e mistura (`seg-qua,sex`); o intervalo vai na ordem da semana (`sex-seg` não dá a volta). Dias: `dom seg ter qua qui sex sab` (também `sáb`). A hora vai de `9` a `09:30`, de minuto em minuto, no horário do computador.
+- `/hadouken:janela off`: remove a janela.
+
+A janela fica na chave `janela` do `config.json` (`{"dias": ["seg","ter","qua","qui","sex"], "inicio": "09:00", "fim": "21:00"}`); gravar preserva as outras chaves. O início tem de ser antes do fim no mesmo dia, e o fim vai até `23:59` (`24:00` é inválido). Janela inválida (sem dias, dia desconhecido, `inicio` depois de `fim`, formato errado) vira o aviso "janela inválida; usando 168 h" e o cálculo de 168 horas.
+
+O que muda, só na janela de 7 dias:
+
+- **O esperado.** O percentual esperado é o dos minutos úteis já passados sobre os minutos úteis da semana, e não mais o das horas corridas. Fora da janela, o esperado fica parado.
+- **A previsão.** A taxa é consumo por minuto útil, o tempo que falta anda só em minutos úteis, e fora da janela o consumo projetado é zero. A previsão da semana pede 2 h úteis de amostra, e a frase "esgota" pede 2 h úteis decorridas. Se o instante previsto passa do reset, a frase diz que não esgota antes do reset. A trava G2 usa essa previsão.
+- **A janela de 5 h** não muda.
+
+Um prompt agendado (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` ou agendador MCP) que contenha `hadouken:janela` ou `/janela` como palavra é negado, e a mensagem pede para tirar o comando do texto: ele só vale digitado. A palavra solta "janela" ("janela de 5 h") não é vigiada. A janela usa o fuso do sistema; um contêiner ou uma sessão SSH em outro fuso desloca o horário.
+
 ### O que a barra diz
 
 - `guarda: 7d`: disparada, com a janela ou `Fable`.

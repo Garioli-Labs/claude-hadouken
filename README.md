@@ -13,7 +13,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Depois de atualizar, feche as sessões abertas com `/exit` e volte com `claude -c`.** Desde a v0.5.7 o Hadouken mantém o plugin, a extensão do VS Code e os atalhos na mesma versão em qualquer PC; o `/hadouken:saude` mostra o que estiver fora (linha `Instal.`).
+> **Depois de atualizar, feche as sessões abertas com `/exit` e volte com `claude -c`.** Desde a v0.5.7 o Hadouken mantém o plugin, a extensão do VS Code e os atalhos na mesma versão em qualquer PC; o `/hadouken:saude` mostra o que estiver fora (linha `Instal.`). Na 0.6.0 agentes mudaram de nome e o kit mudou de dependências: veja as [notas de quebra](https://github.com/Garioli-Labs/claude-hadouken/wiki/Home#notas-de-quebra-da-060).
 
 ## Recursos
 
@@ -22,11 +22,12 @@
 | 📊 **Limites na tela** | Sessão de 5 horas, semana e semana do Fable num item da barra do VS Code, com a logo animada, sem gastar tokens. |
 | 🧠 **Contexto e cache** | Quanto do contexto cada sessão usa e quanto veio do cache, na barra do Claude Code. |
 | 🛡️ **Guarda de consumo** | Avisa o Claude quando o ritmo vai esgotar a janela e segura o despacho caro até você liberar (`/hadouken:liberar`, inclusive `noite`). |
-| 🧭 **Roteamento** | Sugere modelo, effort e quando lançar agente, para não queimar Fable ou effort alto à toa. |
+| 🧭 **Roteamento** | Sugere modelo, effort e quando lançar agente, para não queimar Fable ou effort alto à toa; dez agentes prontos, e `/hadouken:agentes` muda o modelo, o effort e se cada um está ligado. [Detalhes](https://github.com/Garioli-Labs/claude-hadouken/wiki/Comandos#agentes-que-o-claude-usa) |
+| 🕘 **Janela de trabalho** | `/hadouken:janela seg-sex 9-21`: o ritmo e a previsão da semana contam só o seu horário, não as 168 horas. [Detalhes](https://github.com/Garioli-Labs/claude-hadouken/wiki/Guarda-de-consumo#a-janela-de-trabalho) |
 | 📈 **Relatório** | `/hadouken:consumo`: tokens por projeto e por modelo·effort, plano da conta (Pro, Max 5x, Max 20x) e minutos do GitHub Actions. |
 | 🖥️ **Saúde do PC** | `/hadouken:saude`: RAM, temperaturas, bateria, disco, sessões paradas, modo leve e a instalação conferida. |
 | ⚙️ **Janela no VS Code** | Todas as configurações num clique na barra: tetos, faixas, alertas, roteamento e proteções. |
-| 🧰 **Kit e REA** | `hadouken-kit`, as skills do dia a dia com o mapa de qual usar; `hadouken-rea`, engenharia reversa (desligado por padrão). |
+| 🧰 **Kit e REA** | `hadouken-kit`, as skills do dia a dia com o mapa de qual usar e sem cópia em dobro das que você já tem ([dedup](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit#dependências-e-cópias-em-dobro)); `hadouken-rea`, engenharia reversa (desligado por padrão). |
 | 📏 **Régua de desenvolvimento** | `/hadouken-kit:regua`: a skill de cada fase do trabalho, com auditoria e teste de mutação antes do PR; a do repo vale no lugar da sua. [Detalhes](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit#régua-de-desenvolvimento) |
 
 ## Instalar

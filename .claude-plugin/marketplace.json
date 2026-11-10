@@ -12,13 +12,13 @@
       "name": "hadouken",
       "source": "./",
       "description": "Hadouken: usage on screen, usage guard, routing, reports and PC health for Claude Code.",
-      "version": "0.5.8"
+      "version": "0.6.0"
     },
     {
       "name": "hadouken-kit",
       "source": "./kit",
       "description": "The daily skill set (superpowers, Matt Pocock, poka-yoke, fullstack, UI/UX) plus a map of which skill to use at each step.",
-      "version": "1.1.2"
+      "version": "1.2.0"
     },
     {
       "name": "hadouken-rea",

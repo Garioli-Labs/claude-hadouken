@@ -333,9 +333,9 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 | A1 | Despacho com `model` explícito e config com outro | Explícito vence |
 | A2 | `ativo:false` com `model` explícito | Nega (agente inativo) com substituto |
 | A3 | Config dá `opus` a `busca` com guarda ligada, despacho sem `model` | N1 e N2 avaliam o `tool_input` original; não negam |
-| A4 | Outro plugin também devolve `updatedInput` no Agent | Comportamento não documentado; e2e registra o que acontece; README avisa |
+| A4 | Outro plugin também devolve `updatedInput` no Agent | Comportamento não documentado; e2e registra o que acontece; a wiki avisa (`wiki/Comandos.md` e `wiki/Commands.md`, "Mudar a paleta", item "Outro plugin no despacho") |
 | A5 | `effort` em haiku | Injeta; Claude Code aceitou `low` em haiku no experimento |
-| A6 | Agente local de mesmo nome em `~/.claude/agents` | Vence o do plugin no nome curto; a paleta vale para `hadouken:<nome>`; README orienta remover as cópias locais |
+| A6 | Agente local de mesmo nome em `~/.claude/agents` | Vence o do plugin no nome curto; a paleta vale para `hadouken:<nome>`; a wiki orienta remover as cópias locais (`wiki/Comandos.md` e `wiki/Commands.md`, "Mudar a paleta", item "Agente local de mesmo nome") |
 | A7 | Despacho `Workflow` | Paleta não se aplica |
 | A8 | Erro de leitura da config | Passa adiante sem injetar; aviso no SessionStart |
 | A9 | Despacho com `model` ou `effort` explícito igual ao de `agentes.<nome>` ou, para o `model`, a `roteamento.subir[<agente>]` | Subida aprovada: N1 e N2 não negam. Explícito diferente do aprovado → N1/N2 negam como antes |

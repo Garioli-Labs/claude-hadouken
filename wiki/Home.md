@@ -16,7 +16,7 @@ Plugin do Claude Code que mostra o consumo real (sessão de 5 horas, semana, sem
 - [hadouken-kit](Kit) e [hadouken-rea](REA)
 - [Comandos](Comandos)
 - [Problemas comuns](Problemas-comuns), incluindo "atualizei e o plugin sumiu"
-- Nesta página: [Instalação](#instalação), [Roteiro](#roteiro), [Contribuindo](#contribuindo) e [Licença](#licença)
+- Nesta página: [Instalação](#instalação), [Roteiro](#roteiro), [Notas de quebra da 0.6.0](#notas-de-quebra-da-060), [Contribuindo](#contribuindo) e [Licença](#licença)
 
 ## Por que existe
 
@@ -182,7 +182,7 @@ O plugin completo tem quatro subprojetos, cada um com spec, plano e revisão pr�
 
 | Subprojeto | O que faz | Status |
 |---|---|---|
-| **A. Leitor de consumo** | Barra, painel no VS Code, avisos, guarda e relatório. | **v0.5.4** (este) |
+| **A. Leitor de consumo** | Barra, painel no VS Code, avisos, guarda e relatório. | **v0.6.0** (este) |
 | B. Roteador | Lançador dinâmico de sessão, agente principal fixo, agentes por modelo × effort, regras injetadas e checagem de divergência com as regras do projeto. | Planejado |
 | C. Planejador | Planejamento de sessão e de semana a partir do plano do projeto e do custo medido por tarefa. | Planejado |
 | D. Guardas do GitHub | Guardas de pushes e de CI em mudança só de documentação, e sugestões de melhoria. | Planejado |
@@ -193,11 +193,22 @@ O plugin completo tem quatro subprojetos, cada um com spec, plano e revisão pr�
 - **v0.5.0** = o hadouken-kit e o hadouken-rea, opcionais no mesmo marketplace: o kit instala e fixa as skills do fluxo (superpowers, Matt Pocock, yu-ux-web-expert, graphify e outras), diz ao Claude o momento de cada uma e avisa quando uma dependência lança versão principal nova; o REA liga o servidor MCP de engenharia reversa. E os ajustes menores da revisão da v0.4.0.
 - **v0.5.1** = acompanha o mattpocock-skills 1.3.1 (27 skills), faz o REA subir sob junção ou link e avisar quando o Node não serve, e deixa o aviso semanal ler o superpowers que o marketplace oficial instala, sem reabrir issue nem repassar texto de terceiro.
 - **v0.5.2** = o instalador de um comando (Windows, Mac e Linux), os terceiros do kit fixados no próprio marketplace com atualização automática, o robô semanal do kit e o plugin renomeado para `hadouken`.
-- **v0.5.4** (esta) = a janela do hadouken no VS Code, com todas as configurações, Salvar e Desfazer; o `/hadouken:limites`; o roteamento de modelo e effort, com os agentes prontos e as otimizações; quatro proteções que o usuário pode desligar e o fim do bloqueio por engano de comandos que citam a pasta do projeto; o aviso de versão nova com o botão Atualizar; o aprendizado local ligado por padrão (`--sem-aprender` para ficar sem); e a documentação nesta wiki.
+- **v0.5.4** = a janela do hadouken no VS Code, com todas as configurações, Salvar e Desfazer; o `/hadouken:limites`; o roteamento de modelo e effort, com os agentes prontos e as otimizações; quatro proteções que o usuário pode desligar e o fim do bloqueio por engano de comandos que citam a pasta do projeto; o aviso de versão nova com o botão Atualizar; o aprendizado local ligado por padrão (`--sem-aprender` para ficar sem); e a documentação nesta wiki.
 - **v0.5.5** = segurança, estabilidade, compatibilidade e uso de RAM.
 - **v0.5.6** = o plano Pro ou Max nas estimativas, agentes ociosos e menos tokens por sessão.
-- **v0.6.0** = avisos no [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (prioridade), no WhatsApp ou nos dois, à escolha do usuário (pushes e tarefas concluídas). Ganha spec própria, e a segurança é pré-condição: a credencial fica fora do repo, a ativação é por projeto e as mensagens levam o mínimo, sem código, caminhos pessoais nem segredos.
+- **v0.6.0** (esta) = a paleta de dez agentes (`hadouken:busca`, `varredor`, `pesquisa`, `mecanico`, `implementador-mecanico`, `implementador`, `revisor`, `auditor`, `e2e` e `redator`), com o modelo e o effort de cada um mudando pelo `/hadouken:agentes` (veja [Comandos](Comandos#agentes-que-o-claude-usa)); a janela de trabalho do ritmo, pelo `/hadouken:janela` (veja [A janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho)); o `hadouken-kit` 1.2.0 sem cópia em dobro das dependências (veja [Dependências e cópias em dobro](Kit#dependências-e-cópias-em-dobro)), com a régua de desenvolvimento, a auditoria e o teste de mutação; e a skill `roteamento` reescrita, com o critério de modelo e effort, o brief e o relatório do subagente. Antes de atualizar, leia as [notas de quebra](#notas-de-quebra-da-060).
+- **v0.7.0** = avisos no [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (prioridade), no WhatsApp ou nos dois, à escolha do usuário (pushes e tarefas concluídas). Ganha spec própria, e a segurança é pré-condição: a credencial fica fora do repo, a ativação é por projeto e as mensagens levam o mínimo, sem código, caminhos pessoais nem segredos.
 - **v1.0** = A + B + C + D.
+
+### Notas de quebra da 0.6.0
+
+- **Agentes renomeados ou removidos.** `hadouken:executor` saiu (use `hadouken:implementador`) e `hadouken:revisor-critico` saiu (use `hadouken:auditor`). `hadouken:mecanico`, `busca`, `pesquisa` e `revisor` continuam; entram `varredor`, `implementador-mecanico`, `implementador`, `auditor`, `e2e` e `redator`.
+- **`hadouken:revisor` desceu de Opus para Sonnet** (Sonnet · high). Para ter o Opus de volta: `/hadouken:agentes revisor opus high`.
+- **O `hadouken-kit` não declara mais os terceiros no manifesto.** `superpowers`, `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` e `ui-ux-pro-max` saíram das dependências do kit; o instalador de um comando continua garantindo os cinco e o início de sessão do kit avisa de cópia em dobro (veja [Dependências e cópias em dobro](Kit#dependências-e-cópias-em-dobro)).
+- **O hook de despacho atua com a guarda desligada.** A paleta (negar agente desligado ou removido e pôr o modelo e o effort da sua config) vale mesmo com `"ligada": false` na guarda.
+- **A negação de agente removido só alcança a sessão aberta antes da atualização.** Depois dela, `executor` e `revisor-critico` somem do Claude Code, e a mensagem com o substituto não aparece.
+
+O `hadouken-kit` 1.2.0 exige o `hadouken` ≥ 0.6.0; com um `hadouken` menor o kit fica desabilitado.
 
 ---
 

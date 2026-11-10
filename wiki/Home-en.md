@@ -16,7 +16,7 @@ A Claude Code plugin that shows real usage (5-hour session, week, Fable week, co
 - [hadouken-kit](Kit-en) and [hadouken-rea](REA-en)
 - [Commands](Commands)
 - [Troubleshooting](Troubleshooting), including "I updated and the plugin disappeared"
-- On this page: [Installation](#installation), [Roadmap](#roadmap), [Contributing](#contributing) and [License](#license)
+- On this page: [Installation](#installation), [Roadmap](#roadmap), [Breaking changes in 0.6.0](#breaking-changes-in-060), [Contributing](#contributing) and [License](#license)
 
 ## Why it exists
 
@@ -182,7 +182,7 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 
 | Subproject | What it does | Status |
 |---|---|---|
-| **A. Usage reader** | Status bar, VS Code panel, notices, guard and report. | **v0.5.4** (this one) |
+| **A. Usage reader** | Status bar, VS Code panel, notices, guard and report. | **v0.6.0** (this one) |
 | B. Router | Dynamic session launcher, fixed main agent, agents per model × effort, injected rules and a divergence check against the project's rules. | Planned |
 | C. Planner | Session and week planning from the project plan and the measured cost per task. | Planned |
 | D. GitHub guards | Guards for pushes and for CI on documentation-only changes, plus improvement suggestions. | Planned |
@@ -193,11 +193,22 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 - **v0.5.0** = hadouken-kit and hadouken-rea, optional in the same marketplace: the kit installs and pins the workflow skills (superpowers, Matt Pocock, yu-ux-web-expert, graphify and others), tells Claude the moment for each one and warns when a dependency ships a new major version; the REA turns on the reverse engineering MCP server. Plus the minor fixes from the v0.4.0 review.
 - **v0.5.1** = follows mattpocock-skills 1.3.1 (27 skills), makes the REA start under a junction or link and say so when Node is too old, and has the weekly check read the superpowers the official marketplace installs, without reopening issues or passing third-party text along.
 - **v0.5.2** = the one-command installer (Windows, Mac and Linux), the kit's third parties pinned in the marketplace itself with automatic updates, the kit's weekly robot, and the plugin renamed to `hadouken`.
-- **v0.5.4** (this one) = the hadouken window in VS Code, with every setting, Save and Undo; `/hadouken:limites`; model and effort routing, with ready-made agents and the optimizations; four protections the user can turn off, and no more mistaken blocks of commands that mention the project folder; the new-version notice with an Update button; local learning on by default (`--sem-aprender` to go without); and the documentation in this wiki.
+- **v0.5.4** = the hadouken window in VS Code, with every setting, Save and Undo; `/hadouken:limites`; model and effort routing, with ready-made agents and the optimizations; four protections the user can turn off, and no more mistaken blocks of commands that mention the project folder; the new-version notice with an Update button; local learning on by default (`--sem-aprender` to go without); and the documentation in this wiki.
 - **v0.5.5** = security, stability, compatibility and RAM use.
 - **v0.5.6** = the Pro or Max plan in the estimates, idle agents and fewer tokens per session.
-- **v0.6.0** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
+- **v0.6.0** (this one) = the ten-agent palette (`hadouken:busca`, `varredor`, `pesquisa`, `mecanico`, `implementador-mecanico`, `implementador`, `revisor`, `auditor`, `e2e` and `redator`), with each one's model and effort changeable through `/hadouken:agentes` (see [Commands](Commands#agents-claude-uses)); the pace's work window, through `/hadouken:janela` (see [The work window](Usage-guard#the-work-window)); `hadouken-kit` 1.2.0 with no duplicate copy of its dependencies (see [Dependencies and duplicate copies](Kit-en#dependencies-and-duplicate-copies)), with the development ruler, the audit and mutation testing; and the `roteamento` skill rewritten, with the model and effort criterion, the brief and the subagent's report. Before updating, read the [breaking changes](#breaking-changes-in-060).
+- **v0.7.0** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
 - **v1.0** = A + B + C + D.
+
+### Breaking changes in 0.6.0
+
+- **Agents renamed or removed.** `hadouken:executor` is gone (use `hadouken:implementador`) and `hadouken:revisor-critico` is gone (use `hadouken:auditor`). `hadouken:mecanico`, `busca`, `pesquisa` and `revisor` stay; `varredor`, `implementador-mecanico`, `implementador`, `auditor`, `e2e` and `redator` are new.
+- **`hadouken:revisor` went down from Opus to Sonnet** (Sonnet · high). To get Opus back: `/hadouken:agentes revisor opus high`.
+- **`hadouken-kit` no longer declares the third parties in its manifest.** `superpowers`, `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` and `ui-ux-pro-max` left the kit's dependencies; the one-command installer still guarantees the five and the kit's session start warns about a duplicate copy (see [Dependencies and duplicate copies](Kit-en#dependencies-and-duplicate-copies)).
+- **The dispatch hook acts with the guard off.** The palette (denying a turned-off or removed agent and setting the model and effort from your config) applies even with `"ligada": false` on the guard.
+- **The denial of a removed agent only reaches a session opened before the update.** After it, `executor` and `revisor-critico` disappear from Claude Code, and the message naming the substitute does not show.
+
+`hadouken-kit` 1.2.0 requires `hadouken` ≥ 0.6.0; with an older `hadouken` the kit is disabled.
 
 ---
 

@@ -71,13 +71,28 @@ test('marketplace: allowlist só com o oficial', () => {
 // v0.6.0 (spec §4, Fatia 1): o manifesto declara só o hadouken. Dependência de
 // terceiro desabilitada derruba o kit; o instalador garante os terceiros
 // (DEPENDENCIAS_KIT) e o SessionStart do kit avisa de cópia em dobro.
-test('kit: versão igual à do marketplace e dependências só `hadouken` (sem terceiros, sem faixa de versão)', () => {
+test('kit: versão igual à do marketplace e dependências = o objeto {name:\'hadouken\', version:\'>=0.6.0\'} (sem terceiros)', () => {
   const kit = ler('kit/.claude-plugin/plugin.json');
   assert.equal(kit.name, 'hadouken-kit');
   assert.match(kit.version, /^\d+\.\d+\.\d+$/);
   assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken-kit').version, kit.version);
-  assert.deepEqual(kit.dependencies, ['hadouken']);
-  for (const d of kit.dependencies) if (typeof d === 'object') assert.equal(d.version, undefined, d.name);
+  assert.deepEqual(kit.dependencies, [{ name: 'hadouken', version: '>=0.6.0' }]);
+});
+
+// A faixa do kit tem de ser satisfeita pela versão do próprio plugin; senão o
+// kit nasce desabilitado. Comparação numérica por partes, sem biblioteca.
+test('kit: a faixa do hadouken é satisfeita pela versão do plugin', () => {
+  const kit = ler('kit/.claude-plugin/plugin.json');
+  const hadouken = ler('.claude-plugin/plugin.json');
+  const dep = kit.dependencies.find((d) => d.name === hadouken.name);
+  assert.ok(dep, 'o kit depende do plugin hadouken');
+  const faixa = /^>=(\d+)\.(\d+)\.(\d+)$/.exec(dep.version);
+  assert.ok(faixa, `faixa ">=X.Y.Z": ${dep.version}`);
+  const minimo = faixa.slice(1).map(Number);
+  const atual = hadouken.version.split('.').map(Number);
+  let cmp = 0;
+  for (let i = 0; i < 3 && cmp === 0; i++) cmp = Math.sign(atual[i] - minimo[i]);
+  assert.ok(cmp >= 0, `${hadouken.version} deve ser >= ${dep.version}`);
 });
 
 // v0.5.1: o kit leva código próprio (MIT) e a cópia do graphify 0.9.25
@@ -118,8 +133,8 @@ test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node',
     command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/lancar.mjs'] } } });
 });
 
-test('hadouken: plugin.json, package.json e marketplace em 0.5.8', () => {
-  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.8');
-  assert.equal(ler('package.json').version, '0.5.8');
-  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken').version, '0.5.8');
+test('hadouken: plugin.json, package.json e marketplace em 0.6.0', () => {
+  assert.equal(ler('.claude-plugin/plugin.json').version, '0.6.0');
+  assert.equal(ler('package.json').version, '0.6.0');
+  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken').version, '0.6.0');
 });
