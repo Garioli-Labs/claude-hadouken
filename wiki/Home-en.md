@@ -27,7 +27,7 @@ Two things are missing:
 1. **A pace reference.** Is "58 % of the week used" a lot? It depends on how many hours of the week have passed. The plugin works out how much you *should* have used at a linear pace and compares.
 2. **Claude knowing.** If Claude knows the 5-hour window is at 83 %, it stops launching parallel subagents. At 91 %, it wraps up the current task instead of starting another.
 
-The guiding principle: **quality before savings**. Saving cuts volume, parallelism and re-reading; it never cuts tests, review, verification, or the model and effort used for implementation. When the week has slack, the slack goes to quality (extra review, higher effort on specs and audits), not to volume.
+The guiding principle: **quality before savings**. Saving cuts volume, parallelism and re-reading and takes the default model and effort one step down, except for tasks where a mistake is costly; it never cuts tests, review or verification. When the week has slack, the default goes one step up and the slack goes to quality (extra review), not to volume.
 
 ---
 

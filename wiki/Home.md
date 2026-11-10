@@ -27,7 +27,7 @@ Faltam duas coisas:
 1. **Referência de ritmo.** "58 % da semana usada" é muito ou pouco? Depende de quantas horas da semana já passaram. O plugin calcula quanto você *deveria* ter usado num ritmo linear e compara.
 2. **O Claude saber.** Se o Claude sabe que a janela de 5 horas está em 83 %, ele para de abrir subagentes em paralelo. Em 91 %, fecha a tarefa em curso em vez de começar outra.
 
-O princípio que guia tudo: **qualidade antes da economia**. Economizar corta volume, paralelismo e releitura; nunca corta testes, review, verificação, nem o modelo e o effort de implementação. Quando sobra folga na semana, ela vai para qualidade (review extra, effort maior em spec e auditoria), não para volume.
+O princípio que guia tudo: **qualidade antes da economia**. Economizar corta volume, paralelismo e releitura e desce um degrau no modelo e effort padrão, menos em tarefa de erro caro; nunca corta testes, review nem verificação. Quando sobra folga na semana, o padrão sobe um degrau e a folga vai para qualidade (review extra), não para volume.
 
 ---
 
