@@ -524,3 +524,30 @@ test('Ultra: sem h5 nos pcts, o item mostra só semana e Fable', async (t) => {
     m.fim();
   }
 });
+
+test('_teste.dirDados: a regra do base.js, com o CLAUDE_CONFIG_DIR da conta', () => {
+  const { api } = criar();
+  const cargaOriginal = Module._load;
+  Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
+  delete requireDaqui.cache[requireDaqui.resolve(ARQ_EXTENSAO)];
+  const { _teste } = requireDaqui(ARQ_EXTENSAO);
+  Module._load = cargaOriginal;
+  const antes = { h: process.env.HADOUKEN_HOME, c: process.env.CLAUDE_CONFIG_DIR };
+  try {
+    delete process.env.HADOUKEN_HOME;
+    delete process.env.CLAUDE_CONFIG_DIR;
+    const padrao = path.join(os.homedir(), '.claude', 'hadouken');
+    assert.equal(_teste.dirDados(), padrao);
+    process.env.CLAUDE_CONFIG_DIR = path.join(os.homedir(), '.claude');
+    assert.equal(_teste.dirDados(), padrao);
+    const conta = path.join(os.homedir(), '.claude-contas', 'trabalho');
+    process.env.CLAUDE_CONFIG_DIR = conta;
+    assert.equal(_teste.dirDados(), path.join(conta, 'hadouken'));
+    process.env.CLAUDE_CONFIG_DIR = 'relativo';
+    assert.equal(_teste.dirDados(), padrao);
+  } finally {
+    for (const [k, v] of [['HADOUKEN_HOME', antes.h], ['CLAUDE_CONFIG_DIR', antes.c]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});

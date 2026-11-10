@@ -105,3 +105,41 @@ test('a política de rename e os ajudantes da escrita atômica só existem em ba
   assert.deepEqual(achados.filter((a) => !a.startsWith('base.js:')), []);
   assert.equal(achados.filter((a) => a.startsWith('base.js:')).length, marcas.length);
 });
+
+// v0.5.9: uma conta por janela do VS Code. Com CLAUDE_CONFIG_DIR apontando
+// para outra pasta (a de uma conta), os dados vão para <ela>/hadouken.
+test('dirDados segue CLAUDE_CONFIG_DIR da conta; a pasta padrão e valores ruins ficam em ~/.claude/hadouken', () => {
+  const antes = { h: process.env.HADOUKEN_HOME, c: process.env.CLAUDE_CONFIG_DIR };
+  const original = os.homedir;
+  const casa = path.resolve(os.tmpdir(), 'hdk-casa-conta');
+  delete process.env.HADOUKEN_HOME;
+  try {
+    os.homedir = () => casa;
+    const padrao = path.join(casa, '.claude', 'hadouken');
+    delete process.env.CLAUDE_CONFIG_DIR;
+    assert.equal(base.dirDados(), padrao);
+    process.env.CLAUDE_CONFIG_DIR = path.join(casa, '.claude');
+    assert.equal(base.dirDados(), padrao);
+    process.env.CLAUDE_CONFIG_DIR = path.join(casa, '.claude') + path.sep;
+    assert.equal(base.dirDados(), padrao);
+    if (process.platform === 'win32') {
+      process.env.CLAUDE_CONFIG_DIR = path.join(casa, '.CLAUDE');
+      assert.equal(base.dirDados(), padrao, 'sem caixa no Windows');
+    }
+    const conta = path.join(casa, '.claude-contas', 'trabalho');
+    process.env.CLAUDE_CONFIG_DIR = conta;
+    assert.equal(base.dirDados(), path.join(conta, 'hadouken'));
+    for (const ruim of ['relativo', '', ' ']) {
+      process.env.CLAUDE_CONFIG_DIR = ruim;
+      assert.equal(base.dirDados(), padrao, JSON.stringify(ruim));
+    }
+    process.env.CLAUDE_CONFIG_DIR = conta;
+    process.env.HADOUKEN_HOME = path.join(casa, 'h');
+    assert.equal(base.dirDados(), path.join(casa, 'h'), 'HADOUKEN_HOME vence');
+  } finally {
+    os.homedir = original;
+    for (const [k, v] of [['HADOUKEN_HOME', antes.h], ['CLAUDE_CONFIG_DIR', antes.c]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});

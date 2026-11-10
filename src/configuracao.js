@@ -176,8 +176,8 @@ const somenteLeitura = (info) => (Number(info.mode) & 0o200) === 0;
 // Ressalva: com CLAUDE_CODE_SUBPROCESS_ENV_SCRUB o Claude Code tira
 // CLAUDE_CONFIG_DIR do ambiente dos comandos que roda, e este processo cai no
 // item 3; por isso a skill mostra o `arquivo` na pergunta antes de gravar.
-// dirDados() não segue CLAUDE_CONFIG_DIR: shims e comando ficam em
-// ~/.claude/hadouken (ou HADOUKEN_HOME).
+// v0.5.9: dirDados() segue o CLAUDE_CONFIG_DIR de uma conta (pasta que não é
+// ~/.claude): shims e comando ficam em <conta>/hadouken.
 export function arquivoSettings() {
   try {
     const configurado = process.env.HADOUKEN_SETTINGS;

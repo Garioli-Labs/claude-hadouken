@@ -105,12 +105,37 @@ export function caminhoDoAmbiente(valor) {
 // chamador trata null como "sem leitura" e não faz I/O (contrato de T6, T7 e
 // T10); o instalador recusa, com o motivo que origemDados separa. Nunca
 // lança.
+//
+// v0.5.9 (uma conta por janela do VS Code): sem HADOUKEN_HOME, um
+// CLAUDE_CONFIG_DIR absoluto completo que não é a pasta padrão (~/.claude) é a
+// pasta de uma conta, e os dados dela ficam em <CLAUDE_CONFIG_DIR>/hadouken.
+// Valor relativo, vazio ou a própria pasta padrão: ~/.claude/hadouken, como
+// antes.
 export function dirDados() {
   try {
     const configurado = process.env.HADOUKEN_HOME;
     if (configurado !== undefined) return caminhoDoAmbiente(configurado);
     const home = os.homedir();
-    return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'hadouken') : null;
+    if (typeof home !== 'string' || !path.isAbsolute(home)) return null;
+    const padrao = path.join(home, '.claude');
+    const conta = pastaDeConta(process.env.CLAUDE_CONFIG_DIR, padrao);
+    return path.join(conta ?? padrao, 'hadouken');
+  } catch {
+    return null;
+  }
+}
+
+// A pasta da conta, ou null quando o valor não vale ou é a pasta padrão.
+export function pastaDeConta(config, padrao) {
+  try {
+    if (typeof config !== 'string' || config.trim() === '') return null;
+    const p = caminhoDoAmbiente(config);
+    if (p === null) return null;
+    const norm = (x) => {
+      const r = path.resolve(x).replace(/[\\/]+$/, '');
+      return process.platform === 'win32' ? r.toLowerCase() : r;
+    };
+    return norm(p) === norm(padrao) ? null : path.resolve(p);
   } catch {
     return null;
   }

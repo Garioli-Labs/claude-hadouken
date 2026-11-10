@@ -154,7 +154,19 @@ function dirDados() {
       return completo(resolvido) ? resolvido : null;
     }
     const home = os.homedir();
-    return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'hadouken') : null;
+    if (typeof home !== 'string' || !path.isAbsolute(home)) return null;
+    // v0.5.9: CLAUDE_CONFIG_DIR de uma conta (pasta que não é ~/.claude) leva
+    // os dados para <conta>/hadouken, como em base.js.
+    const padrao = path.join(home, '.claude');
+    const c = process.env.CLAUDE_CONFIG_DIR;
+    if (typeof c === 'string' && completo(c) && !c.includes('\0')) {
+      const norm = (x) => {
+        const r = path.resolve(x).replace(/[\\/]+$/, '');
+        return process.platform === 'win32' ? r.toLowerCase() : r;
+      };
+      if (norm(c) !== norm(padrao)) return path.join(path.resolve(c), 'hadouken');
+    }
+    return path.join(padrao, 'hadouken');
   } catch {
     return null;
   }
@@ -625,4 +637,4 @@ function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, _teste: { quadros, segmentos } };
+module.exports = { activate, deactivate, _teste: { quadros, segmentos, dirDados } };
