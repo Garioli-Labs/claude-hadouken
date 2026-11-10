@@ -176,8 +176,8 @@ function linha5h(faixa, anterior, f5, agoraMs) {
 function linha7d(faixa, f7, esperado, agoraMs, ritmoH) {
   const base = `7d ${em(f7)} vs ${pct(esperado)} esperado`;
   switch (faixa) {
-    case 'economico': return `${base} → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação${parteRitmo(f7, ritmoH, agoraMs)}.`;
-    case 'folga': return `${base} → modo folga: investir em qualidade (review extra, effort maior em spec/auditoria), não em volume.`;
+    case 'economico': return `${base} → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review${parteRitmo(f7, ritmoH, agoraMs)}.`;
+    case 'folga': return `${base} → modo folga: o padrão de modelo e effort sobe um degrau; qualidade (review extra), não volume.`;
     case 'so-leitura': return `7d em ${em(f7)} com reset ${quandoLocal(f7.resets_at, agoraMs)}: só leitura; recomendar parar.`;
     default: return `${base} → modo normal.`;
   }

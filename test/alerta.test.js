@@ -65,9 +65,9 @@ test('janela nova zera o estado de alerta', () => {
 
 test('modo econômico e folga geram as linhas da spec', () => {
   const eco = avaliarAlertas({ limites: limites(10, 61), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora });
-  assert.match(eco.linhas[0], /^7d 61% vs 50% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação\.$/);
+  assert.match(eco.linhas[0], /^7d 61% vs 50% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review\.$/);
   const folga = avaliarAlertas({ limites: limites(10, 30), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora });
-  assert.match(folga.linhas[0], /^7d 30% vs 50% esperado → modo folga: investir em qualidade/);
+  assert.match(folga.linhas[0], /^7d 30% vs 50% esperado → modo folga: o padrão de modelo e effort sobe um degrau; qualidade \(review extra\), não volume\.$/);
 });
 
 test('sem leitura avisa uma vez por sessão', () => {
@@ -524,7 +524,7 @@ test('minutos e idade não finitos nunca viram "NaN": a linha sai sem esse peda�
 test('linha econômica com o ritmo concreto (§10, item 6)', () => {
   // 61% com 84 h até o reset: sustentável 39 / 84 = 0,46 pt/h.
   const eco = (ritmo7dH) => avaliarAlertas({ limites: limites(10, 61), anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora, ritmo7dH });
-  const base = '7d 61% vs 50% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação';
+  const base = '7d 61% vs 50% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review';
   const acaba = Math.round(agora + (39 / 3.3) * H);
   assert.deepEqual(eco(3.3).linhas, [`${base}; ritmo 3,3 pt/h, sustentável 0,5 pt/h; nesse ritmo acaba ${quandoLocal(acaba / 1000, agora)}.`]);
   assert.deepEqual(eco(0.2).linhas, [`${base}; ritmo 0,2 pt/h, sustentável 0,5 pt/h; nesse ritmo não acaba antes do reset.`]);
@@ -539,7 +539,7 @@ test('linha econômica com piso: sem a parte do ritmo', () => {
     limites: null, leituras: { five_hour: null, seven_day: { used_percentage: 61, resets_at: reset7, idadeMs: 2 * H, fresca: false } },
     anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: agora, ritmo7dH: 3.3,
   });
-  assert.deepEqual(r.linhas, ['7d ≥ 61% (leitura de 2 h) vs 50% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação.']);
+  assert.deepEqual(r.linhas, ['7d ≥ 61% (leitura de 2 h) vs 50% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review.']);
 });
 
 // v0.5.4 (spec VS Code §2.1): limiares de projeção do config.json. O nome da

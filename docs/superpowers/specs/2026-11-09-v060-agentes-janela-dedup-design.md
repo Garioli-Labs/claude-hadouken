@@ -254,7 +254,7 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 - **Paleta**: aponta `/hadouken:agentes` para a efetiva; frontmatter/config é o padrão; o principal sobe ou desce com motivo de uma linha.
 - **Critério, em ordem**: (1) acerto domina quando o erro custa caro (produção, dinheiro, autenticação, dado real, irreversível); (2) senão, o modelo mais barato que acerta de primeira (retrabalho conta no custo); (3) empate → o mais rápido. Escada Haiku → Sonnet → Opus → Fable; falha ou certeza baixa → sobe um degrau uma vez, nunca em laço.
 - **Effort** por despacho pela mesma regra, via parâmetro `effort` do Agent; `max` só com ok do usuário.
-- **Faixa de consumo** (ritmo da janela da fatia 2): econômico (adiantado > 10 pontos) → padrão desce um degrau, exceto critério 1; folga (atrasado > 10 pontos) → padrão sobe um degrau.
+- **Faixa de consumo** (ritmo da janela da fatia 2): econômico (adiantado > 10 pontos) → padrão desce um degrau, exceto critério 1; folga (atrasado > 10 pontos) → padrão sobe um degrau. A linha que o hadouken injeta (`linha7d` em `src/alerta.js`) diz o mesmo.
 - **Linha por despacho**: `tipo → modelo·effort — motivo` (motivo só quando difere da paleta).
 - **Brief**: Tarefa / Objetivo / Arquivos / Não mexer / Pronto quando / Relatório.
 - **Relatório do subagente**: até 40 linhas, Feito / Evidência (comando literal + saída cortada + `arquivo:linha`) / Não feito / Certeza; sem despejo de arquivo. Antes de dizer "pronto", o principal re-roda uma checagem final de aceite.
