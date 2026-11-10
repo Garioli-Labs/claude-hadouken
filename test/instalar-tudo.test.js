@@ -197,6 +197,20 @@ test('cópias em dobro: ordem do instalador (kit, depois o dedup, depois as suge
   assert.equal(itens.length, 13);
 });
 
+test('cópias em dobro: a relistagem depois do disable falha → as sugeridas já instaladas por plugin continuam "já instalado" e o item de cópias em dobro é ✗', async () => {
+  const c = cenario();
+  duplicadaDoKit(c);
+  plugin(c, 'superpowers@claude-plugins-official', '5.0.0');
+  // list #1 e #2 são do passo do kit (antes e depois); a #3 é a conferência depois do disable
+  c.estado.falharListaNa = 3;
+  const itens = await rodarTudo(c);
+  assert.ok(c.estado.log.includes(`plugin disable ${MATT} --scope user`), 'o disable rodou; só a relistagem falhou');
+  assert.equal(dobroItem(itens).estado, 'falhou');
+  const sp = itens.find((i) => i.nome === 'superpowers');
+  assert.deepEqual([sp.estado, sp.detalhe], ['igual', 'já instalado'], 'a lista anterior alimenta as sugeridas');
+  assert.ok(!/superpowers: sugerido/.test(formatarResumo(itens)), formatarResumo(itens));
+});
+
 test('cópias em dobro: nada a dizer (nenhuma duplicada) → o item não existe', async () => {
   const c = cenario();
   plugin(c, ID_KIT, '1.2.0');

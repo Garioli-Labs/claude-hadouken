@@ -6,7 +6,7 @@
 
 O `hadouken-rea` é um plugin opcional do marketplace `claude-hadouken`. Ele liga o servidor MCP do pacote `rea-agents`, que dá ao Claude ferramentas de engenharia reversa para inspecionar binários e aplicativos.
 
-- **Ligar:** o instalador de um comando o liga na primeira instalação, se o Node servir. À mão: `claude plugin install hadouken-rea@claude-hadouken` e `claude plugin enable hadouken-rea@claude-hadouken`. Desligado por você, continua desligado.
+- **Ligar:** o instalador de um comando só o sugere, com o comando de instalar (`○ hadouken-rea: sugerido (rode …)`); nunca o instala nem o liga. À mão: `claude plugin install hadouken-rea@claude-hadouken` e `claude plugin enable hadouken-rea@claude-hadouken`.
 - **Requisitos:** Node 22.19+, 24.11+ ou 26+.
 - **Primeira vez:** o `npx` baixa o pacote (uns 20 a 30 s) e o `/mcp` pode acusar tempo esgotado; reconecte pelo `/mcp` ou abra uma sessão nova.
 - **Versão fixa:** o plugin abre uma versão exata do `rea-agents`; o robô semanal do kit a atualiza só com a suíte verde em Linux, Windows e macOS.

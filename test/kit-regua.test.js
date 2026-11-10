@@ -714,3 +714,29 @@ test('T7: régua de 2000 caracteres cortada → additionalContext ≤ 2400 carac
     assert.ok(contexto.split('\n').length <= 5);
   }
 });
+
+// Pasta absoluta do kit: a mesma regra de absolutoCompleto/caminhoDoAmbiente
+// (src/base.js). A plataforma é parâmetro para o teste rodar no macOS.
+test('absolutoLimpo no Windows: C:\\x e UNC com compartilhamento valem; \\x, C:x e caminhos de dispositivo dão null', async () => {
+  const { absolutoLimpo } = await regua();
+  assert.equal(absolutoLimpo('C:\\x', 'win32'), 'C:\\x');
+  assert.equal(absolutoLimpo('\\\\srv\\share\\x', 'win32'), '\\\\srv\\share\\x');
+  for (const ruim of ['\\x', 'C:x', '\\\\?\\C:\\x', '\\\\.\\x']) assert.equal(absolutoLimpo(ruim, 'win32'), null, ruim);
+  assert.equal(absolutoLimpo('C:\\x\0y', 'win32'), null, 'NUL');
+});
+
+test('absolutoLimpo no POSIX: só começa por /; o padrão é a plataforma de quem roda', async () => {
+  const { absolutoLimpo } = await regua();
+  assert.equal(absolutoLimpo('/a/b/../c', 'linux'), '/a/c');
+  assert.equal(absolutoLimpo('a/b', 'linux'), null);
+  assert.equal(absolutoLimpo('C:\\x', 'linux'), null);
+  assert.equal(absolutoLimpo('/a\0b', 'linux'), null);
+  assert.equal(absolutoLimpo('/a/b'), process.platform === 'win32' ? null : '/a/b');
+});
+
+test('o regex COMPLETO_WIN do kit é textualmente o de src/base.js', () => {
+  const fonte = (arq) => /const COMPLETO_WIN = (\/.*\/);/.exec(fs.readFileSync(arq, 'utf8'))?.[1];
+  const base = fonte(path.join(repo, 'src', 'base.js'));
+  assert.ok(base, 'src/base.js tem COMPLETO_WIN');
+  assert.equal(fonte(REGUA_JS), base);
+});

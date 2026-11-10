@@ -84,12 +84,23 @@ function frontmatter(arquivo) {
 
 // ------------------------------------------------------------ pastas
 
-// Caminho vindo do ambiente: só absoluto, sem NUL, normalizado; o resto é null
-// e nunca vira outro caminho.
-function absolutoLimpo(valor) {
+// Cópia de COMPLETO_WIN (src/base.js; test/kit-regua.test.js confere o texto):
+// caminho completo no Windows, com letra de unidade (C:\ ou C:/) ou UNC com
+// servidor e compartilhamento. Caminhos de dispositivo (\\?\ e \\.\) ficam de fora.
+const COMPLETO_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}(?![?.][\\/])[^\\/]+[\\/]+[^\\/])/;
+
+// Caminho vindo do ambiente, como caminhoDoAmbiente() (src/base.js): só um
+// caminho absoluto completo sem NUL vale (no POSIX começa por /; no Windows casa
+// com COMPLETO_WIN, então "\dir" e "C:dir", que dependem da unidade e do cwd,
+// dão null) e sai normalizado; o resultado é conferido de novo. O resto é null
+// e nunca vira outro caminho. A plataforma é parâmetro só para o teste.
+export function absolutoLimpo(valor, plataforma = process.platform) {
   try {
-    if (typeof valor !== 'string' || valor === '' || valor.includes('\0') || !path.isAbsolute(valor)) return null;
-    return path.resolve(valor);
+    const win = plataforma === 'win32';
+    const completo = (p) => (win ? COMPLETO_WIN.test(p) : p.startsWith('/'));
+    if (typeof valor !== 'string' || valor === '' || valor.includes('\0') || !completo(valor)) return null;
+    const resolvido = (win ? path.win32 : path.posix).resolve(valor);
+    return completo(resolvido) ? resolvido : null;
   } catch {
     return null;
   }

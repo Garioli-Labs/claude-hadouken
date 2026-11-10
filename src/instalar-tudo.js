@@ -316,7 +316,7 @@ export async function instalarTudo(o) {
     const d = await passoDedup(rodar, {
       entrada: entradaKit, lista, repos: plugins === null ? new Map() : lerRepos(plugins), autos: plugins === null ? new Set() : lerAutos(plugins), lerTestado: lerTestadoDoKit,
     });
-    lista = d.lista;
+    lista = d.lista ?? lista; // relistagem falha: mantém a anterior; o ✗ de cópias em dobro já avisa
     if (d.item !== null) itens.push(d.item);
   } catch {
     itens.push(item.falhou('hadouken-kit: cópias em dobro', 'erro-interno', DE_NOVO));
