@@ -8,7 +8,7 @@ import { PALETA, paletaEfetiva } from '../src/agentes/paleta.js';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const AGENTES = fs.readdirSync(path.join(repo, 'agents')).map((a) => `hadouken:${a.replace(/\.md$/, '')}`);
-const citados = (t) => [...t.matchAll(/hadouken:[a-z0-9-]+/g)].map((m) => m[0]).filter((n) => n !== 'hadouken:roteamento' && n !== 'hadouken:liberar');
+const citados = (t) => [...t.matchAll(/(?<!\/)hadouken:[a-z0-9-]+/g)].map((m) => m[0]).filter((n) => n !== 'hadouken:roteamento' && n !== 'hadouken:liberar');
 
 // v0.6.0 (Fatia 3): o texto é gerado da paleta, uma linha por agente ativo.
 // O teto de antes (6 linhas) vira o teto da paleta: abertura, uma linha por

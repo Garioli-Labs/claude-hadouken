@@ -5,24 +5,12 @@ description: Escolhe modelo, effort e se lança agente ou faz direto. Carregue a
 
 # Roteamento: modelo, effort e agente
 
-Use o mais barato que dá conta sem errar. Cada degrau acima só quando a tarefa pede julgamento.
-
-## Agentes prontos
-
-| Agente | Modelo · effort | Para quê |
-|---|---|---|
-| `hadouken:busca` | Haiku · low | Achar arquivos e símbolos, ler e resumir trechos, listar. Só leitura. |
-| `hadouken:mecanico` | Haiku · low | Edição mecânica com instrução exata: renomear, aplicar mudança já escrita, trocar textos. |
-| `hadouken:implementador` | Sonnet · medium | Implementar uma tarefa bem especificada, com testes. |
-| `hadouken:pesquisa` | Sonnet · low | Conferir doc, API ou versão e trazer a resposta com a fonte. |
-| `hadouken:revisor` | Opus · high | Revisar diff ou plano: correção e casos de borda. Só leitura. |
-| `hadouken:auditor` | Fable · xhigh | Só segurança, autenticação, dinheiro e arquitetura cara de desfazer. Só leitura. |
-
-O effort de cada agente é o da tabela. Mudar o effort de um despacho só com o motivo escrito no próprio prompt.
+Instrução do usuário (CLAUDE.md do usuário ou do projeto) prevalece sobre esta skill.
 
 ## Fazer direto
 
-- A tarefa cabe em poucas chamadas sobre arquivos já conhecidos.
+Faça direto quando a tarefa cabe em até 3 chamadas de ferramenta e ~50 linhas de saída somadas. Acima disso, lance agente.
+
 - O contexto necessário já está na conversa.
 - A tarefa pede idas e vindas com o usuário.
 - Escrever o brief custaria mais do que fazer.
@@ -30,33 +18,72 @@ O effort de cada agente é o da tabela. Mudar o effort de um despacho só com o 
 ## Lançar agente
 
 - Busca ampla da qual só interessa a conclusão (protege o contexto principal).
-- Trabalhos independentes que podem correr em paralelo.
+- Trabalhos independentes que correm em paralelo.
 - Tarefa longa e bem especificada que um modelo mais barato faz sem errar.
 - Revisão que precisa de olhos frescos.
 
-**Escolher o mais barato que dá conta.** Um degrau acima só quando a tarefa pede julgamento: decidir entre abordagens, lidar com spec ambígua ou mexer em segurança.
+## Paleta
 
-**Modelo principal mais barato.** Com a sessão em Sonnet ou Haiku, só sobe o que pede julgamento: `hadouken:revisor` ou `hadouken:auditor`.
+O modelo·effort efetivo de cada agente vem da linha de roteamento do SessionStart e de `/hadouken:agentes`, que também muda ou desliga um agente (só o usuário grava). O frontmatter do agente e a config são o padrão; o principal sobe ou desce o padrão num despacho com motivo de uma linha.
+
+| Agente | Para quê |
+|---|---|
+| `hadouken:busca` | Achar arquivo e símbolo, ler e resumir trecho. Só leitura. |
+| `hadouken:varredor` | Varredura do repo, inventário, número de fonte primária. Só leitura. |
+| `hadouken:pesquisa` | Conferir doc, API ou versão na web, com URL. |
+| `hadouken:mecanico` | Edição com instrução exata: renomear, trocar texto, aplicar mudança já escrita. |
+| `hadouken:implementador-mecanico` | Fatia mecânica provada por teste existente ou trivial. |
+| `hadouken:implementador` | Fatia com spec e plano fechados, teste primeiro. |
+| `hadouken:revisor` | Review de fatia pronta contra spec, plano e convenções, com `arquivo:linha`. Só leitura. |
+| `hadouken:auditor` | Auditoria adversarial contra código vivo. Só leitura. |
+| `hadouken:e2e` | e2e onde o usuário vê e tarefas de operação. |
+| `hadouken:redator` | Texto para terceiros, devolvido sem publicar. |
+
+Agente desativado: a guarda nega o despacho e indica o substituto; sem substituto, faça direto.
+
+## Critério de modelo
+
+Em ordem:
+1. Acerto domina quando o erro custa caro: produção, dinheiro, autenticação, dado real, ação irreversível.
+2. Senão, o modelo mais barato que acerta de primeira. Retrabalho conta no custo.
+3. Empate: o mais rápido.
+
+Escada: Haiku → Sonnet → Opus → Fable. Falha ou certeza baixa: suba um degrau, uma vez, nunca em laço.
+
+## Effort
+
+Decida por despacho pela mesma regra, no parâmetro `effort` do Agent. `max` só com ok do usuário.
+
+## Faixa de consumo
+
+O usuário vê o ritmo da semana na linha `7d X% vs Y% esperado → modo …` que o hadouken injeta, e em `/hadouken:consumo` (seção "Limites e ritmo"). O esperado conta só a janela de trabalho (`/hadouken:janela`).
+
+- `modo econômico` (adiantado mais de 10 pontos): o padrão desce um degrau, exceto no critério 1.
+- `modo folga` (atrasado mais de 10 pontos): o padrão sobe um degrau.
+
+## Linha por despacho
+
+Antes de cada despacho, uma linha: `tipo → modelo·effort — motivo`. O motivo só aparece quando o valor difere da paleta.
 
 ## Brief
 
-Todo despacho para `hadouken:busca`, `hadouken:mecanico`, `hadouken:implementador` ou `hadouken:pesquisa` leva os 5 itens:
+Todo despacho leva: Tarefa / Objetivo / Arquivos / Não mexer / Pronto quando / Relatório.
 
 ```text
+Tarefa: <nome curto ou card, ou "sem card">
 Objetivo: <uma frase>
 Arquivos: <caminhos; trechos ou assinaturas que importam>
 Não mexer: <lista>
 Pronto quando: <teste, comando ou saída esperada>
-Relatório: Feito / Arquivos / Não feito / Certeza
+Relatório: Feito / Evidência / Não feito / Certeza, até 40 linhas
 ```
 
-- Confira o resultado (diff, testes ou fontes) sem refazer o trabalho.
-- Se o agente falhar ou relatar certeza baixa, faça você mesmo ou suba **um** degrau, nunca em loop.
-- Não mande a um agente barato uma tarefa que exija adivinhar o que o brief não diz. Se o brief não fecha, a tarefa fica com você.
+Se o brief não fecha sem adivinhar, a tarefa fica com você, não com um agente barato.
+
+## Relatório do subagente
+
+Até 40 linhas: Feito / Evidência (comando literal, saída cortada e `arquivo:linha`; sem despejo de arquivo) / Não feito / Certeza (com o motivo). Antes de dizer "pronto", re-rode uma checagem final de aceite (teste, comando ou leitura do diff).
 
 ## O que a guarda barra
 
-- Busca (`Explore` ou `hadouken:busca`) em Opus ou Fable, ou com effort `xhigh` ou `max`: relance com `hadouken:busca`.
-- `hadouken:busca` ou `hadouken:mecanico` com o modelo trocado para Opus ou Fable: use `hadouken:implementador` ou `hadouken:revisor`.
-
-Só o usuário solta essas negações, com /hadouken:liberar.
+Subir agente barato a Opus ou Fable, ou a effort `xhigh` ou `max`, sem aprovação do usuário. Só o usuário solta, com `/hadouken:liberar`.
