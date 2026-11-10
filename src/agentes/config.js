@@ -13,6 +13,9 @@ import { PALETA } from './paleta.js';
 const CONFIG_MAX_BYTES = 64 * 1024;
 export const MODELS = new Set(['haiku', 'sonnet', 'opus', 'fable']);
 export const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+// "Ausente" de model/effort, o mesmo critério da paleta (injeção) e do perfil
+// efetivo: undefined, null ou ''. Campo presente com outro valor não é ausente.
+export const ausente = (v) => v === undefined || v === null || v === '';
 const NOMES = new Set(PALETA.map((p) => p.nome));
 const NOME_NO_AVISO = /^[A-Za-z0-9_-]{1,64}$/;
 const AVISO_LEITURA = 'não consegui ler agentes em config.json';

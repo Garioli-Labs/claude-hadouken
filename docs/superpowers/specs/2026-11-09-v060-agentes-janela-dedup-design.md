@@ -1,23 +1,34 @@
 # hadouken 0.6.0 — agentes fundidos, janela de trabalho, paleta configurável, dedup de dependências e régua de desenvolvimento
 
-- Data: 2026-11-09 · Decisões: fgarioli (grill de 09/11/2026) · Branch: `feat/v060-agentes-janela-dedup` (base `a73e458`)
-- Versões: `hadouken` 0.5.8 → **0.6.0** (quebra) · `hadouken-kit` 1.1.2 → **1.2.0**
+- Data: 2026-11-09 · Decisões: fgarioli (grill de 09/11/2026) · Branch: `feat/v060-agentes-janela-dedup` (base `a73e458`, com merge de `origin/main` `71c381e`, v0.5.9)
+- Versões: `hadouken` 0.5.9 → **0.6.0** (quebra) · `hadouken-kit` 1.2.0 → **1.3.0**
 - Um PR, sete fatias, um commit por fatia com `node --test` verde.
 
-## 0. Estado atual verificado (HEAD `a73e458`)
+## 0. Estado atual verificado (HEAD `a73e458`; instalador e kit em `origin/main` `71c381e`)
+
+`origin/main` `71c381e` (v0.5.9, 11 commits do autor do plugin entre 09/11 22:49 e 10/11 01:00) entra no branch por merge (decisão do Fernando, 10/11/2026: adotar o modelo de instalação da 0.5.9; da Fatia 1 fica só o desligamento da cópia duplicada). Lido por `git show origin/main:<arquivo>`:
+
+| O quê | Onde (`origin/main`) | Estado |
+|---|---|---|
+| Manifesto do kit | `kit/.claude-plugin/plugin.json` | versão 1.2.0, `dependencies: ["hadouken"]` (tag `kit-v1.2.0`) |
+| Instalador do kit | `src/instalar/claude-cli.js:99` (`passoKit`) | só instala ou atualiza o kit; nunca instala nem desliga terceiros |
+| Sugeridas | `src/instalar/claude-cli.js:107` (`conferirSugeridas`), `src/instalar/itens.js:28` (`SUGERIDAS`) | `superpowers`, `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills`, `ui-ux-pro-max`, `hadouken-rea`; instalada = plugin de mesmo nome em qualquer marketplace (ligado ou não) ou skill solta em `<config>/skills/<nome>` → "já instalado"; faltando → `○ <nome>: sugerido (rode <comando>)` (`itens.js:15`) |
+| Cópias antigas | `src/instalar/atualizacao-auto.js:22,46-47` | `COPIAS_ANTIGAS` segue lá e desliga a cópia de outro marketplace quando a do kit está pronta; o arquivo não mudou desde `a73e458` (`git log a73e458..origin/main -- src/instalar/atualizacao-auto.js` → vazio), então o merge leva a remoção do branch |
+| Dados por conta | `src/base.js:113` (`dirDados`), `:128` (`pastaDeConta`) | `CLAUDE_CONFIG_DIR` em `~/.claude-contas/<nome>` → dados em `<CLAUDE_CONFIG_DIR>/hadouken`; outro valor → `~/.claude/hadouken` |
+| Planos | `src/conta/plano.js:16-17,40,75` | Pro, Max e Ultra; no Ultra sem leitura da janela de 5 h, ela não aparece |
+| Versões testadas | `kit/testado.json` | `hadouken@claude-hadouken` 0.5.9; terceiros iguais aos do branch |
+
+Máquina real do mantenedor (10/11/2026, `jq` em `~/.claude/plugins/installed_plugins.json` e `enabledPlugins` do `~/.claude/settings.json`): `hadouken` 0.5.9 e `hadouken-kit` 1.2.0 instalados do marketplace; `mattpocock-skills@claude-hadouken` (`auto: true`) e `mattpocock-skills@mattpocock` ligados ao mesmo tempo; `poka-yoke`, `fullstack-dev-skills` e `ui-ux-pro-max` `@claude-hadouken` com `auto: true`, ligados e sem outra cópia.
 
 Leitura por `grep`/`sed` no clone e por `ls` no cache instalado (`~/.claude/plugins/cache/claude-hadouken/`). As linhas de roteamento (N1/N2, `roteamento.subir`, A1/A2), de perfil do despacho, de hook de despacho e de nomes removidos foram reconferidas em `9988721` (HEAD do branch).
 
 | Tema | Onde | O que há |
 |---|---|---|
-| Dependências do kit | `kit/.claude-plugin/plugin.json:12-22` | `hadouken`, `superpowers@claude-plugins-official`, `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills`, `ui-ux-pro-max` |
-| Ids das dependências | `src/instalar/claude-cli.js:21-24` | `DEPENDENCIAS_KIT`: as seis acima como `nome@marketplace`; quatro são `@claude-hadouken` de terceiros |
 | Catálogo de terceiros | `.claude-plugin/marketplace.json:30-35` e seguintes | `mattpocock-skills` (github mattpocock/skills, sha `4ae2317`), `poka-yoke` (rainmanjam/poka-yoke, subdir), `fullstack-dev-skills` (jeffallan/claude-skills), `ui-ux-pro-max` (nextlevelbuilder/ui-ux-pro-max-skill), todos com sha fixo |
 | Versões testadas | `kit/testado.json:2-9` | versão por id de dependência (`mattpocock-skills@claude-hadouken` 1.3.2 em `:5`) |
-| Instalação | `install.sh:181` → `src/instalar-tudo.js:317` → `passoKit` em `src/instalar/claude-cli.js:106`; `plugin install\|update` em `:92`, kit em `:113`; `listarPlugins` em `:65` (`claude plugin list --json` → `id`, `version`, `scope`, `enabled`, `installPath`) | compara só por id `nome@marketplace`; dependência que falta chega pelo `plugin install hadouken-kit` (`:113`), que a traz pelo manifesto |
-| Ligar/desligar plugin | `src/instalar/claude-cli.js:134-136` (REA): `claude plugin enable\|disable <nome>@<marketplace>`, conferido pela lista | — |
+| Instalação (`origin/main`) | `install.sh:181` → `src/instalar-tudo.js:314` (`passoKit`), `:321` (`conferirSugeridas`); `passoPlugin` em `src/instalar/claude-cli.js:84` (`plugin install\|update <id>` em `:89`); `listarPlugins` em `:61` (`claude plugin list --json` → `id`, `version`, `enabled`, `installPath`, só escopo `user` ou sem escopo) | compara por id `nome@marketplace`; o kit só depende do `hadouken` |
+| Ligar/desligar plugin (`origin/main`) | `git grep -n -E "'(enable\|disable)'" origin/main -- src` → vazio | a 0.5.9 não chama `claude plugin enable\|disable` (o REA virou sugerida); só `COPIAS_ANTIGAS` desliga, escrevendo `enabledPlugins` (linha acima); na 0.6.0 o `plugin disable` da dedup é o único |
 | Registro de plugins | `~/.claude/plugins/installed_plugins.json` `version: 2`, `plugins[id] = [{scope, installPath, version, gitCommitSha, auto?}]` (sem estado ligado); `auto: true` marca o plugin que o claude instalou como dependência de outro, e a entrada que o usuário instalou não tem a chave (`claude plugin list --json` não traz `auto`: o instalador lê o registro); ligado = `settings.json` `enabledPlugins[id]`; `known_marketplaces.json[m] = {source: {source: "github", repo}, installLocation}`; `marketplace.json` de cada marketplace em `<installLocation>/.claude-plugin/marketplace.json`, `plugins[].source` = `"./"` (relativo) ou `{source: "url"\|"git-subdir"\|"github", url\|repo, sha}` | leitura feita em 09/11/2026 na máquina do mantenedor |
-| Cópias antigas | `src/instalar/atualizacao-auto.js:22` (`COPIAS_ANTIGAS` = `mattpocock-skills@mattpocock`, `poka-yoke@poka-yoke`, `fullstack-dev-skills@fullstack-dev-skills`, `ui-ux-pro-max@ui-ux-pro-max-skill`), uso `:46`; `ligarAtualizacao({arquivo, agoraMs, prontas})` `:32` lê `enabledPlugins` `:41`, escreve `:55`; chamada por `src/instalar-tudo.js:323` | desliga as cópias de outro marketplace quando as do kit estão prontas: a cópia do kit vence; nunca desinstala |
 | Renames | `src/instalacao.js:126-128` | loop sobre `renames` do marketplace |
 | Leituras de registro | `installed_plugins.json`: `src/instalacao.js:58,125`, `src/indice-hooks.js:254`; `known_marketplaces.json`: `src/instalar/atualizacao-auto.js:67-69` (`marketplaceConhecido`) | — |
 | Robô de terceiros | `.github/scripts/kit-atualizar.mjs:79,87,143-148,203` | veta terceiro que ganha `hooks/`, `bin/`, `.mcp.json`, `.lsp.json`; sobe sha |
@@ -116,7 +127,7 @@ Quem usa o hadouken:
 
 - **Paleta única de dez agentes** no plugin, com model·effort padrão por agente e override por usuário em `config.json`, aplicado por hook no despacho.
 - **Janela de trabalho configurável** (dias e horário): o ritmo e as projeções contam só minutos úteis.
-- **Dedup das dependências do kit**: a cópia que o usuário já tem vence; o kit não instala a dele e desliga a dele quando as duas existem e a do kit foi instalada como dependência (`auto: true`); o que o usuário instalou nunca é desligado; nunca desinstala.
+- **Dedup das dependências do kit**: o instalador não instala terceiros (modelo da 0.5.9: só sugere o que falta); quando a cópia que o kit instalou como dependência (`auto: true`) e outra cópia equivalente estão ligadas, ele desliga a do kit; o que o usuário instalou nunca é desligado; nunca desinstala.
 - **Régua de desenvolvimento configurável**: fases com skills e agente, mais gatilhos transversais; global, substituível por uma régua do repositório; a padrão traz Auditoria e Mutação.
 - **Skill roteamento reescrita**: critério de escolha de modelo, faixa de consumo, "faça direto", brief e relatório padronizados.
 
@@ -150,11 +161,11 @@ Janela de trabalho
 
 Dedup das dependências
 
-21. Como dev que já tinha `mattpocock-skills` de outro marketplace, quero que o kit não instale outra cópia, para não ter skills em dobro.
+21. Como dev que já tinha `mattpocock-skills` de outro marketplace, quero que o instalador não instale outra cópia, para não ter skills em dobro.
 22. Como dev numa máquina que já tem as duas cópias, quero que o instalador desligue a cópia que o kit instalou como dependência e me avise, para ficar com uma só sem perder a minha; se as duas foram instaladas por mim, quero só o aviso.
 23. Como dev, quero que nada seja desinstalado, para poder voltar atrás religando a cópia.
 24. Como dev, quero que o instalador me avise quando a minha cópia tem versão diferente da que o hadouken testou, para saber do risco. O aviso de versão sai só no instalador; o SessionStart não compara versão.
-25. Como dev que instalou o kit só por `/plugin install`, quero um aviso no início da sessão com o comando exato quando uma dependência falta, para completar a instalação.
+25. Como dev, quero ver no instalador as sugeridas que faltam, com o comando exato, para instalar só o que eu quiser (modelo da 0.5.9; o início da sessão não avisa sugerida ausente).
 26. Como dev, quero um aviso no início da sessão quando as duas cópias seguem habilitadas, com o comando que resolve, porque a atualização automática não roda o instalador.
 27. Como dev, quero que a regra valha para todas as dependências de terceiros do kit (mattpocock, poka-yoke, fullstack-dev-skills, ui-ux-pro-max, superpowers), para a dedup não depender de qual plugin eu já tinha.
 28. Como mantenedor, quero que a cópia do kit continue com sha fixo e veto do robô, para quem a recebe ter a versão testada.
@@ -196,8 +207,8 @@ Roteamento
 
 ### Fatia 1 — Dedup das dependências do kit
 
-- `hadouken-kit` declara só `hadouken` em `dependencies`; no kit 1.2.0 a entrada é o objeto `{"name": "hadouken", "version": ">=0.6.0"}` (Fatia 6): a régua padrão cita `hadouken:auditor`, que só existe a partir da 0.6.0, e com a faixa a doc deixa o kit desabilitado quando o `hadouken` instalado é menor. As cinco dependências de terceiros (`superpowers`, `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills`, `ui-ux-pro-max`) saem do manifesto, porque dependência desabilitada derruba o kit. As entradas de terceiros do marketplace do hadouken ficam, com sha fixo e veto do robô.
-- `DEPENDENCIAS_KIT` continua sendo a lista do que o instalador garante.
+- `hadouken-kit` declara só `hadouken` em `dependencies` (como na 0.5.9); no kit 1.3.0 a entrada é o objeto `{"name": "hadouken", "version": ">=0.6.0"}` (Fatia 6): a régua padrão cita `hadouken:auditor`, que só existe a partir da 0.6.0, e com a faixa a doc deixa o kit desabilitado quando o `hadouken` instalado é menor. As entradas de terceiros do marketplace do hadouken ficam, com sha fixo e veto do robô.
+- O instalador segue o modelo da 0.5.9: `passoKit` só instala ou atualiza o kit, e `conferirSugeridas` mostra "já instalado" ou "○ sugerido" para cada item de `SUGERIDAS`; ele nunca instala terceiros. A dedup acrescenta só o desligamento da cópia duplicada (abaixo).
 - `COPIAS_ANTIGAS` sai: `ligarAtualizacao` só liga a atualização automática do marketplace e não desliga plugin nenhum. Quem teve a cópia upstream desligada por versões anteriores fica como está (caso D1: cópia do usuário desabilitada não conta como equivalente).
 - **Equivalência.** Uma dependência `D` (id `nome@marketplace`) está satisfeita por outra cópia quando existe plugin **habilitado** no escopo do usuário, de marketplace diferente do de `D`, com **mesmo nome** de plugin **ou mesma origem** (mesmo repo **e** mesma subpasta dentro dele). Habilitado: no instalador, `enabled: true` e `scope: "user"` em `claude plugin list --json`; no SessionStart do kit, `installed_plugins.json` com entrada `scope: "user"` e `enabledPlugins[id] === true` no `settings.json` do usuário (ausente conta como desligado). Origem, normalizada para `dono/repo[/subpasta]` em minúsculas, sem `./` e sem `/` no fim:
   - `source` relativo `./<sub>` → o repo do marketplace em `known_marketplaces.json` mais `<sub>`; `"./"` → só o repo;
@@ -208,11 +219,11 @@ Roteamento
   - `source` relativo sem `./` (`plugins/x`) vale o mesmo que `./plugins/x`;
   - qualquer outro → sem origem (só o nome vale).
   - Leitura do registro em formato inesperado (`plugins[id]` que não é lista, ou registro sem o `hadouken-kit` no escopo do usuário) → trata como leitura falha.
-- **Módulo de dedup** (novo, em `src/instalar/`): função pura `avaliarDependencias({deps, plugins, repos, testado}) → [{id, estado: 'propria'|'equivalente'|'duplicada'|'ausente', equivalente?, instalada, versaoEquivalente?, versaoTestada?, auto, dependentes}]`, alimentada pelos registros lidos do disco. `plugins[id]` leva `auto` (do registro) e `dependencias` (os ids que o `plugin.json` do plugin ligado declara em `dependencies`). `auto` é o `auto === true` da cópia do kit; `dependentes` são os plugins ligados, no escopo do usuário, que dependem da cópia do kit. Usada pelo instalador e pelo SessionStart do kit (cópia autocontida em `kit/`, ver abaixo). `deps` = as cinco dependências de terceiros de `DEPENDENCIAS_KIT` (o `hadouken` fica fora).
+- **Módulo de dedup** (novo, em `src/instalar/`): função pura `avaliarDependencias({deps, plugins, repos, testado}) → [{id, estado: 'propria'|'equivalente'|'duplicada'|'ausente', equivalente?, instalada, versaoEquivalente?, versaoTestada?, auto, dependentes}]`, alimentada pelos registros lidos do disco. `plugins[id]` leva `auto` (do registro) e `dependencias` (os ids que o `plugin.json` do plugin ligado declara em `dependencies`). `auto` é o `auto === true` da cópia do kit; `dependentes` são os plugins ligados, no escopo do usuário, que dependem da cópia do kit. Usada pelo instalador e pelo SessionStart do kit (cópia autocontida em `kit/`, ver abaixo). `deps` = `TERCEIROS_KIT`, as cinco cópias de terceiros que kits até 1.1.2 instalavam como dependência (`superpowers@claude-plugins-official` e `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills`, `ui-ux-pro-max` `@claude-hadouken`).
 - **Dependentes.** `dependencies` do `plugin.json` aceita `"nome"` (resolve no marketplace do próprio plugin), `"nome@marketplace"` e `{name, marketplace?, version?}` (doc oficial, plugins-reference e plugins/dependencies). A leitura é `<installPath>/.claude-plugin/plugin.json` de cada plugin ligado no escopo do usuário; manifesto ausente, ilegível ou de forma errada conta como sem dependências. O `claude plugin disable` falha quando outro plugin habilitado depende do alvo (doc oficial, plugins/cli-reference), então a cópia do kit com dependente ligado nunca é alvo de `disable`.
-- **Instalador** (`passoKit`): para cada `D`, `equivalente` → não instala; `duplicada` (cópia do kit e equivalente habilitadas) com a cópia do kit `auto: true`, sem dependente ligado e o kit ≥ 1.2.0 → `claude plugin disable <D> --scope user` (escopo explícito do usuário; doc oficial: `-s, --scope <scope>`, `user`, `project` ou `local`), conferido pela lista, e avisa "`<D>` já instalado via `<equivalente>`; cópia do kit desligada"; `ausente` e não instalada → `claude plugin install <D>` (o `plugin install` do kit deixa de trazer dependências); `ausente` e instalada desligada → não religa (foi o usuário quem desligou) e avisa com `claude plugin enable <D>`. Abaixo de 1.2.0, avisa e não mexe. `duplicada` sem `auto` (o usuário instalou as duas) → não desliga: avisa que as duas fazem o mesmo e mostra `claude plugin disable <D> --scope user` para ele rodar se quiser. `duplicada` com dependente ligado → não desliga: a linha informativa nomeia o dependente. Nunca desinstala.
+- **Instalador** (depois do `passoKit`): para cada `D`, `duplicada` (cópia do kit e equivalente habilitadas) com a cópia do kit `auto: true`, sem dependente ligado e o kit ≥ 1.2.0 → `claude plugin disable <D> --scope user` (escopo explícito do usuário; doc oficial: `-s, --scope <scope>`, `user`, `project` ou `local`), conferido pela lista, e avisa "`<D>` já instalado via `<equivalente>`; cópia do kit desligada"; `propria`, `equivalente` e `ausente` → nada além do que `conferirSugeridas` já mostra (nunca `plugin install` nem `plugin enable`). Abaixo de 1.2.0 (o kit que ainda declara terceiros), avisa e não mexe. `duplicada` sem `auto` (o usuário instalou as duas) → não desliga: avisa que as duas fazem o mesmo e mostra `claude plugin disable <D> --scope user` para ele rodar se quiser. `duplicada` com dependente ligado → não desliga: a linha informativa nomeia o dependente. Nunca desinstala.
 - **Aviso de versão**: só no instalador. Versão da cópia equivalente ≠ versão de `D` em `kit/testado.json` → o aviso diz as duas versões. O SessionStart não lê `testado.json` e não compara versão.
-- **SessionStart do kit**: avalia as dependências a cada sessão e mostra ao usuário (`systemMessage`) uma linha por problema: `duplicada` com a cópia do kit `auto: true` → `claude plugin disable <D> --scope user`; `duplicada` sem `auto` → as duas fazem o mesmo, com o mesmo comando para o usuário desligar uma se quiser; `duplicada` com dependente ligado → sem linha (o comando falharia); `ausente` não instalada → `claude plugin install <D>`; `ausente` instalada desligada → `claude plugin enable <D>`. Todo comando é dito para o terminal ("no terminal: claude plugin …"), porque com a guarda ligada o Claude não roda `claude` na sessão. Não escreve em `settings.json`. Leitura falhou → silêncio (sem aviso falso).
+- **SessionStart do kit**: avalia as dependências a cada sessão e mostra ao usuário (`systemMessage`) uma linha por problema: `duplicada` com a cópia do kit `auto: true` → `claude plugin disable <D> --scope user`; `duplicada` sem `auto` → as duas fazem o mesmo, com o mesmo comando para o usuário desligar uma se quiser; `duplicada` com dependente ligado → sem linha (o comando falharia); `propria`, `equivalente` e `ausente` → sem linha (terceiros são sugeridos, não exigidos, desde a 0.5.9). Todo comando é dito para o terminal ("no terminal: claude plugin …"), porque com a guarda ligada o Claude não roda `claude` na sessão. Não escreve em `settings.json`. Leitura falhou → silêncio (sem aviso falso).
 - O kit é autocontido: a avaliação usada no SessionStart mora em `kit/` (o cache do kit não tem `src/`). Um teste de paridade garante que as duas cópias da função dão o mesmo resultado para as mesmas fixtures.
 
 ### Fatia 2 — Janela de trabalho
@@ -287,9 +298,9 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 
 ### Fatia 6 — Versão, README, notas de quebra
 
-- `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (hadouken 0.6.0, kit 1.2.0), `kit/.claude-plugin/plugin.json` (versão 1.2.0 e `dependencies` = `[{"name": "hadouken", "version": ">=0.6.0"}]`), `kit/testado.json` (hadouken 0.6.0).
+- `package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (hadouken 0.6.0, kit 1.3.0), `kit/.claude-plugin/plugin.json` (versão 1.3.0 e `dependencies` = `[{"name": "hadouken", "version": ">=0.6.0"}]`), `kit/testado.json` (hadouken 0.6.0).
 - README: uma linha em "Recursos" por recurso novo (paleta e `/hadouken:agentes`, janela e `/hadouken:janela`, dedup, régua e `/hadouken-kit:regua`, auditoria e mutação), com link para a wiki; o README fica em até 60 linhas (`test/wiki.test.js`, "README curto"). O detalhe vai para as páginas da wiki em pt e en: `wiki/Kit.md`/`wiki/Kit-en.md` (régua, auditoria, mutação) e `wiki/Comandos.md`/`wiki/Commands.md` (comandos).
-- Notas de quebra: agentes renomeados ou removidos; `revisor` em sonnet; kit sem dependências de terceiros no manifesto e com `hadouken` ≥ 0.6.0 como dependência (com um `hadouken` menor o kit fica desabilitado); o hook de despacho atua com a guarda desligada; a negação de agente removido só alcança sessão aberta antes da atualização.
+- Notas de quebra: agentes renomeados ou removidos; `revisor` em sonnet; kit 1.3.0 com `hadouken` ≥ 0.6.0 como dependência (com um `hadouken` menor o kit fica desabilitado); o instalador deixa de desligar a cópia de outro marketplace (`COPIAS_ANTIGAS` da 0.5.9) e passa a desligar a cópia duplicada que o kit instalou (`auto: true`); o hook de despacho atua com a guarda desligada; a negação de agente removido só alcança sessão aberta antes da atualização.
 
 ### Fatia 7 — Régua de desenvolvimento
 
@@ -302,6 +313,7 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
    "transversais": [{"skill": "mattpocock-skills:diagnosing-bugs", "quando": "lentidão ou regressão"}]}
   ```
   Fase: `fase` (obrigatório), `usar` (lista), `alternativas` (lista de `{skill, quando}`), `agente` (opcional, um). Fase sem `usar` nem `agente` é inválida.
+- **Pasta de dados**: `~/.claude/hadouken` nesta fatia é o `dirDados()` da 0.5.9 (`src/base.js:113`): `HADOUKEN_HOME` absoluto → ela; senão `CLAUDE_CONFIG_DIR` de conta (`~/.claude-contas/<nome>`, `pastaDeConta` em `:128`) → `<CLAUDE_CONFIG_DIR>/hadouken`; senão `~/.claude/hadouken`. O `dirHadouken` do kit (`kit/hooks/regua.js`) copia a regra inteira, e um teste de paridade compara as duas para `HADOUKEN_HOME`, conta, `principal`, outro `CLAUDE_CONFIG_DIR` e nenhum.
 - **Raiz do projeto**: `CLAUDE_PROJECT_DIR` (caminho absoluto existente) → senão o diretório mais próximo, do cwd para cima, que contém `.git` (diretório ou arquivo, para worktree), achado por subida de pastas, sem executar `git` → senão o cwd.
 - **Origem e precedência**: `<raiz do projeto>/.claude/hadouken.json` chave `regua` → senão `~/.claude/hadouken/regua.json` → senão a padrão. A de maior precedência substitui a outra por inteiro; a substituição é decisão do Fernando. Arquivo ilegível ou inválido → aviso e cai para o nível seguinte. A global fica em arquivo próprio, porque quem grava é o kit e `config.json` é do hadouken (evita dois plugins gravando o mesmo arquivo).
 - **Régua do repo no lugar da do usuário**: com a origem `repo`, o SessionStart mostra ao usuário (`systemMessage`) uma linha fixa: `hadouken-kit: a régua deste repositório (.claude/hadouken.json) vale no lugar da sua; /hadouken-kit:regua mostra qual.` A linha não ecoa conteúdo do arquivo.
@@ -326,7 +338,7 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 
 | # | Caso | Tratamento |
 |---|---|---|
-| D1 | Cópia do usuário instalada mas **desabilitada** | Não conta como equivalente; o kit instala a dele e avisa que a do usuário está desligada |
+| D1 | Cópia do usuário instalada mas **desabilitada** | Não conta como equivalente: a cópia do kit ligada fica `propria` e nada muda; sem aviso. `conferirSugeridas` mostra "já instalado" (mesmo nome em qualquer marketplace, ligado ou não) |
 | D2 | Duas cópias habilitadas e kit instalado < 1.2.0 | Não desliga (derrubaria o kit); avisa para atualizar o kit |
 | D3 | Mesmo nome, repo diferente (homônimo) | Conta como equivalente (namespace de skill colide de qualquer forma); o aviso diz qual cópia ficou |
 | D4 | Mesma origem (repo e subpasta), nome diferente | Conta como equivalente pela origem |
@@ -336,12 +348,11 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 | D14 | Desligar a cópia do kit | Sempre `claude plugin disable <D> --scope user`, no instalador, no comando do conserto (D7) e nos avisos do SessionStart; nunca sem o escopo |
 | D15 | `duplicada` com plugin ligado que depende da cópia do kit (`dependencies` do manifesto, nos três formatos) | A cópia do kit fica ligada. O instalador mostra linha informativa que nomeia o dependente; o SessionStart não mostra linha. Manifesto ausente ou ilegível = sem dependências |
 | D16 | Formas de origem | Valem como origem: `url` de `github.com` em `https`, `https://www.` ou SSH `git@github.com:`, com ou sem `.git`; `source` relativo com ou sem `./`. `git-subdir` sem `path` não tem origem |
-| D17 | `prune` | Com o kit 1.2.0 sem dependências de terceiros no manifesto, as dependências que o kit instalou com `auto: true` ficam órfãs, e `claude plugin prune` as remove. O SessionStart avisa `falta <D>` com `claude plugin install <D>`, e o instalador as instala de novo. Comportamento previsto |
-| D18 | A dependência que o instalador 0.6.0 instala com `plugin install <D>` pode ficar sem `auto` em `installed_plugins.json` (a medir no e2e da T13) | Sem `auto`, um homônimo instalado depois gera só o aviso do D13 (as duas fazem o mesmo), sem desligar nada |
+| D17 | `prune` | Os kits 1.2.0 e 1.3.0 não declaram terceiros, então as cópias que kits antigos instalaram com `auto: true` ficam órfãs, e `claude plugin prune` as remove. O SessionStart não avisa; o instalador mostra `○ <nome>: sugerido (rode claude plugin install <D>)` quando nenhuma cópia de mesmo nome sobrou. Comportamento da 0.5.9 |
 | D5 | Plugin habilitado só no escopo de projeto | Fora da avaliação (só escopo do usuário); sem aviso |
-| D6 | `installed_plugins.json` ausente ou ilegível | Nenhuma equivalência; instalação como hoje; SessionStart em silêncio |
+| D6 | `installed_plugins.json` ausente ou ilegível | Nenhuma equivalência; o instalador não desliga nada e mostra só o que `conferirSugeridas` mostra; SessionStart em silêncio |
 | D7 | `claude plugin disable` falha ou a lista seguinte mostra a cópia do kit ainda ligada | Item ✗ com `rode claude plugin disable <D> --scope user`; nada mais muda. No SessionStart do kit, `settings.json` ilegível → silêncio |
-| D8 | Usuário remove a própria cópia depois | SessionStart avisa `ausente` com o comando de instalar (ou de religar a cópia do kit, se instalada e desligada) |
+| D8 | Usuário remove a própria cópia depois que a dedup desligou a do kit | A do kit fica desligada; o SessionStart não avisa (`ausente` sem linha) e o instalador mostra "já instalado" (a do kit segue instalada). O aviso da dedup no instalador já disse que a cópia do kit foi desligada; religar é `claude plugin enable <D>` |
 | D9 | Mesma versão, commit diferente (1.3.2 × 1.3.2) | Sem aviso de versão (`testado.json` guarda versão, não commit) |
 | D10 | `superpowers` de outro marketplace | Mesma regra das demais |
 | J1 | Agora fora da janela | Esperado congela; projeção começa no próximo início de janela |
@@ -384,10 +395,10 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 - **Bom teste** exercita a superfície pública do plugin e confere o efeito observável (stdout do hook, arquivo gravado, chamada ao CLI falso); não testa função privada.
 - **Costuras** (as existentes; nenhuma nova):
   1. **Hooks** — JSON no stdin → JSON no stdout, HOME temporário com fixtures: SessionStart do hadouken (ritmo com janela, texto de paleta) e do kit (régua, avisos de dedup); PreToolUse do despacho (injeção, explícito vence, `ativo:false`, fork, Workflow, guarda desligada, N1/N2 com explícito); `UserPromptExpansion` de `janela`, `agentes`, `regua`. Prior art: `test/hooks.test.js:694` (`rodarEspiado`, stdin em `:706`), `test/kit-fluxo.test.js:77-86`.
-  2. **Instalador** — `instalar-tudo` com CLI falso (`HADOUKEN_CLAUDE`) e HOME com `known_marketplaces.json` e `marketplace.json` de fixture: não instala com equivalente, `plugin disable <D> --scope user` no log do falso com duplicata e `auto: true` no `installed_plugins.json` de fixture (sem `auto` ou com dependente ligado: nenhum `disable`), `plugin install <D>` com ausente, nunca `uninstall`, aviso de versão, kit < 1.2.0. Prior art: `test/instalar-tudo.test.js:30,328`, `test/dados/instalador/claude-falso.mjs:74`.
+  2. **Instalador** — `instalar-tudo` com CLI falso (`HADOUKEN_CLAUDE`) e HOME com `known_marketplaces.json` e `marketplace.json` de fixture: `plugin disable <D> --scope user` no log do falso com duplicata e `auto: true` no `installed_plugins.json` de fixture (sem `auto` ou com dependente ligado: nenhum `disable`); em nenhum estado `plugin install`, `plugin enable` ou `uninstall` de terceiro; aviso de versão; kit < 1.2.0; os itens de `conferirSugeridas` iguais aos da 0.5.9. Prior art: `test/instalar-tudo.test.js:30,328`, `test/dados/instalador/claude-falso.mjs:74`.
   3. **Config** — gravação atômica preservando chaves, valor inválido. Prior art: `test/config-gravar.test.js:19-20`, `test/configuracao.test.js:42-45`.
 - Paridade: a avaliação de dependências do kit e a do hadouken dão o mesmo resultado para o mesmo conjunto de fixtures.
-- Regressão: a suíte inteira passa; mudam só os testes que afirmam agentes removidos, a lista de dependências do manifesto (objeto `{name, version}` na 1.2.0), o texto fixo de `LINHAS_REGRA`, os textos A1 e N2 e o substituto do aprendizado (sem `executor` nem `revisor-critico`), o teto de caracteres do SessionStart do kit (`test/kit-fluxo.test.js:87`, de 1 600 para 2 400) e as asserções de formato literal do texto da régua (Tarefa 10).
+- Regressão: a suíte inteira passa; mudam só os testes que afirmam agentes removidos, a lista de dependências do manifesto (objeto `{name, version}` na 1.3.0), o texto fixo de `LINHAS_REGRA`, os textos A1 e N2 e o substituto do aprendizado (sem `executor` nem `revisor-critico`), o teto de caracteres do SessionStart do kit (`test/kit-fluxo.test.js:87`, de 1 600 para 2 400) e as asserções de formato literal do texto da régua (Tarefa 10).
 - **Mutação** no fim, antes do PR: StrykerJS via `npx`, runner de comando `node --test`, `mutate` = faixas de linha de `git diff -U0` do branch contra `main` em `src/` e `kit/`. Cada sobrevivente em linha alterada: teste novo ou justificativa no corpo do PR.
 
 ## 7. Fora do escopo
@@ -405,7 +416,6 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 
 1. (e2e, passo 5) `updatedInput` vence o `model` do frontmatter de um agente de plugin? (A doc diz que o parâmetro por invocação vence o frontmatter; o passo 0 mediu com `general-purpose`, sem frontmatter.)
 2. (e2e) Com `--plugin-dir` apontando para o branch e o mesmo plugin instalado do marketplace, quais hooks rodam?
-3. (e2e, D18) A dependência instalada por `plugin install <D>` do instalador 0.6.0 fica sem `auto` em `installed_plugins.json`?
 
 ### 8.2 Decisões do Fernando (dono: Fernando)
 
@@ -420,9 +430,9 @@ Nenhuma está decidida; cada uma traz a recomendação.
 
 Artefatos com prefixo `ZZE2E`; cópia de `~/.claude/hadouken/config.json` antes e restauração no fim.
 
-1. **Baseline**: `node --test` em `a73e458` → registrar total e falhas.
+1. **Baseline**: `node --test` em `a73e458` e em `71c381e` (`origin/main`) → registrar total e falhas; depois do merge, a suíte do branch passa com os testes da 0.5.9.
 2. **Cada fatia**: `node --test` verde; diff resumido.
-3. **Dedup (máquina real, com ok do mantenedor — muda `settings.json`)**: mostrar a tabela do que muda; `node src/instalar-tudo.js` do branch → `enabledPlugins["mattpocock-skills@claude-hadouken"] = false`, `mattpocock-skills@mattpocock` intacto, nenhum `uninstall` no log; nova sessão → nenhum aviso de duplicata; lista de skills com uma cópia de cada `mattpocock-skills:*`; depois do `plugin install <D>` de uma dependência ausente, o campo `auto` da entrada em `installed_plugins.json` (D18); `claude plugin list` com o `hadouken-kit` 1.2.0 habilitado e sem a linha `Requires "hadouken@claude-hadouken"` (faixa `>=0.6.0`).
+3. **Dedup (máquina real, com ok do mantenedor — muda `settings.json`)**: mostrar a tabela do que muda; `node src/instalar-tudo.js` do branch → `enabledPlugins["mattpocock-skills@claude-hadouken"] = false`, `mattpocock-skills@mattpocock` intacto, nenhum `uninstall` no log; nova sessão → nenhum aviso de duplicata; lista de skills com uma cópia de cada `mattpocock-skills:*`; resumo do instalador com os itens `○ sugerido`/"já instalado" da 0.5.9. O `passoKit` atualiza o kit do marketplace, então o manifesto 1.3.0 (`claude plugin list` com o `hadouken-kit` 1.3.0 habilitado e sem `Requires "hadouken@claude-hadouken"`) só se mede depois da publicação; antes, `test/kit-manifestos.test.js` cobre a faixa `>=0.6.0`.
 4. **Janela**: `/hadouken:janela seg-sex 9-21` → chave gravada; SessionStart mostra esperado igual ao cálculo manual de `U` para o instante; `/hadouken:janela off` → número igual ao da baseline.
 5. **Agentes** (guarda desligada): `/hadouken:agentes revisor opus high`; despacho `hadouken:revisor` sem model → transcript do subagente `message.model` = opus, `meta.json` effort `high`; despacho com `model: sonnet` → sonnet; `/hadouken:agentes auditor off` → despacho negado com "use hadouken:revisor"; `fork` sem injeção; em `permissions.defaultMode: "auto"` o despacho com injeção roda sem a negação `a hook changed this call's input after auto mode reviewed it`; `padrao` restaura.
 6. **Régua**: `/hadouken-kit:regua` → padrão; `editar` → rascunho; `aplicar` → nova sessão mostra "Régua (global)"; repo `ZZE2E-regua` com `.claude/hadouken.json` → "Régua (repo)" e a linha de aviso "vale no lugar da sua"; sessão aberta numa subpasta desse repo → o mesmo; skill inexistente → aviso com texto fixo e contagem; `padrao` restaura.

@@ -140,7 +140,10 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs, agentes, injeca
     const prompt = typeof ti.prompt === 'string' ? ti.prompt : '';
     const { config } = lerConfigRoteamento(dir);
     const d = avaliarRoteamento({ perfil: pr, descricao: ti.description, prompt, recentes: rot.despachosRecentes(dir, sessionId, agoraMs), config, liberado: g.cobertura.ativa === true, agoraMs, agentes });
-    if (pr.agente !== null) rot.registrarDespacho(dir, { sessao: sessionId, agente: pr.agente, familia: pr.familia, effort: pr.effort, regra: d.regra, decisao: d.decisao, em: agoraMs, tamPrompt: Math.min(prompt.length, 1e6), palavras: rot.hashesDePalavras(ti.description) });
+    // O registro leva o que o Agent vai rodar (com a injeção); as regras veem o
+    // que o Claude escreveu (pr).
+    const efetivo = injecao === null ? pr : desp.perfilRoteamento({ toolInput: injecao, cwd: entrada.cwd, dirConfigClaude: desp.dirConfigClaude(process.env, casa()), env: process.env, modeloSessao: g.modeloSessao, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT });
+    if (pr.agente !== null) rot.registrarDespacho(dir, { sessao: sessionId, agente: pr.agente, familia: efetivo.familia, effort: efetivo.effort, regra: d.regra, decisao: d.decisao, em: agoraMs, tamPrompt: Math.min(prompt.length, 1e6), palavras: rot.hashesDePalavras(ti.description) });
     if (d.decisao === 'negar') {
       negar(noSubagente ? msg.N_SUBAGENTE : (d.regra === 'N1' ? msg.N1_CLAUDE : msg.N2_CLAUDE), null);
       reg.anexarEvento(dir, 'roteamento-negado', d.regra, agoraMs);

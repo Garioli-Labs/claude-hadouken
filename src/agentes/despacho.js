@@ -1,4 +1,5 @@
 import { PALETA, REMOVIDOS } from './paleta.js';
+import { ausente, MODELS, EFFORTS } from './config.js';
 
 // Decisão da paleta sobre um despacho (spec v0.6.0 §4 Fatia 3 e 4). Pura:
 // recebe o que o hook leu e devolve a ação. Nunca lança; na dúvida, passa.
@@ -11,7 +12,7 @@ const FERRAMENTAS = new Set(['Agent', 'Task']);
 const PREFIXO = 'hadouken:';
 const POR_NOME = new Map(PALETA.map((p) => [p.nome, p]));
 
-const ausente = (v) => v === undefined || v === null || v === '';
+const FECHADAS = Object.freeze({ model: MODELS, effort: EFFORTS });
 const inativo = (agentes, nome) => agentes !== null && typeof agentes === 'object' && Object.hasOwn(agentes, nome) && agentes[nome]?.ativo === false;
 
 // O substituto da tabela, um nível só (spec §4 Fatia 4): null quando a tabela
@@ -33,14 +34,15 @@ export function avaliarPaleta({ toolName, toolInput, agentes = {} } = {}) {
       const substituto = substitutoAtivo(agentes, nome);
       return { acao: 'negar', razao: `hadouken:${nome} está desligado na config; ${substituto === null ? 'faça direto' : `use hadouken:${substituto}`}` };
     }
-    // Injeção: só o campo ausente, e só com valor na config. O campo explícito
+    // Injeção: só o campo ausente, e só com valor da lista fechada (MODELS,
+    // EFFORTS), mesmo com `agentes` não validado. O campo explícito
     // do despacho nunca é sobrescrito (A1). `fork` e agente de outro plugin já
     // saíram acima (não começam por `hadouken:`).
     if (!POR_NOME.has(nome)) return passa;
     const c = Object.hasOwn(agentes, nome) && agentes[nome] !== null && typeof agentes[nome] === 'object' ? agentes[nome] : {};
     const injetado = {};
     for (const campo of ['model', 'effort']) {
-      if (!ausente(toolInput[campo]) || typeof c[campo] !== 'string') continue;
+      if (!ausente(toolInput[campo]) || typeof c[campo] !== 'string' || !FECHADAS[campo].has(c[campo])) continue;
       injetado[campo] = c[campo];
     }
     if (Object.keys(injetado).length === 0) return passa;

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { effortValido } from '../util.js';
 import { lerLimitado } from '../estado.js';
+import { ausente } from '../agentes/config.js';
 
 // Perfil de um despacho de subagente (spec v0.4.0 §4.3 e G5 do D1 emendado):
 // o modelo, na ordem de resolução da documentação (C7): parâmetro `model`,
@@ -91,12 +92,12 @@ export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env,
     }
     const fm = typeof nome === 'string' ? frontmatterRoteamento(nome, cwd, dirCfg, raizPlugin) : null;
     // Spec v0.6.0 §4 Fatia 4: parâmetro > agentes.<nome> da config > frontmatter.
-    // A config vale para `hadouken:<nome>`, só para o campo que o despacho não
-    // traz (o que a paleta injetaria).
+    // A config vale para `hadouken:<nome>`, só para o campo ausente do despacho
+    // (`ausente`, o mesmo critério da paleta: o que ela injetaria).
     const nomeCurto = typeof nome === 'string' ? DO_PLUGIN.exec(nome)?.[1] : undefined;
     const cfg = nomeCurto !== undefined && agentes !== null && typeof agentes === 'object' && Object.hasOwn(agentes, nomeCurto) && agentes[nomeCurto] !== null && typeof agentes[nomeCurto] === 'object' ? agentes[nomeCurto] : {};
-    const modeloCfg = !ehTexto(ti.model) && ehTexto(cfg.model) ? cfg.model : null;
-    const effortCfg = !ehTexto(ti.effort) ? effortValido(cfg.effort) : null;
+    const modeloCfg = ausente(ti.model) && ehTexto(cfg.model) ? cfg.model : null;
+    const effortCfg = ausente(ti.effort) ? effortValido(cfg.effort) : null;
     // O parâmetro effort vence o frontmatter, como o model (portão v0.4.0, I1).
     const effort = effortValido(ti.effort) ?? effortCfg ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
     if (ehTexto(ti.model) && ti.model !== 'inherit') return { modelo: classificar(ti.model), effort, origem: 'parametro' };

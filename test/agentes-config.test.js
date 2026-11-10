@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { registrarSessao } from '../src/ativas.js';
 import { avaliarGuarda } from '../src/guarda/avaliar.js';
 import * as mensagens from '../src/guarda/mensagens.js';
-import { ARQ_DESPACHOS, registrarLimite } from '../src/guarda/registros.js';
+import { ARQ_DESPACHOS, registrarLimite, lerEventos } from '../src/guarda/registros.js';
+import { lerDespachos } from '../src/roteamento/registro.js';
 import { perfilDoDespacho, perfilRoteamento } from '../src/guarda/despacho.js';
 import { avaliarRoteamento } from '../src/roteamento/regras.js';
 import { PALETA, paletaEfetiva } from '../src/agentes/paleta.js';
@@ -598,4 +599,128 @@ test('avaliarPaleta: injetar devolve o tool_input inteiro mais os campos; passa 
   assert.deepEqual(avaliarPaleta({ toolName: 'Agent', toolInput: { ...original, subagent_type: 'fork' }, agentes: { fork: { model: 'opus' }, revisor: { model: 'opus' } } }), { acao: 'passa' });
   // Remoção e inativo vencem a injeção.
   assert.equal(avaliarPaleta({ toolName: 'Agent', toolInput: original, agentes: { revisor: { ativo: false, model: 'opus' } } }).acao, 'negar');
+});
+
+// ====================== Correções do revisor na 6b (ausente único, registro efetivo, listas fechadas)
+
+const AGENTE_REVISOR = { subagent_type: 'hadouken:revisor', prompt: 'x', description: 'y' };
+const CFG_REVISOR = { revisor: { model: 'opus', effort: 'high' } };
+const paleta = (campos, agentes = CFG_REVISOR) => avaliarPaleta({ toolName: 'Agent', toolInput: { ...AGENTE_REVISOR, ...campos }, agentes });
+
+test('C1 injeção: model e effort null ou vazio contam como ausentes e recebem a config', () => {
+  for (const vazio of [null, '']) {
+    assert.deepEqual(paleta({ model: vazio }), { acao: 'injetar', updatedInput: { ...AGENTE_REVISOR, model: 'opus', effort: 'high' } });
+    assert.deepEqual(paleta({ effort: vazio, model: 'sonnet' }), { acao: 'injetar', updatedInput: { ...AGENTE_REVISOR, model: 'sonnet', effort: 'high' } });
+  }
+  // No hook, ponta a ponta.
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { revisor: { model: 'opus' } } });
+  assert.equal(injecao(lerSaida(rodar(despacho(ti('hadouken:revisor', { model: null })), home))).model, 'opus');
+  assert.equal(injecao(lerSaida(rodar(despacho(ti('hadouken:revisor', { model: '' })), home))).model, 'opus');
+});
+
+test('C1 injeção: campo presente com outro valor não recebe injeção (inherit, número, false, 300 caracteres, effort fora da lista)', () => {
+  // model inherit: só o effort entra; effort bogus: só o model entra.
+  assert.deepEqual(paleta({ model: 'inherit' }), { acao: 'injetar', updatedInput: { ...AGENTE_REVISOR, model: 'inherit', effort: 'high' } });
+  assert.deepEqual(paleta({ effort: 'bogus' }), { acao: 'injetar', updatedInput: { ...AGENTE_REVISOR, effort: 'bogus', model: 'opus' } });
+  for (const outro of [5, false, 'x'.repeat(300)]) {
+    assert.deepEqual(paleta({ model: outro }), { acao: 'injetar', updatedInput: { ...AGENTE_REVISOR, model: outro, effort: 'high' } });
+    assert.deepEqual(paleta({ effort: outro }), { acao: 'injetar', updatedInput: { ...AGENTE_REVISOR, effort: outro, model: 'opus' } });
+  }
+  assert.deepEqual(paleta({ model: 'inherit', effort: 'bogus' }), { acao: 'passa' });
+});
+
+test('C1 perfil efetivo: o mesmo predicado de ausente; campo presente com outro valor não atribui à config', () => {
+  const ag = { revisor: { model: 'fable', effort: 'max' } };
+  const base = { subagent_type: 'hadouken:revisor' };
+  const doFrontmatter = { modelo: 'outro', effort: 'high', origem: 'frontmatter' };
+  // model 5, false e 300 caracteres: a paleta não injeta, o perfil não conta fable nem origem config.
+  for (const outro of [5, false, 'x'.repeat(300)]) {
+    const p = pd({ ...base, model: outro }, { agentes: { revisor: { model: 'fable' } } });
+    assert.equal(p.origem, 'frontmatter', `model ${String(outro).slice(0, 5)}`);
+    assert.equal(p.modelo, 'outro');
+  }
+  // effort presente e inválido: a config não o preenche (a paleta também não).
+  for (const outro of [5, false, 'bogus', 'x'.repeat(300)]) assert.deepEqual(pd({ ...base, effort: outro }, { agentes: ag }), { modelo: 'fable', effort: 'high', origem: 'config' }, `effort ${String(outro).slice(0, 5)}`);
+  // null e '' são ausentes nos dois lados: a config vale.
+  for (const vazio of [null, '']) {
+    assert.deepEqual(pd({ ...base, model: vazio, effort: vazio }, { agentes: ag }), { modelo: 'fable', effort: 'max', origem: 'config' });
+  }
+  assert.deepEqual(pd(base), doFrontmatter);
+});
+
+test('C1 hook: model 5 com config fable não injeta o model nem aciona o G5 pela config', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { revisor: { model: 'fable', effort: 'xhigh' } } });
+  const o = lerSaida(rodar(despacho(ti('hadouken:revisor', { model: 5 })), home));
+  // Sem config, model 5 cairia no frontmatter (sonnet): nada de Fable, nada de G5. O effort entra.
+  assert.equal(injecao(o).model, 5);
+  assert.equal(injecao(o).effort, 'xhigh');
+});
+
+test('C2 registro de roteamento: grava a família e o effort efetivos (com a injeção), não os do tool_input', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { revisor: { model: 'opus', effort: 'xhigh' } } });
+  lerSaida(rodar(despacho(ti('hadouken:revisor')), home));
+  const linhas = lerDespachos(home, Date.now());
+  assert.equal(linhas.length, 1);
+  assert.equal(linhas[0].agente, 'hadouken:revisor');
+  assert.equal(linhas[0].familia, 'opus');
+  assert.equal(linhas[0].effort, 'xhigh');
+  // Sem injeção: o registro segue o frontmatter do plugin (revisor: sonnet, high).
+  const sem = homeCom(PERGUNTAR_OFF);
+  lerSaida(rodar(despacho(ti('hadouken:revisor')), sem));
+  const [l] = lerDespachos(sem, Date.now());
+  assert.equal(l.familia, 'sonnet');
+  assert.equal(l.effort, 'high');
+});
+
+test('C3 avaliarPaleta chamada direto: model e effort fora de MODELS e EFFORTS nunca são injetados', () => {
+  assert.deepEqual(paleta({}, { revisor: { model: 'gpt', effort: 'turbo' } }), { acao: 'passa' });
+  // Um válido e um inválido: só o válido entra.
+  assert.deepEqual(paleta({}, { revisor: { model: 'gpt', effort: 'max' } }), { acao: 'injetar', updatedInput: { ...AGENTE_REVISOR, effort: 'max' } });
+  assert.deepEqual(paleta({}, { revisor: { model: 'fable', effort: 'turbo' } }), { acao: 'injetar', updatedInput: { ...AGENTE_REVISOR, model: 'fable' } });
+});
+
+// Preload do filho: só a chamada que vem de guarda/avaliar.js lança, então
+// avaliarGuarda devolve status 'erro' sem lançar e o resto do hook roda inteiro.
+const PRELOAD_AVALIAR_ERRO = "const o = Date.prototype.toISOString; Date.prototype.toISOString = function () { if (new Error().stack.includes('avaliar.js')) throw new Error('avaliar quebrado'); return o.call(this); };\n";
+
+test('hook: ramo status erro de avaliarGuarda registra erro P1, injeta e não segue para o roteamento (A10)', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { revisor: { model: 'opus' } } });
+  const preload = path.join(home, 'avaliar-erro.cjs');
+  fs.writeFileSync(preload, PRELOAD_AVALIAR_ERRO);
+  const o = lerSaida(rodar(despacho(ti('hadouken:revisor')), home, {}, ['--require', preload]));
+  assert.equal(injecao(o).model, 'opus');
+  semPermissao(o);
+  const erros = lerEventos(home, Date.now()).filter((e) => e.tipo === 'erro');
+  assert.deepEqual(erros.map((e) => e.detalhe), ['P1']);
+  // O ramo devolve antes do roteamento: nenhum despacho registrado.
+  assert.deepEqual(lerDespachos(home, Date.now()), []);
+});
+
+test('saída final: subagente (agent_id) com injeção pendente e trava sai só com deny, sem updatedInput', () => {
+  const home = homeCom({ guarda: { perguntar: true }, agentes: { revisor: { model: 'opus' } } }, TRAVA_5H);
+  const o = lerSaida(rodar(despacho(ti('hadouken:revisor'), { agent_id: 'sub1' }), home));
+  deny(o);
+  assert.equal(Object.hasOwn(o.hookSpecificOutput, 'updatedInput'), false);
+  assert.equal(Object.hasOwn(o, 'continue'), false);
+});
+
+test('saída final: aviso A2 com injeção pendente leva additionalContext e updatedInput na mesma saída', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { implementador: { effort: 'low' } } });
+  const original = ti('hadouken:implementador', { model: 'opus', description: 'encontrar os arquivos de config' });
+  const o = lerSaida(rodar(despacho(original), home));
+  assert.equal(o.hookSpecificOutput.additionalContext, mensagens.A2_CLAUDE);
+  assert.deepEqual(injecao(o), { ...original, effort: 'low' });
+  semPermissao(o);
+});
+
+test('saída final: aviso A3 com injeção pendente leva additionalContext e updatedInput na mesma saída', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { implementador: { effort: 'low' } } });
+  for (let i = 0; i < 5; i += 1) {
+    const o = lerSaida(rodar(despacho(ti('hadouken:implementador')), home));
+    assert.equal(Object.hasOwn(o.hookSpecificOutput, 'additionalContext'), false, `despacho ${i + 1}`);
+  }
+  const o = lerSaida(rodar(despacho(ti('hadouken:implementador')), home));
+  assert.equal(o.hookSpecificOutput.additionalContext, mensagens.A3_CLAUDE);
+  assert.deepEqual(injecao(o), { ...ti('hadouken:implementador'), effort: 'low' });
+  semPermissao(o);
 });

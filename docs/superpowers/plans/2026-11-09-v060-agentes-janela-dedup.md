@@ -2,7 +2,7 @@
 
 > **Para agentes:** execução por subagente `implementador`, uma tarefa por vez (superpowers:subagent-driven-development). Passos com checkbox (`- [ ]`).
 
-**Objetivo:** entregar a 0.6.0 do hadouken e a 1.2.0 do kit: dedup das dependências de terceiros, janela de trabalho no ritmo, paleta de dez agentes configurável por hook, skill de roteamento reescrita e régua de desenvolvimento configurável com auditoria e mutação.
+**Objetivo:** entregar a 0.6.0 do hadouken e a 1.3.0 do kit, sobre a 0.5.9 (`origin/main` `71c381e`, Tarefa M): desligamento da cópia duplicada que o kit instalou, janela de trabalho no ritmo, paleta de dez agentes configurável por hook, skill de roteamento reescrita e régua de desenvolvimento configurável com auditoria e mutação.
 
 **Arquitetura:** cada regra nova é um módulo puro (`src/instalar/dedup.js`, `src/janela.js`, `src/agentes/*.js`, `kit/hooks/regua.js`), exercitado pelas costuras que já existem: hook (JSON no stdin → JSON no stdout), instalador com CLI falso e gravação de config. Comandos do usuário seguem o padrão do `liberar` (`UserPromptExpansion` → `{decision:'block', reason}`). O kit continua autocontido: nada em `kit/` importa de `src/`.
 
@@ -12,7 +12,7 @@
 
 ## Restrições globais
 
-- Baseline em `ac076b0`: `node --test` → 2029 testes, 1997 passam, 0 falham, 32 pulados. Toda tarefa termina com 0 falhas.
+- Baseline em `ac076b0`: `node --test` → 2029 testes, 1997 passam, 0 falham, 32 pulados. Baseline da 0.5.9 em `71c381e`, medida na Tarefa M. Toda tarefa termina com 0 falhas.
 - Sem `dependencies`/`devDependencies` novas em `package.json`.
 - Hook nunca lança e sempre sai com código 0 (`rodarHook`, `src/hooks/comum.js:116`). Erro interno → passa adiante sem negar.
 - Config do usuário só é gravada por comando que ele digita (`UserPromptExpansion`), por `gravarJsonAtomico` (`src/estado.js:152`), preservando as outras chaves.
@@ -33,7 +33,7 @@ Entradas que a spec implica e nenhum teste de tarefa cobria. Cada uma tem teste 
 6. **RF6** — a paleta (injeção e negação de agente removido) roda antes dos portões da guarda: guarda desligada, `session_id` inválido, sessão inativa e status `erro` não a impedem. Testes nas Tarefas 6a (negação) e 6b (injeção).
 7. **RF7** — G5, G6 e G7 enxergam o perfil efetivo (parâmetro > config > frontmatter local ou de plugin): `hadouken:auditor` sem `model` é Fable; N1 e N2 continuam avaliando o `tool_input` original e aprovam o parâmetro explícito igual a `agentes.<nome>` ou a `roteamento.subir`. Testes nas Tarefas 6a, 6b e 7.
 8. **RF8** — régua: nome fora da regex, texto longo, lista acima do limite e nome desconhecido nunca chegam crus ao `systemMessage`; a régua do repo avisa que vale no lugar da do usuário; a raiz do projeto é `CLAUDE_PROJECT_DIR` → `.git` → cwd. Testes nas Tarefas 10 e 11.
-9. **RF9** — o teto de `test/kit-fluxo.test.js:87-88` muda para 2400 caracteres com a régua padrão; o kit 1.2.0 declara o `hadouken` com `version: ">=0.6.0"`. Testes nas Tarefas 9 e 10.
+9. **RF9** — o teto de `test/kit-fluxo.test.js:87-88` muda para 2400 caracteres com a régua padrão; o kit 1.3.0 declara o `hadouken` com `version: ">=0.6.0"`. Testes nas Tarefas 9 e 10.
 
 ## Revisão por fatia
 
@@ -58,7 +58,8 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - `plugins`: `Map<id, {version, enabled, scope}>`; `repos`: `Map<id, string|null>`; `testado`: `Record<id, string>`.
   - `Avaliacao = {id, nome, estado: 'propria'|'equivalente'|'duplicada'|'ausente', instalada: boolean, equivalente: string|null, versao: {equivalente: string, testada: string} | null}`.
   - O equivalente é o primeiro id em ordem alfabética que satisfaz a regra de equivalência.
-- `passoKit(rodar, {repos = new Map(), lerTestado = () => ({})} = {}) → {item, entrada, lista, dedup: Avaliacao[]}`
+- `passoKit(rodar) → {item, entrada, lista}` da 0.5.9 (`claude-cli.js:99` em `origin/main`), sem mudança.
+- `passoDedup(rodar, {entrada, lista, repos = new Map(), autos = new Set(), lerTestado = () => ({}), lerDependencias}) → {item: Item | null, lista, dedup: Avaliacao[]}` em `src/instalar/claude-cli.js`: roda depois do `passoKit`, com a `entrada` e a `lista` dele; `item` com nome `hadouken-kit: cópias em dobro`, ou `null` quando não há o que dizer.
 - `ligarAtualizacao({arquivo, agoraMs}) → {ok, acao: 'gravado'|'ja-estava', backup} | {ok: false, motivo}`, sem `prontas`, `desligadas` nem `mantidas`.
 
 - [x] **Passo 1 — testes puros que falham** (`test/dedup.test.js`). Fixture `p(version, enabled, scope='user')`:
@@ -86,21 +87,21 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - `{source:'url', url:'https://gitlab.com/x/y.git'}` → `null`.
 - [x] **Passo 2** — `node --test test/dedup.test.js` → FAIL (módulo ausente).
 - [x] **Passo 3** — implementar `src/instalar/dedup.js`.
-- [x] **Passo 4 — testes do instalador que falham** (`test/instalar-tudo.test.js`, CLI falso). HOME com `plugins/known_marketplaces.json` (`mattpocock` → repo `mattpocock/skills`, `installLocation` na fixture) e `marketplaces/mattpocock/.claude-plugin/marketplace.json` (`source: "./"`):
+- [ ] **Passo 4 — testes do instalador que falham** (Tarefa M) (`test/instalar-tudo.test.js`, CLI falso). HOME com `plugins/known_marketplaces.json` (`mattpocock` → repo `mattpocock/skills`, `installLocation` na fixture) e `marketplaces/mattpocock/.claude-plugin/marketplace.json` (`source: "./"`):
   - **duplicada**: estado do falso com as duas cópias ligadas e kit `1.2.0` → o log do falso contém `plugin disable mattpocock-skills@claude-hadouken` e não contém `uninstall`; o resumo contém `mattpocock-skills já instalado via mattpocock-skills@mattpocock; cópia do kit desligada`.
   - **equivalente**: só `mattpocock-skills@mattpocock` ligado → nenhum `plugin install mattpocock-skills@claude-hadouken` no log.
-  - **ausente**: `poka-yoke` nenhum → `plugin install poka-yoke@claude-hadouken` no log.
+  - **ausente**: `poka-yoke` nenhum → nenhum `plugin install` nem `plugin enable` de terceiro no log; o resumo contém `○ poka-yoke: sugerido (rode claude plugin install poka-yoke@claude-hadouken)` (item de `conferirSugeridas`).
   - **versão**: equivalente `mattpocock-skills@mattpocock` 1.3.1 e `testado.json` do kit com 1.3.2 → o resumo contém `1.3.1` e `testada 1.3.2`.
   - **kit < 1.2.0 (D2)**: kit `1.1.2` com duplicata → sem `disable`; o resumo contém `atualize o hadouken-kit para desligar a cópia em dobro`.
   - **disable sem efeito (D7)**: `falhar: ['plugin disable mattpocock-skills@claude-hadouken']` → item ✗ com `rode claude plugin disable mattpocock-skills@claude-hadouken`.
   - **settings preservado**: `settings.json` com `"mattpocock-skills@mattpocock": true` → continua `true` depois da instalação, porque `ligarAtualizacao` não toca `enabledPlugins`.
 - [x] **Passo 5** — `node --test test/instalar-tudo.test.js test/instalar-claude-cli.test.js` → FAIL.
-- [x] **Passo 6** — implementar:
-  - `passoKit` segue a ordem da spec §4 Fatia 1 ("Instalador"). O desligamento passa pelo mesmo `rodar(['plugin','disable',id])` do REA (`claude-cli.js:134`) e é conferido pela lista.
-  - `instalar-tudo` passa `repos = lerRepos(path.join(pastaConfig(ambiente), 'plugins'))` e `lerTestado = (installPath) => <testado.json do kit>`.
+- [ ] **Passo 6** — implementar (Tarefa M):
+  - `passoDedup` segue a regra da spec §4 Fatia 1 ("Instalador"): só `rodar(['plugin','disable',id,'--scope','user'])`, conferido pela lista; nunca `install`/`enable` de terceiro.
+  - `instalar-tudo` chama, nesta ordem, `passoKit`, `passoDedup` (com `repos = lerRepos(...)`, `autos = lerAutos(...)` de `path.join(pastaConfig(ambiente), 'plugins')` e `lerTestado = lerTestadoDoKit`) e `conferirSugeridas` com a `lista` final.
   - `ligarAtualizacao` perde `COPIAS_ANTIGAS`, e `passoAtualizacao` perde `prontas`.
   - O texto do item de atualização fica `ligada` / `já estava`.
-- [x] **Passo 7** — `node --test` → 0 falhas. Os testes antigos de `COPIAS_ANTIGAS` são removidos ou reescritos para afirmar que nada em `enabledPlugins` muda.
+- [ ] **Passo 7** — `node --test` → 0 falhas (Tarefa M). Os testes antigos de `COPIAS_ANTIGAS` são removidos ou reescritos para afirmar que nada em `enabledPlugins` muda.
 - [x] **Passo 8** — commit `feat(dedup): instalador não duplica dependência que o usuário já tem`.
 
 ### Tarefa 2: kit sem dependências de terceiros e aviso no SessionStart
@@ -116,12 +117,11 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - `linhasAviso(avaliacao) → string[]`.
 - `pastaConfig` = `CLAUDE_CONFIG_DIR` absoluto, senão `~/.claude`.
 
-- [x] **Passo 1 — testes que falham:**
+- [ ] **Passo 1 — testes que falham** (Tarefa M):
   - **paridade**: as fixtures da Tarefa 1 (mesmos `deps`, `plugins`, `repos`, `testado`) passam por `src/instalar/dedup.js` e por `kit/hooks/dependencias.js` → `deepStrictEqual`. Idem para `repoDeOrigem` e `lerRepos`, numa pasta de fixture. `TERCEIROS_KIT` igual nas duas cópias.
   - **hook**: `rodar(cwd, input)` de `test/kit-fluxo.test.js:72` com `CLAUDE_CONFIG_DIR` de fixture:
     - duplicada → `systemMessage` = `hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken). Desligue a cópia do kit: claude plugin disable mattpocock-skills@claude-hadouken`;
-    - ausente não instalada → `hadouken-kit: falta poka-yoke. Instale: claude plugin install poka-yoke@claude-hadouken`;
-    - ausente instalada e desligada (D8) → `hadouken-kit: poka-yoke@claude-hadouken está desligado e não há outra cópia. Religue: claude plugin enable poka-yoke@claude-hadouken`;
+    - `ausente`, instalada desligada ou não instalada (D8, D17) → sem `systemMessage`;
     - tudo `propria` → sem `systemMessage`;
     - `installed_plugins.json` ausente (D6) ou `settings.json` inválido (D7) → sem `systemMessage`, `additionalContext` igual ao de hoje.
   - **RF1**: `mattpocock-skills@mattpocock` instalado sem chave em `enabledPlugins` e cópia do kit ligada → sem linha "em dobro".
@@ -131,7 +131,7 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
 - [x] **Passo 3** — implementar:
   - `fluxo.js` mantém o `additionalContext` de hoje e acrescenta `systemMessage` (linhas unidas por `\n`) só quando há aviso.
   - Exceção em qualquer ponto → só o `additionalContext`.
-- [x] **Passo 4** — `node --test` → 0 falhas.
+- [ ] **Passo 4** — `node --test` → 0 falhas (Tarefa M).
 - [x] **Passo 5** — commit `feat(kit): kit sem dependências de terceiros no manifesto e aviso de cópia em dobro`.
 - [x] **Passo 6** — `revisor` na fatia 1 (diff `ac076b0..HEAD` sem `docs/`).
 
@@ -436,23 +436,23 @@ Depende da 6a.
 **Arquivos:**
 - Versões:
   - `package.json`, `.claude-plugin/plugin.json` e `kit/testado.json` (hadouken) → `0.6.0`;
-  - `.claude-plugin/marketplace.json` → hadouken `0.6.0`, kit `1.2.0`;
-  - `kit/.claude-plugin/plugin.json` → `1.2.0` e `dependencies` = `[{"name": "hadouken", "version": ">=0.6.0"}]` (spec §4 Fatia 1 e Fatia 6; doc: https://code.claude.com/docs/en/plugins/dependencies.md).
+  - `.claude-plugin/marketplace.json` → hadouken `0.6.0`, kit `1.3.0`;
+  - `kit/.claude-plugin/plugin.json` → `1.3.0` e `dependencies` = `[{"name": "hadouken", "version": ">=0.6.0"}]` (spec §4 Fatia 1 e Fatia 6; doc: https://code.claude.com/docs/en/plugins/dependencies.md).
 - `README.md` e `README.en.md`:
   - seções para a paleta e `/hadouken:agentes`, a janela e `/hadouken:janela` e o dedup;
   - aviso A4 (outro plugin com `updatedInput` no Agent) e A6 (agente local de mesmo nome vence; remova as cópias locais);
-  - seção "Notas de quebra da 0.6.0", com a lista da spec §4 Fatia 6 e a linha "o `hadouken-kit` 1.2.0 exige o `hadouken` ≥ 0.6.0; com um `hadouken` menor o kit fica desabilitado".
+  - seção "Notas de quebra da 0.6.0", com a lista da spec §4 Fatia 6 e a linha "o `hadouken-kit` 1.3.0 exige o `hadouken` ≥ 0.6.0; com um `hadouken` menor o kit fica desabilitado".
 - Testes de versão: `grep -rln '0\.5\.8\|1\.1\.2' test`.
 - Teste do manifesto: `test/kit-manifestos.test.js:79-80` (`:79-80` afirmam `['hadouken']` e proíbem `version` na entrada).
 
-- [ ] **Passo 1** — atualizar os testes de versão para `0.6.0`/`1.2.0` e o do manifesto → `node --test` → FAIL:
+- [x] **Passo 1** — atualizar os testes de versão para `0.6.0`/`1.3.0` e o do manifesto → `node --test` → FAIL:
   - `kit: dependências = o objeto {name:'hadouken', version:'>=0.6.0'}`: `deepEqual(kit.dependencies, [{name: 'hadouken', version: '>=0.6.0'}])` (troca as linhas `:79-80`, que afirmavam `['hadouken']` e proibiam `version`);
   - `kit: a faixa do hadouken é satisfeita pela versão do plugin`: a versão de `.claude-plugin/plugin.json` é ≥ 0.6.0 (comparação numérica por partes, sem biblioteca) e o `name` da dependência é o `name` desse manifesto;
   - `kit: o REA não é dependência` (`:91-93`) segue afirmando que nenhuma entrada cita `rea`.
-- [ ] **Passo 2** — trocar as versões e escrever os READMEs.
-- [ ] **Passo 3** — `node --test` → 0 falhas; `grep -rn '0\.5\.8' --include=*.json .` → vazio.
-- [ ] **Passo 4** — commit `chore(release): hadouken 0.6.0 e kit 1.2.0`.
-- [ ] **Passo 5** — `revisor` na fatia 6.
+- [x] **Passo 2** — trocar as versões e escrever os READMEs.
+- [x] **Passo 3** — `node --test` → 0 falhas; `grep -rn '0\.5\.8' --include=*.json .` → vazio.
+- [x] **Passo 4** — commit `chore(release): hadouken 0.6.0 e kit 1.2.0` (`8a7c16b`; o kit vai a 1.3.0 na Tarefa M, porque a 0.5.9 publicou a 1.2.0).
+- [x] **Passo 5** — `revisor` na fatia 6.
 
 O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois desta pela ordem decidida (Q34).
 
@@ -560,6 +560,43 @@ O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois
 - [ ] **Passo 5** — commit `feat(kit): skill de teste de mutação`.
 - [ ] **Passo 6** — `revisor` na fatia 7.
 
+## Merge da 0.5.9
+
+### Tarefa M: merge de `origin/main` `71c381e` e dedup no modelo da 0.5.9
+
+Decisão do Fernando (10/11/2026): merge de `origin/main` no branch (sem rebase), modelo de instalação da 0.5.9 (o instalador nunca instala terceiros, só sugere) e, da Fatia 1, só o desligamento da cópia duplicada com `auto: true`. Spec §0 (tabela `origin/main`) e §4 Fatia 1.
+
+**Arquivos em conflito** (`git merge-tree --write-tree HEAD origin/main`) e regra de resolução:
+- `package.json`, `.claude-plugin/plugin.json`: versão `0.6.0`; o resto do `origin/main`.
+- `.claude-plugin/marketplace.json`: hadouken `0.6.0`, kit `1.3.0`; entradas e descrições do `origin/main`.
+- `kit/.claude-plugin/plugin.json`: versão `1.3.0`, `dependencies` = `[{"name": "hadouken", "version": ">=0.6.0"}]`; o resto do `origin/main`.
+- `kit/testado.json`: `hadouken@claude-hadouken` `0.6.0`; terceiros do `origin/main`.
+- `src/hooks/linha-estado.js`, `src/hooks/session-start.js`, `src/uso/painel.js`: as duas mudanças ficam (a da 0.5.9: conta por janela e plano Ultra; a do branch: janela de trabalho e paleta). Cada lado se lê com `git diff a73e458 origin/main -- <arquivo>` e `git diff a73e458 HEAD -- <arquivo>`; os testes dos dois lados passam.
+- `src/instalar/claude-cli.js`, `src/instalar-tudo.js`: o código do `origin/main` (`passoKit` sem dedup, `conferirSugeridas`, `SUGERIDAS` de `itens.js`, sem passo do REA, sem `marketplace add` do oficial) mais `passoDedup` (Tarefa 1, Interfaces) entre `passoKit` e `conferirSugeridas`. Saem do branch: `DEPENDENCIAS_KIT`, `passoRea`, `ID_REA`, o `plugin install` de dependência e o aviso "Religue". `passoAtualizacao` sem `prontas` (o `atualizacao-auto.js` do branch, sem `COPIAS_ANTIGAS`).
+- `README.md`, `README.en.md`, `wiki/Home.md`, `wiki/Home-en.md`, `wiki/Kit.md`, `wiki/Kit-en.md`: texto do `origin/main` mais as linhas do branch; terceiros "sugeridos" (nunca "instalados pelo kit"); notas de quebra da 0.6.0 com a lista da spec §4 Fatia 6; README em até 60 linhas.
+- `test/dados/instalador/claude-falso.mjs`, `test/instalar-claude-cli.test.js`, `test/instalar-tudo.test.js`, `test/kit-manifestos.test.js`, `test/renome.test.js`: os testes do `origin/main` ficam; os do branch seguem a Tarefa 1 Passo 4 e a Tarefa 9 Passo 1; teste que afirma `plugin install` de terceiro sai.
+
+**Fora do conflito, mesma tarefa:**
+- `kit/hooks/dependencias.js` `linhasAviso`: sem linha para `ausente` (Tarefa 2 Passo 1).
+- `kit/hooks/regua.js` `dirHadouken`: a regra do `dirDados()` da 0.5.9 com `pastaDeConta` (spec §4 Fatia 7, "Pasta de dados"), sem import de `src/`.
+
+- [ ] **Passo 1 — baseline da 0.5.9**: `git worktree add --detach <job tmp>/main-059 71c381e`; `node --test` lá → registrar total, passam, falham, pulados; `git worktree remove <job tmp>/main-059`.
+- [ ] **Passo 2** — `git merge origin/main` (para nos conflitos) e resolver pela tabela acima.
+- [ ] **Passo 3 — testes que falham**:
+  - Tarefa 1 Passo 4 e Tarefa 2 Passo 1 como estão escritos;
+  - **ordem do instalador**: com duplicata e `auto: true`, o log do falso tem `plugin install|update hadouken-kit@claude-hadouken`, depois `plugin disable mattpocock-skills@claude-hadouken --scope user`; o resumo tem a linha do kit, a de `hadouken-kit: cópias em dobro` e as seis de `conferirSugeridas`;
+  - **nada a dizer**: tudo `propria` → nenhum item `hadouken-kit: cópias em dobro` no resumo;
+  - **paridade da pasta de dados** (`test/kit-regua.test.js`): `dirHadouken(env)` = `dirDados()` para `HADOUKEN_HOME` absoluto, `HADOUKEN_HOME` relativo (`null`), `CLAUDE_CONFIG_DIR` = `<home>/.claude-contas/trabalho`, `= <home>/.claude-contas/principal`, `= /outra/pasta` e sem as duas.
+- [ ] **Passo 4** — implementar `passoDedup`, `linhasAviso` e `dirHadouken` até o Passo 3 passar.
+- [ ] **Passo 5** — conferências, cada uma com a saída colada no relatório:
+  - `node --test` → 0 falhas;
+  - `git grep -n COPIAS_ANTIGAS -- src kit` → vazio;
+  - `git grep -n -E "'install', a\\.id|DEPENDENCIAS_KIT|passoRea" -- src` → vazio;
+  - `git grep -n -E 'executor|revisor-critico' -- src kit agents skills` → só as listas de agentes removidos;
+  - `jq -r .version package.json .claude-plugin/plugin.json kit/.claude-plugin/plugin.json` → `0.6.0`, `0.6.0`, `1.3.0`.
+- [ ] **Passo 6** — commit de merge `merge: hadouken 0.5.9 (origin/main 71c381e) na 0.6.0`, com a resolução, o `passoDedup`, o `linhasAviso` e o `dirHadouken`.
+- [ ] **Passo 7** — `revisor` sobre `git show --remerge-diff HEAD` e `git diff origin/main...HEAD -- src/instalar src/instalar-tudo.js kit/hooks`.
+
 ## Fechamento
 
 ### Tarefa 13: mutação, auditoria do diff, e2e
@@ -571,7 +608,7 @@ O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois
 - [ ] **Auditoria do diff**: `auditor` sobre `main...HEAD` com o foco da spec §5. Achado confirmado → correção com teste.
 - [ ] **e2e**:
   - Agente `e2e`, seção 9 da spec, passos 1–9.
-  - Passo 3, além do descrito na spec: depois do `plugin install <D>` do instalador, conferir o campo `auto` da entrada em `installed_plugins.json` (D18; se vier sem `auto`, registrar na spec §8.1 como fato medido e no corpo do PR); conferir `claude plugin list` com o `hadouken-kit` 1.2.0 habilitado e sem a linha `Requires "hadouken@claude-hadouken"` (faixa `>=0.6.0`).
+  - Passo 3 como a spec §9 descreve; o manifesto 1.3.0 no `claude plugin list` fica para depois da publicação.
   - Passo 5, em `permissions.defaultMode: "auto"`: o despacho com injeção roda sem a negação `a hook changed this call's input after auto mode reviewed it`.
   - Portões do Fernando:
     - `/hadouken:liberar` para sessões `claude` filhas (passos 5–6);
