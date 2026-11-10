@@ -1,7 +1,7 @@
 // /hadouken-kit:regua (spec v0.6.0, Fatia 7, bloco "Comando"): hook
 // UserPromptExpansion do kit. Sem argumento mostra a régua ativa e a origem;
 // `editar` deixa o prompt seguir para a skill (que monta o rascunho com o
-// usuário); `aplicar [--projeto]` valida o rascunho de <tmp do SO>/hadouken/
+// usuário), com o caminho do rascunho em additionalContext; `aplicar [--projeto]` valida o rascunho de <tmp do SO>/hadouken/
 // regua-rascunho.json e o grava por inteiro; `padrao [--projeto]` remove a régua
 // do nível. O cache do kit não tem src/: este arquivo só importa node: e
 // ./regua.js, ./dependencias.js, e o portão é a cópia do de src/hooks/comum.js
@@ -30,6 +30,10 @@ const NAO_GRAVADO = `${NADA} a régua não pôde ser gravada (sem permissão de 
 const ERRO_INTERNO = `${NADA} Erro interno ao tratar /hadouken-kit:regua.`;
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// <tmp do SO>/hadouken/regua-rascunho.json, absoluto: o `editar` informa este
+// caminho à skill e o `aplicar` lê dele.
+const caminhoRascunho = (tmpDir) => path.resolve(tmpDir, 'hadouken', 'regua-rascunho.json');
 
 // Cópia mínima de gravarJsonAtomico (src/estado.js): tmp exclusivo na mesma
 // pasta + renameSync; a pasta nasce se faltar. Nunca lança.
@@ -88,12 +92,13 @@ function mostrar({ dirHadouken, env, cwd }) {
   const validar = (o) => o !== 'padrão' && cat.lido;
   let t = textoRegua({ regua, origem, catalogo: cat, validar: validar(origem), limite: Infinity });
   const { desconhecidos } = t;
-  let nomes = validar(origem) ? nomesDesconhecidos({ regua, catalogo: cat }) : { skills: [], agentes: [] };
+  const nomes = validar(origem) ? nomesDesconhecidos({ regua, catalogo: cat }) : { skills: [], agentes: [] };
   if (t.texto === '') {
+    // Nada da régua do usuário sobrou: vale a padrão, e a lista do que não existe
+    // continua (é o que o usuário precisa para corrigir a dele).
     origem = 'padrão';
     regua = validarRegua(padrao.valor).regua;
     t = textoRegua({ regua, origem, catalogo: cat, validar: false, limite: Infinity });
-    nomes = { skills: [], agentes: [] };
   }
   const linhas = [`hadouken-kit: ${t.texto}`, ...carregada.avisos, ...avisosDaRegua({ origem, desconhecidos, descartes: carregada.descartes })];
   if (nomes.skills.length > 0) linhas.push(`Skills desconhecidas (não instaladas ou desligadas): ${nomes.skills.join(', ')}.`);
@@ -117,7 +122,7 @@ function lerConfigRepo(arquivo) {
 
 function aplicar(pedido, ctx) {
   const { dirHadouken, tmpDir, env } = ctx;
-  const arquivoRascunho = path.join(tmpDir, 'hadouken', 'regua-rascunho.json');
+  const arquivoRascunho = caminhoRascunho(tmpDir);
   const rascunho = lerJson(arquivoRascunho);
   if (rascunho.ausente) return SEM_RASCUNHO;
   if (!rascunho.ok) return RASCUNHO_ILEGIVEL;
@@ -172,7 +177,19 @@ function remover(pedido, ctx) {
   return 'hadouken-kit: régua global removida; vale a padrão (ou a do repositório, se houver).';
 }
 
-// null deixa o prompt seguir (editar); o resto é a saída do hook.
+// `editar` não bloqueia: o prompt segue para a skill e o hook acrescenta o
+// caminho do rascunho (additionalContext de UserPromptExpansion, sem `decision`).
+function editar({ tmpDir }) {
+  const caminho = caminhoRascunho(tmpDir);
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'UserPromptExpansion',
+      additionalContext: `hadouken-kit: grave o rascunho da régua exatamente em ${caminho} (ferramenta Write); em nenhum outro lugar.`,
+    },
+  };
+}
+
+// A saída do hook: {decision:'block', reason} ou, no `editar`, só o additionalContext.
 export function decidirRegua(entrada, { dirHadouken = null, tmpDir = os.tmpdir(), env = process.env, cwd = process.cwd() } = {}) {
   const bloqueio = (reason) => ({ decision: 'block', reason });
   try {
@@ -181,7 +198,7 @@ export function decidirRegua(entrada, { dirHadouken = null, tmpDir = os.tmpdir()
     if (entrada?.command_source !== 'plugin' || entrada?.expansion_type !== 'slash_command') return bloqueio(RECUSADO_ORIGEM);
     const pedido = lerArgs(entrada.command_args);
     const ctx = { dirHadouken, tmpDir, env, cwd };
-    if (pedido.acao === 'editar') return null;
+    if (pedido.acao === 'editar') return editar(ctx);
     if (pedido.acao === 'erro') return bloqueio(USO);
     if (pedido.acao === 'mostrar') return bloqueio(mostrar(ctx));
     return bloqueio(pedido.acao === 'aplicar' ? aplicar(pedido, ctx) : remover(pedido, ctx));

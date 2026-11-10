@@ -121,9 +121,31 @@ test('sem argumento: a régua inteira, sem o corte de 2 000 caracteres do Sessio
 
 // ------------------------------------------------------------ editar e uso
 
-test('editar → sem saída (o prompt segue para a skill)', async () => {
-  assert.equal((await decidir('editar')).saida, null);
-  assert.equal((await decidir('  editar  ')).saida, null);
+// C6: o hook informa o caminho do rascunho; a doc de UserPromptExpansion aceita
+// hookSpecificOutput.additionalContext sem `decision`, e o prompt segue para a skill.
+test('editar → não bloqueia e informa o caminho absoluto do rascunho em additionalContext', async () => {
+  for (const args of ['editar', '  editar  ']) {
+    const ctx = ambiente();
+    const { saida } = await decidir(args, ctx);
+    assert.ok(saida !== null && saida !== undefined, 'sem saída do hook');
+    assert.equal(Object.hasOwn(saida, 'decision'), false, 'editar não bloqueia');
+    assert.equal(saida.hookSpecificOutput.hookEventName, 'UserPromptExpansion');
+    const caminho = rascunhoDe(ctx.tmpDir);
+    assert.ok(path.isAbsolute(caminho));
+    assert.ok(saida.hookSpecificOutput.additionalContext.includes(caminho), saida.hookSpecificOutput.additionalContext);
+  }
+});
+
+test('editar: sem tmpDir injetado, o caminho é o de os.tmpdir()/hadouken/regua-rascunho.json', async () => {
+  const { decidirRegua } = await comando();
+  const saida = decidirRegua(entradaDe('editar'), { ...ambiente(), tmpDir: undefined });
+  assert.ok(saida !== null, 'sem saída do hook');
+  assert.ok(saida.hookSpecificOutput.additionalContext.includes(path.join(os.tmpdir(), 'hadouken', 'regua-rascunho.json')));
+});
+
+test('editar: portão e SDK continuam bloqueando', async () => {
+  assert.match(bloqueio((await decidir('editar', ambiente(), { command_source: 'user' })).saida), /nada mudado/);
+  assert.match(bloqueio((await decidir('editar', { ...ambiente(), env: { CLAUDE_CONFIG_DIR: cfgComRegistro(), CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' } })).saida), /nada mudado/);
 });
 
 test('argumento desconhecido → nada mudado, sem eco do argumento', async () => {
@@ -300,9 +322,19 @@ test('hook: stdin do UserPromptExpansion → decision:block; aplicar lê o rascu
   assert.deepEqual(lerJ(path.join(fix.hadouken, 'regua.json')), reguaDe([{ fase: 'F', usar: ['a:b'] }]));
 });
 
-test('hook: editar, outro comando e stdin ilegível → sem saída e código 0', () => {
+test('hook: editar → JSON sem `decision`, com o caminho do rascunho (TMPDIR do processo) em additionalContext; sai 0', () => {
   const fix = { tmp: novoTmp(), hadouken: novoTmp(), cfg: cfgComRegistro(), projeto: novoTmp() };
-  for (const stdin of [JSON.stringify(entradaDe('editar')), JSON.stringify(entradaDe('', { command_name: 'hadouken:janela' })), '{ não é json', '']) {
+  const r = rodarHook(JSON.stringify(entradaDe('editar')), fix);
+  assert.equal(r.status, 0, r.stderr);
+  const saida = JSON.parse(r.stdout);
+  assert.equal(Object.hasOwn(saida, 'decision'), false);
+  assert.equal(saida.hookSpecificOutput.hookEventName, 'UserPromptExpansion');
+  assert.ok(saida.hookSpecificOutput.additionalContext.includes(rascunhoDe(fix.tmp)), saida.hookSpecificOutput.additionalContext);
+});
+
+test('hook: outro comando e stdin ilegível → sem saída e código 0', () => {
+  const fix = { tmp: novoTmp(), hadouken: novoTmp(), cfg: cfgComRegistro(), projeto: novoTmp() };
+  for (const stdin of [JSON.stringify(entradaDe('', { command_name: 'hadouken:janela' })), '{ não é json', '']) {
     const r = rodarHook(stdin, fix);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout, '', stdin);
@@ -318,11 +350,88 @@ test('hooks.json do kit: UserPromptExpansion hadouken-kit:regua → regua-comand
   ]);
 });
 
-test('skill regua: name, só o usuário aciona e o caminho do rascunho é o de os.tmpdir()', () => {
+test('skill regua: name, só o usuário aciona; o rascunho vai para o caminho que o hook informa (os.tmpdir()), sem $TMPDIR no texto', async () => {
   const s = fs.readFileSync(path.join(repo, 'kit', 'skills', 'regua', 'SKILL.md'), 'utf8');
   const fm = /^---\n([\s\S]*?)\n---/.exec(s)?.[1] ?? '';
   assert.match(fm, /^name: regua$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.ok(s.includes('${TMPDIR:-/tmp}/hadouken/regua-rascunho.json'), 'caminho do rascunho');
+  assert.doesNotMatch(s, /TMPDIR/, 'o caminho vem do hook, não de uma variável que a skill adivinha');
+  assert.match(s, /caminho (que o hook informou|informado pelo hook)/);
   assert.ok(s.includes('/hadouken-kit:regua aplicar'), 'lembra que nada vale até o aplicar');
+  const { decidirRegua } = await comando();
+  const saida = decidirRegua(entradaDe('editar'), { ...ambiente(), tmpDir: undefined });
+  assert.equal(saida.hookSpecificOutput.additionalContext.includes(path.join(os.tmpdir(), 'hadouken', 'regua-rascunho.json')), true);
+});
+
+// ============================================================ revisão da fatia 7 (C2, T2, T3, T4)
+
+// ------------------------------------------------------------ C2: tudo desconhecido → padrão, e a lista aparece
+
+test('C2: régua do repo só com nomes desconhecidos → origem padrão, contagem no aviso e a lista no reason', async () => {
+  const ctx = ambiente({ env: { CLAUDE_CONFIG_DIR: cfgComRegistro(), CLAUDE_PROJECT_DIR: novoTmp() } });
+  gravar(path.join(ctx.env.CLAUDE_PROJECT_DIR, '.claude', 'hadouken.json'), {
+    regua: reguaDe([{ fase: 'F', usar: ['x:um', 'x:dois', 'com espaço'], agente: 'x:ag' }, { fase: 'G', agente: 'x:ag2' }]),
+  });
+  const reason = bloqueio((await decidir('', ctx)).saida);
+  assert.match(reason, /^hadouken-kit: Régua \(padrão\): Ideia →/);
+  assert.doesNotMatch(reason, /Régua \(repo\)/);
+  assert.ok(!reason.includes('a régua deste repositório (.claude/hadouken.json) vale no lugar da sua'), reason);
+  assert.match(reason, /2 skills desconhecidas e 2 agentes desconhecidos e 1 item\(ns\) descartado\(s\)/);
+  assert.match(reason, /Skills desconhecidas[^\n]*: x:um, x:dois\./);
+  assert.match(reason, /Agentes desconhecidos: x:ag, x:ag2\./);
+  assert.ok(!reason.includes('com espaço'), reason);
+});
+
+// ------------------------------------------------------------ T2: só o slash_command digitado
+
+test('T2: expansion_type mcp_prompt ou skill_tool → nada mudado, nada gravado e rascunho mantido', async () => {
+  for (const tipo of ['mcp_prompt', 'skill_tool']) {
+    const ctx = ambiente();
+    gravar(rascunhoDe(ctx.tmpDir), reguaDe([{ fase: 'F', usar: ['a:b'] }]));
+    const reason = bloqueio((await decidir('aplicar', ctx, { expansion_type: tipo })).saida);
+    assert.match(reason, /nada mudado/, tipo);
+    assert.ok(!existe(path.join(ctx.dirHadouken, 'regua.json')), tipo);
+    assert.ok(existe(rascunhoDe(ctx.tmpDir)), tipo);
+    const editar = bloqueio((await decidir('editar', ctx, { expansion_type: tipo })).saida);
+    assert.match(editar, /nada mudado/, tipo);
+  }
+});
+
+// ------------------------------------------------------------ T3: catálogo sem registro → nada é desconhecido
+
+// registro ilegível, e o kit só em escopo project (lido:false)
+const CFG_SEM_REGISTRO = {
+  ilegivel: (cfg) => fs.writeFileSync(path.join(cfg, 'plugins', 'installed_plugins.json'), '{ ilegível'),
+  'kit fora do escopo user': (cfg) => {
+    const arq = path.join(cfg, 'plugins', 'installed_plugins.json');
+    const reg = lerJ(arq);
+    reg.plugins['hadouken-kit@claude-hadouken'] = [{ scope: 'project', projectPath: '/p', version: '1.2.0', installPath: null }];
+    gravar(arq, reg);
+  },
+};
+
+test('T3: catálogo sem registro lido → o comando mostra a régua do usuário inteira, sem aviso nem lista de desconhecidos', async () => {
+  for (const [rotulo, estragar] of Object.entries(CFG_SEM_REGISTRO)) {
+    const cfg = cfgComRegistro();
+    estragar(cfg);
+    const ctx = ambiente({ env: { CLAUDE_CONFIG_DIR: cfg } });
+    gravar(path.join(ctx.dirHadouken, 'regua.json'), reguaDe([{ fase: 'F', usar: ['x:de-plugin'], agente: 'x:ag' }]));
+    const reason = bloqueio((await decidir('', ctx)).saida);
+    assert.equal(reason, 'hadouken-kit: Régua (global): F → x:de-plugin · agente x:ag', rotulo);
+  }
+});
+
+// ------------------------------------------------------------ T4: teto de tamanho e arquivo que não é regular
+
+test('T4: rascunho acima de 4 MB (JSON válido) ou que é uma pasta → "ilegível" e mantido', async () => {
+  const grande = JSON.stringify({ ...reguaDe([{ fase: 'F', usar: ['a:b'] }]), enchimento: 'a'.repeat(5 * 1024 * 1024) });
+  for (const montar of [(arq) => gravar(arq, grande), (arq) => fs.mkdirSync(arq, { recursive: true })]) {
+    const ctx = ambiente();
+    montar(rascunhoDe(ctx.tmpDir));
+    const reason = bloqueio((await decidir('aplicar', ctx)).saida);
+    assert.match(reason, /nada mudado/);
+    assert.match(reason, /rascunho ilegível/);
+    assert.ok(!existe(path.join(ctx.dirHadouken, 'regua.json')));
+    assert.ok(existe(rascunhoDe(ctx.tmpDir)), 'mantido');
+  }
 });

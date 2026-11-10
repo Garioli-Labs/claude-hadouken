@@ -15,7 +15,7 @@ Monte a régua com o usuário, fase a fase. Nada vale até ele digitar `/hadouke
 1. Liste as skills instaladas e habilitadas (as da lista de skills desta sessão) e os agentes disponíveis, para ele escolher. Skill só do usuário (`disable-model-invocation`) vai com `/` na lista; no JSON o nome vai sem `/`.
 2. Pergunte uma fase de cada vez: nome da fase, skills em `usar`, `alternativas` (`skill` e `quando`), e `agente` se a fase delega a um subagente. Depois as `transversais` (`skill` e `quando`). Uma pergunta por mensagem; nada de supor.
 3. Mostre o JSON inteiro ao usuário e peça o ok.
-4. Com o ok, grave o JSON com a ferramenta Write em `${TMPDIR:-/tmp}/hadouken/regua-rascunho.json`. Não grave em nenhum outro lugar, nem em `~/.claude`, nem em `.claude/` do projeto.
+4. Com o ok, grave o JSON com a ferramenta Write no caminho que o hook informou no contexto desta expansão ("grave o rascunho da régua exatamente em ..."). Não grave em nenhum outro lugar, nem em `~/.claude`, nem em `.claude/` do projeto. Sem esse caminho no contexto, o hook não rodou: diga ao usuário para reiniciar a sessão ou rodar /reload-plugins, e pare.
 5. Diga: o rascunho está pronto; `/hadouken-kit:regua aplicar` grava para o usuário todo e `/hadouken-kit:regua aplicar --projeto` grava só para este repositório (a régua do repo substitui a do usuário por inteiro); `/hadouken-kit:regua padrao` volta à régua padrão.
 
 Formato (o arquivo é a própria régua, sem chave `regua`):

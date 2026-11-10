@@ -13,7 +13,7 @@ Fim da frente, antes do PR. Nunca no meio do trabalho.
 
 ## O que mutar
 
-Só as linhas alteradas no branch. Tire as faixas de `git diff -U0 <base>...HEAD`, em cada arquivo de código (não teste, não doc), e passe só essas faixas à ferramenta.
+Só as linhas alteradas no branch. Tire as faixas de `git diff -U0 <base>...HEAD`, em cada arquivo de código (não teste, não doc). StrykerJS aceita faixa de linha: `--mutate "arq:ini-fim"`. Para mutmut, Stryker.NET e PIT, rode nos arquivos alterados e descarte os sobreviventes fora das linhas do `git diff -U0`.
 
 ## Ferramenta por stack
 

@@ -55,11 +55,11 @@ function montarCfg() {
   return cfg;
 }
 
-function rodar({ cfg = montarCfg(), hadouken = novoTmp(), projeto, cwd = novoTmp() } = {}) {
+function rodar({ cfg = montarCfg(), hadouken = novoTmp(), projeto, cwd = novoTmp(), fluxo = FLUXO } = {}) {
   const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg, HADOUKEN_HOME: hadouken };
   delete env.CLAUDE_PROJECT_DIR;
   if (projeto !== undefined) env.CLAUDE_PROJECT_DIR = projeto;
-  const r = spawnSync(process.execPath, [FLUXO], { cwd, input: '', encoding: 'utf8', timeout: 10000, env });
+  const r = spawnSync(process.execPath, [fluxo], { cwd, input: '', encoding: 'utf8', timeout: 10000, env });
   assert.equal(r.status, 0, r.stderr);
   const j = JSON.parse(r.stdout);
   const contexto = j.hookSpecificOutput.additionalContext;
@@ -416,4 +416,267 @@ test('kit autocontido: regua.js só importa node: e arquivos de ./', () => {
   assert.ok(origens.length >= 3);
   for (const o of origens) assert.ok(o.startsWith('node:') || o.startsWith('./'), o);
   assert.doesNotMatch(texto, /\.\.\/\.\.\/src|from ['"]\.\.\//);
+});
+
+// ============================================================ revisão da fatia 7 (C1 a C5, C9, T3, T4, T5, T7)
+
+// ------------------------------------------------------------ C1: plugin habilitado no projeto
+
+// montarCfg() mais o plugin `team@m` (skill `foo`), com as entradas de instalação
+// que o teste escolhe. Nunca o registro do usuário de quem roda.
+function cfgComTeam(entradas) {
+  const cfg = montarCfg();
+  const team = path.join(novoTmp(), 'team');
+  gravar(path.join(team, '.claude-plugin', 'plugin.json'), { name: 'team' });
+  gravar(path.join(team, 'skills', 'foo', 'SKILL.md'), '---\nname: foo\ndescription: fixture\n---\n');
+  const arq = path.join(cfg, 'plugins', 'installed_plugins.json');
+  const reg = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  reg.plugins['team@m'] = entradas(team);
+  gravar(arq, reg);
+  return { cfg, team };
+}
+const reguaTeam = { regua: reguaDe([{ fase: 'Time', usar: ['team:foo'] }]) };
+
+test('C1: plugin em escopo project, habilitado em <raiz>/.claude/settings.json → team:foo é conhecido', () => {
+  const projeto = doRepo(reguaTeam);
+  const { cfg } = cfgComTeam((team) => [{ scope: 'project', projectPath: projeto, installPath: team, version: '1' }]);
+  const sem = rodar({ cfg, projeto });
+  assert.match(sem.linhaRegua, /^Régua \(padrão\):/, 'sem habilitar no projeto, team:foo é desconhecida');
+  gravar(path.join(projeto, '.claude', 'settings.json'), { enabledPlugins: { 'team@m': true } });
+  const { linhaRegua, aviso } = rodar({ cfg, projeto });
+  assert.equal(linhaRegua, 'Régua (repo): Time → team:foo');
+  assert.doesNotMatch(aviso, /desconhecid/);
+});
+
+test('C1: precedência local > project > user (settings.local.json false vence project true, e o inverso)', () => {
+  const projeto = doRepo(reguaTeam);
+  const { cfg } = cfgComTeam((team) => [{ scope: 'project', projectPath: projeto, installPath: team, version: '1' }]);
+  gravar(path.join(projeto, '.claude', 'settings.json'), { enabledPlugins: { 'team@m': true } });
+  assert.equal(rodar({ cfg, projeto }).linhaRegua, 'Régua (repo): Time → team:foo');
+  gravar(path.join(projeto, '.claude', 'settings.local.json'), { enabledPlugins: { 'team@m': false } });
+  const off = rodar({ cfg, projeto });
+  assert.match(off.linhaRegua, /^Régua \(padrão\):/);
+  assert.match(off.aviso, /1 skill desconhecida/);
+  gravar(path.join(projeto, '.claude', 'settings.json'), { enabledPlugins: { 'team@m': false } });
+  gravar(path.join(projeto, '.claude', 'settings.local.json'), { enabledPlugins: { 'team@m': true } });
+  assert.equal(rodar({ cfg, projeto }).linhaRegua, 'Régua (repo): Time → team:foo');
+});
+
+test('C1: project false vence user true; user true vale quando o projeto não cita o plugin', () => {
+  const projeto = doRepo(reguaTeam);
+  const { cfg } = cfgComTeam((team) => [{ scope: 'user', installPath: team, version: '1' }]);
+  const set = JSON.parse(fs.readFileSync(path.join(cfg, 'settings.json'), 'utf8'));
+  set.enabledPlugins['team@m'] = true;
+  gravar(path.join(cfg, 'settings.json'), set);
+  assert.equal(rodar({ cfg, projeto }).linhaRegua, 'Régua (repo): Time → team:foo');
+  gravar(path.join(projeto, '.claude', 'settings.json'), { enabledPlugins: { 'team@m': false } });
+  assert.match(rodar({ cfg, projeto }).linhaRegua, /^Régua \(padrão\):/);
+});
+
+test('C1: entrada project/local de outro projeto não vale; sem projectPath vale só quando o projeto habilita', () => {
+  const projeto = doRepo(reguaTeam);
+  const outro = novoTmp();
+  const { cfg: cfgOutro } = cfgComTeam((team) => [{ scope: 'project', projectPath: outro, installPath: team, version: '1' }]);
+  gravar(path.join(projeto, '.claude', 'settings.json'), { enabledPlugins: { 'team@m': true } });
+  assert.match(rodar({ cfg: cfgOutro, projeto }).linhaRegua, /^Régua \(padrão\):/, 'projectPath de outro projeto');
+
+  const { cfg: cfgSemCampo } = cfgComTeam((team) => [{ scope: 'local', installPath: team, version: '1' }]);
+  assert.equal(rodar({ cfg: cfgSemCampo, projeto }).linhaRegua, 'Régua (repo): Time → team:foo');
+  const soUsuario = doRepo(reguaTeam);
+  const set = JSON.parse(fs.readFileSync(path.join(cfgSemCampo, 'settings.json'), 'utf8'));
+  set.enabledPlugins['team@m'] = true;
+  gravar(path.join(cfgSemCampo, 'settings.json'), set);
+  assert.match(rodar({ cfg: cfgSemCampo, projeto: soUsuario }).linhaRegua, /^Régua \(padrão\):/, 'sem projectPath e o projeto não habilita');
+});
+
+test('C1: catalogo({pastaConfig, raiz}) lê o settings do projeto; lerRegistro de dependencias.js segue só com o escopo user', async () => {
+  const { catalogo } = await regua();
+  const { lerRegistro } = await import(pathToFileURL(path.join(repo, 'kit', 'hooks', 'dependencias.js')).href);
+  const projeto = novoTmp();
+  const { cfg } = cfgComTeam((team) => [{ scope: 'project', projectPath: projeto, installPath: team, version: '1' }]);
+  gravar(path.join(projeto, '.claude', 'settings.json'), { enabledPlugins: { 'team@m': true } });
+  const c = catalogo({ pastaConfig: cfg, raiz: projeto });
+  assert.ok(c.skills.has('team:foo'));
+  assert.equal(c.lido, true);
+  assert.ok(!lerRegistro(cfg).plugins.has('team@m'), 'o dedup não vê o plugin de projeto');
+});
+
+// ------------------------------------------------------------ C9: commands no catálogo
+
+// montarCfg() mais o plugin `x@mkt` (user, ligado) com os commands dados.
+function cfgComCommands(commands) {
+  const cfg = montarCfg();
+  const x = path.join(novoTmp(), 'x');
+  gravar(path.join(x, '.claude-plugin', 'plugin.json'), { name: 'x' });
+  for (const [arquivo, conteudo] of Object.entries(commands)) gravar(path.join(x, 'commands', arquivo), conteudo);
+  const arq = path.join(cfg, 'plugins', 'installed_plugins.json');
+  const reg = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  reg.plugins['x@mkt'] = [{ scope: 'user', version: '1', installPath: x }];
+  gravar(arq, reg);
+  const set = JSON.parse(fs.readFileSync(path.join(cfg, 'settings.json'), 'utf8'));
+  set.enabledPlugins['x@mkt'] = true;
+  gravar(path.join(cfg, 'settings.json'), set);
+  return cfg;
+}
+
+test('C9: commands/*.md de plugin habilitado, ~/.claude/commands e <raiz>/.claude/commands entram no catálogo', async () => {
+  const { catalogo } = await regua();
+  const cfg = cfgComCommands({
+    'review.md': '---\ndescription: fixture\n---\n\ncorpo\n',
+    'arquivo-nome.md': '---\nname: nome-no-frontmatter\n---\n',
+    'solo.md': '---\ndisable-model-invocation: true\n---\n',
+  });
+  gravar(path.join(cfg, 'commands', 'meu.md'), 'sem frontmatter\n');
+  const raiz = novoTmp();
+  gravar(path.join(raiz, '.claude', 'commands', 'local.md'), '---\ndisable-model-invocation: true\n---\n');
+  const c = catalogo({ pastaConfig: cfg, raiz });
+  assert.deepEqual(c.skills.get('x:review'), { soUsuario: false });
+  assert.deepEqual(c.skills.get('x:nome-no-frontmatter'), { soUsuario: false });
+  assert.deepEqual(c.skills.get('x:solo'), { soUsuario: true });
+  assert.ok(!c.skills.has('x:arquivo-nome'));
+  assert.deepEqual(c.skills.get('meu'), { soUsuario: false });
+  assert.deepEqual(c.skills.get('local'), { soUsuario: true });
+});
+
+test('C9: régua que cita x:review não gera aviso; command só do usuário vai com /', () => {
+  const cfg = cfgComCommands({ 'review.md': '---\ndescription: fixture\n---\n', 'solo.md': '---\ndisable-model-invocation: true\n---\n' });
+  const hadouken = doGlobal(reguaDe([{ fase: 'F', usar: ['x:review', 'x:solo'] }]));
+  const { linhaRegua, aviso } = rodar({ cfg, hadouken });
+  assert.equal(linhaRegua, 'Régua (global): F → x:review, /x:solo');
+  assert.equal(aviso, '');
+});
+
+// ------------------------------------------------------------ C3: saneamento remove invisíveis
+
+test('C3: fase com ESC, override bidi, largura zero e Tags Unicode → nada disso sobra', async () => {
+  const { validarRegua } = await regua();
+  const r = validarRegua({ fases: [{ fase: 'A\u001b[31mB\u202eC\u200bD\u{E0041}\u{E0042}', usar: ['a:b'] }] });
+  const { fase } = r.regua.fases[0];
+  assert.doesNotMatch(fase, /[\p{Cc}\p{Cf}]/u, JSON.stringify(fase));
+  assert.equal(fase, 'A [31mB C D');
+});
+
+test('C3: `quando` com C1 (U+009B), DEL (U+007F) e separadores de linha → removidos (mutante T1)', async () => {
+  const { validarRegua } = await regua();
+  const r = validarRegua({ fases: [{ fase: 'F', usar: ['a:b'], alternativas: [{ skill: 'c:d', quando: 'x\u009by\u007fz\u2028w\u2029v' }] }] });
+  assert.equal(r.regua.fases[0].alternativas[0].quando, 'x y z w v');
+});
+
+// ------------------------------------------------------------ C4: reserva só no nível padrão
+
+// kit/hooks e kit/package.json copiados sem kit/regua-padrao.json.
+function fluxoSemPadrao() {
+  const kit = path.join(novoTmp(), 'kit');
+  fs.mkdirSync(path.join(kit, 'hooks'), { recursive: true });
+  for (const f of fs.readdirSync(path.join(repo, 'kit', 'hooks'))) fs.copyFileSync(path.join(repo, 'kit', 'hooks', f), path.join(kit, 'hooks', f));
+  fs.copyFileSync(path.join(repo, 'kit', 'package.json'), path.join(kit, 'package.json'));
+  return path.join(kit, 'hooks', 'fluxo.js');
+}
+
+test('C4: sem regua-padrao.json, a régua do repo válida ainda vale (e a global, sem repo)', () => {
+  const fluxo = fluxoSemPadrao();
+  assert.match(rodar({ fluxo, projeto: doRepo({ regua: reguaDe([{ fase: 'Do repo', usar: ['bom:ok'] }]) }) }).linhaRegua, /^Régua \(repo\): Do repo → bom:ok$/);
+  assert.match(rodar({ fluxo, hadouken: doGlobal(reguaDe([{ fase: 'Global', usar: ['bom:ok'] }])) }).linhaRegua, /^Régua \(global\): Global → bom:ok$/);
+});
+
+test('C4: sem regua-padrao.json e sem outro nível, vale a reserva e os avisos do nível inválido continuam', () => {
+  const fluxo = fluxoSemPadrao();
+  const normal = rodar().contexto;
+  const projeto = novoTmp();
+  gravar(path.join(projeto, '.claude', 'hadouken.json'), '{ não é json');
+  const r = rodar({ fluxo, projeto });
+  assert.equal(r.contexto, normal);
+  assert.match(r.aviso, /régua do repositório \(\.claude\/hadouken\.json\) está ilegível/);
+});
+
+// ------------------------------------------------------------ C5: corte por code point
+
+test('C5: o corte do primeiro segmento não deixa surrogate solitário, qualquer que seja o prefixo', async () => {
+  const { textoRegua, validarRegua, LIMITE_TEXTO } = await regua();
+  const solitario = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+  for (let n = 1; n <= 6; n += 1) {
+    const r = validarRegua({ fases: [{ fase: 'x'.repeat(n), usar: ['a:b'], alternativas: Array.from({ length: 12 }, () => ({ skill: 'c:d', quando: '😀'.repeat(100) })) }] });
+    const { texto } = textoRegua({ regua: r.regua, origem: 'global', catalogo: { skills: new Map(), agentes: new Set() }, validar: false });
+    assert.ok(texto.endsWith('… (régua completa: /hadouken-kit:regua)'), `n=${n}`);
+    assert.doesNotMatch(texto, solitario, `n=${n}`);
+    assert.ok(texto.length <= LIMITE_TEXTO, `n=${n}: ${texto.length}`);
+  }
+});
+
+// ------------------------------------------------------------ T3: registro ilegível ou kit fora do escopo user
+
+test('T3: registro ilegível → skill de plugin não vira desconhecida, a régua do usuário vale, sem aviso', () => {
+  const cfg = montarCfg();
+  fs.writeFileSync(path.join(cfg, 'plugins', 'installed_plugins.json'), '{ ilegível');
+  const hadouken = doGlobal(reguaDe([{ fase: 'F', usar: ['x:de-plugin'], agente: 'x:ag' }]));
+  const { linhaRegua, aviso } = rodar({ cfg, hadouken });
+  assert.equal(linhaRegua, 'Régua (global): F → x:de-plugin · agente x:ag');
+  assert.equal(aviso, '');
+});
+
+test('T3: kit fora do escopo user (lido:false) → mesma coisa, no SessionStart e no catálogo', async () => {
+  const cfg = montarCfg();
+  const arq = path.join(cfg, 'plugins', 'installed_plugins.json');
+  const reg = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  reg.plugins[KIT] = [{ scope: 'project', projectPath: '/p', version: '1.2.0', installPath: null }];
+  gravar(arq, reg);
+  const { catalogo } = await regua();
+  assert.equal(catalogo({ pastaConfig: cfg, raiz: novoTmp() }).lido, false);
+  const hadouken = doGlobal(reguaDe([{ fase: 'F', usar: ['x:de-plugin'] }]));
+  const { linhaRegua, aviso } = rodar({ cfg, hadouken });
+  assert.equal(linhaRegua, 'Régua (global): F → x:de-plugin');
+  assert.equal(aviso, '');
+});
+
+// ------------------------------------------------------------ T4: teto de tamanho e arquivo que não é regular
+
+const grande = (extra) => JSON.stringify({ ...extra, enchimento: 'a'.repeat(5 * 1024 * 1024) });
+
+test('T4: régua do repo acima de 4 MB (JSON válido) → aviso e o nível seguinte', () => {
+  const projeto = doRepo(grande({ regua: reguaDe([{ fase: 'Gigante', usar: ['bom:ok'] }]) }));
+  const hadouken = doGlobal(reguaDe([{ fase: 'Global', usar: ['bom:ok'] }]));
+  const { linhaRegua, aviso } = rodar({ projeto, hadouken });
+  assert.equal(linhaRegua, 'Régua (global): Global → bom:ok');
+  assert.match(aviso, /régua do repositório \(\.claude\/hadouken\.json\) está ilegível ou inválida/);
+});
+
+test('T4: lerJson recusa o que passa de 4 MB e o que não é arquivo regular', async () => {
+  const { lerJson } = await regua();
+  const d = novoTmp();
+  gravar(path.join(d, 'g.json'), grande({}));
+  assert.equal(lerJson(path.join(d, 'g.json')).ok, false);
+  fs.mkdirSync(path.join(d, 'pasta.json'));
+  assert.equal(lerJson(path.join(d, 'pasta.json')).ok, false);
+  gravar(path.join(d, 'p.json'), '{"a":1}');
+  assert.deepEqual(lerJson(path.join(d, 'p.json')), { ok: true, valor: { a: 1 } });
+});
+
+// ------------------------------------------------------------ T5: tudo desconhecido → padrão
+
+test('T5: régua do repo só com nomes desconhecidos → Régua (padrão), contagem no aviso e sem a linha do repo', () => {
+  const projeto = doRepo({ regua: reguaDe([{ fase: 'F', usar: ['x:um', 'x:dois'], agente: 'x:ag' }]) });
+  const { linhaRegua, aviso } = rodar({ projeto });
+  assert.match(linhaRegua, /^Régua \(padrão\): Ideia →/);
+  assert.doesNotMatch(linhaRegua, /Régua \(repo\)/);
+  assert.match(aviso, /2 skills desconhecidas e 1 agente desconhecido/);
+  assert.ok(!aviso.includes(LINHA_REPO));
+});
+
+// ------------------------------------------------------------ T7: o additionalContext inteiro no pior caso
+
+test('T7: régua de 2000 caracteres cortada → additionalContext ≤ 2400 caracteres e ≤ 5 linhas', () => {
+  // Um só segmento maior que o limite força o corte por caractere (registro
+  // ilegível: os nomes de 77 caracteres passam sem conferência).
+  const alternativas = Array.from({ length: 12 }, () => ({ skill: 'bom:tres', quando: 'q'.repeat(120) }));
+  const porSegmento = ['F', 'G', 'H'].map((f) => ({ fase: f, usar: ['bom:ok'], alternativas }));
+  const cfgIlegivel = montarCfg();
+  fs.writeFileSync(path.join(cfgIlegivel, 'plugins', 'installed_plugins.json'), '{ ilegível');
+  const segmentoGigante = [{ fase: 'F'.repeat(60), usar: Array.from({ length: 12 }, () => `p:${'n'.repeat(77)}`), alternativas }];
+  for (const [fases, cfg, minimo] of [[porSegmento, montarCfg(), 1500], [segmentoGigante, cfgIlegivel, 1990]]) {
+    const { contexto, linhaRegua } = rodar({ cfg, hadouken: doGlobal(reguaDe(fases)) });
+    assert.ok(linhaRegua.length >= minimo && linhaRegua.length <= 2000, `${linhaRegua.length}`);
+    assert.ok(linhaRegua.endsWith('… (régua completa: /hadouken-kit:regua)'));
+    assert.ok(contexto.length <= 2400, `${contexto.length}`);
+    assert.ok(contexto.split('\n').length <= 5);
+  }
 });

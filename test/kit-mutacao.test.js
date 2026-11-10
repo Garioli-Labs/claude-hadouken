@@ -29,3 +29,11 @@ test('mutacao: cita as ferramentas por stack, o diff de linhas e o sobrevivente'
 test('mutacao: sem meta percentual', () => {
   assert.doesNotMatch(texto(), /\d+\s*%/);
 });
+
+test('mutacao: só o StrykerJS recebe faixas de linha (--mutate arq:ini-fim); as outras ferramentas rodam nos arquivos e descartam os sobreviventes fora do diff', () => {
+  const t = texto();
+  assert.ok(t.includes('--mutate "arq:ini-fim"'), 'falta a sintaxe de faixa do StrykerJS');
+  assert.match(t, /mutmut, Stryker\.NET e PIT, rode nos arquivos alterados/);
+  assert.match(t, /descarte os sobreviventes fora das linhas do `git diff -U0`/);
+  assert.doesNotMatch(t, /passe só essas faixas à ferramenta/);
+});
