@@ -11,6 +11,7 @@ import {
 import { caminhoAceito } from '../configuracao.js';
 import { gravarJsonAtomico, lerJson } from '../estado.js';
 import { ID_EXTENSAO, montarVsix, versaoValida } from './vsix.js';
+import { perfisInstalados } from './perfis.js';
 
 // Instalador do painel no VS Code (spec E4 e E8/S27, Task 4). O SessionStart
 // dispara `cli.js painel instalar` em segundo plano, destacado, quando a
@@ -319,7 +320,7 @@ export async function instalarPainel(opcoes) {
   try {
     const {
       dir, raizPlugin, agoraMs = Date.now(), achar = acharCode, executar = executarPadrao,
-      plataforma = process.platform, pathEnv = process.env.PATH, existe, systemRoot = process.env.SystemRoot, casa, apps,
+      plataforma = process.platform, pathEnv = process.env.PATH, existe, systemRoot = process.env.SystemRoot, casa, apps, perfis,
     } = ehObjeto(opcoes) ? opcoes : {};
     if (!dirValido(dir)) return falha('sem-pasta');
     if (!agoraValido(agoraMs) || typeof achar !== 'function' || typeof executar !== 'function') return falha('argumentos');
@@ -348,12 +349,17 @@ export async function instalarPainel(opcoes) {
     // montou o caminho com path.join (as duas são a mesma fora dos testes).
     const caminhos = plataforma === 'win32' ? path.win32 : path.posix;
     if (!caminhos.isAbsolute(code) || !caminhoSeguro(code, plataforma) || !caminhoSeguro(vsix)) return falhou('caminho-inseguro');
-    const r = plataforma === 'win32'
-      ? await rodar(executar, caminhoCmd(systemRoot), ['/d', '/s', '/c', `""${code}" --install-extension "${vsix}" --force"`], {
+    // v0.5.9 (issue #7): o Default primeiro, depois cada perfil do VS Code. Só
+    // a falha no Default conta; num perfil, a extensão fica no resto.
+    const instalar = (perfil) => (plataforma === 'win32'
+      ? rodar(executar, caminhoCmd(systemRoot), ['/d', '/s', '/c', `""${code}" --install-extension "${vsix}" --force${perfil === null ? '' : ` --profile "${perfil}"`}"`], {
         windowsVerbatimArguments: true, windowsHide: true, timeout: PRAZO_INSTALAR_MS, cwd: pasta,
       })
-      : await rodar(executar, code, ['--install-extension', vsix, '--force'], { timeout: PRAZO_INSTALAR_MS, cwd: pasta });
+      : rodar(executar, code, ['--install-extension', vsix, '--force', ...(perfil === null ? [] : ['--profile', perfil])], { timeout: PRAZO_INSTALAR_MS, cwd: pasta }));
+    const r = await instalar(null);
     if (r !== 'ok') return falhou(r);
+    const nomes = Array.isArray(perfis) ? perfis : perfisInstalados({ plataforma, casa });
+    for (const perfil of nomes) await instalar(perfil);
     apagarVsixAntigos(pasta, path.basename(vsix));
     const g = gravarJsonAtomico(path.join(pasta, ARQ_INSTALADO), { versao, em: new Date(agoraMs).toISOString() });
     return g.ok ? { ok: true, motivo: 'ok' } : falhou('escrita');
