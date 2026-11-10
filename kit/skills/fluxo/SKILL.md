@@ -11,17 +11,24 @@ Acione cada skill **sozinho, no momento dela**, sem esperar o usuário pedir pel
 
 As citadas com `/` (`/mattpocock-skills:...`) têm `disable-model-invocation` no autor: o modelo não as aciona. No momento delas, sugira ao usuário digitar o comando, com uma linha dizendo por quê; não leia o SKILL.md à mão para contornar a escolha do autor.
 
-## Processo
+## Régua ativa
+
+A régua de desenvolvimento que vale na sessão vem no texto do SessionStart do kit, na linha que começa por "Régua (" com a origem entre parênteses: `repo` (o `.claude/hadouken.json` do projeto), `global` (o `regua.json` do usuário) ou `padrão`. Quando o usuário customizou a régua, siga a linha do SessionStart; a tabela abaixo é a régua padrão, mantida como referência.
+
+## Processo (régua padrão)
 
 | Etapa | Use | A outra, só quando |
 |---|---|---|
 | Ideia nebulosa | `superpowers:brainstorming` | `/mattpocock-skills:grill-with-docs` quando o projeto tem glossário/ADRs a atualizar durante a conversa |
 | Falar não resolve | `mattpocock-skills:prototype` + `/mattpocock-skills:handoff` para uma sessão limpa | — |
 | Registrar a forma | spec do brainstorming | `/mattpocock-skills:to-spec` quando a conversa já decidiu tudo |
+| Auditoria da spec | agente `hadouken:auditor`, uma rodada | só quando a mudança cai em produção, dinheiro, autenticação, dado real ou algo irreversível, ou muda contrato público (API, schema, config do usuário, hook, formato de arquivo); fora: doc, rename, fatia mecânica |
 | Quebrar o trabalho | `superpowers:writing-plans` | `/mattpocock-skills:to-tickets` quando vai para um tracker; `/mattpocock-skills:wayfinder` quando não cabe num plano |
 | Executar | `superpowers:subagent-driven-development` | `superpowers:executing-plans` quando o usuário escolhe execução sem subagentes; `/mattpocock-skills:implement` quando o trabalho já está em tickets do tracker; `/mattpocock-skills:implement-spec` para implementar de uma vez, em paralelo, todos os tickets de uma spec |
 | Teste e bug | `superpowers:test-driven-development`, `superpowers:systematic-debugging` | `mattpocock-skills:tdd` quando o usuário pede testes de integração; `mattpocock-skills:diagnosing-bugs` para lentidão e regressão de desempenho |
 | Revisar | `superpowers:requesting-code-review` por tarefa; `mattpocock-skills:code-review` no branch inteiro, antes do merge | `mattpocock-skills:pr` ao escrever o corpo do PR |
+| Mutação | `hadouken-kit:mutacao` no fim da frente, antes do PR | — |
+| Auditoria do diff | agente `hadouken:auditor`, mesmo critério da auditoria da spec | segunda rodada só se a spec mudou materialmente |
 | Melhorar o sistema | `/mattpocock-skills:improve-codebase-architecture` quando o mesmo atrito se repete; `poka-yoke:retro` depois de incidente | `/mattpocock-skills:retro` no fim de uma sessão de código, para ajustar o ambiente do agente (não o código) |
 | Especialidades | web: `hadouken-kit:yu-ux-web-expert` (prevalece sobre `ui-ux-pro-max`); segurança: `poka-yoke:audit`, `poka-yoke:authz`, `security-review`; grafo do código: `hadouken-kit:graphify`; binário/APK/firmware: REA (plugin `hadouken-rea`) | — |
 

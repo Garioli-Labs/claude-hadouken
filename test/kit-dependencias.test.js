@@ -405,8 +405,8 @@ test('hook: pasta de config sem registro (D6) → só o additionalContext de hoj
   assert.deepEqual(Object.keys(j), ['hookSpecificOutput']);
   assert.equal(j.hookSpecificOutput.hookEventName, 'SessionStart');
   assert.match(CONTEXTO, /^hadouken-kit: acione as skills sozinho/);
-  assert.equal(CONTEXTO.split('\n').length, 5);
-  assert.ok(CONTEXTO.length <= 1600);
+  assert.ok(CONTEXTO.split('\n').length <= 5);
+  assert.ok(CONTEXTO.length <= 2400, `${CONTEXTO.length} caracteres`);
 });
 
 test('hook: tudo próprio → sem systemMessage e o mesmo additionalContext', () => {

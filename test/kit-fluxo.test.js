@@ -59,6 +59,8 @@ const EXISTENTES = new Set([
   'hadouken-kit:yu-ux-web-expert', 'hadouken-kit:graphify', 'hadouken-kit:fluxo',
   // v0.5.3 (spec roteamento §2): skill do plugin principal, no repo.
   'hadouken:roteamento',
+  // v0.6.0 (Fatia 7): a régua padrão cita o agente auditor e a skill de mutação (Tarefa 12).
+  'hadouken:auditor', 'hadouken-kit:mutacao',
 ]);
 
 // v0.5.1: os nomes de superpowers e poka-yoke da lista existem no cache
@@ -84,8 +86,10 @@ test('fluxo.js: sai 0 com stdin vazio e imprime JSON de SessionStart', () => {
   const j = JSON.parse(r.stdout);
   assert.equal(j.hookSpecificOutput.hookEventName, 'SessionStart');
   const t = j.hookSpecificOutput.additionalContext;
-  assert.ok(t.length <= 1600, `${t.length} caracteres`);
+  // v0.6.0 (Fatia 7): 2 000 da régua mais as duas linhas fixas, com folga.
+  assert.ok(t.length <= 2400, `${t.length} caracteres`);
   assert.ok(t.split('\n').length <= 5);
+  assert.match(t, /Régua \(padrão\): /);
   assert.match(t, /superpowers:brainstorming/);
   assert.match(t, /hadouken-kit:fluxo/);
 });

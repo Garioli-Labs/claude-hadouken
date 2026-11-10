@@ -1,0 +1,37 @@
+{
+  "fases": [
+    { "fase": "Ideia", "usar": ["superpowers:brainstorming"],
+      "alternativas": [
+        { "skill": "mattpocock-skills:grilling", "quando": "plano ou decisão a pôr à prova" },
+        { "skill": "mattpocock-skills:grill-with-docs", "quando": "projeto tem glossário/ADRs" }
+      ] },
+    { "fase": "Protótipo", "usar": ["mattpocock-skills:prototype"],
+      "alternativas": [{ "skill": "mattpocock-skills:handoff", "quando": "contexto longo ou troca de sessão" }] },
+    { "fase": "Registrar a forma", "usar": ["superpowers:brainstorming"],
+      "alternativas": [{ "skill": "mattpocock-skills:to-spec", "quando": "a conversa já decidiu tudo" }] },
+    { "fase": "Auditoria da spec", "agente": "hadouken:auditor" },
+    { "fase": "Quebrar o trabalho", "usar": ["superpowers:writing-plans"],
+      "alternativas": [
+        { "skill": "mattpocock-skills:to-tickets", "quando": "vai para um tracker" },
+        { "skill": "mattpocock-skills:wayfinder", "quando": "não cabe numa sessão" }
+      ] },
+    { "fase": "Executar", "usar": ["superpowers:subagent-driven-development"] },
+    { "fase": "Teste e bug", "usar": ["superpowers:test-driven-development", "superpowers:systematic-debugging"],
+      "alternativas": [{ "skill": "mattpocock-skills:diagnosing-bugs", "quando": "lentidão ou regressão" }] },
+    { "fase": "Revisar", "usar": ["superpowers:requesting-code-review", "mattpocock-skills:code-review"] },
+    { "fase": "Mutação", "usar": ["hadouken-kit:mutacao"] },
+    { "fase": "Auditoria do diff", "agente": "hadouken:auditor" }
+  ],
+  "transversais": [
+    { "skill": "mattpocock-skills:codebase-design", "quando": "interface ou costura de módulo" },
+    { "skill": "mattpocock-skills:improve-codebase-architecture", "quando": "o mesmo atrito se repete" },
+    { "skill": "mattpocock-skills:domain-modeling", "quando": "termo novo ou decisão de arquitetura" },
+    { "skill": "mattpocock-skills:research", "quando": "fato de doc/API a confirmar" },
+    { "skill": "mattpocock-skills:triage", "quando": "issues/PRs a separar" },
+    { "skill": "mattpocock-skills:teach", "quando": "o usuário quer aprender" },
+    { "skill": "mattpocock-skills:pr", "quando": "corpo de PR" },
+    { "skill": "mattpocock-skills:wizard", "quando": "passo só do usuário" },
+    { "skill": "poka-yoke:audit", "quando": "segurança" },
+    { "skill": "poka-yoke:retro", "quando": "depois de incidente" }
+  ]
+}
