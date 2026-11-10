@@ -11,10 +11,6 @@ Instrução do usuário (CLAUDE.md do usuário ou do projeto) prevalece sobre es
 
 Faça direto quando a tarefa cabe em até 3 chamadas de ferramenta e ~50 linhas de saída somadas. Acima disso, lance agente.
 
-- O contexto necessário já está na conversa.
-- A tarefa pede idas e vindas com o usuário.
-- Escrever o brief custaria mais do que fazer.
-
 ## Lançar agente
 
 - Busca ampla da qual só interessa a conclusão (protege o contexto principal).
@@ -86,4 +82,4 @@ Até 40 linhas: Feito / Evidência (comando literal, saída cortada e `arquivo:l
 
 ## O que a guarda barra
 
-Subir agente barato a Opus ou Fable, ou a effort `xhigh` ou `max`, sem aprovação do usuário. Só o usuário solta, com `/hadouken:liberar`.
+N1 nega `Explore`, `hadouken:busca` ou `hadouken:varredor` em Opus ou Fable, ou com effort `xhigh` ou `max` pedido no despacho. N2 nega `hadouken:busca`, `hadouken:varredor` ou `hadouken:mecanico` com o modelo trocado para Opus ou Fable. Só o usuário solta: `/hadouken:liberar` por um tempo, ou `/hadouken:agentes`, que grava o modelo ou o effort como padrão do agente.
