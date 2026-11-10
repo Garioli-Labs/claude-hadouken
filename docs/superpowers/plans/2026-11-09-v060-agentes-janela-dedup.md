@@ -326,16 +326,21 @@ Sem injeção: nenhuma saída leva `updatedInput` (é a Tarefa 6b). Não depende
 
 Depende da 6a.
 
-**Passo 0 (portão, antes de qualquer código):** medir as perguntas 1 e 2 da spec §8.1 com `claude -p` e o plugin do worktree, em `permissions.defaultMode: "auto"` (o modo real do mantenedor).
+**Passo 0 (portão, antes de qualquer código):** medir as perguntas 1 e 2 da spec §8.1 com `claude -p` em auto mode (o modo real do mantenedor).
 - A guarda bloqueia sessão `claude` filha: o Fernando precisa digitar `/hadouken:liberar` antes.
-- Ambiente: HOME temporário `ZZE2E` com `settings.json` `{"permissions": {"defaultMode": "auto"}}`; hook de teste fora do repo que devolve `updatedInput` (troca o `model` de `haiku` para `sonnet`) no `Agent`.
+- Ambiente, sem login novo: `HOME` e `CLAUDE_CONFIG_DIR` reais. No macOS a credencial fica no Keychain, numa entrada ligada ao `CLAUDE_CONFIG_DIR` (https://code.claude.com/docs/en/authentication.md); trocar um dos dois pede login.
+  - cwd numa pasta temporária `ZZE2E-passo0`, sem `.claude/`;
+  - `claude -p --setting-sources project,local --settings <ZZE2E-settings.json> --permission-mode auto`, sem `--bare` (o `--bare` pula hooks de `--settings`, https://code.claude.com/docs/en/headless.md). `defaultMode: "auto"` fora do settings do usuário não vale (https://code.claude.com/docs/en/permission-modes.md); o modo vem da flag;
+  - `ZZE2E-settings.json`: o hook de teste fora do repo, que devolve `updatedInput` no `Agent` (troca o `model` de `haiku` para `sonnet`), e as regras `ask`/`deny` dos itens 3 e 4;
+  - primeiro despacho de controle, sem o hook: confirma que nenhum hook do `~/.claude/settings.json` real nem de plugin habilitado nele roda na filha (o `--setting-sources` sem `user` tira os dois; a doc não diz isso com todas as letras);
+  - resíduo: transcripts em `~/.claude/projects/*ZZE2E-passo0*`, apagados ao final.
 - Variantes, cada uma com a saída colada na spec §0, numa linha "Medido no passo 0 (Claude Code `<versão>`)":
   - **A**: `updatedInput` sem `permissionDecision`;
   - **B**: `updatedInput` com `permissionDecision: "allow"`.
 - Registrar, para cada variante:
-  1. o modelo do subagente (`message.model` no transcript);
-  2. se a negação `a hook changed this call's input after auto mode reviewed it` aparece;
-  3. com uma regra `ask` de `Agent(...)` no `settings.json` do HOME temporário: se ainda pergunta;
+  1. o modelo do subagente: o campo do modelo em `~/.claude/projects/<projeto>/<sessão>/subagents/agent-<id>.jsonl` ou `agent-<id>.meta.json` (a doc não nomeia o campo; https://code.claude.com/docs/en/sub-agents.md), e o `effort.level` que a entrada do hook recebe;
+  2. se o despacho é negado; a doc só garante o texto `a hook changed this call's input after auto mode reviewed it` em sessão interativa, então em `-p` vale o resultado da ferramenta;
+  3. com uma regra `ask` de `Agent(...)` no `ZZE2E-settings.json`: se ainda pergunta;
   4. com uma regra `deny` de `Agent(...)`: se ainda nega.
   5. com a config `{mecanico:{effort:'max'}}` (haiku): o Claude Code aceita, ignora ou recusa o effort injetado; se recusar, `lerArgsAgentes` e `validarAgentes` passam a recusar a combinação (achado B5 do revisor da fatia 4).
 - Doc (spec §0): sem `permissionDecision`, o auto mode pode negar a chamada alterada; com `"allow"`, as regras `deny` e `ask` continuam valendo. A medição confirma ou contradiz; contradição → pare e traga ao Fernando.
