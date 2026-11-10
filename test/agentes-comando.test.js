@@ -203,27 +203,55 @@ test('xyz opus: agente desconhecido com a lista dos dez; revisor gpt: modelo inv
   assert.equal(fs.existsSync(arqConfig(home)), false);
 });
 
-test('sem argumento: dez linhas, uma por agente; o revisor mostra o padrão e o override', () => {
+const CABECALHO = 'Paleta efetiva (agente: padrão → config):';
+const SINTAXE = 'Mude com /hadouken:agentes <agente> <modelo> [effort], <agente> off|on ou <agente> padrao.';
+
+test('sem argumento: cabeçalho, dez linhas de agente e a sintaxe; o revisor mostra o padrão e o override', () => {
   const home = novoHome({ agentes: { revisor: { model: 'opus' }, auditor: { ativo: false } } });
   const antes = fs.readFileSync(arqConfig(home), 'utf8');
   const linhas = bloqueio(comando('', home)).split('\n');
-  assert.equal(linhas.length, 10, linhas.join('\n'));
-  assert.deepEqual(linhas.map((l) => l.split(':')[0]), NOMES);
-  assert.ok(linhas.find((l) => l.startsWith('revisor')).includes('sonnet·high → opus·high'));
-  assert.ok(linhas.find((l) => l.startsWith('busca')).includes('haiku·low'));
-  assert.ok(!linhas.find((l) => l.startsWith('busca')).includes('→'));
-  assert.ok(linhas.find((l) => l.startsWith('auditor')).includes('desligado'));
+  assert.equal(linhas.length, 12, linhas.join('\n'));
+  assert.equal(linhas[0], CABECALHO);
+  assert.equal(linhas[11], SINTAXE);
+  const agentes = linhas.slice(1, 11);
+  assert.deepEqual(agentes.map((l) => l.split(':')[0]), NOMES);
+  assert.equal(agentes.find((l) => l.startsWith('revisor')), 'revisor: sonnet·high → opus·high');
+  assert.equal(agentes.find((l) => l.startsWith('busca')), 'busca: haiku·low');
+  assert.equal(agentes.find((l) => l.startsWith('auditor')), 'auditor: fable·high (desligado)');
   assert.equal(fs.readFileSync(arqConfig(home), 'utf8'), antes);
 });
 
-test('sem argumento e sem config.json: dez linhas no padrão; config com campo inválido acrescenta o aviso', () => {
+test('sem argumento: override igual ao padrão mostra a seta; ativo:false com override mostra os dois', () => {
+  const home = novoHome({ agentes: { revisor: { model: 'sonnet', effort: 'high' }, busca: { effort: 'low' }, auditor: { model: 'opus', ativo: false } } });
+  const agentes = bloqueio(comando('', home)).split('\n').slice(1, 11);
+  assert.equal(agentes.find((l) => l.startsWith('revisor')), 'revisor: sonnet·high → sonnet·high');
+  assert.equal(agentes.find((l) => l.startsWith('busca')), 'busca: haiku·low → haiku·low');
+  assert.equal(agentes.find((l) => l.startsWith('auditor')), 'auditor: fable·high → opus·high (desligado)');
+});
+
+test('sem argumento e sem config.json: cabeçalho, dez linhas no padrão e a sintaxe; config com campo inválido acrescenta o aviso depois da sintaxe', () => {
   const home = novoHome();
   const linhas = bloqueio(comando('', home)).split('\n');
-  assert.equal(linhas.length, 10);
-  assert.ok(!linhas.join('\n').includes('→'));
+  assert.equal(linhas.length, 12);
+  assert.equal(linhas[0], CABECALHO);
+  assert.equal(linhas[11], SINTAXE);
+  assert.ok(!linhas.slice(1, 11).join('\n').includes('→'));
   const ruim = novoHome({ agentes: { xyz: { model: 'opus' } } });
-  const reason = bloqueio(comando('', ruim));
-  assert.ok(reason.includes('agentes.xyz inválido; ignorado'), reason);
+  const reason = bloqueio(comando('', ruim)).split('\n');
+  assert.equal(reason.length, 13);
+  assert.equal(reason[11], SINTAXE);
+  assert.equal(reason[12], 'agentes.xyz inválido; ignorado');
+});
+
+test('sem argumento: 4000 chaves inválidas viram cinco avisos e a linha de corte', () => {
+  const agentes = Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`k${i}`, 1]));
+  const home = novoHome({ agentes });
+  assert.ok(fs.statSync(arqConfig(home)).size < 64 * 1024);
+  const linhas = bloqueio(comando('', home)).split('\n');
+  const avisos = linhas.slice(12);
+  assert.equal(avisos.length, 6, linhas.slice(12).join('\n'));
+  assert.equal(avisos[5], '… e mais 3995 avisos.');
+  assert.ok(avisos.join('\n').length < 1500, String(avisos.join('\n').length));
 });
 
 test('config.json ilegível nunca é sobrescrito pelo comando', () => {
@@ -318,6 +346,17 @@ test('SessionStart: nome inválido em agentes aparece como aviso ao usuário, se
   assert.ok(!contexto.includes('inválido'), contexto);
   // O campo inválido é descartado: o revisor segue no padrão.
   assert.ok(contexto.includes('hadouken:revisor (sonnet·high)'), contexto);
+});
+
+test('SessionStart: 4000 chaves inválidas em agentes viram cinco avisos e a linha de corte', () => {
+  const agentes = Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`k${i}`, 1]));
+  const home = novoHome({ agentes });
+  assert.ok(fs.statSync(arqConfig(home)).size < 64 * 1024);
+  const { usuario } = sessionStart(home);
+  const avisos = usuario.split('\n').filter((l) => l.includes('inválido; ignorado') || l.startsWith('… e mais'));
+  assert.ok(avisos.length <= 6, `${avisos.length} linhas de aviso`);
+  assert.equal(avisos.at(-1), '… e mais 3995 avisos.');
+  assert.ok(avisos.join('\n').length < 1500, String(avisos.join('\n').length));
 });
 
 test('SessionStart: config.json ilegível avisa e mantém a paleta padrão', () => {

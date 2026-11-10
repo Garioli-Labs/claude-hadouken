@@ -337,6 +337,7 @@ Depende da 6a.
   2. se a negação `a hook changed this call's input after auto mode reviewed it` aparece;
   3. com uma regra `ask` de `Agent(...)` no `settings.json` do HOME temporário: se ainda pergunta;
   4. com uma regra `deny` de `Agent(...)`: se ainda nega.
+  5. com a config `{mecanico:{effort:'max'}}` (haiku): o Claude Code aceita, ignora ou recusa o effort injetado; se recusar, `lerArgsAgentes` e `validarAgentes` passam a recusar a combinação (achado B5 do revisor da fatia 4).
 - Doc (spec §0): sem `permissionDecision`, o auto mode pode negar a chamada alterada; com `"allow"`, as regras `deny` e `ask` continuam valendo. A medição confirma ou contradiz; contradição → pare e traga ao Fernando.
 - O código usa a variante que injeta **e** respeita a regra do usuário.
 - Se só a variante `"allow"` injetar, pare e traga a decisão ao Fernando (a doc espera esse resultado em auto mode; o `allow` pula o prompt do modo e mantém as regras `deny`/`ask`).
@@ -402,7 +403,7 @@ Depende da 6a.
   - `'revisor padrao'` → `revisor` sai.
   - `'xyz opus'` → `reason` contém `agente desconhecido: xyz` e a lista dos dez.
   - `'revisor gpt'` → `reason` contém `modelo inválido`.
-  - `''` → `reason` tem dez linhas; a do revisor contém `sonnet·high → opus·high`.
+  - `''` → `reason` tem cabeçalho, dez linhas de agente e a linha de sintaxe; a do revisor contém `sonnet·high → opus·high`.
   - **RF3**: em sequência, `/hadouken:janela seg-sex 9-21`, `/hadouken:agentes revisor opus` e `/hadouken:liberar off` → `config.json` tem `janela`, `agentes` e a chave da guarda.
   - **SessionStart**: com `{revisor:{model:'opus'}}` a linha do revisor contém `opus`; com `{auditor:{ativo:false}}` não há linha do auditor; com nome inválido aparece o aviso.
   - **Aprovação em N1/N2 pelo comando** (guarda ligada, hook de despacho depois do comando):

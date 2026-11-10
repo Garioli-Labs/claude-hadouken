@@ -12,17 +12,11 @@ const POR_NOME = new Map(PALETA.map((p) => [p.nome, p]));
 
 const inativo = (agentes, nome) => agentes !== null && typeof agentes === 'object' && Object.hasOwn(agentes, nome) && agentes[nome]?.ativo === false;
 
-// Primeiro substituto ativo da cadeia da tabela; null quando a cadeia acaba
-// em "faça direto" ou volta a um agente já visto (dois inativos se apontando).
+// O substituto da tabela, um nível só (spec §4 Fatia 4): null quando a tabela
+// manda "faça direto" ou quando o substituto também está inativo.
 function substitutoAtivo(agentes, nome) {
-  const vistos = new Set([nome]);
-  let atual = POR_NOME.get(nome)?.substituto ?? null;
-  while (atual !== null && !vistos.has(atual)) {
-    if (!inativo(agentes, atual)) return atual;
-    vistos.add(atual);
-    atual = POR_NOME.get(atual)?.substituto ?? null;
-  }
-  return null;
+  const substituto = POR_NOME.get(nome)?.substituto ?? null;
+  return substituto !== null && !inativo(agentes, substituto) ? substituto : null;
 }
 
 export function avaliarPaleta({ toolName, toolInput, agentes = {} } = {}) {

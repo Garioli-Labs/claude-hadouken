@@ -54,6 +54,18 @@ export function validarAgentes(valor) {
   }
 }
 
+// Os avisos como o usuário os vê: sem repetidos (ordem mantida), no máximo
+// `max` e, quando corta, a linha "… e mais N avisos." Pura; nunca lança.
+export function resumirAvisos(avisos, max = 5) {
+  try {
+    const unicos = [...new Set(Array.isArray(avisos) ? avisos : [])];
+    if (unicos.length <= max) return unicos;
+    return [...unicos.slice(0, max), `… e mais ${unicos.length - max} avisos.`];
+  } catch {
+    return [];
+  }
+}
+
 // Lê a chave `agentes` de <dir>/config.json a cada chamada. Arquivo ausente ou
 // sem a chave: sem agentes e sem aviso. Arquivo presente mas ilegível (JSON
 // quebrado, acima de 64 KiB, pasta, fora do formato): sem agentes e o aviso de

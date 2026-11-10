@@ -5,8 +5,8 @@ import { dirDados } from '../base.js';
 // Sempre bloqueia a expansão (decision:block), como /hadouken:janela: o texto
 // vai só ao usuário e o modelo não é chamado. Mesmo portão (comum.js): recusa
 // -p e SDK, e qualquer origem que não seja o comando digitado, antes de ler ou
-// gravar qualquer coisa. Sem argumento mostra a paleta efetiva (uma linha por
-// agente); `<agente> <modelo> [effort]`, `<agente> off|on` e `<agente> padrao`
+// gravar qualquer coisa. Sem argumento mostra a paleta efetiva (cabeçalho, uma linha
+// por agente e a sintaxe); `<agente> <modelo> [effort]`, `<agente> off|on` e `<agente> padrao`
 // trocam só agentes.<agente> do config.json. O argumento nunca volta no texto:
 // só a gramática de lerArgsAgentes decide e a resposta sai das constantes e da
 // paleta daqui. Qualquer exceção vira evento 'erro' (falharAberto) e a resposta
@@ -16,12 +16,16 @@ const COMANDO = 'hadouken:agentes';
 const RECUSADO_ENTRYPOINT = 'hadouken: nada mudado. /hadouken:agentes só vale digitado numa sessão normal, não em -p nem no SDK.';
 const RECUSADO_ORIGEM = 'hadouken: nada mudado. /hadouken:agentes só vale digitado pelo usuário.';
 const NAO_GRAVADO = 'hadouken: nada mudado. Os agentes não puderam ser gravados (config.json ilegível ou sem permissão de escrita).';
+const CABECALHO = 'Paleta efetiva (agente: padrão → config):';
+const SINTAXE = 'Mude com /hadouken:agentes <agente> <modelo> [effort], <agente> off|on ou <agente> padrao.';
 const VALE = 'Vale nos próximos despachos; o texto do início da sessão só muda na próxima.';
 
 // 'revisor: sonnet·high → opus·high', 'busca: haiku·low', 'auditor: fable·high (desligado)'.
-function linhaDe(e, padrao) {
+// A seta aparece sempre que a config tem model ou effort do agente, mesmo igual ao padrão.
+function linhaDe(e, padrao, entrada) {
   const atual = `${e.model}·${e.effort}`;
-  const base = e.override ? `${padrao.model}·${padrao.effort} → ${atual}` : atual;
+  const configurado = entrada !== undefined && (Object.hasOwn(entrada, 'model') || Object.hasOwn(entrada, 'effort'));
+  const base = configurado ? `${padrao.model}·${padrao.effort} → ${atual}` : atual;
   return `${e.nome}: ${base}${e.ativo ? '' : ' (desligado)'}`;
 }
 
@@ -33,11 +37,11 @@ async function decidir(entrada, dir) {
   if (pedido.acao === 'erro') return `hadouken: nada mudado. ${pedido.msg}`;
   const tabela = () => {
     const lido = c.lerAgentes(dir);
-    return { lido, linhas: paletaEfetiva(lido.agentes).map((e) => linhaDe(e, PALETA.find((p) => p.nome === e.nome))) };
+    return { lido, linhas: paletaEfetiva(lido.agentes).map((e) => linhaDe(e, PALETA.find((p) => p.nome === e.nome), lido.agentes[e.nome])) };
   };
   if (pedido.acao === 'mostrar') {
     const { lido, linhas } = tabela();
-    return [...linhas, ...lido.avisos].join('\n');
+    return [CABECALHO, ...linhas, SINTAXE, ...c.resumirAvisos(lido.avisos)].join('\n');
   }
   const atual = c.lerAgentes(dir).agentes[pedido.nome];
   const gravou = pedido.acao === 'remover'

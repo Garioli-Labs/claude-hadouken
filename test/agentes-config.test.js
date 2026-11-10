@@ -14,6 +14,7 @@ import { avaliarRoteamento } from '../src/roteamento/regras.js';
 import { PALETA, paletaEfetiva } from '../src/agentes/paleta.js';
 import { avaliarPaleta } from '../src/agentes/despacho.js';
 import { validarAgentes, lerAgentes } from '../src/agentes/config.js';
+import * as agcfg from '../src/agentes/config.js';
 
 // Spec v0.6.0 §4 Fatia 4, Tarefa 6a do plano: config `agentes`, negação de
 // agente inativo antes dos portões da guarda, perfil efetivo (frontmatter do
@@ -54,25 +55,25 @@ function comHome(home, fn) {
     else process.env.HADOUKEN_HOME = antes;
   }
 }
-function gravarEstado(home) {
+function gravarEstado(home, u5 = 20) {
   const agora = Date.now();
   const s = Math.floor(agora / 1000);
   const at = new Date(agora).toISOString();
   fs.writeFileSync(path.join(home, 'estado.json'), JSON.stringify({
     versao: 1, at,
-    five_hour: { used_percentage: 20, resets_at: s + 3 * 3600, at },
+    five_hour: { used_percentage: u5, resets_at: s + 3 * 3600, at },
     seven_day: { used_percentage: 40, resets_at: s + 4 * 86_400, at },
     sessoes: {}, historico: [],
   }));
 }
 // Home temporário com o config.json dado (objeto ou texto cru) e, por padrão,
 // a sessão s1 registrada e o estado de consumo gravado.
-function homeCom(config, { sessao = true } = {}) {
+function homeCom(config, { sessao = true, u5 = 20 } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk agcfg ç '));
   homes.push(home);
   fs.mkdirSync(path.join(home, 'cfg', 'agents'), { recursive: true });
   fs.writeFileSync(path.join(home, 'config.json'), typeof config === 'string' ? config : JSON.stringify(config));
-  gravarEstado(home);
+  gravarEstado(home, u5);
   if (sessao) comHome(home, () => registrarSessao('s1', Date.now()));
   return home;
 }
@@ -193,6 +194,20 @@ test('avaliarPaleta: ativo:false nega com o substituto; os dois inativos mandam 
   assert.equal(nega('hadouken:auditor', { auditor: { ativo: false } }, { model: 'sonnet' }).acao, 'negar');
 });
 
+test('avaliarPaleta: o substituto é de um nível só; se ele também está inativo ou não há, faça direto', () => {
+  const nega = (tipo, agentes) => avaliarPaleta({ toolName: 'Agent', toolInput: { subagent_type: tipo, prompt: 'x' }, agentes });
+  // e2e -> implementador -> implementador-mecanico: a cadeia não é percorrida.
+  const e2e = nega('hadouken:e2e', { e2e: { ativo: false }, implementador: { ativo: false } });
+  assert.equal(e2e.acao, 'negar');
+  assert.match(e2e.razao, /faça direto/);
+  assert.doesNotMatch(e2e.razao, /implementador-mecanico/);
+  // mecanico -> implementador-mecanico, ambos inativos.
+  const mec = nega('hadouken:mecanico', { mecanico: { ativo: false }, 'implementador-mecanico': { ativo: false } });
+  assert.equal(mec.acao, 'negar');
+  assert.match(mec.razao, /faça direto/);
+  assert.doesNotMatch(mec.razao, /use hadouken:/);
+});
+
 test('avaliarPaleta (guarda de regressão): ativo:true, agente ligado, Workflow, fork e outro plugin passam; removido vence', () => {
   const av = (toolName, tipo, agentes) => avaliarPaleta({ toolName, toolInput: { subagent_type: tipo }, agentes });
   assert.deepEqual(av('Agent', 'hadouken:auditor', { auditor: { ativo: true } }), { acao: 'passa' });
@@ -203,6 +218,19 @@ test('avaliarPaleta (guarda de regressão): ativo:true, agente ligado, Workflow,
   assert.deepEqual(av('Agent', 'outro-plugin:auditor', { auditor: { ativo: false } }), { acao: 'passa' });
   assert.deepEqual(av('Agent', 'hadouken:constructor', { constructor: { ativo: false } }), { acao: 'passa' });
   assert.equal(av('Agent', 'hadouken:executor', {}).acao, 'negar');
+});
+
+test('resumirAvisos: tira repetidos mantendo a ordem, corta em max e avisa quantos faltam; abaixo do teto não muda', () => {
+  assert.equal(typeof agcfg.resumirAvisos, 'function', 'resumirAvisos não existe em src/agentes/config.js');
+  assert.deepEqual(agcfg.resumirAvisos(['b', 'a', 'b', 'a', 'c']), ['b', 'a', 'c']);
+  const dez = Array.from({ length: 10 }, (_, i) => `aviso ${i}`);
+  assert.deepEqual(agcfg.resumirAvisos(dez), [...dez.slice(0, 5), '… e mais 5 avisos.']);
+  assert.deepEqual(agcfg.resumirAvisos(dez, 3), [...dez.slice(0, 3), '… e mais 7 avisos.']);
+  // Os repetidos saem antes de contar o corte.
+  assert.deepEqual(agcfg.resumirAvisos([...dez.slice(0, 5), ...dez.slice(0, 5)]), dez.slice(0, 5));
+  assert.deepEqual(agcfg.resumirAvisos(dez.slice(0, 5)), dez.slice(0, 5));
+  assert.deepEqual(agcfg.resumirAvisos([]), []);
+  assert.deepEqual(agcfg.resumirAvisos(dez.slice(0, 6)), [...dez.slice(0, 5), '… e mais 1 avisos.']);
 });
 
 // ---------------------------------------------- negação na costura de hook
@@ -218,6 +246,27 @@ test('hook: agente inativo é negado com o substituto, guarda desligada; razão 
   assert.equal(Object.hasOwn(lerSaida(rodar(despacho(ti('hadouken:auditor')), um)), 'continue'), false);
   // O agente ligado do mesmo config passa.
   semSaida(rodar(despacho(ti('hadouken:implementador')), um));
+});
+
+test('hook: auditor inativo com a guarda também negando (5h em 99%) sai um JSON só, deny da paleta, sem parar o turno', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { auditor: { ativo: false } } }, { u5: 99 });
+  // Pré-condição: a guarda nega sozinha neste estado (o implementador está ligado).
+  const guarda = lerSaida(rodar(despacho(ti('hadouken:implementador')), home));
+  deny(guarda);
+  assert.equal(guarda.continue, false);
+  const r = rodar(despacho(ti('hadouken:auditor')), home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, '');
+  const o = JSON.parse(r.stdout);
+  assert.match(deny(o), /hadouken:auditor está desligado na config; use hadouken:revisor/);
+  assert.equal(Object.hasOwn(o, 'continue'), false);
+  assert.equal(Object.hasOwn(o, 'stopReason'), false);
+});
+
+test('hook: Task com hadouken:executor nega como o Agent', () => {
+  const home = homeCom(GUARDA_OFF);
+  const o = lerSaida(rodar(despacho(ti('hadouken:executor'), { tool_name: 'Task' }), home));
+  assert.match(deny(o), /use hadouken:implementador/);
 });
 
 test('hook (guarda de regressão): config.json ilegível passa; sem subagent_type e outro plugin não recebem deny da paleta (RF4)', () => {
@@ -332,6 +381,13 @@ test('N1: effort alto explícito igual a agentes.<nome>.effort é aprovado; dife
   assert.deepEqual(av({ perfil: p, agentes: { busca: { effort: 'high' } } }), { decisao: 'negar', regra: 'N1' });
   // O model aprovado não aprova o effort (cada campo se compara com o seu).
   assert.deepEqual(av({ perfil: p, agentes: { busca: { model: 'haiku' } } }), { decisao: 'negar', regra: 'N1' });
+});
+
+test('N1: config só com effort não aprova a família; só com model não aprova o effort', () => {
+  const p = perfil('hadouken:busca', 'opus', 'low', 'parametro');
+  assert.deepEqual(av({ perfil: p, agentes: { busca: { effort: 'xhigh' } } }), { decisao: 'negar', regra: 'N1' });
+  assert.deepEqual(av({ perfil: p, agentes: { busca: { effort: 'low' } } }), { decisao: 'negar', regra: 'N1' });
+  assert.deepEqual(av({ perfil: p, agentes: { busca: { model: 'opus', effort: 'xhigh' } } }), PASSA);
 });
 
 test('N2: mecanico com model explícito igual a agentes.mecanico ou a subir é aprovado; sem config nega', () => {

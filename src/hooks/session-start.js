@@ -199,11 +199,11 @@ rodarHook(async (entrada) => {
   // Spec roteamento §2: a regra curta vai sempre, por último; um import que
   // falha só a tira.
   try {
-    const [{ linhasRegra }, { paletaEfetiva }, { lerAgentes }] = await Promise.all([import('../roteamento/regra.js'), import('../agentes/paleta.js'), import('../agentes/config.js').catch(() => ({ lerAgentes: () => ({ agentes: {}, avisos: [] }) }))]);
+    const [{ linhasRegra }, { paletaEfetiva }, { lerAgentes, resumirAvisos }] = await Promise.all([import('../roteamento/regra.js'), import('../agentes/paleta.js'), import('../agentes/config.js').catch(() => ({ lerAgentes: () => ({ agentes: {}, avisos: [] }), resumirAvisos: (a) => a }))]);
     // v0.6.0: a paleta efetiva (padrão + `agentes` do config.json); os avisos
     // da config vão ao usuário, fora do contexto do Claude.
     const { agentes, avisos } = lerAgentes(dir);
-    aoUsuario.push(...avisos);
+    aoUsuario.push(...resumirAvisos(avisos));
     saida.push(...linhasRegra(paletaEfetiva(agentes)));
   } catch { /* sem a regra nesta sessão */ }
   // As subidas de agente aprovadas pelo usuário (roteamento.subir): o Claude
