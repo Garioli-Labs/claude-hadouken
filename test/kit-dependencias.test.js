@@ -323,7 +323,7 @@ test('lerRegistro: settings sem enabledPlugins = tudo desligado; entrada de lixo
 
 const av = (id, estado, extra = {}) => ({ id, nome: id.split('@')[0], estado, instalada: false, equivalente: null, versao: null, auto: false, dependentes: [], ...extra });
 
-test('linhasAviso: os textos da spec, na ordem da avaliação, cada comando dito para o terminal; propria e equivalente não geram linha', () => {
+test('linhasAviso: o texto da duplicada, para o terminal; ausente (instalada ou não), propria e equivalente não geram linha', () => {
   const linhas = kit.linhasAviso([
     av(MATT, 'duplicada', { instalada: true, equivalente: MATT_USUARIO, auto: true }),
     av(POKA, 'ausente'),
@@ -333,8 +333,6 @@ test('linhasAviso: os textos da spec, na ordem da avaliação, cada comando dito
   ]);
   assert.deepEqual(linhas, [
     'hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken). Desligue a cópia do kit, no terminal: claude plugin disable mattpocock-skills@claude-hadouken --scope user',
-    'hadouken-kit: falta poka-yoke. Instale, no terminal: claude plugin install poka-yoke@claude-hadouken',
-    'hadouken-kit: fullstack-dev-skills@claude-hadouken está desligado e não há outra cópia. Religue, no terminal: claude plugin enable fullstack-dev-skills@claude-hadouken',
   ]);
 });
 
@@ -358,8 +356,8 @@ test('G5: todo comando "claude plugin" de aviso diz que é para o terminal', () 
     av('a@m', 'ausente'),
     av('b@m', 'ausente', { instalada: true }),
   ]);
-  assert.equal(linhas.length, 4);
-  for (const l of linhas) assert.match(l, /, no terminal: claude plugin (disable|install|enable) /, l);
+  assert.equal(linhas.length, 2, 'ausente não gera linha');
+  for (const l of linhas) assert.match(l, /, no terminal: claude plugin disable /, l);
 });
 
 test('linhasAviso: entrada vazia ou de lixo dá lista vazia, sem lançar', () => {
@@ -446,27 +444,31 @@ test('G3 no hook: outro plugin ligado depende da cópia do kit → nenhuma linha
   assert.match(saida(quebrado).systemMessage, /^hadouken-kit: mattpocock-skills em dobro/, 'manifesto ilegível = sem dependências');
 });
 
-test('hook: ausente e não instalada → linha de instalar', () => {
+test('hook: terceiro ausente e não instalado → sem systemMessage (é sugerido, não exigido)', () => {
   const cfg = montarConfig({
     instalados: Object.fromEntries(Object.entries(TODAS).filter(([id]) => id !== POKA)),
     habilitados: TODAS_LIGADAS,
   });
   const j = saida(cfg);
-  assert.equal(j.systemMessage, 'hadouken-kit: falta poka-yoke. Instale, no terminal: claude plugin install poka-yoke@claude-hadouken');
+  assert.equal(j.systemMessage, undefined);
   assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
 });
 
-test('D8: ausente, instalada e desligada, sem outra cópia → linha de religar', () => {
+test('D8: ausente, instalada e desligada, sem outra cópia → sem systemMessage (o aviso não manda religar)', () => {
   const j = saida(cenario({ habilitados: { [POKA]: false } }));
-  assert.equal(j.systemMessage, 'hadouken-kit: poka-yoke@claude-hadouken está desligado e não há outra cópia. Religue, no terminal: claude plugin enable poka-yoke@claude-hadouken');
+  assert.equal(j.systemMessage, undefined);
   assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
 });
 
-test('hook: várias linhas se unem por \\n', () => {
-  const j = saida(cenario({ instalados: { [MATT_USUARIO]: usuario() }, habilitados: { [MATT_USUARIO]: true, [POKA]: false } }));
+test('hook: várias linhas se unem por \\n; o terceiro desligado ao lado não gera linha', () => {
+  const j = saida(cenario({
+    instalados: { [MATT_USUARIO]: usuario(), 'poka-yoke@poka-yoke': usuario() },
+    habilitados: { [MATT_USUARIO]: true, 'poka-yoke@poka-yoke': true, 'fullstack-dev-skills@claude-hadouken': false },
+  }));
   assert.equal(j.systemMessage.split('\n').length, 2);
   assert.match(j.systemMessage, /^hadouken-kit: mattpocock-skills em dobro/);
-  assert.match(j.systemMessage, /\nhadouken-kit: poka-yoke@claude-hadouken está desligado/);
+  assert.match(j.systemMessage, /\nhadouken-kit: poka-yoke em dobro/);
+  assert.doesNotMatch(j.systemMessage, /fullstack/);
 });
 
 test('hook: cópia do kit não instalada com equivalente ligado → sem aviso (satisfeita pela outra)', () => {

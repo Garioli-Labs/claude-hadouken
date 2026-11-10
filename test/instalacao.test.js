@@ -85,8 +85,9 @@ test('raizEmUso: com escopo de usuário e de projeto, vale o de usuário; instal
 test('conferirInstalacao: tudo na registrada → em dia', () => {
   const pc = montarPc({ extensao: '0.5.6', shims: { 'statusline.mjs': '0.5.6', 'cli.mjs': '0.5.6', 'painel.mjs': '0.5.6' } });
   const c = conferirInstalacao({ dir: pc.dir, raiz: pc.raizes['0.5.6'], dirConfig: pc.dirConfig });
-  assert.deepEqual(c, { sessao: '0.5.6', registrada: '0.5.6', extensao: '0.5.6', atalhos: ['0.5.6'], restos: [] });
-  assert.equal(textoInstalacao(c), 'em dia (plugin, extensão do VS Code e atalhos na 0.5.6)');
+  assert.deepEqual(c, { sessao: '0.5.6', registrada: '0.5.6', extensao: '0.5.6', atalhos: ['0.5.6'], restos: [], faltam: ['superpowers', 'mattpocock-skills', 'poka-yoke', 'fullstack-dev-skills', 'ui-ux-pro-max', 'hadouken-rea'] });
+  assert.equal(textoInstalacao(c), 'em dia (plugin, extensão do VS Code e atalhos na 0.5.6); sugeridas não instaladas: superpowers, mattpocock-skills, poka-yoke, fullstack-dev-skills, ui-ux-pro-max, hadouken-rea');
+  assert.equal(textoInstalacao({ ...c, faltam: [] }), 'em dia (plugin, extensão do VS Code e atalhos na 0.5.6)');
 });
 
 test('conferirInstalacao: o caso do pc-nando — sessão 0.5.5, extensão 0.5.3, atalho velho e plugin antigo', () => {
@@ -99,7 +100,7 @@ test('conferirInstalacao: o caso do pc-nando — sessão 0.5.5, extensão 0.5.3,
   instalados.plugins['outro@outra-loja'] = [{ scope: 'user', installPath: '/y', version: '1.0.0' }];
   fs.writeFileSync(path.join(pc.dirConfig, 'plugins', 'installed_plugins.json'), JSON.stringify(instalados));
   const c = conferirInstalacao({ dir: pc.dir, raiz: pc.raizes['0.5.5'], dirConfig: pc.dirConfig });
-  assert.deepEqual(c, { sessao: '0.5.5', registrada: '0.5.6', extensao: '0.5.3', atalhos: ['0.5.5', '0.5.6'], restos: ['claude-hadouken@claude-hadouken'] });
+  assert.deepEqual(c, { sessao: '0.5.5', registrada: '0.5.6', extensao: '0.5.3', atalhos: ['0.5.5', '0.5.6'], restos: ['claude-hadouken@claude-hadouken'], faltam: ['superpowers', 'mattpocock-skills', 'poka-yoke', 'fullstack-dev-skills', 'ui-ux-pro-max', 'hadouken-rea'] });
   const t = textoInstalacao(c);
   assert.match(t, /esta sessão abriu com a 0\.5\.5 e a instalada é a 0\.5\.6: feche com \/exit e volte com claude -c/);
   assert.match(t, /extensão do VS Code na 0\.5\.3: rode node ~\/\.claude\/hadouken\/bin\/cli\.mjs painel instalar/);
@@ -110,8 +111,8 @@ test('conferirInstalacao: o caso do pc-nando — sessão 0.5.5, extensão 0.5.3,
 test('conferirInstalacao: sem registro, sem extensão e sem atalhos', () => {
   const pc = montarPc();
   const c = conferirInstalacao({ dir: pc.dir, raiz: pc.raizes['0.5.6'], dirConfig: path.join(tmp, 'nada') });
-  assert.deepEqual(c, { sessao: '0.5.6', registrada: null, extensao: null, atalhos: [], restos: [] });
-  assert.equal(textoInstalacao(c), 'extensão do VS Code não instalada: rode node ~/.claude/hadouken/bin/cli.mjs painel instalar');
+  assert.deepEqual(c, { sessao: '0.5.6', registrada: null, extensao: null, atalhos: [], restos: [], faltam: ['superpowers', 'mattpocock-skills', 'poka-yoke', 'fullstack-dev-skills', 'ui-ux-pro-max', 'hadouken-rea'] });
+  assert.equal(textoInstalacao(c), 'extensão do VS Code não instalada: rode node ~/.claude/hadouken/bin/cli.mjs painel instalar; sugeridas não instaladas: superpowers, mattpocock-skills, poka-yoke, fullstack-dev-skills, ui-ux-pro-max, hadouken-rea');
 });
 
 test('conferirInstalacao: atalho apontando para versão apagada conta como "ausente"', () => {
@@ -133,4 +134,15 @@ test('linhaSessaoAntiga: só com as duas versões válidas e diferentes', () => 
   assert.equal(linhaSessaoAntiga('0.5.6', '0.5.6'), null);
   assert.equal(linhaSessaoAntiga(null, '0.5.6'), null);
   assert.equal(linhaSessaoAntiga('0.5.5', 'x; rm'), null);
+});
+
+test('conferirInstalacao: sugerida de qualquer marketplace ou skill solta não falta (v0.5.9)', () => {
+  const pc = montarPc({ extensao: '0.5.6', shims: { 'statusline.mjs': '0.5.6', 'cli.mjs': '0.5.6', 'painel.mjs': '0.5.6' } });
+  const arq = path.join(pc.dirConfig, 'plugins', 'installed_plugins.json');
+  const instalados = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  instalados.plugins['superpowers@outra-loja'] = [{ scope: 'user', installPath: '/y', version: '1.0.0' }];
+  fs.writeFileSync(arq, JSON.stringify(instalados));
+  fs.mkdirSync(path.join(pc.dirConfig, 'skills', 'poka-yoke'), { recursive: true });
+  const c = conferirInstalacao({ dir: pc.dir, raiz: pc.raizes['0.5.6'], dirConfig: pc.dirConfig });
+  assert.deepEqual(c.faltam, ['mattpocock-skills', 'fullstack-dev-skills', 'ui-ux-pro-max', 'hadouken-rea']);
 });

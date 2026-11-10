@@ -9,6 +9,8 @@ Regra: o **superpowers** cuida do processo. O **Matt Pocock** entra onde o super
 
 Acione cada skill **sozinho, no momento dela**, sem esperar o usuário pedir pelo nome. Se o momento chegou no meio de outra etapa, termine o passo em andamento e acione a skill antes do próximo.
 
+Desde a v0.5.9 o instalador só sugere as skills de terceiros (superpowers, Matt Pocock, poka-yoke, fullstack, UI/UX). Use cada uma **se estiver instalada**; sem ela, siga sem, e só sugira instalar se o usuário perguntar.
+
 As citadas com `/` (`/mattpocock-skills:...`) têm `disable-model-invocation` no autor: o modelo não as aciona. No momento delas, sugira ao usuário digitar o comando, com uma linha dizendo por quê; não leia o SKILL.md à mão para contornar a escolha do autor.
 
 ## Régua ativa

@@ -24,10 +24,10 @@
 | 🛡️ **Usage guard** | Warns Claude when the pace will run out the window and holds expensive dispatches until you release them (`/hadouken:liberar`, including `noite`). |
 | 🧭 **Routing** | Suggests model, effort and when to launch an agent, so Fable or high effort is not burned for nothing; ten ready-made agents, and `/hadouken:agentes` changes each one's model, effort and whether it is on. [Details](https://github.com/Garioli-Labs/claude-hadouken/wiki/Commands#agents-claude-uses) |
 | 🕘 **Work window** | `/hadouken:janela seg-sex 9-21`: the week's pace and forecast count only your hours, not the 168. [Details](https://github.com/Garioli-Labs/claude-hadouken/wiki/Usage-guard#the-work-window) |
-| 📈 **Report** | `/hadouken:consumo`: tokens per project and per model·effort, account plan (Pro, Max 5x, Max 20x) and GitHub Actions minutes. |
+| 📈 **Report** | `/hadouken:consumo`: tokens per project and per model·effort, account plan (Pro, Max, Ultra) and GitHub Actions minutes. |
 | 🖥️ **PC health** | `/hadouken:saude`: RAM, temperatures, battery, disk, idle sessions, light mode and the install check. |
 | ⚙️ **VS Code window** | Every setting one click away on the status bar: caps, bands, alerts, routing and protections. |
-| 🧰 **Kit and REA** | `hadouken-kit`, the daily skills with a map of which to use and no duplicate copy of the ones you already have ([dedup](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit-en#dependencies-and-duplicate-copies)); `hadouken-rea`, reverse engineering (off by default). |
+| 🧰 **Kit and REA** | `hadouken-kit`, Garioli's skills (yu-ux-web-expert, graphify) with a map of which to use; third-party ones are suggested, and the duplicate copy the kit installed is turned off ([dedup](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit-en#dependencies-and-duplicate-copies)); `hadouken-rea`, reverse engineering (off by default). |
 | 📏 **Development ruler** | `/hadouken-kit:regua`: the skill for each work phase, with audit and mutation testing before the PR; the repo's ruler applies in place of yours. [Details](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit-en#development-ruler) |
 
 ## Install

@@ -248,7 +248,7 @@ test('linhaEstado: a cauda de 7d usa a janela de trabalho', () => {
     five_hour: { used_percentage: 10, resets_at: (agoraMs + 3_600_000) / 1000, fresca: true },
     seven_day: { used_percentage: 90, resets_at: D(15, 19) / 1000, fresca: true },
   };
-  assert.match(linhaEstado(leituras, agoraMs, null, J), /; nesse ritmo, esgota amanhã de manhã\.$/);
+  assert.match(linhaEstado(leituras, agoraMs, null, null, J), /; nesse ritmo, esgota amanhã de manhã\.$/);
   assert.match(linhaEstado(leituras, agoraMs, null), /; nesse ritmo, esgota por volta das 23:53\.$/);
 });
 

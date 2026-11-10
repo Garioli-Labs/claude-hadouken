@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url';
 // (pelo invólucro de instalarFalso), lê e regrava o estado no arquivo de
 // FALSO_ESTADO. Com FALSO_COMER_STDIN=1, lê a entrada inteira antes, como um
 // comando que comeria o resto de um `curl | bash`.
-// Desde o kit 1.2.0 o manifesto do kit só declara o hadouken: o `install` do
-// kit não traz as dependências de terceiros, e cada uma é um `install` à
-// parte (as de estado.semDeps nunca instalam). O `update` só troca a versão.
+// Dependências do kit: o `install` do kit traz as que faltam (menos as de
+// estado.semDeps, que nunca instalam); o `update` só troca a versão do kit,
+// como o de verdade (revisão final da v0.5.2, Critical 2). O kit 1.2.0 só
+// declara o hadouken (DEPS_KIT); terceiro nenhum é instalado pelo falso a
+// não ser por `plugin install` direto.
 // estado.falharListaNa = n faz só a n-ésima chamada de `plugin list` falhar.
 
 export const CATALOGO = Object.freeze({
@@ -22,6 +24,8 @@ export const CATALOGO = Object.freeze({
   'fullstack-dev-skills@claude-hadouken': '1.0.0',
   'ui-ux-pro-max@claude-hadouken': '1.0.0',
 });
+// v0.5.9: o kit só depende do hadouken; os de terceiros são só sugeridos.
+export const DEPS_KIT = Object.freeze(['hadouken@claude-hadouken']);
 const ARQUIVO = fileURLToPath(import.meta.url);
 
 export function responder(estado, args) {
@@ -44,9 +48,12 @@ export function responder(estado, args) {
   }
   const p = estado.plugins.find((x) => x.id === c);
   if (b === 'install') {
-    if (!Object.hasOwn(CATALOGO, c) || (estado.semDeps ?? []).includes(c)) return nada(1);
+    if (!Object.hasOwn(CATALOGO, c)) return nada(1);
     const novo = (id) => estado.plugins.push({ id, version: CATALOGO[id], scope: 'user', enabled: !id.startsWith('hadouken-rea@'), installPath: `${estado.raiz}/${id.split('@')[0]}` });
     if (!p) novo(c);
+    if (c === 'hadouken-kit@claude-hadouken') {
+      for (const d of DEPS_KIT) if (!(estado.semDeps ?? []).includes(d) && !estado.plugins.some((x) => x.id === d)) novo(d);
+    }
     return nada(0);
   }
   if (b === 'update') {

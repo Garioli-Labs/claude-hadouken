@@ -95,15 +95,32 @@ function absolutoLimpo(valor) {
   }
 }
 
-// Mesma regra de dirDados() (src/base.js): HADOUKEN_HOME vale sempre que está
-// no ambiente, mas só absoluto; definida com qualquer outro valor dá null e
-// nunca cai para ~/.claude/hadouken. Sem a variável: ~/.claude/hadouken.
+// Cópia de pastaDeConta() (src/base.js): só ~/.claude-contas/<nome> é a pasta de
+// uma conta (nome de 1 a 32 caracteres [a-z0-9-], diferente de `principal`);
+// qualquer outro CLAUDE_CONFIG_DIR volta ao padrão.
+function pastaDeConta(config, padrao) {
+  const p = absolutoLimpo(config);
+  if (p === null) return null;
+  const r = p.replace(/[\\/]+$/, '');
+  const raiz = path.join(path.dirname(padrao), '.claude-contas');
+  const igual = (x, y) => (process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y);
+  const nome = path.basename(r);
+  return igual(path.dirname(r), raiz) && /^[a-z0-9-]{1,32}$/.test(nome) && nome !== 'principal' ? r : null;
+}
+
+// Mesma regra de dirDados() (src/base.js; test/kit-regua.test.js confere a
+// paridade): HADOUKEN_HOME vale sempre que está no ambiente, mas só absoluto;
+// definida com qualquer outro valor dá null e nunca cai para ~/.claude/hadouken.
+// Sem a variável, um CLAUDE_CONFIG_DIR de conta (~/.claude-contas/<nome>) guarda
+// os dados em <pasta>/hadouken; senão, ~/.claude/hadouken.
 export function dirHadouken(env = process.env) {
   try {
     const configurado = env?.HADOUKEN_HOME;
     if (configurado !== undefined) return absolutoLimpo(configurado);
     const home = os.homedir();
-    return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'hadouken') : null;
+    if (typeof home !== 'string' || !path.isAbsolute(home)) return null;
+    const padrao = path.join(home, '.claude');
+    return path.join(pastaDeConta(env?.CLAUDE_CONFIG_DIR, padrao) ?? padrao, 'hadouken');
   } catch {
     return null;
   }

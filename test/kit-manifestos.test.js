@@ -68,9 +68,10 @@ test('marketplace: allowlist só com o oficial', () => {
   }
 });
 
-// v0.6.0 (spec §4, Fatia 1): o manifesto declara só o hadouken. Dependência de
-// terceiro desabilitada derruba o kit; o instalador garante os terceiros
-// (DEPENDENCIAS_KIT) e o SessionStart do kit avisa de cópia em dobro.
+// v0.6.0: o manifesto declara só o hadouken, com a faixa >=0.6.0. Dependência
+// de terceiro desabilitada derruba o kit; o instalador só sugere os terceiros
+// e desliga a cópia em dobro que o kit instalou, e o SessionStart do kit avisa
+// de cópia em dobro.
 test('kit: versão igual à do marketplace e dependências = o objeto {name:\'hadouken\', version:\'>=0.6.0\'} (sem terceiros)', () => {
   const kit = ler('kit/.claude-plugin/plugin.json');
   assert.equal(kit.name, 'hadouken-kit');

@@ -52,7 +52,9 @@ Os itens são os da tabela; os liga-desliga aceitam `liga` e `desliga` (por exem
 
 ## Plano da conta
 
-Desde a v0.5.6, o coletor da saúde lê uma vez por dia o plano da conta (Pro, Max 5x ou Max 20x) do `.claude.json` do Claude Code, só o campo `organizationRateLimitTier`, e guarda apenas o rótulo em `conta-plano.json`. O arquivo de credenciais nunca é lido. O plano aparece no `/hadouken:consumo`, abaixo dos limites, no `/hadouken:saude` e na janela do VS Code. Sem plano identificado, a linha diz "não identificado (os relatórios mostram só tokens)". Os relatórios continuam em tokens: a medição mostrou que a conversão para porcentagem da cota varia demais para ser confiável.
+Desde a v0.5.6, o coletor da saúde lê uma vez por dia o plano da conta (Pro, Max ou Ultra) do `.claude.json` do Claude Code, só o campo `organizationRateLimitTier`, e guarda apenas o rótulo em `conta-plano.json`. O arquivo de credenciais nunca é lido. O plano aparece no `/hadouken:consumo`, abaixo dos limites, no `/hadouken:saude` e na janela do VS Code. Sem plano identificado, a linha diz "não identificado (os relatórios mostram só tokens)". Os relatórios continuam em tokens: a medição mostrou que a conversão para porcentagem da cota varia demais para ser confiável.
+
+**Planos (v0.5.9).** Os planos são Pro, Max e Ultra. O Max (antigo Max 5x) tem limite de 5 h e semanal. O Ultra (antigo Max 20x) não tem limite de 5 h nas contas verificadas, mas mantém o limite semanal (10× o do Pro). No `conta-plano.json` e na saída do `/hadouken:consumo --json`, o campo `plano` vale `pro`, `max` ou `ultra`; os valores antigos `max5` e `max20` são lidos como `max` e `ultra`. No Ultra sem leitura de 5 h, a barra do VS Code, a statusline e a dica não mostram a parte "5h".
 
 ## Proteções
 

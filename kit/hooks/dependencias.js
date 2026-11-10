@@ -196,11 +196,12 @@ export function lerRegistro(pastaConfig) {
   }
 }
 
-// Uma linha por problema, na ordem da avaliação; propria e equivalente não
-// geram linha. Todo comando é para o terminal (com a guarda ligada o Claude não
-// roda `claude` na sessão). Duplicada cuja cópia do kit tem dependente ligado:
-// sem linha, o disable falharia. Duplicada sem `auto` (o usuário instalou as
-// duas): só avisa que fazem o mesmo.
+// Uma linha por cópia em dobro, na ordem da avaliação; ausente (o terceiro é
+// só sugerido), propria e equivalente não geram linha. Todo comando é para o
+// terminal (com a guarda ligada o Claude não roda `claude` na sessão).
+// Duplicada cuja cópia do kit tem dependente ligado: sem linha, o disable
+// falharia. Duplicada sem `auto` (o usuário instalou as duas): só avisa que
+// fazem o mesmo.
 export function linhasAviso(avaliacao) {
   const linhas = [];
   for (const a of Array.isArray(avaliacao) ? avaliacao : []) {
@@ -210,10 +211,6 @@ export function linhasAviso(avaliacao) {
       linhas.push(a.auto === true
         ? `hadouken-kit: ${a.nome} em dobro (${a.equivalente} e ${a.id}). Desligue a cópia do kit, no terminal: claude plugin disable ${a.id} --scope user`
         : `hadouken-kit: ${a.nome} em dobro (${a.equivalente} e ${a.id}); as duas fazem o mesmo. Para ficar com uma, no terminal: claude plugin disable ${a.id} --scope user`);
-    } else if (a.estado === 'ausente' && a.instalada === false) {
-      linhas.push(`hadouken-kit: falta ${a.nome}. Instale, no terminal: claude plugin install ${a.id}`);
-    } else if (a.estado === 'ausente') {
-      linhas.push(`hadouken-kit: ${a.id} está desligado e não há outra cópia. Religue, no terminal: claude plugin enable ${a.id}`);
     }
   }
   return linhas;

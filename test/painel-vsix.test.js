@@ -217,6 +217,7 @@ test('vscode/package.json: o manifesto do plano, sem dependências', () => {
       commands: [
         { command: 'claudeHadouken.atualizarUso', title: 'Claude Hadouken: atualizar uso agora' },
         { command: 'claudeHadouken.abrirJanela', title: 'Claude Hadouken: abrir a janela' },
+        { command: 'claudeHadouken.conta', title: 'Claude Hadouken: conta desta janela' },
       ],
       icons: p.contributes.icons,
     },

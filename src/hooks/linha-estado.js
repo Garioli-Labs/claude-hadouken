@@ -69,9 +69,11 @@ function parte(nome, l, reset) {
 // a de limitesValidos (tudo fresco). Janela ausente aparece como "sem
 // leitura", nunca como 0; sem nenhuma, a linha "sem leitura nova" de
 // alerta.js, com `ultima` (ultimaLeitura). A cauda de 7d só com a leitura
-// fresca. `trabalho` (janela.js, v0.6.0): a janela de trabalho, que a cauda de
-// 7d e a faixa da linha "sem leitura nova" usam; null, as 168 h. Nunca lança.
-export function linhaEstado(leituras, agoraMs, ultima = null, trabalho = null) {
+// fresca. Nunca lança.
+// v0.5.9: no Ultra sem leitura de 5 h, a parte do 5h sai (plano 'ultra').
+// v0.6.0: `trabalho` (janela.js) é a janela de trabalho, que a cauda de 7d e a
+// faixa da linha "sem leitura nova" usam; null, as 168 h.
+export function linhaEstado(leituras, agoraMs, ultima = null, plano = null, trabalho = null) {
   try {
     const l = ehObjeto(leituras) ? leituras : {};
     // Cada janela passa de novo por janelaValida (util.js). Sem agora
@@ -79,13 +81,14 @@ export function linhaEstado(leituras, agoraMs, ultima = null, trabalho = null) {
     const j5 = janelaValida(l.five_hour);
     const j7 = numeroFinito(agoraMs) ? janelaValida(l.seven_day) : null;
     if (j5 === null && j7 === null) return linhaSemLeitura(ultima, agoraMs, trabalho);
+    const sem5h = plano === 'ultra' && j5 === null;
     // Os dois números conferidos por cima; `fresca` e `idadeMs` ficam.
     const f5 = j5 === null ? null : { ...l.five_hour, ...j5 };
     const f7 = j7 === null ? null : { ...l.seven_day, ...j7 };
     const partes = [
       f5 ? parte('5h', f5, horaLocal(f5.resets_at)) : '5h sem leitura',
       f7 ? parte('7d', f7, quandoLocal(f7.resets_at, agoraMs)) : '7d sem leitura',
-    ];
+    ].slice(sem5h ? 1 : 0);
     const cauda = f7 && f7.fresca !== false ? cauda7d(f7, agoraMs, trabalho) : '';
     return `Consumo: ${partes.join(' · ')}${cauda}.`;
   } catch {

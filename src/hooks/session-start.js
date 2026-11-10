@@ -134,6 +134,7 @@ rodarHook(async (entrada) => {
     import('./linha-estado.js'),
     import('../instalacao.js').catch(() => null),
   ]);
+  const plano = await import('../conta/plano.js').then((m) => m.planoEfetivo(dir), () => null);
   // v0.5.7: atalhos e extensão seguem a versão registrada no Claude Code, não
   // a desta sessão; uma sessão aberta antes da atualização (retomada,
   // compactação) não os puxa mais para trás.
@@ -148,7 +149,7 @@ rodarHook(async (entrada) => {
   try {
     janela = (await import('../janela.js')).lerJanela(dir);
   } catch { /* sem janela nesta sessão: 168 h */ }
-  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs), janela.janela)];
+  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs), plano, janela.janela)];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
   // v0.5.2: a instalação do item do VS Code falhou e a versão atual não está

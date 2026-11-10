@@ -63,7 +63,7 @@ test('PC tranquilo: feixes calmos, sem sugestões, sem botão, CPU sem temperatu
 test('plano da conta no resumo da janela', () => {
   const dir = comLeitura();
   fs.writeFileSync(path.join(dir, 'conta-plano.json'), JSON.stringify({ v: 1, plano: 'max5', em: AGORA }));
-  assert.match(estadoJanela({ dir, agoraMs: AGORA, raizPlugin: null }).resumo, / · Plano: Max 5x \(do Claude Code\)$/);
+  assert.match(estadoJanela({ dir, agoraMs: AGORA, raizPlugin: null }).resumo, / · Plano: Max \(do Claude Code\)$/);
 });
 
 test('RAM 94%: feixe urgente, até 5 apps para fechar, botão de ligar o leve e o segmento da barra', () => {

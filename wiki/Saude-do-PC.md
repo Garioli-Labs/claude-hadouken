@@ -65,7 +65,7 @@ O relatório tem estas seções:
 6. **Conflitos** com outros plugins.
 7. **Dados:** o tamanho de cada arquivo da pasta de dados e o teto.
 8. **Economia da semana.**
-9. **Plano** da conta, como o Claude Code o informa (Pro, Max 5x ou Max 20x), ou "não identificado".
+9. **Plano** da conta, como o Claude Code o informa (Pro, Max ou Ultra), ou "não identificado".
 
 ## Cuidados do hadouken consigo mesmo
 

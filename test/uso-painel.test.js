@@ -701,3 +701,16 @@ test('estadoPainel: padrões (dirDados e o relógio) com HADOUKEN_HOME temporár
   assert.equal(p.texto, '5h 80% · sem 41% · Fable —');
   assert.equal(p.nivel, 'aviso');
 });
+
+test('estadoPainel: Ultra sem leitura de 5 h tira a janela de 5 h; com leitura, ela fica', () => {
+  fs.writeFileSync(path.join(dir, 'conta-plano.json'), JSON.stringify({ v: 1, plano: 'ultra', em: AGORA }));
+  gravarUso(usoGravado(AGORA - S, { sessao: null }));
+  let p = estadoPainel({ dir, agoraMs: AGORA });
+  assert.equal(p.texto, 'sem 41% · Fable 57%');
+  assert.deepEqual(p.pcts, { d7: 41, fable: 57 });
+  assert.ok(!p.dica.includes('Sessão (5h)'), p.dica);
+  gravarUso(usoGravado(AGORA - S));
+  p = estadoPainel({ dir, agoraMs: AGORA });
+  assert.equal(p.texto, '5h 25% · sem 41% · Fable 57%');
+  fs.rmSync(path.join(dir, 'conta-plano.json'));
+});

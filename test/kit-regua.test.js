@@ -332,6 +332,40 @@ test('dirHadouken: mesma regra de dirDados (HADOUKEN_HOME absoluto; inválido �
   assert.equal(dirHadouken({}), path.join(os.homedir(), '.claude', 'hadouken'));
 });
 
+// v0.5.9 (uma conta por janela): sem HADOUKEN_HOME, um CLAUDE_CONFIG_DIR que é
+// ~/.claude-contas/<nome> (nome != principal) guarda os dados em <pasta>/hadouken.
+// O kit não importa src/: a regra é copiada, e este teste a mantém igual à de
+// dirDados() (src/base.js) em cada caso.
+test('dirHadouken: paridade com dirDados() (HADOUKEN_HOME absoluto e relativo; conta ~/.claude-contas/<nome>; principal; outra pasta; nenhum)', async () => {
+  const { dirHadouken } = await regua();
+  const { dirDados } = await import(pathToFileURL(path.join(repo, 'src', 'base.js')).href);
+  const casa = novoTmp();
+  const abs = novoTmp();
+  const casos = [
+    ['HADOUKEN_HOME absoluto', { HADOUKEN_HOME: abs }, abs],
+    ['HADOUKEN_HOME relativo', { HADOUKEN_HOME: 'relativo/x' }, null],
+    ['conta trabalho', { CLAUDE_CONFIG_DIR: path.join(casa, '.claude-contas', 'trabalho') }, path.join(casa, '.claude-contas', 'trabalho', 'hadouken')],
+    ['conta principal', { CLAUDE_CONFIG_DIR: path.join(casa, '.claude-contas', 'principal') }, path.join(casa, '.claude', 'hadouken')],
+    ['outra pasta', { CLAUDE_CONFIG_DIR: path.resolve(path.sep, 'outra', 'pasta') }, path.join(casa, '.claude', 'hadouken')],
+    ['nenhum', {}, path.join(casa, '.claude', 'hadouken')],
+    ['HADOUKEN_HOME vale mais que a conta', { HADOUKEN_HOME: abs, CLAUDE_CONFIG_DIR: path.join(casa, '.claude-contas', 'trabalho') }, abs],
+  ];
+  const chaves = ['HADOUKEN_HOME', 'CLAUDE_CONFIG_DIR', 'HOME', 'USERPROFILE'];
+  const antes = Object.fromEntries(chaves.map((k) => [k, process.env[k]]));
+  try {
+    for (const [nome, env, esperado] of casos) {
+      for (const k of chaves) delete process.env[k];
+      process.env.HOME = casa;
+      process.env.USERPROFILE = casa;
+      Object.assign(process.env, env);
+      assert.equal(dirDados(), esperado, `dirDados: ${nome}`);
+      assert.equal(dirHadouken({ ...process.env }), esperado, `dirHadouken: ${nome}`);
+    }
+  } finally {
+    for (const k of chaves) { if (antes[k] === undefined) delete process.env[k]; else process.env[k] = antes[k]; }
+  }
+});
+
 test('constantes e validarRegua: limites da spec e contagem de descartes', async () => {
   const m = await regua();
   assert.deepEqual([m.LIMITE_FASE, m.LIMITE_QUANDO, m.LIMITE_NOME, m.MAX_FASES, m.MAX_LISTA, m.MAX_TRANSVERSAIS, m.LIMITE_TEXTO],

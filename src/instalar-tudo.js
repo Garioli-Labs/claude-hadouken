@@ -11,7 +11,7 @@ import { lerJson } from './estado.js';
 import { instalarPainel, versaoDoPlugin } from './painel/instalar-painel.js';
 import { sincronizarShims } from './shim.js';
 import { ligarAtualizacao, marketplaceConhecido } from './instalar/atualizacao-auto.js';
-import { criarClaude, passoKit, passoRea } from './instalar/claude-cli.js';
+import { conferirSugeridas, criarClaude, ID_KIT, passoDedup, passoKit } from './instalar/claude-cli.js';
 import { lerAutos, lerRepos, lerTestadoDoKit } from './instalar/dedup.js';
 import { codigoDeSaida, formatarResumo, item } from './instalar/itens.js';
 
@@ -298,19 +298,30 @@ export async function instalarTudo(o) {
   const itens = [];
   const dir = dirDados();
   const settings = arquivoSettings();
-  // O superpowers, dependência do kit, vem do marketplace oficial. Já
-  // registrado é falha esperada: a lista depois do install é a verdade.
-  await rodar(['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official']);
   let kitPath = null;
+  let lista = null;
+  let entradaKit = null;
   await passo(itens, 'hadouken-kit', async () => {
-    const configDir = pastaConfig(ambiente);
-    const repos = configDir === null ? new Map() : lerRepos(path.join(configDir, 'plugins'));
-    const autos = configDir === null ? new Set() : lerAutos(path.join(configDir, 'plugins'));
-    const p = await passoKit(rodar, { repos, autos, lerTestado: lerTestadoDoKit });
+    const p = await passoKit(rodar);
     kitPath = p.entrada?.installPath ?? null;
+    entradaKit = p.entrada ?? null;
+    lista = p.lista ?? null;
     return p.item;
   });
-  await passo(itens, 'hadouken-rea', () => passoRea(rodar, versaoNode));
+  const config = pastaConfig(ambiente);
+  // As cópias em dobro que o kit antigo instalou: só esse item sai, e só quando
+  // há o que dizer. A lista final (depois do disable) alimenta as sugeridas.
+  try {
+    const plugins = config === null ? null : path.join(config, 'plugins');
+    const d = await passoDedup(rodar, {
+      entrada: entradaKit, lista, repos: plugins === null ? new Map() : lerRepos(plugins), autos: plugins === null ? new Set() : lerAutos(plugins), lerTestado: lerTestadoDoKit,
+    });
+    lista = d.lista;
+    if (d.item !== null) itens.push(d.item);
+  } catch {
+    itens.push(item.falhou('hadouken-kit: cópias em dobro', 'erro-interno', DE_NOVO));
+  }
+  itens.push(...conferirSugeridas({ lista, pastaSkills: config === null ? null : path.join(config, 'skills'), existe }));
   await passo(itens, 'atualização automática', () => passoAtualizacao({ settings, configDir: pastaConfig(ambiente), agoraMs, ligar: ligarAuto }));
   await passo(itens, 'arquivos da barra', () => passoShims({ raizPlugin, sincronizar }));
   await passo(itens, 'barra', () => passoBarra({ settings, opcoes, perguntar, agoraMs: agoraMs + 1, aplicar }));

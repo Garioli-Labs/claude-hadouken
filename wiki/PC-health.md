@@ -65,7 +65,7 @@ The report has these sections:
 6. **Conflicts** with other plugins.
 7. **Data:** the size of each file in the data folder and the ceiling.
 8. **Savings this week.**
-9. **Plan** of the account, as Claude Code reports it (Pro, Max 5x or Max 20x), or "not identified".
+9. **Plan** of the account, as Claude Code reports it (Pro, Max or Ultra), or "not identified".
 
 ## How hadouken looks after itself
 

@@ -20,7 +20,7 @@ after(() => {
 const NOMES = [
   'estadoPainel', 'talvezAtualizar', 'lerConfiguracao', 'validar', 'gravarConfiguracao', 'voltarAoPadrao', 'desfazer',
   'talvezConsultarVersao', 'estadoVersao', 'comandoAtualizar', 'ultimoEvento', 'ligarAprendizado', 'desligarAprendizado',
-  'resumoRoteamento7d', 'estadoSaude', 'barraSaude', 'mudarModo',
+  'resumoRoteamento7d', 'estadoSaude', 'barraSaude', 'mudarModo', 'raizDoPlugin',
 ];
 
 test('painel-api exporta os nomes da spec §2.2, todos funções', async () => {
@@ -85,4 +85,10 @@ test('Task 13 (v0.5.5): mudarModo liga e desliga o leve; estadoSaude mostra; arg
   assert.equal((await m.estadoSaude()).leve, false);
   assert.deepEqual(await m.mudarModo('sim'), { ok: false, motivo: 'invalido' });
   assert.equal((await m.estadoSaude()).leve, false);
+});
+
+test('raizDoPlugin: a raiz do repositório, com o install.ps1 e o install.sh (v0.5.9)', async () => {
+  const r = await (await import('../src/uso/painel-api.js')).raizDoPlugin();
+  assert.equal(fs.existsSync(path.join(r, 'install.ps1')), true);
+  assert.equal(fs.existsSync(path.join(r, 'install.sh')), true);
 });

@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { nodeServe } from '../../rea/lancar.mjs';
 import { caminhoCmd, caminhoSeguro } from '../painel/instalar-painel.js';
 import { avaliarDependencias, dependenciasDoManifesto, TERCEIROS_KIT } from './dedup.js';
-import { item } from './itens.js';
+import { item, SUGERIDAS } from './itens.js';
 
 // O `claude` do instalador (spec v0.5.2 §4 e §6). criarClaude devolve um
 // `rodar(args)` que nunca rejeita. O caminho do claude vem do script
@@ -18,12 +18,7 @@ import { item } from './itens.js';
 export const ID_PRINCIPAL = 'hadouken@claude-hadouken';
 export const ID_KIT = 'hadouken-kit@claude-hadouken';
 export const ID_REA = 'hadouken-rea@claude-hadouken';
-// As dependências do kit/.claude-plugin/plugin.json, como ids da lista. O que
-// o instalador garante por conta própria são as de terceiros (TERCEIROS_KIT).
-export const DEPENDENCIAS_KIT = Object.freeze([
-  'hadouken@claude-hadouken', 'superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken',
-  'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken',
-]);
+export { SUGERIDAS } from './itens.js';
 export const PRAZO_CLAUDE_MS = 600_000;
 const PRAZO_LISTA_MS = 60_000;
 const ARG = /^[A-Za-z0-9@._:/=-]+$/;
@@ -100,6 +95,13 @@ export async function passoPlugin(rodar, id, nome) {
   return { item: item.ok(nome, `atualizado (${versao(tinha.version)} → ${versao(e.version)})`), entrada: e, lista };
 }
 
+// O kit: instala ou atualiza. Ele só depende do hadouken (v0.5.9). Devolve
+// também a lista final, que diz o que já está instalado.
+export function passoKit(rodar) {
+  return passoPlugin(rodar, ID_KIT, 'hadouken-kit');
+}
+
+const NOME_DEDUP = 'hadouken-kit: cópias em dobro';
 const MINIMO_DEDUP = [1, 2, 0];
 // O kit 1.2.0 declara só o hadouken no manifesto: só com ele instalado
 // desligar a cópia do kit de uma dependência não derruba o kit (spec v0.6.0,
@@ -113,7 +115,7 @@ function kitSemDependencias(v) {
 }
 // O disable do dedup é sempre no escopo do usuário (spec v0.6.0, G2): sem
 // --scope o claude detecta o escopo e pode escrever em outro arquivo.
-const comando = (verbo, id) => `claude plugin ${verbo} ${id}${verbo === 'disable' ? ' --scope user' : ''}`;
+const comandoDesligar = (id) => `claude plugin disable ${id} --scope user`;
 const listaE = (nomes) => (nomes.length < 2 ? nomes.join('') : `${nomes.slice(0, -1).join(', ')} e ${nomes.at(-1)}`);
 const dependem = (nomes) => `${listaE(nomes)} ${nomes.length === 1 ? 'depende' : 'dependem'} dela`;
 // Leitor que lança conta como plugin sem dependências.
@@ -126,85 +128,61 @@ function dependenciasDe(ler, e, id) {
   }
 }
 
-// O kit e as dependências de terceiros dele (spec v0.6.0, Fatia 1). Cada
-// dependência é avaliada contra o que o usuário já tem (dedup.js):
-// `ausente` e não instalada → `plugin install`; `duplicada` (a do kit e a
-// equivalente ligadas) → `plugin disable <D> --scope user` da do kit, só com o
-// kit ≥ 1.2.0, só se o registro marca a do kit como instalada como dependência
-// (`autos`: o que o usuário instalou ele mesmo só ganha aviso) e só sem outro
-// plugin ligado que dependa dela (G1 e G3);
-// `equivalente` → nada; `ausente` e instalada desligada → não religa e avisa;
-// `propria` com a cópia do usuário desligada → só informa qual vale. Nunca
-// desinstala. A verdade é a lista depois dos comandos (nula → ✗). Os avisos
-// vão no detalhe do item do kit; `lista` é a final e `dedup` a avaliação feita
-// antes dos comandos.
-export async function passoKit(rodar, { repos = new Map(), lerTestado = () => ({}), autos = new Set(), lerDependencias = dependenciasDoManifesto } = {}) {
-  const nome = 'hadouken-kit';
-  const p = await passoPlugin(rodar, ID_KIT, nome);
-  if (p.entrada === null) return { ...p, dedup: [] };
+// As cópias em dobro das terceiras do kit (spec v0.6.0, Fatia 1, no modelo da
+// 0.5.9: o instalador só sugere os terceiros, nunca instala nem liga). Cada
+// uma é avaliada contra o que o usuário já tem (dedup.js). Só um caso age:
+// `duplicada` (a do kit e a equivalente ligadas), com a cópia do kit instalada
+// como dependência de um kit antigo (`autos`: o que o usuário instalou ele
+// mesmo só ganha aviso), o kit ≥ 1.2.0 e sem outro plugin ligado que dependa
+// dela (G1 e G3) → `plugin disable <id> --scope user`. Nunca instala, liga nem
+// desinstala. A verdade é a lista depois do comando (nula → ✗). `item` é null
+// quando não há o que dizer; `lista` é a final e `dedup` a avaliação feita
+// antes do comando.
+export async function passoDedup(rodar, { entrada = null, lista = null, repos = new Map(), lerTestado = () => ({}), autos = new Set(), lerDependencias = dependenciasDoManifesto } = {}) {
+  if (entrada === null || !(lista instanceof Map)) return { item: null, lista, dedup: [] };
   let testado = {};
   try {
-    testado = lerTestado(p.entrada.installPath);
+    testado = lerTestado(entrada.installPath);
   } catch { /* sem versão testada: só não avisa a versão */ }
   const instaladosPeloKit = autos instanceof Set ? autos : new Set();
-  const plugins = new Map([...p.lista].map(([id, e]) => [id, { ...e, scope: 'user', auto: instaladosPeloKit.has(id), dependencias: e.enabled === true ? dependenciasDe(lerDependencias, e, id) : [] }]));
+  const plugins = new Map([...lista].map(([id, e]) => [id, { ...e, scope: 'user', auto: instaladosPeloKit.has(id), dependencias: e.enabled === true ? dependenciasDe(lerDependencias, e, id) : [] }]));
   const dedup = avaliarDependencias({ deps: TERCEIROS_KIT, plugins, repos, testado });
-  const instalar = dedup.filter((a) => a.estado === 'ausente' && !a.instalada);
-  const podeDesligar = kitSemDependencias(p.entrada.version);
+  const podeDesligar = kitSemDependencias(entrada.version);
   const desligar = podeDesligar ? dedup.filter((a) => a.estado === 'duplicada' && a.auto && a.dependentes.length === 0) : [];
-  for (const a of instalar) await rodar(['plugin', 'install', a.id]);
   for (const a of desligar) await rodar(['plugin', 'disable', a.id, '--scope', 'user']);
-  const lista = instalar.length + desligar.length > 0 ? await listarPlugins(rodar) : p.lista;
-  const base = p.item.estado === 'igual' ? [] : [p.item.detalhe];
-  // Sem a lista de depois dos comandos não há o que conferir: a velha não vale.
-  if (lista === null) return { item: item.falhou(nome, [...base, 'não consegui conferir a lista de plugins'].join('; '), 'rode claude plugin list'), entrada: p.entrada, lista, dedup };
-  const faltam = instalar.filter((a) => !lista.has(a.id));
-  const ligadas = desligar.filter((a) => lista.get(a.id)?.enabled === true);
-  const partes = [...base];
-  const consertos = [];
-  const instaladas = instalar.filter((a) => lista.has(a.id));
-  if (instaladas.length > 0) partes.push(`dependências instaladas: ${instaladas.map((a) => a.nome).join(', ')}`);
+  const final = desligar.length > 0 ? await listarPlugins(rodar) : lista;
+  // Sem a lista de depois do comando não há o que conferir: a velha não vale.
+  if (final === null) return { item: item.falhou(NOME_DEDUP, 'não consegui conferir a lista de plugins', 'rode claude plugin list'), lista: final, dedup };
+  const ligadas = desligar.filter((a) => final.get(a.id)?.enabled === true);
+  const partes = [];
   for (const a of dedup) {
     if (a.estado === 'duplicada' && !a.auto) {
       partes.push(a.dependentes.length > 0
         ? `${a.nome} em dobro com ${a.equivalente}; as duas fazem o mesmo, e ${a.id} fica ligada porque ${dependem(a.dependentes)}`
-        : `${a.nome} em dobro com ${a.equivalente}; as duas fazem o mesmo. Para ficar com uma: ${comando('disable', a.id)}`);
+        : `${a.nome} em dobro com ${a.equivalente}; as duas fazem o mesmo. Para ficar com uma: ${comandoDesligar(a.id)}`);
     } else if (a.estado === 'duplicada' && !podeDesligar) partes.push(`${a.nome} em dobro com ${a.equivalente}; atualize o hadouken-kit para desligar a cópia em dobro`);
     else if (a.estado === 'duplicada' && a.dependentes.length > 0) partes.push(`${a.nome} em dobro com ${a.equivalente}; a cópia do kit fica ligada porque ${dependem(a.dependentes)}`);
     else if (a.estado === 'duplicada' && !ligadas.includes(a)) partes.push(`${a.nome} já instalado via ${a.equivalente}; cópia do kit desligada`);
-    else if (a.estado === 'ausente' && a.instalada) partes.push(`${a.id} está desligado e não há outra cópia. Religue: ${comando('enable', a.id)}`);
-    else if (a.estado === 'propria' && a.desligada !== null) partes.push(`${a.desligada} está desligado; vale a cópia do kit ${a.id}`);
     if (a.versao !== null) partes.push(`${a.equivalente} na ${a.versao.equivalente}, testada ${a.versao.testada}`);
-  }
-  if (faltam.length > 0) {
-    partes.push(`faltam dependências: ${faltam.map((a) => a.nome).join(', ')}`);
-    consertos.push(...faltam.map((a) => comando('install', a.id)));
   }
   if (ligadas.length > 0) {
     partes.push(`não desligou a cópia do kit: ${ligadas.map((a) => a.nome).join(', ')}`);
-    consertos.push(...ligadas.map((a) => comando('disable', a.id)));
+    return { item: item.falhou(NOME_DEDUP, partes.join('; '), ligadas.map((a) => `rode ${comandoDesligar(a.id)}`).join('; ')), lista: final, dedup };
   }
-  if (consertos.length > 0) return { item: item.falhou(nome, partes.join('; '), consertos.map((c) => `rode ${c}`).join('; ')), entrada: p.entrada, lista, dedup };
-  if (partes.length === base.length) return { ...p, lista, dedup };
-  return { item: item.ok(nome, partes.join('; ')), entrada: p.entrada, lista, dedup };
+  return { item: partes.length === 0 ? null : item.ok(NOME_DEDUP, partes.join('; ')), lista: final, dedup };
 }
 
-// O REA: instala ou atualiza; liga com Node aceito pelo rea-agents
-// (nodeServe) só na primeira instalação; já instalado e desligado, foi o
-// usuário quem desligou, e fica desligado (revisão final, Important 9). Com
-// Node fora da faixa, desliga e marca pulado.
-export async function passoRea(rodar, versaoNode) {
-  const nome = 'hadouken-rea';
-  const p = await passoPlugin(rodar, ID_REA, nome);
-  if (p.entrada === null) return p.item;
-  const quer = nodeServe(versaoNode);
-  const pulado = item.pulado(nome, `Node ${versao(versaoNode)}; o REA pede 22.19+, 24.11+ ou 26+`);
-  if (p.entrada.enabled === quer) return quer ? p.item : pulado;
-  if (quer && p.item.estado === 'igual') return { ...item.igual(nome), detalhe: 'desligado por você' };
-  if (quer && !p.item.detalhe.startsWith('instalado')) return item.ok(nome, `${p.item.detalhe}; continua desligado por você`);
-  await rodar(['plugin', quer ? 'enable' : 'disable', ID_REA]);
-  const e = (await listarPlugins(rodar))?.get(ID_REA);
-  if (!e || e.enabled !== quer) return item.falhou(nome, quer ? 'não ligou' : 'não desligou', `rode claude plugin ${quer ? 'enable' : 'disable'} ${ID_REA}`);
-  if (!quer) return pulado;
-  return p.item.estado === 'igual' ? item.ok(nome, 'ligado') : item.ok(nome, `${p.item.detalhe}, ligado`);
+// Cada sugerida: instalada é o plugin com o mesmo nome em qualquer
+// marketplace (ligado ou não) ou a skill solta <pastaSkills>/<nome>; aí é
+// "= já instalado" e nada muda. Faltando, "○ sugerido" com o comando. Nunca
+// instala nem lança.
+export function conferirSugeridas({ lista, pastaSkills, existe = fs.existsSync } = {}) {
+  const ids = lista instanceof Map ? [...lista.keys()] : [];
+  return SUGERIDAS.map(({ nome, comando }) => {
+    let tem = ids.some((id) => id.startsWith(`${nome}@`));
+    if (!tem && typeof pastaSkills === 'string' && path.isAbsolute(pastaSkills)) {
+      try { tem = existe(path.join(pastaSkills, nome)) === true; } catch { tem = false; }
+    }
+    return tem ? { nome, estado: 'igual', detalhe: 'já instalado' } : item.sugerido(nome, comando);
+  });
 }

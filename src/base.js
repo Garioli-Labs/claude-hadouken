@@ -105,12 +105,38 @@ export function caminhoDoAmbiente(valor) {
 // chamador trata null como "sem leitura" e não faz I/O (contrato de T6, T7 e
 // T10); o instalador recusa, com o motivo que origemDados separa. Nunca
 // lança.
+//
+// v0.5.9 (uma conta por janela do VS Code): sem HADOUKEN_HOME, um
+// CLAUDE_CONFIG_DIR que é ~/.claude-contas/<nome> é a pasta de uma conta, e os
+// dados dela ficam em <CLAUDE_CONFIG_DIR>/hadouken. Qualquer outro valor:
+// ~/.claude/hadouken, como antes.
 export function dirDados() {
   try {
     const configurado = process.env.HADOUKEN_HOME;
     if (configurado !== undefined) return caminhoDoAmbiente(configurado);
     const home = os.homedir();
-    return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.claude', 'hadouken') : null;
+    if (typeof home !== 'string' || !path.isAbsolute(home)) return null;
+    const padrao = path.join(home, '.claude');
+    const conta = pastaDeConta(process.env.CLAUDE_CONFIG_DIR, padrao);
+    return path.join(conta ?? padrao, 'hadouken');
+  } catch {
+    return null;
+  }
+}
+
+// A pasta da conta, ou null quando o valor não vale ou é a pasta padrão.
+export function pastaDeConta(config, padrao) {
+  try {
+    if (typeof config !== 'string' || config.trim() === '') return null;
+    const p = caminhoDoAmbiente(config);
+    if (p === null) return null;
+    // Só ~/.claude-contas/<nome> é conta: um CLAUDE_CONFIG_DIR global de quem
+    // já usava outra pasta segue com os dados em ~/.claude/hadouken.
+    const r = path.resolve(p).replace(/[\\/]+$/, '');
+    const raiz = path.join(path.dirname(padrao), '.claude-contas');
+    const igual = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+    const nome = path.basename(r);
+    return igual(path.dirname(r), raiz) && /^[a-z0-9-]{1,32}$/.test(nome) && nome !== 'principal' ? r : null;
   } catch {
     return null;
   }

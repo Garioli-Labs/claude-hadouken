@@ -239,7 +239,7 @@ test('instalarPainel win32: a linha de comando do cmd.exe exatamente como no pla
   fs.mkdirSync(path.join(dir, DIR_PAINEL), { recursive: true });
   fs.writeFileSync(arqPainel(dir, nomeVsix('9.8.6')), 'velho');
   fs.writeFileSync(arqPainel(dir, 'outro.vsix'), 'alheio');
-  const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: agora, achar, executar, plataforma: 'win32', pathEnv: 'C:\\x', systemRoot: 'D:\\Win' });
+  const r = await instalarPainel({ perfis: [], dir, raizPlugin: raiz, agoraMs: agora, achar, executar, plataforma: 'win32', pathEnv: 'C:\\x', systemRoot: 'D:\\Win' });
   assert.deepEqual(r, { ok: true, motivo: 'ok' });
   assert.equal(fs.existsSync(arqPainel(dir, nomeVsix('9.8.6'))), false);
   assert.equal(fs.existsSync(arqPainel(dir, 'outro.vsix')), true);
@@ -274,7 +274,7 @@ test('instalarPainel POSIX: execFile direto no code achado, argumentos fixos', a
   const dir = novoTmp();
   const raiz = raizFalsa('9.8.7');
   const { chamadas, executar } = executarFalso();
-  const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/local/bin/code', executar, plataforma: 'linux' });
+  const r = await instalarPainel({ perfis: [], dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/local/bin/code', executar, plataforma: 'linux' });
   assert.deepEqual(r, { ok: true, motivo: 'ok' });
   const vsix = arqPainel(dir, nomeVsix('9.8.7'));
   assert.deepEqual(chamadas, [{ exe: '/usr/local/bin/code', args: ['--install-extension', vsix, '--force'], opcoes: { timeout: PRAZO_INSTALAR_MS, cwd: path.join(dir, DIR_PAINEL) } }]);
@@ -285,7 +285,7 @@ test('instalarPainel: sem code é sem-vscode; o .vsix fica montado e a tentativa
   const raiz = raizFalsa('9.8.7');
   const { chamadas, executar } = executarFalso();
   const agora = Date.now();
-  const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: agora, achar: () => null, executar });
+  const r = await instalarPainel({ perfis: [], dir, raizPlugin: raiz, agoraMs: agora, achar: () => null, executar });
   assert.deepEqual(r, { ok: false, motivo: 'sem-vscode' });
   assert.equal(chamadas.length, 0);
   assert.ok(fs.statSync(arqPainel(dir, nomeVsix('9.8.7'))).isFile());
@@ -299,12 +299,12 @@ test('instalarPainel: caminho do code ou do .vsix fora da lista segura é caminh
   const { chamadas, executar } = executarFalso();
   for (const [code, plataforma] of [['C:\\x"y\\code.cmd', 'win32'], ['C:\\a&calc\\code.cmd', 'win32'], ['C:\\100%PATH%\\code.cmd', 'win32'], ['/opt/a"b/code', 'linux'], ['/opt/a\\b/code', 'linux']]) {
     const dir = novoTmp();
-    const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => code, executar, plataforma });
+    const r = await instalarPainel({ perfis: [], dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => code, executar, plataforma });
     assert.deepEqual(r, { ok: false, motivo: 'caminho-inseguro' }, code);
   }
   // A pasta de dados com % (vale no Windows e no POSIX) deixa o .vsix fora da lista.
   const dir = novoTmp('hdk 100% ');
-  const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => (WIN ? 'C:\\code\\code.cmd' : '/usr/bin/code'), executar });
+  const r = await instalarPainel({ perfis: [], dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => (WIN ? 'C:\\code\\code.cmd' : '/usr/bin/code'), executar });
   assert.deepEqual(r, { ok: false, motivo: 'caminho-inseguro' });
   assert.equal(chamadas.length, 0);
   assert.equal(fs.existsSync(arqPainel(dir, ARQ_INSTALADO)), false);
@@ -321,7 +321,7 @@ test('instalarPainel: falha do CLI do VS Code é erro, prazo estourado é tempo,
   for (const [resposta, motivo] of casos) {
     const dir = novoTmp();
     const { executar } = executarFalso(resposta);
-    const r = await instalarPainel({ dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' });
+    const r = await instalarPainel({ perfis: [], dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' });
     assert.deepEqual(r, { ok: false, motivo }, motivo);
     assert.equal(fs.existsSync(arqPainel(dir, ARQ_INSTALADO)), false, motivo);
   }
@@ -335,7 +335,7 @@ test('instalarPainel: a janela e a fonte vão no .vsix; sem a fonte, fonte-ausen
   fs.writeFileSync(path.join(janela, 'pixel.woff2'), Buffer.from('wOF2fonte', 'latin1'));
   const { executar } = executarFalso();
   const dir = novoTmp();
-  assert.deepEqual(await instalarPainel({ dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' }), { ok: true, motivo: 'ok' });
+  assert.deepEqual(await instalarPainel({ perfis: [], dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' }), { ok: true, motivo: 'ok' });
   const bytes = fs.readFileSync(arqPainel(dir, nomeVsix('9.8.7')));
   for (const n of ['icones/hadouken.woff', 'janela/index.html', 'janela/janela.css', 'janela/janela.js', 'janela/logo.svg', 'janela/OFL.txt', 'janela/pixel.woff2']) {
     assert.ok(bytes.includes(Buffer.from(`extension/${n}`)), n);
@@ -347,7 +347,7 @@ test('instalarPainel: a janela e a fonte vão no .vsix; sem a fonte, fonte-ausen
     if (corrompida === null) fs.rmSync(woff);
     else fs.writeFileSync(woff, corrompida);
     const d = novoTmp();
-    assert.deepEqual(await instalarPainel({ dir: d, raizPlugin: semFonte, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' }), { ok: false, motivo: 'fonte-ausente' });
+    assert.deepEqual(await instalarPainel({ perfis: [], dir: d, raizPlugin: semFonte, agoraMs: Date.now(), achar: () => '/usr/bin/code', executar, plataforma: 'linux' }), { ok: false, motivo: 'fonte-ausente' });
     assert.equal(fs.existsSync(arqPainel(d, nomeVsix('9.8.7'))), false);
   }
 });
@@ -356,23 +356,23 @@ test('instalarPainel: sem pasta, plugin.json ilegível ou extensão ausente falh
   const { chamadas, executar } = executarFalso();
   const achar = () => '/usr/bin/code';
   for (const dir of [null, 'relativo', 42]) {
-    assert.deepEqual(await instalarPainel({ dir, raizPlugin: raizFalsa(), agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'sem-pasta' });
+    assert.deepEqual(await instalarPainel({ perfis: [], dir, raizPlugin: raizFalsa(), agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'sem-pasta' });
   }
   let dir = novoTmp();
-  assert.deepEqual(await instalarPainel({ dir, raizPlugin: novoTmp(), agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'plugin-invalido' });
+  assert.deepEqual(await instalarPainel({ perfis: [], dir, raizPlugin: novoTmp(), agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'plugin-invalido' });
   assert.ok(fs.existsSync(arqPainel(dir, ARQ_TENTATIVA)), 'a tentativa vem primeiro');
   const semExtensao = raizFalsa();
   fs.rmSync(path.join(semExtensao, 'vscode', 'extension.cjs'));
   dir = novoTmp();
-  assert.deepEqual(await instalarPainel({ dir, raizPlugin: semExtensao, agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'extensao-invalida' });
+  assert.deepEqual(await instalarPainel({ perfis: [], dir, raizPlugin: semExtensao, agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'extensao-invalida' });
   const outraExtensao = raizFalsa();
   fs.writeFileSync(path.join(outraExtensao, 'vscode', 'package.json'), JSON.stringify({ name: 'outra', publisher: 'gariolilabs' }));
   dir = novoTmp();
-  assert.deepEqual(await instalarPainel({ dir, raizPlugin: outraExtensao, agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'extensao-invalida' });
+  assert.deepEqual(await instalarPainel({ perfis: [], dir, raizPlugin: outraExtensao, agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'extensao-invalida' });
   // painel/ ocupada por um arquivo: a tentativa não grava.
   dir = novoTmp();
   fs.writeFileSync(path.join(dir, DIR_PAINEL), 'lixo');
-  assert.deepEqual(await instalarPainel({ dir, raizPlugin: raizFalsa(), agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'escrita' });
+  assert.deepEqual(await instalarPainel({ perfis: [], dir, raizPlugin: raizFalsa(), agoraMs: Date.now(), achar, executar }), { ok: false, motivo: 'escrita' });
   assert.equal(chamadas.length, 0);
   assert.deepEqual(await instalarPainel(), { ok: false, motivo: 'sem-pasta' });
   assert.deepEqual(await instalarPainel(null), { ok: false, motivo: 'sem-pasta' });
@@ -390,15 +390,15 @@ test('instalarPainel grava o motivo de cada falha em tentativa.json, e nenhum de
   ];
   for (const [motivo, extra] of casos) {
     const dir = novoTmp();
-    const r = await instalarPainel({ dir, raizPlugin: raizFalsa(), agoraMs: agora, plataforma: process.platform, ...extra });
+    const r = await instalarPainel({ perfis: [], dir, raizPlugin: raizFalsa(), agoraMs: agora, plataforma: process.platform, ...extra });
     assert.deepEqual(r, { ok: false, motivo }, motivo);
     assert.deepEqual(lerJsonArq(arqPainel(dir, ARQ_TENTATIVA)), { em: new Date(agora).toISOString(), motivo }, motivo);
   }
   const semPlugin = novoTmp();
-  assert.equal((await instalarPainel({ dir: semPlugin, raizPlugin: novoTmp(), agoraMs: agora })).motivo, 'plugin-invalido');
+  assert.equal((await instalarPainel({ perfis: [], dir: semPlugin, raizPlugin: novoTmp(), agoraMs: agora })).motivo, 'plugin-invalido');
   assert.equal(lerJsonArq(arqPainel(semPlugin, ARQ_TENTATIVA)).motivo, 'plugin-invalido');
   const bom = novoTmp();
-  const ok = await instalarPainel({ dir: bom, raizPlugin: raizFalsa(), agoraMs: agora, plataforma: process.platform, achar: () => (WIN ? 'C:\\vs\\code.cmd' : '/vs/code'), executar: (e, a, o, cb) => cb(null) });
+  const ok = await instalarPainel({ perfis: [], dir: bom, raizPlugin: raizFalsa(), agoraMs: agora, plataforma: process.platform, achar: () => (WIN ? 'C:\\vs\\code.cmd' : '/vs/code'), executar: (e, a, o, cb) => cb(null) });
   assert.equal(ok.ok, true);
   assert.deepEqual(lerJsonArq(arqPainel(bom, ARQ_TENTATIVA)), { em: new Date(agora).toISOString() });
 });
@@ -607,4 +607,39 @@ test('SessionStart: o hook termina sem esperar o filho destacado', async () => {
   assert.ok(fs.existsSync(arqPainel(home, ARQ_TENTATIVA)), 'disparou');
   assert.ok(r.ms < 10_000, `${r.ms} ms`);
   await esperarArquivo(arqPainel(home, nomeVsix(versaoDoPlugin(repo))), 20_000);
+});
+
+test('instalarPainel: depois do Default, um install por perfil do VS Code (issue #7)', async () => {
+  const dir = novoTmp();
+  const raiz = raizFalsa('9.8.7');
+  const { chamadas, executar } = executarFalso();
+  const r = await instalarPainel({ perfis: ['Educbank', 'Trabalho 2'], dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/local/bin/code', executar, plataforma: 'linux' });
+  assert.deepEqual(r, { ok: true, motivo: 'ok' });
+  const vsix = arqPainel(dir, nomeVsix('9.8.7'));
+  assert.deepEqual(chamadas.map((c) => c.args), [
+    ['--install-extension', vsix, '--force'],
+    ['--install-extension', vsix, '--force', '--profile', 'Educbank'],
+    ['--install-extension', vsix, '--force', '--profile', 'Trabalho 2'],
+  ]);
+});
+
+test('instalarPainel win32: o perfil vai entre aspas na linha do cmd.exe', async () => {
+  const dir = novoTmp();
+  const raiz = raizFalsa('9.8.7');
+  const code = 'C:\\VS\\bin\\code.cmd';
+  const { chamadas, executar } = executarFalso();
+  await instalarPainel({ perfis: ['Educbank'], dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => code, executar, plataforma: 'win32', pathEnv: 'C:\\x', systemRoot: 'D:\\Win' });
+  const vsix = arqPainel(dir, nomeVsix('9.8.7'));
+  assert.equal(chamadas.length, 2);
+  assert.deepEqual(chamadas[1].args, ['/d', '/s', '/c', `""${code}" --install-extension "${vsix}" --force --profile "Educbank""`]);
+});
+
+test('instalarPainel: falha num perfil não derruba; no Default, sim', async () => {
+  const dir = novoTmp();
+  const raiz = raizFalsa('9.8.7');
+  let n = 0;
+  const executar = (exe, args, opcoes, cb) => { n++; cb(args.includes('--profile') ? new Error('x') : null); };
+  const r = await instalarPainel({ perfis: ['Educbank'], dir, raizPlugin: raiz, agoraMs: Date.now(), achar: () => '/usr/local/bin/code', executar, plataforma: 'linux' });
+  assert.deepEqual(r, { ok: true, motivo: 'ok' });
+  assert.equal(n, 2);
 });

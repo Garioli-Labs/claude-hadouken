@@ -9,6 +9,7 @@ import { fraseEsgota } from './frase.js';
 import { lerJanela } from '../janela.js';
 import { registrarEvento } from '../eventos/eventos.js';
 import { faixasDoPainel, intervaloDoPainelMs } from '../aprendizado/registro.js';
+import { planoEfetivo, semCincoHoras } from '../conta/plano.js';
 import {
   ARQ_USO, BLOQUEIO_CUSTO_MS, ehObjeto, janelaGravada, lerUso, MOTIVOS_RODAR, naFaixaDoDate, VERSAO,
 } from './ler-uso.js';
@@ -411,12 +412,17 @@ export function estadoPainel(opcoes) {
     const semana = mesclar(daStatusline(estado, limites, 'seven_day', agoraMs), doUso(uso?.semana, lidoMs, agoraMs));
     const fable = doUso(uso?.modelos?.fable, lidoMs, agoraMs);
     const janelas = [sessao, semana, fable].filter((j) => j !== null);
+    const sem5h = semCincoHoras(planoEfetivo(dir), sessao);
     let texto = 'Hadouken: sem leitura';
     let nivel = 'sem-leitura';
     let pcts = null;
     if (janelas.length > 0) {
-      texto = `5h ${pctTexto(sessao)} · sem ${pctTexto(semana)} · Fable ${pctTexto(fable)}`;
-      pcts = { h5: pctNumero(sessao), d7: pctNumero(semana), fable: pctNumero(fable) };
+      texto = `sem ${pctTexto(semana)} · Fable ${pctTexto(fable)}`;
+      pcts = { d7: pctNumero(semana), fable: pctNumero(fable) };
+      if (!sem5h) {
+        texto = `5h ${pctTexto(sessao)} · ${texto}`;
+        pcts = { h5: pctNumero(sessao), ...pcts };
+      }
       const pior = Math.max(...janelas.map((j) => Math.floor(j.pct)));
       // Spec aprendizado R14: as faixas aprendidas mudam só este nível; sem
       // aprendizado, 75 e 90, como antes.
@@ -425,7 +431,7 @@ export function estadoPainel(opcoes) {
     }
     const { janela: trabalho } = lerJanela(dir);
     const linhas = [
-      linhaJanela('**Sessão (5h):**', sessao, JANELA_5H_MS, agoraMs),
+      ...(sem5h ? [] : [linhaJanela('**Sessão (5h):**', sessao, JANELA_5H_MS, agoraMs)]),
       linhaJanela('**Semana (todos os modelos):**', semana, JANELA_7D_MS, agoraMs, trabalho),
       linhaJanela('**Semana (Fable):**', fable, JANELA_7D_MS, agoraMs, trabalho),
       `Sessões ativas: ${sessoesAtivas(estado, agoraMs)}`,

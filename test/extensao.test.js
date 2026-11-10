@@ -36,6 +36,7 @@ export async function resumoRoteamento7d() { return null; }
 export async function talvezConsultarVersao(o) { g().consultas.push(o); return null; }
 export async function estadoSaude() { return g().saude; }
 export async function barraSaude() { return g().barraSaude; }
+export async function raizDoPlugin() { return g().raiz ?? null; }
 export async function mudarModo(leve) { g().modos.push(leve); return { ok: true }; }
 `;
 const PAINEL_VELHO = `const g = () => globalThis.hdk;
@@ -43,14 +44,17 @@ export function estadoPainel(o) { g().desenhos++; return { texto: '5h 25% · sem
 export async function talvezAtualizar(o) { g().leituras.push(o); return { feito: true, motivo: 'ok' }; }
 `;
 
-async function esperar(cond, voltas = 20_000) {
-  for (let i = 0; i < voltas && !cond(); i++) await new Promise((r) => setImmediate(r));
+// Espera em tempo real (Date não está no relógio falso), não em voltas: num
+// runner lento do macOS o import() do shim novo passava das 20 mil voltas.
+async function esperar(cond, limiteMs = 10_000) {
+  const fim = Date.now() + limiteMs;
+  while (!cond() && Date.now() < fim) await new Promise((r) => setImmediate(r));
   return cond();
 }
 
 // Ativa a extensão com o shim dado e o relógio falso. Devolve os dois itens e
 // um `fim` para o finally.
-async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', globalState = new Map(), respostas = [] } = {}) {
+async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', globalState = new Map(), respostas = [], config = {}, configGlobal = {}, pastas } = {}) {
   globalThis.hdk = {
     desenhos: 0, leituras: [], nivel: 'ok', pcts: { h5: 55, d7: null, fable: null }, em: 1, ems: [], portao: null, nova: null, animarLogo: true,
     versaoCfg: 'ausente', gravacoes: [], desfeitos: [], respostaGravar: { ok: true, desfazer: { antes: {}, versaoDepois: 'v', ate: 1 } }, consultas: [],
@@ -59,6 +63,9 @@ async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', g
   const { api, estado } = criar();
   estado.reduceMotion = reduceMotion;
   estado.respostas.push(...respostas);
+  Object.assign(estado.config, config);
+  Object.assign(estado.configGlobal, configGlobal);
+  estado.pastas = pastas;
   const cargaOriginal = Module._load;
   Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
   const homeAntes = process.env.HADOUKEN_HOME;
@@ -512,5 +519,140 @@ test('versão nova: "Depois" só grava; plugin velho não consulta nem lança', 
     assert.equal(globalThis.hdk.consultas.length, 0);
   } finally {
     v.fim();
+  }
+});
+
+test('Ultra: sem h5 nos pcts, o item mostra só semana e Fable', async (t) => {
+  const m = await montar(t, { hdk: { pcts: { d7: 55, fable: null } } });
+  try {
+    const segs = ['cheio', 'cheio', 'cheio', 'cheio', 'meio', 'vazio', 'vazio', 'vazio'].map((s) => `$(hadouken-seg-${s})`).join('');
+    assert.equal(m.uso.text, `$(hadouken-0) sem ${segs} 55% · Fable —`);
+  } finally {
+    m.fim();
+  }
+});
+
+test('_teste.dirDados: a regra do base.js, com o CLAUDE_CONFIG_DIR da conta', () => {
+  const { api } = criar();
+  const cargaOriginal = Module._load;
+  Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
+  delete requireDaqui.cache[requireDaqui.resolve(ARQ_EXTENSAO)];
+  const { _teste } = requireDaqui(ARQ_EXTENSAO);
+  Module._load = cargaOriginal;
+  const antes = { h: process.env.HADOUKEN_HOME, c: process.env.CLAUDE_CONFIG_DIR };
+  try {
+    delete process.env.HADOUKEN_HOME;
+    delete process.env.CLAUDE_CONFIG_DIR;
+    const padrao = path.join(os.homedir(), '.claude', 'hadouken');
+    assert.equal(_teste.dirDados(), padrao);
+    process.env.CLAUDE_CONFIG_DIR = path.join(os.homedir(), '.claude');
+    assert.equal(_teste.dirDados(), padrao);
+    const conta = path.join(os.homedir(), '.claude-contas', 'trabalho');
+    process.env.CLAUDE_CONFIG_DIR = conta;
+    assert.equal(_teste.dirDados(), path.join(conta, 'hadouken'));
+    process.env.CLAUDE_CONFIG_DIR = 'relativo';
+    assert.equal(_teste.dirDados(), padrao);
+    process.env.CLAUDE_CONFIG_DIR = path.join(os.homedir(), 'outra-claude');
+    assert.equal(_teste.dirDados(), padrao, 'CLAUDE_CONFIG_DIR global fora das contas fica na Principal');
+  } finally {
+    for (const [k, v] of [['HADOUKEN_HOME', antes.h], ['CLAUDE_CONFIG_DIR', antes.c]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+// ------------------------------------------------------------ conta por janela (v0.5.9)
+
+function carregarTeste() {
+  const { api } = criar();
+  const cargaOriginal = Module._load;
+  Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
+  delete requireDaqui.cache[requireDaqui.resolve(ARQ_EXTENSAO)];
+  try { return requireDaqui(ARQ_EXTENSAO)._teste; } finally { Module._load = cargaOriginal; }
+}
+
+test('conta: nome, variáveis do Claude Code e do terminal, comando do instalador', () => {
+  const t = carregarTeste();
+  assert.equal(t.nomeDeConta('Trabalho '), 'trabalho');
+  assert.equal(t.nomeDeConta('Ação 2'), 'acao-2');
+  for (const ruim of ['../x', 'a/b', '', '   ', 'principal', 'Principal', 'x'.repeat(33), null]) assert.equal(t.nomeDeConta(ruim), null, String(ruim));
+  const conta = path.resolve('/c/.claude-contas/trabalho');
+  assert.deepEqual(t.varsComConta([{ name: 'FOO', value: '1' }, { name: 'CLAUDE_CONFIG_DIR', value: '/velho' }], conta), [{ name: 'FOO', value: '1' }, { name: 'CLAUDE_CONFIG_DIR', value: conta }]);
+  assert.deepEqual(t.varsComConta([{ name: 'FOO', value: '1' }, { name: 'CLAUDE_CONFIG_DIR', value: '/velho' }], null), [{ name: 'FOO', value: '1' }]);
+  assert.deepEqual(t.varsComConta(undefined, null), []);
+  assert.deepEqual(t.envComConta({ FOO: '1', CLAUDE_CONFIG_DIR: '/velho' }, conta), { FOO: '1', CLAUDE_CONFIG_DIR: conta });
+  assert.deepEqual(t.envComConta({ FOO: '1', CLAUDE_CONFIG_DIR: '/velho' }, null), { FOO: '1' });
+  const minha = path.join(os.homedir(), '.claude-contas', 'trabalho');
+  assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: minha }]), minha);
+  assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: path.join(os.homedir(), 'x') }]), null, 'settings.json de repo não aponta para qualquer pasta');
+  assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: '\\\\host\\share\\x' }]), null);
+  assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: 'relativo' }]), null);
+  assert.equal(t.pastaDaJanela('x'), null);
+  const w = t.comandoNovaConta('C:\\p\\hadouken\\0.5.9', 'win32');
+  assert.deepEqual(w, { shellPath: 'powershell.exe', texto: 'powershell -NoProfile -ExecutionPolicy Bypass -File "C:\\p\\hadouken\\0.5.9\\install.ps1" --sim --sem-extras; claude' });
+  assert.deepEqual(t.comandoNovaConta('/p/hadouken/0.5.9', 'darwin'), { shellPath: undefined, texto: 'bash "/p/hadouken/0.5.9/install.sh" --sim --sem-extras; claude' });
+  for (const ruim of ['/p/a"b', '/p/$(x)', 'relativo', null]) assert.equal(t.comandoNovaConta(ruim, 'linux'), null, String(ruim));
+});
+
+test('conta: Nova conta cria a pasta, prende a janela a ela e abre o terminal com o instalador e o claude', async (t) => {
+  const casa = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk casa '));
+  const projeto = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk projeto '));
+  const homeOriginal = os.homedir;
+  const envAntes = process.env.CLAUDE_CONFIG_DIR;
+  const herdado = path.join(casa, 'global-claude');
+  process.env.CLAUDE_CONFIG_DIR = herdado;
+  os.homedir = () => casa;
+  const proxy = { name: 'HTTPS_PROXY', value: 'http://p' };
+  const m = await montar(t, { configGlobal: { 'claudeCode.environmentVariables': [proxy] }, hdk: { raiz: process.platform === 'win32' ? 'C:\\p\\hadouken\\0.5.9' : '/p/hadouken/0.5.9' }, pastas: [{ uri: { fsPath: projeto } }] });
+  try {
+    m.estado.escolhas.push((itens) => itens.find((i) => i.nova === true));
+    m.estado.digitados.push('Trabalho');
+    await m.api.commands.executeCommand('claudeHadouken.conta');
+    const pasta = path.join(casa, '.claude-contas', 'trabalho');
+    assert.equal(fs.statSync(pasta).isDirectory(), true);
+    assert.deepEqual(m.estado.quickPicks[0].itens.map((i) => i.label), ['Principal', '$(add) Nova conta…']);
+    const vars = m.estado.atualizacoes.find((a) => a.chave === 'claudeCode.environmentVariables');
+    assert.deepEqual(vars, { chave: 'claudeCode.environmentVariables', valor: [proxy, { name: 'CLAUDE_CONFIG_DIR', value: pasta }], alvo: 2 });
+    const so = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
+    assert.deepEqual(m.estado.atualizacoes.find((a) => a.chave === `terminal.integrated.env.${so}`).valor, { CLAUDE_CONFIG_DIR: pasta });
+    assert.equal(process.env.CLAUDE_CONFIG_DIR, pasta, 'o processo desta janela segue a conta');
+    const term = m.estado.terminais.at(-1);
+    assert.equal(term.opcoes.env.CLAUDE_CONFIG_DIR, pasta);
+    assert.match(term.enviados[0], /install\.(ps1|sh)" --sim --sem-extras; claude$/);
+    assert.ok(m.estado.mensagens.some((a) => /\/login/.test(a[0])), 'diz para rodar /login');
+    // Tooltip com o nome da conta, porque agora há mais de uma.
+    await tique(t);
+    assert.match(m.uso.tooltip.value, /^\*\*Conta:\*\* Trabalho/);
+    // Voltar para a Principal tira a variável.
+    m.estado.escolhas.push((itens) => itens.find((i) => i.label === 'Principal'));
+    await m.api.commands.executeCommand('claudeHadouken.conta');
+    assert.equal(m.estado.config['claudeCode.environmentVariables'], undefined, 'volta a valer o global');
+    assert.equal(m.estado.config[`terminal.integrated.env.${so}`], undefined);
+    assert.equal(process.env.CLAUDE_CONFIG_DIR, herdado, 'o valor herdado volta');
+    // A caixa recusa nome ruim e nome repetido.
+    m.estado.escolhas.push((itens) => itens.find((i) => i.nova === true));
+    m.estado.digitados.push(undefined);
+    await m.api.commands.executeCommand('claudeHadouken.conta');
+    const caixa = m.estado.inputBoxes.at(-1);
+    assert.equal(caixa.validateInput('Outra'), null);
+    assert.match(caixa.validateInput('Trabalho'), /Já existe/);
+    assert.match(caixa.validateInput('Principal'), /Use letras/);
+  } finally {
+    m.fim();
+    os.homedir = homeOriginal;
+    if (envAntes === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = envAntes;
+    fs.rmSync(casa, { recursive: true, force: true });
+    fs.rmSync(projeto, { recursive: true, force: true });
+  }
+});
+
+test('conta: sem pasta aberta, só avisa', async (t) => {
+  const m = await montar(t);
+  try {
+    await m.api.commands.executeCommand('claudeHadouken.conta');
+    assert.equal(m.estado.quickPicks.length, 0);
+    assert.match(m.estado.mensagens.at(-1)[0], /Abra uma pasta/);
+  } finally {
+    m.fim();
   }
 });

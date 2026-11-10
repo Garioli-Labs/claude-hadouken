@@ -1209,7 +1209,9 @@ test('atualizar (spec v0.4.0 §10, item 8): a nossa sem refreshInterval ganha s�
   const p = planejarStatusline({ statusLine: antiga });
   assert.deepEqual(p, { ok: true, acao: 'atualizar', atual: antiga, proposto: { ...antiga, refreshInterval: 60 } });
   fs.writeFileSync(arq, bonito({ permissions: { allow: [] }, statusLine: antiga }));
-  const r = aplicarStatusline({ arquivo: arq, agoraMs: Date.now() });
+  // Horários distintos: dois backups no mesmo ms teriam o mesmo nome (backup-existe).
+  const t0 = Date.now();
+  const r = aplicarStatusline({ arquivo: arq, agoraMs: t0 });
   assert.equal(r.ok, true);
   assert.equal(r.acao, 'atualizar');
   assert.equal(typeof r.backup, 'string');
@@ -1217,5 +1219,5 @@ test('atualizar (spec v0.4.0 §10, item 8): a nossa sem refreshInterval ganha s�
   // Segunda vez: já instalado, nada gravado.
   assert.equal(aplicarStatusline({ arquivo: arq, agoraMs: Date.now() }).acao, 'ja-instalado');
   // Remover tira a nossa, com ou sem refreshInterval.
-  assert.equal(removerStatusline({ arquivo: arq, agoraMs: Date.now() }).acao, 'remover');
+  assert.equal(removerStatusline({ arquivo: arq, agoraMs: t0 + 1 }).acao, 'remover');
 });

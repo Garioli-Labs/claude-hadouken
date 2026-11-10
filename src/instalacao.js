@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lerJson } from './estado.js';
+import { SUGERIDAS } from './instalar/itens.js';
 
 // v0.5.7: o hadouken igual em qualquer PC (Windows, Linux, macOS). O plugin,
 // a extensão do VS Code e os atalhos de <dirDados>/bin seguem cada um o seu
@@ -107,7 +108,7 @@ export function conferirInstalacao({ dir, raiz, dirConfig = dirConfigPadrao() } 
     const sessao = versaoDe(raiz);
     const reg = registrada(raiz, dirConfig);
     const emUso = reg !== null && raizValida(reg.raiz) ? reg.raiz : null;
-    const out = { sessao, registrada: emUso === null ? null : versaoDe(emUso), extensao: null, atalhos: [], restos: [] };
+    const out = { sessao, registrada: emUso === null ? null : versaoDe(emUso), extensao: null, atalhos: [], restos: [], faltam: [] };
     if (typeof dir === 'string' && path.isAbsolute(dir)) {
       const inst = lerJson(path.join(dir, 'painel', 'instalado.json'), SHIM_MAX);
       const v = inst.ok && ehObjeto(inst.valor) ? inst.valor.versao : null;
@@ -130,6 +131,13 @@ export function conferirInstalacao({ dir, raiz, dirConfig = dirConfigPadrao() } 
         if (/^[a-z0-9-]{1,64}@[a-z0-9-]{1,64}$/.test(id) && Object.hasOwn(reg2.valor.plugins, id)) out.restos.push(id);
       }
     }
+    // v0.5.9: as skills sugeridas que faltam (plugin de mesmo nome em
+    // qualquer marketplace ou skill solta em <dirConfig>/skills contam).
+    const ids = reg2.ok && ehObjeto(reg2.valor) && ehObjeto(reg2.valor.plugins) ? Object.keys(reg2.valor.plugins) : [];
+    const solta = (nome) => {
+      try { return typeof dirConfig === 'string' && path.isAbsolute(dirConfig) && fs.existsSync(path.join(dirConfig, 'skills', nome)); } catch { return false; }
+    };
+    out.faltam = SUGERIDAS.map((s) => s.nome).filter((n) => !ids.some((id) => id.startsWith(`${n}@`)) && !solta(n));
     return out;
   } catch {
     return { ...VAZIO, atalhos: [], restos: [] };
@@ -151,7 +159,9 @@ export function textoInstalacao(c) {
     else if (c.extensao !== alvo) itens.push(`extensão do VS Code na ${c.extensao}: rode ${COMANDO_PAINEL}`);
     if (c.atalhos.some((v) => v !== alvo)) itens.push(`atalhos em ${c.atalhos.join(', ')}: a próxima sessão acerta`);
     for (const r of c.restos) itens.push(`plugin antigo instalado: remova com claude plugin uninstall ${r}`);
-    return itens.length > 0 ? itens.join('; ') : `em dia (plugin, extensão do VS Code e atalhos na ${alvo})`;
+    const base = itens.length > 0 ? itens.join('; ') : `em dia (plugin, extensão do VS Code e atalhos na ${alvo})`;
+    const faltam = Array.isArray(c.faltam) ? c.faltam : [];
+    return faltam.length > 0 ? `${base}; sugeridas não instaladas: ${faltam.join(', ')}` : base;
   } catch {
     return 'não deu para conferir agora';
   }
