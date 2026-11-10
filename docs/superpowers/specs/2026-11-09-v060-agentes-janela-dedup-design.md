@@ -348,7 +348,7 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 | D1 | Cópia do usuário instalada mas **desabilitada** | Não conta como equivalente: a cópia do kit ligada fica `propria` e nada muda; sem aviso. `conferirSugeridas` mostra "já instalado" (mesmo nome em qualquer marketplace, ligado ou não) |
 | D2 | Duas cópias habilitadas e kit instalado < 1.2.0 | Não desliga (derrubaria o kit); avisa para atualizar o kit |
 | D3 | Mesmo nome, repo diferente (homônimo) | Conta como equivalente (namespace de skill colide de qualquer forma); o aviso diz qual cópia ficou |
-| D4 | Mesma origem (repo e subpasta), nome diferente | Conta como equivalente pela origem |
+| D4 | Mesma origem (repo e subpasta), nome diferente | Conta como equivalente pela origem só quando nenhum outro plugin do marketplace da outra cópia tem a mesma origem. Origem compartilhada (irmãos com `source: "./"` no mesmo repo, ou a mesma subpasta) → só o nome decide. Decisão do Fernando, 10/11/2026: um irmão ligado na raiz do repo não desliga a cópia do kit |
 | D11 | Marketplace monorepo: plugins irmãos no mesmo repo, em subpastas diferentes | Não são equivalentes entre si |
 | D12 | `installed_plugins.json` v1 (`plugins[id]` objeto), `plugins: {}` ou sem o `hadouken-kit` no escopo do usuário | Leitura tratada como falha: SessionStart em silêncio |
 | D13 | `duplicada` e a cópia do kit sem `auto` (o usuário instalou as duas), ou `installed_plugins.json` sem `auto` legível no instalador | Nada é desligado. O instalador e o SessionStart avisam que as duas fazem o mesmo e mostram `claude plugin disable <D> --scope user` para o usuário rodar se quiser |
@@ -437,7 +437,6 @@ Nenhuma está decidida; cada uma traz a recomendação.
 - **P-b.** O trabalho fora da janela (ex.: sábado 13:00–16:00, uso a 96 % e subindo) silencia a previsão e a frase pode dizer "não esgota" sem que seja verdade? Recomendação: com consumo crescente fora da janela nas últimas 2 h, projetar em relógio de parede.
 - **P-c.** O limiar de `so-leitura` (`src/alerta.js:75`, `usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS`) usa 24 h de relógio, não horas úteis. Recomendação: com janela, exigir também ao menos 2 h úteis até o reset.
 - **P-d.** `/hadouken:limites` (hook `src/hooks/limites.js`, sobe `guarda.teto7d`) fica fora da vigia da guarda de agenda: `VIGIA = /liberar|aprender|hadouken:janela|\/janela\b/i` (`src/hooks/guarda-agenda.js:46`) não tem `limites` (`grep -n limites src/hooks/guarda-agenda.js` → vazio). Recomendação: incluir `hadouken:limites` e `/limites` na vigia.
-- **P-e.** D4 com plugins irmãos na raiz do repo: `outraCopia` (`src/instalar/dedup.js:148`, `kit/hooks/dependencias.js:147`) acha a equivalente pelo nome ou pela origem (repo + subpasta). Plugins com `source: "./"` no mesmo repo têm a mesma origem, então um irmão ligado (`outra-coisa@mono`) faz a dedup desligar `ui-ux-pro-max@claude-hadouken` sem cópia real da skill (reproduzido pelo auditor). Na máquina do mantenedor, `wondelai-skills` tem 10 plugins, todos `source: "./"` (`jq` em `known_marketplaces.json` e no `marketplace.json`), e nenhum terceiro do kit vem desse repo. Recomendação: a origem só conta quando nenhum outro plugin do marketplace da outra cópia tem a mesma origem (D11 generalizado); origem compartilhada → só o nome decide.
 
 ## 9. e2e passo a passo
 

@@ -631,6 +631,10 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
 - `reguaEfetiva({ raiz, dirHadouken, padrao, catalogo, limite })` → `{ origem, regua, texto, avisos, desconhecidos, nomes }`: repo → global → padrão, descendo também quando o texto validado fica vazio (R12); usada por `reguaDaSessao` e pelo comando sem argumento (some a cópia em `regua-comando.js:96-102`).
 - `caminhoRascunho(tmpDir, uid)` → `<tmp>/hadouken-<uid>/regua-rascunho.json` (POSIX) ou `<tmp>/hadouken/regua-rascunho.json` (sem uid); `pastaRascunhoSegura(pasta, uid)` → `boolean` por `lstat` (pasta real, dono = uid, sem `0o022`); leitura do rascunho com `O_NOFOLLOW` e `fstat` (regular, dono = uid).
 
+- [ ] **Passo 0 — testes herméticos** (achado de 10/11/2026: um mutante do Stryker em `dirHadouken` caiu no fallback `~/.claude/hadouken` porque `rodarHook` de `test/kit-regua-comando.test.js:308` herda o `HOME` real, e o teste do `aplicar` gravou `{"fases":[{"fase":"F","usar":["a:b"]}]}` no `regua.json` real às 16:23; desde então 14 testes de `test/kit-fluxo.test.js` e `test/kit-dependencias.test.js` falham com o `HOME` real, porque leem essa régua):
+  - vermelho: `HOME=<tmp com .claude/hadouken/regua.json de fixture> node --test test/kit-*.test.js` → falhas (colar);
+  - todo teste de `test/kit-*.test.js` que roda hook ou chama `dirHadouken`/`catalogo`/`reguaDaSessao` passa `HOME`, `USERPROFILE`, `CLAUDE_CONFIG_DIR` e `HADOUKEN_HOME` temporários (um helper de env isolado);
+  - verde: o mesmo comando com o `HOME` envenenado → 0 falhas.
 - [ ] **Passo 1 — vermelho** (scripts do auditor #3, #4, #6, #9 colados antes):
   - R11: kit só no escopo `project` + régua do repo com `outro:naotenho` → texto sem `outro:naotenho` e aviso `1 skill(s)`;
   - R12: régua do repo só com nomes desconhecidos e global válida → "Régua (global)"; sem global → "Régua (padrão)"; o aviso de desconhecidos fica nos dois;
@@ -647,7 +651,10 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
 ### Tarefa A3: SECURITY.md K1/S-dedup e D4 (depois da P-e)
 
 - [ ] **Passo 1** — `SECURITY.md:179` e `:371`: o instalador não escreve `enabledPlugins`; a dedup só roda `claude plugin disable <D> --scope user` na cópia do kit com `auto: true` (texto da K1 `:70`/`:262`).
-- [ ] **Passo 2** — D4 conforme a decisão da P-e (spec §5 D4/D11 reescritos, `outraCopia` nos dois lados, teste de paridade com `source: "./"` irmão).
+- [ ] **Passo 2** — D4 (spec §5, decisão do Fernando 10/11/2026): `outraCopia` (`src/instalar/dedup.js:148` e `kit/hooks/dependencias.js:147`) só usa a origem quando nenhum outro plugin do marketplace da outra cópia tem a mesma origem; origem compartilhada → só o nome. Testes nos dois lados e de paridade:
+  - irmão `outra-coisa@mono` ligado, `mono` com dois plugins `source: "./"`, kit com `ui-ux-pro-max` de origem igual → `propria`, nenhum `disable` no log do falso;
+  - `mono` com um só plugin de origem igual e nome diferente → `duplicada` (D4 de fork renomeado continua);
+  - mesmo nome em marketplace com irmãos `./` → `duplicada` (o nome decide).
 - [ ] **Passo 3** — `node --test` → 0 falhas; commit `fix(dedup): …` ou `docs(security): …` conforme o que entrar.
 
 ## Fechamento
