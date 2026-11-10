@@ -1,6 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { envIsolado } from './kit-env-isolado.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -381,7 +382,7 @@ test('pastaConfig: CLAUDE_CONFIG_DIR absoluto; senão ~/.claude', () => {
 // ------------------------------------------------------------ hook (SessionStart do kit)
 
 function rodar(cwd, cfg, { fluxo = FLUXO } = {}) {
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
+  const env = envIsolado(novoTmp(), { CLAUDE_CONFIG_DIR: cfg });
   return spawnSync(process.execPath, [fluxo], { cwd, input: '', encoding: 'utf8', timeout: 10000, env });
 }
 function saida(cfg, opcoes) {
@@ -534,7 +535,7 @@ test('hook sem package.json ao lado (Node sem detecção de módulo): sai 0 e im
   fs.copyFileSync(path.join(RAIZ_KIT, 'hooks', 'dependencias.js'), path.join(sozinho, 'dependencias.js'));
   assert.equal(fs.existsSync(path.join(sozinho, '..', 'package.json')), false);
   const cfg = cenario({ instalados: { [MATT_USUARIO]: usuario() }, habilitados: { [MATT_USUARIO]: true } });
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
+  const env = envIsolado(novoTmp(), { CLAUDE_CONFIG_DIR: cfg });
   const r = spawnSync(process.execPath, ['--no-experimental-detect-module', path.join(sozinho, 'fluxo.js')], { cwd: repo, input: '', encoding: 'utf8', timeout: 10000, env });
   assert.equal(r.status, 0, r.stderr);
   const j = JSON.parse(r.stdout);

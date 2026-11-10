@@ -50,7 +50,7 @@ O `hadouken-kit` injeta no início da sessão a **régua**: a lista de fases do 
 | Comando | Faz |
 |---|---|
 | `/hadouken-kit:regua` | Mostra a régua ativa e de onde ela vem (repo, global ou padrão). |
-| `/hadouken-kit:regua editar` | O Claude monta a régua com você, fase a fase, e grava um rascunho em `<tmp do SO>/hadouken/regua-rascunho.json`. Nada vale até o `aplicar`. |
+| `/hadouken-kit:regua editar` | O Claude monta a régua com você, fase a fase, e grava um rascunho em `<tmp do SO>/hadouken-<uid>/regua-rascunho.json`. Nada vale até o `aplicar`. |
 | `/hadouken-kit:regua aplicar [--projeto]` | Valida o rascunho e grava: sem `--projeto`, em `~/.claude/hadouken/regua.json` (global); com `--projeto`, na chave `regua` de `<raiz do projeto>/.claude/hadouken.json`. |
 | `/hadouken-kit:regua padrao [--projeto]` | Remove a régua do nível e volta à seguinte. |
 

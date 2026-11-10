@@ -1,8 +1,9 @@
 // /hadouken-kit:regua (spec v0.6.0, Fatia 7, bloco "Comando"): hook
 // UserPromptExpansion do kit. Sem argumento mostra a régua ativa e a origem;
 // `editar` deixa o prompt seguir para a skill (que monta o rascunho com o
-// usuário), com o caminho do rascunho em additionalContext; `aplicar [--projeto]` valida o rascunho de <tmp do SO>/hadouken/
-// regua-rascunho.json e o grava por inteiro; `padrao [--projeto]` remove a régua
+// usuário), com o caminho do rascunho em additionalContext; `aplicar [--projeto]`
+// valida o rascunho de <tmp do SO>/hadouken-<uid>/regua-rascunho.json (pasta 0700
+// do usuário) e o grava por inteiro; `padrao [--projeto]` remove a régua
 // do nível. O cache do kit não tem src/: este arquivo só importa node: e
 // ./regua.js, ./dependencias.js, e o portão é a cópia do de src/hooks/comum.js
 // (só o usuário digitando, fora de -p e SDK). A resposta sai de textos fixos,
@@ -13,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  avisosDaRegua, carregarRegua, catalogo, dirHadouken as dirHadoukenDe, lerJson, nomesDesconhecidos, raizProjeto, textoRegua, validarRegua,
+  catalogo, dirHadouken as dirHadoukenDe, lerJson, nomesDesconhecidos, raizProjeto, reguaEfetiva, textoRegua, validarRegua,
 } from './regua.js';
 import { pastaConfig as pastaConfigDe } from './dependencias.js';
 
@@ -31,9 +32,27 @@ const ERRO_INTERNO = `${NADA} Erro interno ao tratar /hadouken-kit:regua.`;
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-// <tmp do SO>/hadouken/regua-rascunho.json, absoluto: o `editar` informa este
-// caminho à skill e o `aplicar` lê dele.
-const caminhoRascunho = (tmpDir) => path.resolve(tmpDir, 'hadouken', 'regua-rascunho.json');
+// O dono do processo; sem uid (Windows) o tmp do SO já é do usuário.
+const uidAtual = () => (typeof process.getuid === 'function' ? process.getuid() : null);
+
+// <tmp do SO>/hadouken-<uid>/regua-rascunho.json (POSIX, o /tmp é de todos) ou
+// <tmp do SO>/hadouken/regua-rascunho.json (sem uid), absoluto: o `editar`
+// informa este caminho à skill e o `aplicar` lê dele.
+export const caminhoRascunho = (tmpDir, uid = null) => path.resolve(tmpDir, typeof uid === 'number' ? `hadouken-${uid}` : 'hadouken', 'regua-rascunho.json');
+
+// A pasta do rascunho é pasta de verdade (lstat: link não vale), do uid e sem
+// escrita de grupo nem de outros (R13). Sem uid só confere que é pasta real.
+export function pastaRascunhoSegura(pasta, uid = null) {
+  try {
+    const info = fs.lstatSync(pasta);
+    if (!info.isDirectory()) return false;
+    return typeof uid !== 'number' || (info.uid === uid && (info.mode & 0o022) === 0);
+  } catch {
+    return false;
+  }
+}
+
+const inseguro = (pasta) => `hadouken-kit: rascunho inseguro em ${pasta}; apague a pasta e rode /hadouken-kit:regua editar.`;
 
 // Cópia mínima de gravarJsonAtomico (src/estado.js): tmp exclusivo na mesma
 // pasta + renameSync; a pasta nasce se faltar. Nunca lança.
@@ -87,20 +106,12 @@ function mostrar({ dirHadouken, env, cwd }) {
   if (!padrao.ok) return `${NADA} a régua padrão do kit (regua-padrao.json) não pôde ser lida.`;
   const { raiz } = raizProjeto({ env, cwd });
   const cat = catalogo({ pastaConfig: pastaConfigDe(env), raiz });
-  const carregada = carregarRegua({ raiz, dirHadouken, padrao: padrao.valor });
-  let { origem, regua } = carregada;
-  const validar = (o) => o !== 'padrão' && cat.lido;
-  let t = textoRegua({ regua, origem, catalogo: cat, validar: validar(origem), limite: Infinity });
-  const { desconhecidos } = t;
-  const nomes = validar(origem) ? nomesDesconhecidos({ regua, catalogo: cat }) : { skills: [], agentes: [] };
-  if (t.texto === '') {
-    // Nada da régua do usuário sobrou: vale a padrão, e a lista do que não existe
-    // continua (é o que o usuário precisa para corrigir a dele).
-    origem = 'padrão';
-    regua = validarRegua(padrao.valor).regua;
-    t = textoRegua({ regua, origem, catalogo: cat, validar: false, limite: Infinity });
-  }
-  const linhas = [`hadouken-kit: ${t.texto}`, ...carregada.avisos, ...avisosDaRegua({ origem, desconhecidos, descartes: carregada.descartes })];
+  // A mesma escolha do SessionStart (reguaEfetiva), sem o corte de 2 000 caracteres.
+  // Régua sem nome conhecido cai para o nível seguinte e a lista do que não
+  // existe continua: é o que o usuário precisa para corrigir a dele.
+  const efetiva = reguaEfetiva({ raiz, dirHadouken, padrao: padrao.valor, catalogo: cat, limite: Infinity });
+  const { nomes } = efetiva;
+  const linhas = [`hadouken-kit: ${efetiva.texto}`, ...efetiva.avisos];
   if (nomes.skills.length > 0) linhas.push(`Skills desconhecidas (não instaladas ou desligadas): ${nomes.skills.join(', ')}.`);
   if (nomes.agentes.length > 0) linhas.push(`Agentes desconhecidos: ${nomes.agentes.join(', ')}.`);
   return linhas.join('\n');
@@ -121,10 +132,14 @@ function lerConfigRepo(arquivo) {
 }
 
 function aplicar(pedido, ctx) {
-  const { dirHadouken, tmpDir, env } = ctx;
-  const arquivoRascunho = caminhoRascunho(tmpDir);
-  const rascunho = lerJson(arquivoRascunho);
+  const { dirHadouken, tmpDir, env, uid } = ctx;
+  const arquivoRascunho = caminhoRascunho(tmpDir, uid);
+  const pasta = path.dirname(arquivoRascunho);
+  try { fs.lstatSync(pasta); } catch (e) { if (e?.code === 'ENOENT') return SEM_RASCUNHO; }
+  if (!pastaRascunhoSegura(pasta, uid)) return inseguro(pasta);
+  const rascunho = lerJson(arquivoRascunho, { donoUid: uid, semLink: true });
   if (rascunho.ausente) return SEM_RASCUNHO;
+  if (rascunho.inseguro) return inseguro(pasta);
   if (!rascunho.ok) return RASCUNHO_ILEGIVEL;
   const v = validarRegua(rascunho.valor);
   if (v.regua === null) return `${NADA} o rascunho não tem fase válida; ele foi mantido: rode /hadouken-kit:regua editar para corrigir.`;
@@ -152,6 +167,9 @@ function aplicar(pedido, ctx) {
   if (nomes.skills.length > 0) avisos.push(plural(nomes.skills.length, 'skill desconhecida', 'skills desconhecidas'));
   if (nomes.agentes.length > 0) avisos.push(plural(nomes.agentes.length, 'agente desconhecido', 'agentes desconhecidos'));
   const linhas = [`hadouken-kit: régua aplicada em ${pedido.projeto ? 'repo' : 'global'} (${arquivo}): ${resumo}. Vale a partir da próxima sessão.`];
+  // O texto que o SessionStart vai injetar, sem corte: nomes que o catálogo não conhece ficam de fora dele.
+  const injetado = textoRegua({ regua: v.regua, origem: pedido.projeto ? 'repo' : 'global', catalogo: cat, validar: cat.lido, limite: Infinity }).texto;
+  if (injetado !== '') linhas.push(injetado);
   if (avisos.length > 0) linhas.push(`${avisos.join('; ')}; /hadouken-kit:regua mostra a régua ativa e os nomes.`);
   if (!comGit) linhas.push('sem repositório git: a régua foi gravada na pasta atual; defina CLAUDE_PROJECT_DIR ou rode a partir da raiz do repositório.');
   return linhas.join('\n');
@@ -179,8 +197,17 @@ function remover(pedido, ctx) {
 
 // `editar` não bloqueia: o prompt segue para a skill e o hook acrescenta o
 // caminho do rascunho (additionalContext de UserPromptExpansion, sem `decision`).
-function editar({ tmpDir }) {
-  const caminho = caminhoRascunho(tmpDir);
+// A pasta do rascunho nasce aqui, 0700 e do usuário; uma que já existe só vale se
+// passar na mesma checagem do `aplicar` (R13).
+function editar({ tmpDir, uid }) {
+  const caminho = caminhoRascunho(tmpDir, uid);
+  const pasta = path.dirname(caminho);
+  try {
+    fs.mkdirSync(pasta, { mode: 0o700 });
+  } catch (e) {
+    if (e?.code !== 'EEXIST') return { decision: 'block', reason: inseguro(pasta) };
+  }
+  if (!pastaRascunhoSegura(pasta, uid)) return { decision: 'block', reason: inseguro(pasta) };
   return {
     hookSpecificOutput: {
       hookEventName: 'UserPromptExpansion',
@@ -190,14 +217,14 @@ function editar({ tmpDir }) {
 }
 
 // A saída do hook: {decision:'block', reason} ou, no `editar`, só o additionalContext.
-export function decidirRegua(entrada, { dirHadouken = null, tmpDir = os.tmpdir(), env = process.env, cwd = process.cwd() } = {}) {
+export function decidirRegua(entrada, { dirHadouken = null, tmpDir = os.tmpdir(), env = process.env, cwd = process.cwd(), uid = uidAtual() } = {}) {
   const bloqueio = (reason) => ({ decision: 'block', reason });
   try {
     const ep = env?.CLAUDE_CODE_ENTRYPOINT;
     if (typeof ep === 'string' && /^sdk/i.test(ep)) return bloqueio(RECUSADO_ENTRYPOINT);
     if (entrada?.command_source !== 'plugin' || entrada?.expansion_type !== 'slash_command') return bloqueio(RECUSADO_ORIGEM);
     const pedido = lerArgs(entrada.command_args);
-    const ctx = { dirHadouken, tmpDir, env, cwd };
+    const ctx = { dirHadouken, tmpDir, env, cwd, uid };
     if (pedido.acao === 'editar') return editar(ctx);
     if (pedido.acao === 'erro') return bloqueio(USO);
     if (pedido.acao === 'mostrar') return bloqueio(mostrar(ctx));

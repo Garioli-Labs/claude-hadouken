@@ -50,7 +50,7 @@ At session start `hadouken-kit` injects the **ruler**: the list of work phases (
 | Command | Does |
 |---|---|
 | `/hadouken-kit:regua` | Shows the active ruler and where it comes from (repo, global or default). |
-| `/hadouken-kit:regua editar` | Claude builds the ruler with you, phase by phase, and saves a draft to `<OS temp>/hadouken/regua-rascunho.json`. Nothing takes effect until `aplicar`. |
+| `/hadouken-kit:regua editar` | Claude builds the ruler with you, phase by phase, and saves a draft to `<OS temp>/hadouken-<uid>/regua-rascunho.json`. Nothing takes effect until `aplicar`. |
 | `/hadouken-kit:regua aplicar [--projeto]` | Validates the draft and saves it: without `--projeto`, to `~/.claude/hadouken/regua.json` (global); with `--projeto`, to the `regua` key of `<project root>/.claude/hadouken.json`. |
 | `/hadouken-kit:regua padrao [--projeto]` | Removes the ruler of that level and falls back to the next one. |
 

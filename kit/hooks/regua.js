@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { lerRegistro, pastaConfig as pastaConfigDe } from './dependencias.js';
+import { pastaConfig as pastaConfigDe } from './dependencias.js';
 
 export const LIMITE_FASE = 60;
 export const LIMITE_QUANDO = 120;
@@ -41,16 +41,21 @@ const ehTexto = (v) => typeof v === 'string' && v !== '';
 
 // Arquivo regular até o teto, lido pelo mesmo descritor que o fstat conferiu.
 // ausente: o arquivo não existe (nível sem régua, sem aviso).
-export function lerJson(arquivo) {
+// Com `semLink` o arquivo abre com O_NOFOLLOW (link → inseguro) e só um arquivo
+// regular vale; com `donoUid` (número) o dono do arquivo tem de ser esse uid.
+// Falha dessas conferências → { ok: false, inseguro: true } (rascunho, R13).
+export function lerJson(arquivo, { donoUid = null, semLink = false } = {}) {
   let fd;
   try {
-    fd = fs.openSync(arquivo, ABRIR_LEITURA);
+    fd = fs.openSync(arquivo, ABRIR_LEITURA | (semLink ? (fs.constants.O_NOFOLLOW ?? 0) : 0));
     const info = fs.fstatSync(fd);
+    if (semLink && (!info.isFile() || (typeof donoUid === 'number' && info.uid !== donoUid))) return { ok: false, inseguro: true };
     if (!info.isFile() || info.size > TETO_JSON) return { ok: false };
     let texto = fs.readFileSync(fd, 'utf8');
     if (texto.charCodeAt(0) === 0xfeff) texto = texto.slice(1);
     return { ok: true, valor: JSON.parse(texto) };
   } catch (e) {
+    if (semLink && (e?.code === 'ELOOP' || e?.code === 'EMLINK')) return { ok: false, inseguro: true };
     return { ok: false, ausente: e?.code === 'ENOENT' };
   } finally {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* já fechado */ } }
@@ -159,12 +164,13 @@ export function raizProjeto({ env = process.env, cwd = process.cwd() } = {}) {
 
 // ------------------------------------------------------------ validação
 
-// Controle (Cc), formatação invisível (Cf: bidi, largura zero, Tags Unicode) e
-// separadores de linha viram espaço, espaços repetidos viram um, corte no limite
-// (por caractere, sem partir um par substituto).
+// Controle (Cc), formatação invisível (Cf: bidi, largura zero, Tags Unicode),
+// seletor de variação (U+FE00–FE0F e U+E0100–E01EF, que são Mn e escapam de Cc
+// e Cf) e separadores de linha viram espaço, espaços repetidos viram um, corte
+// no limite (por caractere, sem partir um par substituto).
 function limpar(texto, limite) {
   if (typeof texto !== 'string') return '';
-  const unico = texto.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ').replace(/\s+/g, ' ').trim();
+  const unico = texto.replace(/[\p{Cc}\p{Cf}︀-️\u{E0100}-\u{E01EF}\u2028\u2029]/gu, ' ').replace(/\s+/g, ' ').trim();
   return [...unico].slice(0, limite).join('').trimEnd();
 }
 
@@ -250,7 +256,16 @@ const AVISO_NIVEL = {
 // seguinte. `descartes` é o do nível escolhido.
 export function carregarRegua({ raiz, dirHadouken: dirH, padrao } = {}) {
   const avisos = [];
-  const nivel = (arquivo, origem, chave) => {
+  const escolhido = niveisDeUsuario({ raiz, dirH, avisos }).reduce((achado, nivel) => achado ?? nivel(), null);
+  if (escolhido !== null) return { ...escolhido, avisos };
+  return { regua: validarRegua(padrao).regua, origem: 'padrão', avisos, descartes: 0 };
+}
+
+// Os níveis do usuário, do de maior precedência ao de menor, cada um uma função
+// que só lê o arquivo quando é chamada (nível ilegível acrescenta o aviso dele a
+// `avisos`; o que vem depois de um nível que vale nunca é lido).
+function niveisDeUsuario({ raiz, dirH, avisos }) {
+  const nivel = (arquivo, origem, chave) => () => {
     if (!ehTexto(arquivo)) return null;
     const lido = lerJson(arquivo);
     if (lido.ausente) return null;
@@ -258,12 +273,49 @@ export function carregarRegua({ raiz, dirHadouken: dirH, padrao } = {}) {
     if (chave && lido.valor.regua === undefined) return null;
     const v = validarRegua(chave ? lido.valor.regua : lido.valor);
     if (v.regua === null) { avisos.push(AVISO_NIVEL[origem]); return null; }
-    return { regua: v.regua, origem, avisos, descartes: v.descartes };
+    return { regua: v.regua, origem, descartes: v.descartes };
   };
-  const escolhido = nivel(ehTexto(raiz) ? path.join(raiz, '.claude', 'hadouken.json') : null, 'repo', true)
-    ?? nivel(ehTexto(dirH) ? path.join(dirH, 'regua.json') : null, 'global', false);
-  if (escolhido !== null) return escolhido;
-  return { regua: validarRegua(padrao).regua, origem: 'padrão', avisos, descartes: 0 };
+  return [
+    nivel(ehTexto(raiz) ? path.join(raiz, '.claude', 'hadouken.json') : null, 'repo', true),
+    nivel(ehTexto(dirH) ? path.join(dirH, 'regua.json') : null, 'global', false),
+  ];
+}
+
+// A régua que vale, repo → global → padrão, e o que o SessionStart e o comando
+// sem argumento mostram dela. Um nível válido cujo texto fica vazio depois da
+// conferência com o catálogo (nenhum nome conhecido) também cai para o seguinte
+// (R12), e os desconhecidos dos níveis pelos quais desceu seguem contados, sem
+// repetição (R15); os itens descartados pelo saneamento também somam, nível a
+// nível. `limite` troca o teto de LIMITE_TEXTO. O texto fica '' só
+// quando a régua padrão não pôde ser lida (o fluxo.js usa a reserva).
+export function reguaEfetiva({ raiz, dirHadouken: dirH, padrao, catalogo: cat, limite = LIMITE_TEXTO } = {}) {
+  const avisos = [];
+  const skills = new Set();
+  const agentes = new Set();
+  let descartados = 0;
+  const validar = cat?.lido === true;
+  const resultado = (origem, regua, texto, descartes) => {
+    const desconhecidos = { skills: skills.size, agentes: agentes.size };
+    return {
+      origem,
+      regua,
+      texto,
+      avisos: [...avisos, ...avisosDaRegua({ origem, desconhecidos, descartes })],
+      desconhecidos,
+      nomes: { skills: [...skills], agentes: [...agentes] },
+    };
+  };
+  for (const nivel of niveisDeUsuario({ raiz, dirH, avisos })) {
+    const n = nivel();
+    if (n === null) continue;
+    const t = textoRegua({ regua: n.regua, origem: n.origem, catalogo: cat, validar, limite });
+    for (const s of t.nomes.skills) skills.add(s);
+    for (const a of t.nomes.agentes) agentes.add(a);
+    descartados += n.descartes;
+    if (t.texto !== '') return resultado(n.origem, n.regua, t.texto, descartados);
+  }
+  const regua = validarRegua(padrao).regua;
+  return resultado('padrão', regua, textoRegua({ regua, origem: 'padrão', catalogo: cat, validar: false, limite }).texto, descartados);
 }
 
 // ------------------------------------------------------------ catálogo
@@ -288,29 +340,70 @@ function skillsEm(pasta, prefixo, saida) {
   }
 }
 
+function agenteArquivo(arquivo, prefixo, saida) {
+  const e = path.basename(arquivo);
+  if (!e.endsWith('.md') || saida.size >= MAX_SKILLS) return;
+  const f = frontmatter(arquivo);
+  if (f !== null) saida.add(`${prefixo}${f.nome ?? e.slice(0, -3)}`);
+}
+
 function agentesEm(pasta, prefixo, saida) {
   try {
-    for (const e of fs.readdirSync(pasta)) {
-      if (!e.endsWith('.md') || saida.size >= MAX_SKILLS) continue;
-      const f = frontmatter(path.join(pasta, e));
-      if (f !== null) saida.add(`${prefixo}${f.nome ?? e.slice(0, -3)}`);
-    }
+    for (const e of fs.readdirSync(pasta)) agenteArquivo(path.join(pasta, e), prefixo, saida);
   } catch { /* pasta ausente */ }
 }
 
 // Commands (commands/*.md) entram no mesmo mapa das skills: o usuário os digita
 // como /nome e a régua os cita igual. Nome: `name` do frontmatter ou o do arquivo.
-function commandsEm(pasta, prefixo, saida) {
+function commandArquivo(arquivo, prefixo, saida) {
+  const e = path.basename(arquivo);
+  if (!e.endsWith('.md') || saida.size >= MAX_SKILLS) return;
+  const f = frontmatter(arquivo);
+  if (f !== null) saida.set(`${prefixo}${f.nome ?? e.slice(0, -3)}`, { soUsuario: f.soUsuario });
+}
+
+// `caminho` é uma pasta de commands ou, no `commands` declarado pelo plugin.json, um arquivo .md.
+function commandsEm(caminho, prefixo, saida) {
   try {
-    for (const e of fs.readdirSync(pasta)) {
-      if (!e.endsWith('.md') || saida.size >= MAX_SKILLS) continue;
-      const f = frontmatter(path.join(pasta, e));
-      if (f !== null) saida.set(`${prefixo}${f.nome ?? e.slice(0, -3)}`, { soUsuario: f.soUsuario });
-    }
-  } catch { /* pasta ausente */ }
+    if (!fs.statSync(caminho).isDirectory()) { commandArquivo(caminho, prefixo, saida); return; }
+    for (const e of fs.readdirSync(caminho)) commandArquivo(path.join(caminho, e), prefixo, saida);
+  } catch { /* caminho ausente */ }
 }
 
 const dentroDe = (pai, filho) => filho === pai || filho.startsWith(pai + path.sep);
+
+// Os caminhos que o plugin.json declara num campo (texto ou lista), relativos à
+// pasta do plugin e só os que, resolvidos (link incluído), ficam dentro dela.
+function declarados(base, valor) {
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+  const raizReal = real(base);
+  if (raizReal === null) return [];
+  return [valor].flat().filter(ehTexto).map((s) => path.resolve(base, s)).filter((d) => {
+    const r = real(d);
+    return r !== null && dentroDe(raizReal, r);
+  });
+}
+
+// Componentes de um plugin ligado, na regra da doc de plugins
+// (https://code.claude.com/docs/en/plugins-reference, "How each key combines
+// with its default location"): `skills` do manifesto soma à skills/ padrão;
+// `commands` e `agents` substituem commands/ e agents/. `commands` aceita
+// também um mapa nome → {source|content}; `agents` só aceita arquivos .md.
+function componentesDoPlugin(base, nome, manifesto, skills, agentes) {
+  const m = manifesto.ok && ehObjeto(manifesto.valor) ? manifesto.valor : {};
+  const prefixo = `${nome}:`;
+  for (const d of [path.join(base, 'skills'), ...declarados(base, m.skills)]) skillsEm(d, prefixo, skills);
+  if (m.commands === undefined) commandsEm(path.join(base, 'commands'), prefixo, skills);
+  else if (ehObjeto(m.commands)) {
+    for (const k of Object.keys(m.commands)) if (skills.size < MAX_SKILLS) skills.set(`${prefixo}${k}`, { soUsuario: false });
+  } else for (const d of declarados(base, m.commands)) commandsEm(d, prefixo, skills);
+  if (m.agents === undefined) agentesEm(path.join(base, 'agents'), prefixo, agentes);
+  else {
+    for (const d of declarados(base, m.agents)) {
+      try { if (fs.statSync(d).isFile()) agenteArquivo(d, prefixo, agentes); } catch { /* arquivo ausente */ }
+    }
+  }
+}
 
 // enabledPlugins de um settings.json (objeto) ou null quando o arquivo não
 // existe, não lê ou não tem a forma esperada.
@@ -356,10 +449,20 @@ function pluginsLigados(pastaConfig, raiz) {
   return ligados;
 }
 
-// Skills e commands de plugin ligado (as caminhos de `skills` do plugin.json
-// quando existem, senão skills/*/SKILL.md; commands/*.md), ~/.claude/skills,
-// ~/.claude/commands, <raiz>/.claude/skills e <raiz>/.claude/commands; agentes de
-// plugin (agents/*.md), ~/.claude/agents, <raiz>/.claude/agents e os internos.
+// `installed_plugins.json` legível no formato v2 (`plugins[id]` é sempre uma
+// lista de entradas): é o que libera a validação. Não depende de o kit estar
+// no escopo do usuário (user, project ou local, R11).
+function registroV2Legivel(pastaConfig) {
+  const lido = lerJson(path.join(pastaConfig, 'plugins', 'installed_plugins.json'));
+  if (!lido.ok || !ehObjeto(lido.valor) || !ehObjeto(lido.valor.plugins)) return false;
+  if (lido.valor.version !== undefined && lido.valor.version !== 2) return false;
+  return Object.values(lido.valor.plugins).every(Array.isArray);
+}
+
+// Skills e commands de plugin ligado, ~/.claude/skills, ~/.claude/commands,
+// <raiz>/.claude/skills e <raiz>/.claude/commands; agentes de plugin,
+// ~/.claude/agents, <raiz>/.claude/agents e os internos. As pastas padrão e os
+// caminhos do plugin.json de cada plugin seguem a regra de componentesDoPlugin.
 // Plugin ligado no user, no project ou no local (ver pluginsLigados). `lido` é
 // false quando o registro de plugins não pôde ser lido: sem ele o catálogo está
 // incompleto e nada deve ser tido por desconhecido.
@@ -368,17 +471,11 @@ export function catalogo({ pastaConfig, raiz } = {}) {
   const agentes = new Set(['Explore', 'Plan', 'general-purpose']);
   let lido = false;
   try {
-    lido = ehTexto(pastaConfig) && lerRegistro(pastaConfig) !== null;
+    lido = ehTexto(pastaConfig) && registroV2Legivel(pastaConfig);
     for (const [id, installPath] of ehTexto(pastaConfig) ? pluginsLigados(pastaConfig, raiz) : []) {
       try {
-        const nome = id.split('@')[0];
         const base = path.resolve(installPath);
-        const manifesto = lerJson(path.join(base, '.claude-plugin', 'plugin.json'));
-        const declaradas = manifesto.ok && ehObjeto(manifesto.valor) ? [manifesto.valor.skills].flat().filter(ehTexto) : [];
-        const pastas = declaradas.length > 0 ? declaradas.map((s) => path.resolve(base, s)).filter((d) => dentroDe(base, d)) : [path.join(base, 'skills')];
-        for (const d of pastas) skillsEm(d, `${nome}:`, skills);
-        commandsEm(path.join(base, 'commands'), `${nome}:`, skills);
-        agentesEm(path.join(base, 'agents'), `${nome}:`, agentes);
+        componentesDoPlugin(base, id.split('@')[0], lerJson(path.join(base, '.claude-plugin', 'plugin.json')), skills, agentes);
       } catch { /* este plugin é pulado */ }
     }
     if (ehTexto(pastaConfig)) {
@@ -399,21 +496,29 @@ export function catalogo({ pastaConfig, raiz } = {}) {
 
 // "Régua (<origem>): <Fase> → <skills>[ (alt.: <skill> — <quando> | …)][ · agente <agente>]; …; Transversais: <skill> — <quando>; …".
 // `limite` troca o teto de LIMITE_TEXTO (o comando mostra a régua inteira). Skill só do usuário vai com /. Com `validar`, skill e agente que o catálogo
-// não conhece saem do texto e entram na contagem. Texto vazio quando nada sobra.
+// não conhece saem do texto e entram na contagem: `desconhecidos` conta nomes
+// distintos (o mesmo nome em várias fases conta uma vez, R15) e `nomes` os lista.
+// Texto vazio quando nada sobra.
 export function textoRegua({ regua, origem, catalogo: cat, validar, limite = LIMITE_TEXTO } = {}) {
-  const desconhecidos = { skills: 0, agentes: 0 };
-  const vazio = { texto: '', avisos: [], desconhecidos };
-  if (!ehObjeto(regua) || !Array.isArray(regua.fases)) return vazio;
+  const skillsFora = new Set();
+  const agentesFora = new Set();
+  const saida = (texto) => ({
+    texto,
+    avisos: [],
+    desconhecidos: { skills: skillsFora.size, agentes: agentesFora.size },
+    nomes: { skills: [...skillsFora], agentes: [...agentesFora] },
+  });
+  if (!ehObjeto(regua) || !Array.isArray(regua.fases)) return saida('');
   const skillsDoCatalogo = cat?.skills instanceof Map ? cat.skills : new Map();
   const agentesDoCatalogo = cat?.agentes instanceof Set ? cat.agentes : new Set();
   const skillConhecida = (n) => {
     if (!validar || skillsDoCatalogo.has(n)) return true;
-    desconhecidos.skills += 1;
+    skillsFora.add(n);
     return false;
   };
   const agenteConhecido = (n) => {
     if (!validar || agentesDoCatalogo.has(n)) return true;
-    desconhecidos.agentes += 1;
+    agentesFora.add(n);
     return false;
   };
   const so = (n) => skillsDoCatalogo.get(n)?.soUsuario ?? SO_USUARIO_PADRAO.includes(n);
@@ -433,11 +538,11 @@ export function textoRegua({ regua, origem, catalogo: cat, validar, limite = LIM
   const transversais = (regua.transversais ?? []).filter((t) => skillConhecida(t.skill)).map((t) => `${cita(t.skill)} — ${t.quando}`);
   if (transversais.length > 0) transversais[0] = `Transversais: ${transversais[0]}`;
   segmentos.push(...transversais);
-  if (segmentos.length === 0) return { texto: '', avisos: [], desconhecidos };
+  if (segmentos.length === 0) return saida('');
 
   const prefixo = `Régua (${origem}): `;
   const inteiro = prefixo + segmentos.join('; ');
-  if (inteiro.length <= limite) return { texto: inteiro, avisos: [], desconhecidos };
+  if (inteiro.length <= limite) return saida(inteiro);
   const caber = limite - PONTEIRO.length - 1;
   let aceito = '';
   for (let i = 1; i <= segmentos.length; i += 1) {
@@ -446,7 +551,7 @@ export function textoRegua({ regua, origem, catalogo: cat, validar, limite = LIM
     aceito = tentativa;
   }
   if (aceito === '') aceito = cortarPorCaractere(prefixo + segmentos[0], caber);
-  return { texto: `${aceito.trimEnd()} ${PONTEIRO}`, avisos: [], desconhecidos };
+  return saida(`${aceito.trimEnd()} ${PONTEIRO}`);
 }
 
 // Os nomes que o catálogo não conhece, sem repetição, na ordem da régua. Só o
@@ -497,15 +602,8 @@ export function reguaDaSessao(env = process.env, cwd = process.cwd()) {
     const valorPadrao = padrao.ok ? padrao.valor : null;
     const { raiz } = raizProjeto({ env, cwd });
     const cat = catalogo({ pastaConfig: pastaConfigDe(env), raiz });
-    const carregada = carregarRegua({ raiz, dirHadouken: dirHadouken(env), padrao: valorPadrao });
-    let { origem } = carregada;
-    let t = textoRegua({ regua: carregada.regua, origem, catalogo: cat, validar: origem !== 'padrão' && cat.lido });
-    const { desconhecidos } = t;
-    if (t.texto === '') {
-      origem = 'padrão';
-      t = textoRegua({ regua: validarRegua(valorPadrao).regua, origem, catalogo: cat, validar: false });
-    }
-    return { texto: t.texto, avisos: [...carregada.avisos, ...avisosDaRegua({ origem, desconhecidos, descartes: carregada.descartes })] };
+    const { texto, avisos } = reguaEfetiva({ raiz, dirHadouken: dirHadouken(env), padrao: valorPadrao, catalogo: cat });
+    return { texto, avisos };
   } catch {
     return null;
   }

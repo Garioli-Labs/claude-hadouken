@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { envIsolado } from './kit-env-isolado.js';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const FLUXO = path.join(repo, 'kit', 'hooks', 'fluxo.js');
@@ -74,9 +75,10 @@ const CACHE_DE = {
 // O SessionStart lê o registro de plugins de CLAUDE_CONFIG_DIR: sempre uma
 // pasta vazia, nunca o ~/.claude de quem roda o teste.
 const CONFIG_VAZIA = fs.mkdtempSync(path.join(os.tmpdir(), 'kit fluxo cfg '));
-after(() => fs.rmSync(CONFIG_VAZIA, { recursive: true, force: true }));
+const CASA_VAZIA = fs.mkdtempSync(path.join(os.tmpdir(), 'kit fluxo casa '));
+after(() => { for (const d of [CONFIG_VAZIA, CASA_VAZIA]) fs.rmSync(d, { recursive: true, force: true }); });
 function rodar(cwd, input = '') {
-  return spawnSync(process.execPath, [FLUXO], { cwd, input, encoding: 'utf8', timeout: 5000, env: { ...process.env, CLAUDE_CONFIG_DIR: CONFIG_VAZIA } });
+  return spawnSync(process.execPath, [FLUXO], { cwd, input, encoding: 'utf8', timeout: 5000, env: envIsolado(CASA_VAZIA, { CLAUDE_CONFIG_DIR: CONFIG_VAZIA }) });
 }
 const contexto = () => JSON.parse(rodar(repo).stdout).hookSpecificOutput.additionalContext;
 

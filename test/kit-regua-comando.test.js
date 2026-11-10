@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { envIsolado } from './kit-env-isolado.js';
 
 // v0.6.0, Fatia 7, Tarefa 11 (spec §4 Fatia 7, bloco "Comando"; casos R6 e R7; plano
 // RF8). /hadouken-kit:regua: sem argumento mostra a régua ativa; `editar` deixa a
@@ -73,7 +74,24 @@ const bloqueio = (saida) => {
   assert.equal(typeof saida.reason, 'string');
   return saida.reason;
 };
-const rascunhoDe = (tmpDir) => path.join(tmpDir, 'hadouken', 'regua-rascunho.json');
+// Pasta do rascunho (spec §4 Fatia 7): <tmp>/hadouken-<uid>/ no POSIX, <tmp>/hadouken/ sem uid (Windows).
+const UID = typeof process.getuid === 'function' ? process.getuid() : null;
+const pastaRascunhoDe = (tmpDir, uid = UID) => path.join(tmpDir, uid === null ? 'hadouken' : `hadouken-${uid}`);
+const rascunhoDe = (tmpDir, uid = UID) => path.join(pastaRascunhoDe(tmpDir, uid), 'regua-rascunho.json');
+// A pasta nasce 0700, como o `editar` a cria; o modo não depende do umask de quem roda.
+function gravarRascunho(tmpDir, conteudo) {
+  const pasta = pastaRascunhoDe(tmpDir);
+  fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
+  fs.chmodSync(pasta, 0o700);
+  fs.writeFileSync(rascunhoDe(tmpDir), typeof conteudo === 'string' ? conteudo : JSON.stringify(conteudo));
+}
+// os.tmpdir() lê TMPDIR a cada chamada: o teste que usa o tmp padrão do hook aponta para uma pasta de fixture.
+async function comTmpdir(fn) {
+  const antes = process.env.TMPDIR;
+  const tmp = novoTmp();
+  process.env.TMPDIR = tmp;
+  try { return await fn(tmp); } finally { if (antes === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = antes; }
+}
 const reguaDe = (fases, transversais = []) => ({ fases, transversais });
 
 // ------------------------------------------------------------ sem argumento
@@ -136,11 +154,14 @@ test('editar → não bloqueia e informa o caminho absoluto do rascunho em addit
   }
 });
 
-test('editar: sem tmpDir injetado, o caminho é o de os.tmpdir()/hadouken/regua-rascunho.json', async () => {
+test('editar: sem tmpDir injetado, o caminho é o de os.tmpdir()/hadouken-<uid>/regua-rascunho.json', async () => {
   const { decidirRegua } = await comando();
-  const saida = decidirRegua(entradaDe('editar'), { ...ambiente(), tmpDir: undefined });
-  assert.ok(saida !== null, 'sem saída do hook');
-  assert.ok(saida.hookSpecificOutput.additionalContext.includes(path.join(os.tmpdir(), 'hadouken', 'regua-rascunho.json')));
+  await comTmpdir((tmp) => {
+    const saida = decidirRegua(entradaDe('editar'), { ...ambiente(), tmpDir: undefined });
+    assert.ok(saida !== null, 'sem saída do hook');
+    assert.ok(saida.hookSpecificOutput.additionalContext.includes(rascunhoDe(os.tmpdir())), saida.hookSpecificOutput.additionalContext);
+    assert.ok(existe(pastaRascunhoDe(tmp)), 'o editar cria a pasta do rascunho');
+  });
 });
 
 test('editar: portão e SDK continuam bloqueando', async () => {
@@ -161,7 +182,7 @@ test('argumento desconhecido → nada mudado, sem eco do argumento', async () =>
 
 test('portão: origem que não é o comando digitado, ou -p/SDK → nada mudado e nada gravado', async () => {
   const ctx = ambiente();
-  gravar(rascunhoDe(ctx.tmpDir), reguaDe([{ fase: 'F', usar: ['a:b'] }]));
+  gravarRascunho(ctx.tmpDir, reguaDe([{ fase: 'F', usar: ['a:b'] }]));
   const agendado = bloqueio((await decidir('aplicar', ctx, { command_source: 'user' })).saida);
   assert.match(agendado, /nada mudado/);
   const sdk = bloqueio((await decidir('aplicar', { ...ctx, env: { ...ctx.env, CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' } })).saida);
@@ -178,7 +199,7 @@ test('aplicar com rascunho válido → regua.json global igual ao rascunho, rasc
     [{ fase: 'Ideia', usar: ['a:b'], alternativas: [{ skill: 'c:d', quando: 'sempre' }] }, { fase: 'Auditar', agente: 'hadouken:auditor' }],
     [{ skill: 'e:f', quando: 'bug' }],
   );
-  gravar(rascunhoDe(ctx.tmpDir), rascunho);
+  gravarRascunho(ctx.tmpDir, rascunho);
   const reason = bloqueio((await decidir('aplicar', ctx)).saida);
   assert.deepEqual(lerJ(path.join(ctx.dirHadouken, 'regua.json')), rascunho);
   assert.ok(!existe(rascunhoDe(ctx.tmpDir)), 'rascunho não apagado');
@@ -189,7 +210,7 @@ test('aplicar com rascunho válido → regua.json global igual ao rascunho, rasc
 
 test('aplicar saneia: só o item válido é gravado e a fase longa é cortada em 60; reason conta o descarte sem eco', async () => {
   const ctx = ambiente();
-  gravar(rascunhoDe(ctx.tmpDir), reguaDe([{ fase: 'f'.repeat(300), usar: ['ok:a', 'x y'] }]));
+  gravarRascunho(ctx.tmpDir, reguaDe([{ fase: 'f'.repeat(300), usar: ['ok:a', 'x y'] }]));
   const reason = bloqueio((await decidir('aplicar', ctx)).saida);
   const gravado = lerJ(path.join(ctx.dirHadouken, 'regua.json'));
   assert.deepEqual(gravado.fases[0].usar, ['ok:a']);
@@ -202,7 +223,7 @@ test('aplicar --projeto: chave regua em <CLAUDE_PROJECT_DIR>/.claude/hadouken.js
   const A = novoTmp();
   const ctx = ambiente({ env: { CLAUDE_CONFIG_DIR: cfgComRegistro(), CLAUDE_PROJECT_DIR: A } });
   gravar(path.join(A, '.claude', 'hadouken.json'), { outra: { x: 1 }, regua: reguaDe([{ fase: 'Velha', usar: ['v:v'] }]) });
-  gravar(rascunhoDe(ctx.tmpDir), reguaDe([{ fase: 'Nova', usar: ['n:n'] }]));
+  gravarRascunho(ctx.tmpDir, reguaDe([{ fase: 'Nova', usar: ['n:n'] }]));
   const reason = bloqueio((await decidir('aplicar --projeto', ctx)).saida);
   const arq = lerJ(path.join(A, '.claude', 'hadouken.json'));
   assert.deepEqual(arq.outra, { x: 1 });
@@ -219,7 +240,7 @@ test('aplicar --projeto sem CLAUDE_PROJECT_DIR: cwd=<repo>/sub com .git em <repo
   const sub = path.join(dir, 'sub');
   fs.mkdirSync(sub);
   const ctx = ambiente({ cwd: sub });
-  gravar(rascunhoDe(ctx.tmpDir), reguaDe([{ fase: 'F', usar: ['a:b'] }]));
+  gravarRascunho(ctx.tmpDir, reguaDe([{ fase: 'F', usar: ['a:b'] }]));
   const reason = bloqueio((await decidir('aplicar --projeto', ctx)).saida);
   assert.deepEqual(lerJ(path.join(dir, '.claude', 'hadouken.json')).regua, reguaDe([{ fase: 'F', usar: ['a:b'] }]));
   assert.ok(!existe(path.join(sub, '.claude')));
@@ -228,7 +249,7 @@ test('aplicar --projeto sem CLAUDE_PROJECT_DIR: cwd=<repo>/sub com .git em <repo
 
 test('R7: aplicar --projeto sem CLAUDE_PROJECT_DIR e sem .git → grava em <cwd>/.claude/hadouken.json e avisa "sem repositório git"', async () => {
   const ctx = ambiente();
-  gravar(rascunhoDe(ctx.tmpDir), reguaDe([{ fase: 'F', usar: ['a:b'] }]));
+  gravarRascunho(ctx.tmpDir, reguaDe([{ fase: 'F', usar: ['a:b'] }]));
   const reason = bloqueio((await decidir('aplicar --projeto', ctx)).saida);
   assert.deepEqual(lerJ(path.join(ctx.cwd, '.claude', 'hadouken.json')).regua, reguaDe([{ fase: 'F', usar: ['a:b'] }]));
   assert.ok(reason.includes('sem repositório git'), reason);
@@ -238,7 +259,7 @@ test('aplicar --projeto com hadouken.json ilegível → nada mudado e o arquivo 
   const A = novoTmp();
   const ctx = ambiente({ env: { CLAUDE_CONFIG_DIR: cfgComRegistro(), CLAUDE_PROJECT_DIR: A } });
   gravar(path.join(A, '.claude', 'hadouken.json'), '{ isto não é json');
-  gravar(rascunhoDe(ctx.tmpDir), reguaDe([{ fase: 'F', usar: ['a:b'] }]));
+  gravarRascunho(ctx.tmpDir, reguaDe([{ fase: 'F', usar: ['a:b'] }]));
   const reason = bloqueio((await decidir('aplicar --projeto', ctx)).saida);
   assert.match(reason, /nada mudado/);
   assert.equal(fs.readFileSync(path.join(A, '.claude', 'hadouken.json'), 'utf8'), '{ isto não é json');
@@ -255,7 +276,7 @@ test('R6: aplicar sem rascunho → "sem rascunho; rode /hadouken-kit:regua edita
 test('rascunho inválido (JSON ilegível ou sem fase válida) → avisos, nada gravado, rascunho mantido', async () => {
   for (const conteudo of ['{ não é json', JSON.stringify(reguaDe([])), JSON.stringify(reguaDe([{ fase: 'F' }]))]) {
     const ctx = ambiente();
-    gravar(rascunhoDe(ctx.tmpDir), conteudo);
+    gravarRascunho(ctx.tmpDir, conteudo);
     const reason = bloqueio((await decidir('aplicar', ctx)).saida);
     assert.match(reason, /nada mudado/, conteudo);
     assert.match(reason, /rascunho/, conteudo);
@@ -306,13 +327,13 @@ test('gravarJson: grava por tmp + rename, cria a pasta, sem tmp sobrando; erro �
 // ------------------------------------------------------------ o hook de ponta a ponta
 
 function rodarHook(stdin, { tmp, hadouken, cfg, projeto }) {
-  const env = { ...process.env, TMPDIR: tmp, HADOUKEN_HOME: hadouken, CLAUDE_CONFIG_DIR: cfg, CLAUDE_PROJECT_DIR: projeto, CLAUDE_CODE_ENTRYPOINT: 'cli' };
+  const env = envIsolado(novoTmp(), { TMPDIR: tmp, HADOUKEN_HOME: hadouken, CLAUDE_CONFIG_DIR: cfg, CLAUDE_PROJECT_DIR: projeto, CLAUDE_CODE_ENTRYPOINT: 'cli' });
   return spawnSync(process.execPath, [HOOK], { input: stdin, env, encoding: 'utf8', timeout: 15000 });
 }
 
 test('hook: stdin do UserPromptExpansion → decision:block; aplicar lê o rascunho em os.tmpdir()/hadouken; sai 0', () => {
   const fix = { tmp: novoTmp(), hadouken: novoTmp(), cfg: cfgComRegistro(), projeto: novoTmp() };
-  gravar(path.join(fix.tmp, 'hadouken', 'regua-rascunho.json'), reguaDe([{ fase: 'F', usar: ['a:b'] }]));
+  gravarRascunho(fix.tmp, reguaDe([{ fase: 'F', usar: ['a:b'] }]));
   const r = rodarHook(JSON.stringify(entradaDe('aplicar')), fix);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stderr, '');
@@ -359,8 +380,10 @@ test('skill regua: name, só o usuário aciona; o rascunho vai para o caminho qu
   assert.match(s, /caminho (que o hook informou|informado pelo hook)/);
   assert.ok(s.includes('/hadouken-kit:regua aplicar'), 'lembra que nada vale até o aplicar');
   const { decidirRegua } = await comando();
-  const saida = decidirRegua(entradaDe('editar'), { ...ambiente(), tmpDir: undefined });
-  assert.equal(saida.hookSpecificOutput.additionalContext.includes(path.join(os.tmpdir(), 'hadouken', 'regua-rascunho.json')), true);
+  await comTmpdir(() => {
+    const saida = decidirRegua(entradaDe('editar'), { ...ambiente(), tmpDir: undefined });
+    assert.equal(saida.hookSpecificOutput.additionalContext.includes(rascunhoDe(os.tmpdir())), true);
+  });
 });
 
 // ============================================================ revisão da fatia 7 (C2, T2, T3, T4)
@@ -387,7 +410,7 @@ test('C2: régua do repo só com nomes desconhecidos → origem padrão, contage
 test('T2: expansion_type mcp_prompt ou skill_tool → nada mudado, nada gravado e rascunho mantido', async () => {
   for (const tipo of ['mcp_prompt', 'skill_tool']) {
     const ctx = ambiente();
-    gravar(rascunhoDe(ctx.tmpDir), reguaDe([{ fase: 'F', usar: ['a:b'] }]));
+    gravarRascunho(ctx.tmpDir, reguaDe([{ fase: 'F', usar: ['a:b'] }]));
     const reason = bloqueio((await decidir('aplicar', ctx, { expansion_type: tipo })).saida);
     assert.match(reason, /nada mudado/, tipo);
     assert.ok(!existe(path.join(ctx.dirHadouken, 'regua.json')), tipo);
@@ -399,13 +422,14 @@ test('T2: expansion_type mcp_prompt ou skill_tool → nada mudado, nada gravado 
 
 // ------------------------------------------------------------ T3: catálogo sem registro → nada é desconhecido
 
-// registro ilegível, e o kit só em escopo project (lido:false)
+// registro ilegível, e registro fora do v2 (lido:false). O kit só em escopo
+// project já não é "sem registro" (R11): a validação roda igual.
 const CFG_SEM_REGISTRO = {
   ilegivel: (cfg) => fs.writeFileSync(path.join(cfg, 'plugins', 'installed_plugins.json'), '{ ilegível'),
-  'kit fora do escopo user': (cfg) => {
+  'plugins[id] que não é lista': (cfg) => {
     const arq = path.join(cfg, 'plugins', 'installed_plugins.json');
     const reg = lerJ(arq);
-    reg.plugins['hadouken-kit@claude-hadouken'] = [{ scope: 'project', projectPath: '/p', version: '1.2.0', installPath: null }];
+    reg.plugins['hadouken-kit@claude-hadouken'] = { scope: 'project' };
     gravar(arq, reg);
   },
 };
@@ -423,15 +447,129 @@ test('T3: catálogo sem registro lido → o comando mostra a régua do usuário 
 
 // ------------------------------------------------------------ T4: teto de tamanho e arquivo que não é regular
 
-test('T4: rascunho acima de 4 MB (JSON válido) ou que é uma pasta → "ilegível" e mantido', async () => {
+test('T4: rascunho acima de 4 MB (JSON válido) → "ilegível" e mantido; rascunho que é uma pasta → inseguro (não é arquivo regular, R13)', async () => {
   const grande = JSON.stringify({ ...reguaDe([{ fase: 'F', usar: ['a:b'] }]), enchimento: 'a'.repeat(5 * 1024 * 1024) });
-  for (const montar of [(arq) => gravar(arq, grande), (arq) => fs.mkdirSync(arq, { recursive: true })]) {
+  for (const [montar, esperado] of [[(tmp) => gravarRascunho(tmp, grande), /nada mudado.*rascunho ilegível/], [(tmp) => { fs.mkdirSync(rascunhoDe(tmp), { recursive: true }); fs.chmodSync(pastaRascunhoDe(tmp), 0o700); }, /rascunho inseguro em /]]) {
     const ctx = ambiente();
-    montar(rascunhoDe(ctx.tmpDir));
+    montar(ctx.tmpDir);
     const reason = bloqueio((await decidir('aplicar', ctx)).saida);
-    assert.match(reason, /nada mudado/);
-    assert.match(reason, /rascunho ilegível/);
+    assert.match(reason, esperado);
     assert.ok(!existe(path.join(ctx.dirHadouken, 'regua.json')));
     assert.ok(existe(rascunhoDe(ctx.tmpDir)), 'mantido');
   }
+});
+
+// ============================================================ A2: rascunho do usuário (R13) e resposta do aplicar
+
+test('caminhoRascunho: <tmp>/hadouken-<uid>/regua-rascunho.json no POSIX; <tmp>/hadouken/ sem uid (Windows)', async () => {
+  const { caminhoRascunho } = await comando();
+  const tmp = novoTmp();
+  assert.equal(caminhoRascunho(tmp, 501), path.join(tmp, 'hadouken-501', 'regua-rascunho.json'));
+  assert.equal(caminhoRascunho(tmp, 0), path.join(tmp, 'hadouken-0', 'regua-rascunho.json'));
+  assert.equal(caminhoRascunho(tmp, null), path.join(tmp, 'hadouken', 'regua-rascunho.json'));
+  assert.equal(caminhoRascunho(tmp, undefined), path.join(tmp, 'hadouken', 'regua-rascunho.json'));
+});
+
+const POSIX = { skip: process.platform === 'win32' && 'sem uid, modo e link confiáveis no Windows' };
+
+test('pastaRascunhoSegura: pasta real, do uid e sem escrita de grupo ou de outros; link, 0777 ou outro dono → false', POSIX, async () => {
+  const { pastaRascunhoSegura } = await comando();
+  const base = novoTmp();
+  const boa = path.join(base, 'boa');
+  fs.mkdirSync(boa, { mode: 0o700 });
+  fs.chmodSync(boa, 0o700);
+  assert.equal(pastaRascunhoSegura(boa, UID), true);
+  assert.equal(pastaRascunhoSegura(boa, UID + 1), false, 'dono diferente (o teste passa outro uid; chown pede root)');
+  const aberta = path.join(base, 'aberta');
+  fs.mkdirSync(aberta);
+  fs.chmodSync(aberta, 0o777);
+  assert.equal(pastaRascunhoSegura(aberta, UID), false, '0777');
+  const grupo = path.join(base, 'grupo');
+  fs.mkdirSync(grupo);
+  fs.chmodSync(grupo, 0o770);
+  assert.equal(pastaRascunhoSegura(grupo, UID), false, 'escrita de grupo');
+  const link = path.join(base, 'link');
+  fs.symlinkSync(boa, link);
+  assert.equal(pastaRascunhoSegura(link, UID), false, 'link para pasta boa');
+  assert.equal(pastaRascunhoSegura(path.join(base, 'nao-existe'), UID), false);
+  fs.writeFileSync(path.join(base, 'arquivo'), '');
+  assert.equal(pastaRascunhoSegura(path.join(base, 'arquivo'), UID), false, 'não é pasta');
+});
+
+// Cada cenário monta a pasta insegura e confere que `editar` e `aplicar` recusam
+// com a frase da spec e que nada é gravado (nem regua.json, nem hadouken.json do repo).
+const INSEGUROS = [
+  ['pasta que é link', (tmp) => { const alvo = novoTmp(); fs.chmodSync(alvo, 0o700); fs.symlinkSync(alvo, pastaRascunhoDe(tmp)); }],
+  ['pasta com modo 0777', (tmp) => { fs.mkdirSync(pastaRascunhoDe(tmp)); fs.chmodSync(pastaRascunhoDe(tmp), 0o777); }],
+  ['rascunho que é link', (tmp) => {
+    gravarRascunho(tmp, '{}');
+    const alvo = path.join(novoTmp(), 'de-outro.json');
+    gravar(alvo, reguaDe([{ fase: 'Plantada', usar: ['bom:ok'] }]));
+    fs.rmSync(rascunhoDe(tmp));
+    fs.symlinkSync(alvo, rascunhoDe(tmp));
+  }],
+];
+for (const [nome, montar] of INSEGUROS) {
+  test(`R13: ${nome} → aplicar responde "rascunho inseguro em <pasta>" e nada é gravado${nome.startsWith('rascunho') ? '' : '; editar também'}`, POSIX, async () => {
+    const pedidos = nome.startsWith('rascunho') ? ['aplicar', 'aplicar --projeto'] : ['editar', 'aplicar', 'aplicar --projeto'];
+    for (const args of pedidos) {
+      const ctx = ambiente({ env: { CLAUDE_CONFIG_DIR: cfgComRegistro(), CLAUDE_PROJECT_DIR: novoTmp() } });
+      montar(ctx.tmpDir);
+      const reason = bloqueio((await decidir(args, ctx)).saida);
+      assert.equal(reason, `hadouken-kit: rascunho inseguro em ${pastaRascunhoDe(ctx.tmpDir)}; apague a pasta e rode /hadouken-kit:regua editar.`, `${nome}: ${args}`);
+      assert.ok(!existe(path.join(ctx.dirHadouken, 'regua.json')), `${nome}: ${args}: regua.json gravado`);
+      assert.ok(!existe(path.join(ctx.env.CLAUDE_PROJECT_DIR, '.claude', 'hadouken.json')), `${nome}: ${args}: hadouken.json gravado`);
+    }
+  });
+}
+
+test('R13: dono diferente (uid injetado, sem chown) → editar e aplicar recusam; rascunho e regua.json intactos', POSIX, async () => {
+  const { decidirRegua } = await comando();
+  const ctx = ambiente();
+  // O hook de um usuário de uid UID+1 acha <tmp>/hadouken-<UID+1>/, que é de quem roda o teste (UID).
+  const outro = UID + 1;
+  fs.mkdirSync(pastaRascunhoDe(ctx.tmpDir, outro), { mode: 0o700 });
+  fs.chmodSync(pastaRascunhoDe(ctx.tmpDir, outro), 0o700);
+  fs.writeFileSync(rascunhoDe(ctx.tmpDir, outro), JSON.stringify(reguaDe([{ fase: 'F', usar: ['bom:ok'] }])));
+  for (const args of ['editar', 'aplicar']) {
+    const saida = decidirRegua(entradaDe(args), { ...ctx, uid: outro });
+    assert.equal(bloqueio(saida), `hadouken-kit: rascunho inseguro em ${pastaRascunhoDe(ctx.tmpDir, outro)}; apague a pasta e rode /hadouken-kit:regua editar.`, args);
+  }
+  assert.ok(!existe(path.join(ctx.dirHadouken, 'regua.json')));
+  assert.ok(existe(rascunhoDe(ctx.tmpDir, outro)), 'o rascunho fica onde está');
+});
+
+test('editar: cria a pasta do rascunho com modo 0700 e a recusa quando ela já existe com escrita de grupo', POSIX, async () => {
+  const ctx = ambiente();
+  const { saida } = await decidir('editar', ctx);
+  assert.equal(Object.hasOwn(saida, 'decision'), false);
+  assert.equal(fs.lstatSync(pastaRascunhoDe(ctx.tmpDir)).mode & 0o777, 0o700);
+  fs.chmodSync(pastaRascunhoDe(ctx.tmpDir), 0o770);
+  assert.match(bloqueio((await decidir('editar', ctx)).saida), /^hadouken-kit: rascunho inseguro em /);
+});
+
+test('aplicar com rascunho seguro: a resposta traz o texto da régua aplicada (sem corte) e o resumo', async () => {
+  const ctx = ambiente();
+  gravarRascunho(ctx.tmpDir, reguaDe([{ fase: 'Minha', usar: ['bom:ok'], alternativas: [{ skill: 'bom:tres', quando: 'sempre' }] }], [{ skill: 'bom:ok', quando: 'a qualquer hora' }]));
+  const reason = bloqueio((await decidir('aplicar', ctx)).saida);
+  assert.ok(reason.includes('Régua (global): Minha → bom:ok (alt.: bom:tres — sempre); Transversais: bom:ok — a qualquer hora'), reason);
+  assert.match(reason, /1 fase e 1 transversal/);
+  assert.ok(!existe(rascunhoDe(ctx.tmpDir)));
+  const projeto = ambiente({ env: { CLAUDE_CONFIG_DIR: cfgComRegistro(), CLAUDE_PROJECT_DIR: novoTmp() } });
+  gravarRascunho(projeto.tmpDir, reguaDe([{ fase: 'Do time', usar: ['bom:ok'] }]));
+  assert.ok(bloqueio((await decidir('aplicar --projeto', projeto)).saida).includes('Régua (repo): Do time → bom:ok'));
+});
+
+test('R12 no comando sem argumento: régua do repo só com nomes desconhecidos → a padrão; com global → a global; a lista dos desconhecidos fica', async () => {
+  const ctx = ambiente({ env: { CLAUDE_CONFIG_DIR: cfgComRegistro(), CLAUDE_PROJECT_DIR: novoTmp() } });
+  gravar(path.join(ctx.env.CLAUDE_PROJECT_DIR, '.claude', 'hadouken.json'), { regua: reguaDe([{ fase: 'DoTime', usar: ['outro:naotenho'] }]) });
+  let reason = bloqueio((await decidir('', ctx)).saida);
+  assert.match(reason, /Régua \(padrão\): Ideia →/);
+  assert.ok(reason.includes('outro:naotenho'), reason);
+  gravar(path.join(ctx.dirHadouken, 'regua.json'), reguaDe([{ fase: 'MinhaFase', usar: ['bom:ok'] }]));
+  reason = bloqueio((await decidir('', ctx)).saida);
+  assert.match(reason, /Régua \(global\): MinhaFase → bom:ok/);
+  assert.ok(reason.includes('outro:naotenho'), reason);
+  assert.match(reason, /1 skill desconhecida/);
+  assert.ok(!reason.includes('vale no lugar da sua'), 'a do repo não vale: sem a linha do repo');
 });

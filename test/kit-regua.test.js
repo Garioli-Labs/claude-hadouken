@@ -1,6 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { envIsolado } from './kit-env-isolado.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -56,9 +57,7 @@ function montarCfg() {
 }
 
 function rodar({ cfg = montarCfg(), hadouken = novoTmp(), projeto, cwd = novoTmp(), fluxo = FLUXO } = {}) {
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg, HADOUKEN_HOME: hadouken };
-  delete env.CLAUDE_PROJECT_DIR;
-  if (projeto !== undefined) env.CLAUDE_PROJECT_DIR = projeto;
+  const env = envIsolado(novoTmp(), { CLAUDE_CONFIG_DIR: cfg, HADOUKEN_HOME: hadouken, ...(projeto !== undefined ? { CLAUDE_PROJECT_DIR: projeto } : {}) });
   const r = spawnSync(process.execPath, [fluxo], { cwd, input: '', encoding: 'utf8', timeout: 10000, env });
   assert.equal(r.status, 0, r.stderr);
   const j = JSON.parse(r.stdout);
@@ -397,7 +396,7 @@ test('catalogo: skills de plugin ligado (com só-do-usuário), de ~/.claude/skil
   assert.ok(!c.skills.has('bom:inexistente'));
 });
 
-test('catalogo: plugin desligado não entra; plugin.json com `skills` aponta as pastas', async () => {
+test('catalogo: plugin desligado não entra; plugin.json com `skills` soma as pastas à skills/ padrão (doc de plugins)', async () => {
   const { catalogo } = await regua();
   const cfg = montarCfg();
   const fora = path.join(novoTmp(), 'fora');
@@ -414,7 +413,8 @@ test('catalogo: plugin desligado não entra; plugin.json com `skills` aponta as 
   gravar(path.join(cfg, 'settings.json'), set);
   c = catalogo({ pastaConfig: cfg, raiz: novoTmp() });
   assert.ok(c.skills.has('fora:a'));
-  assert.ok(!c.skills.has('fora:padrao'), 'com `skills` no manifesto, vale o que ele aponta');
+  // https://code.claude.com/docs/en/plugins-reference ("Fields"): `skills` ... "Adds to the default `skills/` scan".
+  assert.ok(c.skills.has('fora:padrao'), 'com `skills` no manifesto, a skills/ padrão continua valendo');
 });
 
 test('avisosDaRegua: texto fixo, só as parcelas diferentes de zero; linha do repo só com origem repo', async () => {
@@ -439,7 +439,7 @@ test('fluxo.js sem regua.js ao lado: a mesma régua padrão (paridade do reserva
   fs.mkdirSync(sozinho, { recursive: true });
   fs.copyFileSync(FLUXO, path.join(sozinho, 'fluxo.js'));
   fs.copyFileSync(path.join(repo, 'kit', 'package.json'), path.join(sozinho, '..', 'package.json'));
-  const r = spawnSync(process.execPath, [path.join(sozinho, 'fluxo.js')], { cwd: novoTmp(), input: '', encoding: 'utf8', timeout: 10000, env: { ...process.env, CLAUDE_CONFIG_DIR: montarCfg(), HADOUKEN_HOME: novoTmp() } });
+  const r = spawnSync(process.execPath, [path.join(sozinho, 'fluxo.js')], { cwd: novoTmp(), input: '', encoding: 'utf8', timeout: 10000, env: envIsolado(novoTmp(), { CLAUDE_CONFIG_DIR: montarCfg(), HADOUKEN_HOME: novoTmp() }) });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, normal);
 });
@@ -648,11 +648,11 @@ test('T3: registro ilegível → skill de plugin não vira desconhecida, a régu
   assert.equal(aviso, '');
 });
 
-test('T3: kit fora do escopo user (lido:false) → mesma coisa, no SessionStart e no catálogo', async () => {
+test('T3: registro fora do v2 (plugins[id] que não é lista) → lido:false e nada é desconhecido, no SessionStart e no catálogo', async () => {
   const cfg = montarCfg();
   const arq = path.join(cfg, 'plugins', 'installed_plugins.json');
   const reg = JSON.parse(fs.readFileSync(arq, 'utf8'));
-  reg.plugins[KIT] = [{ scope: 'project', projectPath: '/p', version: '1.2.0', installPath: null }];
+  reg.plugins['velho@m'] = { version: '1', installPath: '/x' };
   gravar(arq, reg);
   const { catalogo } = await regua();
   assert.equal(catalogo({ pastaConfig: cfg, raiz: novoTmp() }).lido, false);
@@ -732,6 +732,148 @@ test('absolutoLimpo no POSIX: só começa por /; o padrão é a plataforma de qu
   assert.equal(absolutoLimpo('C:\\x', 'linux'), null);
   assert.equal(absolutoLimpo('/a\0b', 'linux'), null);
   assert.equal(absolutoLimpo('/a/b'), process.platform === 'win32' ? null : '/a/b');
+});
+
+// ============================================================ A2: validação em qualquer escopo, queda de nível, componentes declarados
+
+const regDe = (cfg) => JSON.parse(fs.readFileSync(path.join(cfg, 'plugins', 'installed_plugins.json'), 'utf8'));
+// Liga o plugin `id` (user) com os arquivos dados; `manifesto` null → sem plugin.json.
+function ligarPlugin(cfg, id, arquivos, manifesto) {
+  const dir = path.join(novoTmp(), id.split('@')[0]);
+  fs.mkdirSync(dir, { recursive: true });
+  if (manifesto !== null) gravar(path.join(dir, '.claude-plugin', 'plugin.json'), { name: id.split('@')[0], ...manifesto });
+  for (const [arq, conteudo] of Object.entries(arquivos)) gravar(path.join(dir, arq), conteudo);
+  const reg = regDe(cfg);
+  reg.plugins[id] = [{ scope: 'user', version: '1', installPath: dir }];
+  gravar(path.join(cfg, 'plugins', 'installed_plugins.json'), reg);
+  const set = JSON.parse(fs.readFileSync(path.join(cfg, 'settings.json'), 'utf8'));
+  set.enabledPlugins[id] = true;
+  gravar(path.join(cfg, 'settings.json'), set);
+  return dir;
+}
+const FM = (nome) => `---\nname: ${nome}\n---\n`;
+
+test('R11: kit só no escopo project (sem entrada no user) → a validação roda igual; nome desconhecido sai do texto e o aviso conta', () => {
+  const projeto = doRepo({ regua: reguaDe([{ fase: 'DoTime', usar: ['outro:naotenho', 'bom:ok'] }]) });
+  const cfg = montarCfg();
+  const reg = regDe(cfg);
+  reg.plugins[KIT] = [{ scope: 'project', projectPath: projeto, version: '1.2.0', installPath: null }];
+  gravar(path.join(cfg, 'plugins', 'installed_plugins.json'), reg);
+  const { linhaRegua, aviso } = rodar({ cfg, projeto });
+  assert.equal(linhaRegua, 'Régua (repo): DoTime → bom:ok');
+  assert.match(aviso, /régua com 1 skill desconhecida;/);
+});
+
+test('R12: régua do repo só com nomes desconhecidos e global válida → Régua (global); sem global → Régua (padrão); o aviso de desconhecidos fica nos dois', () => {
+  const projeto = doRepo({ regua: reguaDe([{ fase: 'DoTime', usar: ['outro:naotenho'], agente: 'time:revisor' }]) });
+  const comGlobal = rodar({ projeto, hadouken: doGlobal(reguaDe([{ fase: 'MinhaFase', usar: ['bom:ok'] }])) });
+  assert.equal(comGlobal.linhaRegua, 'Régua (global): MinhaFase → bom:ok');
+  assert.match(comGlobal.aviso, /1 skill desconhecida e 1 agente desconhecido/);
+  assert.ok(!comGlobal.aviso.includes(LINHA_REPO));
+  const semGlobal = rodar({ projeto });
+  assert.match(semGlobal.linhaRegua, /^Régua \(padrão\): Ideia →/);
+  assert.match(semGlobal.aviso, /1 skill desconhecida e 1 agente desconhecido/);
+  assert.ok(!semGlobal.aviso.includes(LINHA_REPO));
+});
+
+test('reguaEfetiva: repo → global → padrão, descendo também quando o texto validado fica vazio; devolve origem, regua, texto, avisos, desconhecidos e nomes', async () => {
+  const { reguaEfetiva, catalogo } = await regua();
+  const cfg = montarCfg();
+  const raiz = doRepo({ regua: reguaDe([{ fase: 'DoTime', usar: ['outro:naotenho', 'outro:naotenho'], agente: 'time:rev' }]) });
+  const cat = catalogo({ pastaConfig: cfg, raiz });
+  const padrao = JSON.parse(fs.readFileSync(path.join(repo, 'kit', 'regua-padrao.json'), 'utf8'));
+  const r = reguaEfetiva({ raiz, dirHadouken: doGlobal(reguaDe([{ fase: 'MinhaFase', usar: ['bom:ok'] }])), padrao, catalogo: cat, limite: Infinity });
+  assert.equal(r.origem, 'global');
+  assert.equal(r.texto, 'Régua (global): MinhaFase → bom:ok');
+  assert.deepEqual(r.regua.fases.map((f) => f.fase), ['MinhaFase']);
+  assert.deepEqual(r.desconhecidos, { skills: 1, agentes: 1 });
+  assert.deepEqual(r.nomes, { skills: ['outro:naotenho'], agentes: ['time:rev'] });
+  assert.ok(Array.isArray(r.avisos) && r.avisos.length === 1, JSON.stringify(r.avisos));
+  const p = reguaEfetiva({ raiz, dirHadouken: novoTmp(), padrao, catalogo: cat, limite: Infinity });
+  assert.equal(p.origem, 'padrão');
+  assert.match(p.texto, /^Régua \(padrão\): Ideia →/);
+  assert.deepEqual(p.desconhecidos, { skills: 1, agentes: 1 });
+});
+
+// Doc de plugins, https://code.claude.com/docs/en/plugins-reference ("Fields" e "How each key combines
+// with its default location"): `skills` "Adds to the default `skills/` scan"; `commands` "Replaces the
+// default `commands/` scan"; `agents` "Agent `.md` files. Directories aren't accepted. Replaces the default
+// `agents/` scan". O caminho de cada um fica dentro da pasta do plugin.
+test('catalogo: caminhos declarados no plugin.json — skills somam à skills/, commands e agents substituem commands/ e agents/ (doc de plugins)', async () => {
+  const { catalogo } = await regua();
+  const cfg = montarCfg();
+  ligarPlugin(cfg, 'dec@mkt', {
+    'skills/padrao/SKILL.md': FM('padrao'), 'extra-skills/extra/SKILL.md': FM('extra'),
+    'cmds/faz.md': '---\ndescription: x\n---\n', 'commands/velho.md': '---\ndescription: x\n---\n',
+    'extra/x.md': FM('x'), 'agents/y.md': FM('y'), 'extra/pasta/z.md': FM('z'),
+  }, { skills: ['./extra-skills'], commands: './cmds', agents: ['./extra/x.md', './extra/pasta'] });
+  const c = catalogo({ pastaConfig: cfg, raiz: novoTmp() });
+  assert.ok(c.skills.has('dec:padrao'), 'skills soma: a skills/ padrão continua');
+  assert.ok(c.skills.has('dec:extra'), 'skills soma: a pasta declarada entra');
+  assert.ok(c.skills.has('dec:faz'), 'commands declarado');
+  assert.ok(!c.skills.has('dec:velho'), 'commands substitui: commands/ padrão não é lido');
+  assert.ok(c.agentes.has('dec:x'), 'agents declarado');
+  assert.ok(!c.agentes.has('dec:y'), 'agents substitui: agents/ padrão não é lido');
+  assert.ok(!c.agentes.has('dec:z'), 'agents não aceita pasta');
+});
+
+test('catalogo: `commands` como mapa nome → {source|content}; caminho declarado que sai da pasta do plugin é ignorado', async () => {
+  const { catalogo } = await regua();
+  const cfg = montarCfg();
+  const fora = path.join(novoTmp(), 'fora');
+  gravar(path.join(fora, 'escapou.md'), '---\ndescription: x\n---\n');
+  const dir = ligarPlugin(cfg, 'mapa@mkt', { 'c/s.md': '---\ndescription: x\n---\n' }, { commands: { status: { source: './c/s.md' }, about: { content: 'texto' } }, agents: ['./nada.md'] });
+  const c = catalogo({ pastaConfig: cfg, raiz: novoTmp() });
+  assert.ok(c.skills.has('mapa:status') && c.skills.has('mapa:about'));
+  const cfg2 = montarCfg();
+  ligarPlugin(cfg2, 'sai@mkt', {}, { commands: [path.relative(dir, path.join(fora, 'escapou.md')), './../fora'] });
+  const c2 = catalogo({ pastaConfig: cfg2, raiz: novoTmp() });
+  assert.ok(![...c2.skills.keys()].some((k) => k.startsWith('sai:')), [...c2.skills.keys()].filter((k) => k.startsWith('sai:')).join());
+});
+
+test('R14: skill declarada só na entrada do marketplace.json (strict: false, sem plugin.json) → desconhecida, com aviso (limite aceito)', () => {
+  const cfg = montarCfg();
+  ligarPlugin(cfg, 'solto@mkt', { 'pacote/s1/SKILL.md': FM('s1') }, null);
+  const mkt = novoTmp();
+  gravar(path.join(mkt, '.claude-plugin', 'marketplace.json'), { name: 'mkt', plugins: [{ name: 'solto', source: './', strict: false, skills: ['./pacote/s1'] }] });
+  gravar(path.join(cfg, 'plugins', 'known_marketplaces.json'), { mkt: { source: { source: 'github', repo: 'a/b' }, installLocation: mkt } });
+  const { linhaRegua, aviso } = rodar({ cfg, hadouken: doGlobal(reguaDe([{ fase: 'F', usar: ['solto:s1', 'bom:ok'] }])) });
+  assert.equal(linhaRegua, 'Régua (global): F → bom:ok');
+  assert.match(aviso, /régua com 1 skill desconhecida;/);
+});
+
+test('R15: o mesmo nome desconhecido em 3 fases → o aviso conta 1 skill e 1 agente; a lista tem 1 nome de cada', async () => {
+  const fases = ['F1', 'F2', 'F3'].map((f) => ({ fase: f, usar: ['x:nao', 'bom:ok'], alternativas: [{ skill: 'x:nao', quando: 'q' }], agente: 'x:ag' }));
+  const { aviso } = rodar({ hadouken: doGlobal({ fases, transversais: [{ skill: 'x:nao', quando: 'q' }] }) });
+  assert.match(aviso, /régua com 1 skill desconhecida e 1 agente desconhecido;/);
+  const { nomesDesconhecidos, catalogo } = await regua();
+  const nomes = nomesDesconhecidos({ regua: { fases: fases.map((f) => ({ ...f })), transversais: [] }, catalogo: catalogo({ pastaConfig: montarCfg(), raiz: novoTmp() }) });
+  assert.deepEqual(nomes, { skills: ['x:nao'], agentes: ['x:ag'] });
+});
+
+test('lerJson com semLink e donoUid: link, arquivo de outro dono e o que não é arquivo regular → inseguro; arquivo do dono → lido', { skip: process.platform === 'win32' && 'sem uid nem link confiáveis no Windows' }, async () => {
+  const { lerJson } = await regua();
+  const d = novoTmp();
+  gravar(path.join(d, 'a.json'), '{"a":1}');
+  const uid = process.getuid();
+  assert.deepEqual(lerJson(path.join(d, 'a.json'), { donoUid: uid, semLink: true }), { ok: true, valor: { a: 1 } });
+  assert.deepEqual(lerJson(path.join(d, 'a.json'), { donoUid: uid + 1, semLink: true }), { ok: false, inseguro: true }, 'dono diferente');
+  fs.symlinkSync(path.join(d, 'a.json'), path.join(d, 'link.json'));
+  assert.deepEqual(lerJson(path.join(d, 'link.json'), { donoUid: uid, semLink: true }), { ok: false, inseguro: true }, 'link');
+  assert.equal(lerJson(path.join(d, 'link.json')).ok, true, 'sem semLink o comportamento de hoje');
+  fs.mkdirSync(path.join(d, 'pasta.json'));
+  assert.deepEqual(lerJson(path.join(d, 'pasta.json'), { donoUid: uid, semLink: true }), { ok: false, inseguro: true }, 'pasta');
+  assert.deepEqual(lerJson(path.join(d, 'nao-existe.json'), { donoUid: uid, semLink: true }), { ok: false, ausente: true });
+});
+
+test('saneamento: seletor de variação (U+FE00–FE0F, U+E0100–E01EF) em `fase` e `quando` vira espaço e não sobra na régua', async () => {
+  const { validarRegua } = await regua();
+  const r = validarRegua({ fases: [{ fase: 'A\u{FE0F}B\u{E0101}C\u{FE00}', usar: ['a:b'], alternativas: [{ skill: 'c:d', quando: 'x\u{E01EF}y\u{FE0E}z' }] }], transversais: [{ skill: 'c:d', quando: 'p\u{FE0F}q' }] });
+  const [f] = r.regua.fases;
+  assert.equal(f.fase, 'A B C');
+  assert.equal(f.alternativas[0].quando, 'x y z');
+  assert.equal(r.regua.transversais[0].quando, 'p q');
+  assert.doesNotMatch(JSON.stringify(r.regua), /[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/u);
 });
 
 test('o regex COMPLETO_WIN do kit é textualmente o de src/base.js', () => {
