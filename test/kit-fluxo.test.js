@@ -109,9 +109,9 @@ test('fluxo.js: fronteira estática (spec §5.2)', () => {
   assert.doesNotMatch(texto, /process\.stdin|readFileSync|process\.env/);
 });
 
-test('hooks.json: SessionStart em forma exec com args e timeout 5', () => {
+test('hooks.json: SessionStart em forma exec com args e timeout 5 (e o UserPromptExpansion do /hadouken-kit:regua)', () => {
   const h = JSON.parse(fs.readFileSync(path.join(repo, 'kit', 'hooks', 'hooks.json'), 'utf8'));
-  assert.deepEqual(Object.keys(h.hooks), ['SessionStart']);
+  assert.deepEqual(Object.keys(h.hooks), ['SessionStart', 'UserPromptExpansion']);
   const c = h.hooks.SessionStart[0].hooks[0];
   assert.deepEqual(c, { type: 'command', command: 'node',
     args: ['${CLAUDE_PLUGIN_ROOT}/hooks/fluxo.js'], timeout: 5 });

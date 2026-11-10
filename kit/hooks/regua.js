@@ -41,7 +41,7 @@ const ehTexto = (v) => typeof v === 'string' && v !== '';
 
 // Arquivo regular até o teto, lido pelo mesmo descritor que o fstat conferiu.
 // ausente: o arquivo não existe (nível sem régua, sem aviso).
-function lerJson(arquivo) {
+export function lerJson(arquivo) {
   let fd;
   try {
     fd = fs.openSync(arquivo, ABRIR_LEITURA);
@@ -298,9 +298,9 @@ export function catalogo({ pastaConfig, raiz } = {}) {
 // ------------------------------------------------------------ texto
 
 // "Régua (<origem>): <Fase> → <skills>[ (alt.: <skill> — <quando> | …)][ · agente <agente>]; …; Transversais: <skill> — <quando>; …".
-// Skill só do usuário vai com /. Com `validar`, skill e agente que o catálogo
+// `limite` troca o teto de LIMITE_TEXTO (o comando mostra a régua inteira). Skill só do usuário vai com /. Com `validar`, skill e agente que o catálogo
 // não conhece saem do texto e entram na contagem. Texto vazio quando nada sobra.
-export function textoRegua({ regua, origem, catalogo: cat, validar } = {}) {
+export function textoRegua({ regua, origem, catalogo: cat, validar, limite = LIMITE_TEXTO } = {}) {
   const desconhecidos = { skills: 0, agentes: 0 };
   const vazio = { texto: '', avisos: [], desconhecidos };
   if (!ehObjeto(regua) || !Array.isArray(regua.fases)) return vazio;
@@ -337,8 +337,8 @@ export function textoRegua({ regua, origem, catalogo: cat, validar } = {}) {
 
   const prefixo = `Régua (${origem}): `;
   const inteiro = prefixo + segmentos.join('; ');
-  if (inteiro.length <= LIMITE_TEXTO) return { texto: inteiro, avisos: [], desconhecidos };
-  const caber = LIMITE_TEXTO - PONTEIRO.length - 1;
+  if (inteiro.length <= limite) return { texto: inteiro, avisos: [], desconhecidos };
+  const caber = limite - PONTEIRO.length - 1;
   let aceito = '';
   for (let i = 1; i <= segmentos.length; i += 1) {
     const tentativa = prefixo + segmentos.slice(0, i).join('; ');
@@ -347,6 +347,25 @@ export function textoRegua({ regua, origem, catalogo: cat, validar } = {}) {
   }
   if (aceito === '') aceito = (prefixo + segmentos[0]).slice(0, caber);
   return { texto: `${aceito.trimEnd()} ${PONTEIRO}`, avisos: [], desconhecidos };
+}
+
+// Os nomes que o catálogo não conhece, sem repetição, na ordem da régua. Só o
+// /hadouken-kit:regua os mostra (já passaram pela regex de nomes); o SessionStart
+// só conta. Catálogo sem registro lido → nada é desconhecido.
+export function nomesDesconhecidos({ regua, catalogo: cat } = {}) {
+  const skills = new Set();
+  const agentes = new Set();
+  if (!ehObjeto(regua) || !Array.isArray(regua.fases) || cat?.lido !== true) return { skills: [], agentes: [] };
+  const sabidas = cat.skills instanceof Map ? cat.skills : new Map();
+  const conhecidos = cat.agentes instanceof Set ? cat.agentes : new Set();
+  const skill = (n) => { if (!sabidas.has(n)) skills.add(n); };
+  for (const f of regua.fases) {
+    for (const n of f.usar ?? []) skill(n);
+    for (const a of f.alternativas ?? []) skill(a.skill);
+    if (typeof f.agente === 'string' && !conhecidos.has(f.agente)) agentes.add(f.agente);
+  }
+  for (const t of regua.transversais ?? []) skill(t.skill);
+  return { skills: [...skills], agentes: [...agentes] };
 }
 
 // Texto fixo e contagem, nunca nome nem texto da régua.
