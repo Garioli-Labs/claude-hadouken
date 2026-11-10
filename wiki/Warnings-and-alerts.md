@@ -43,7 +43,9 @@ The account also has a weekly limit. For it, the plugin works out the **expected
 
 #### The pace maths, with an example
 
-The week has 168 hours. After *h* hours, the expected value is *h* ÷ 168 × 100 %.
+With no work window (the default), the week has 168 hours. After *h* hours, the expected value is *h* ÷ 168 × 100 %.
+
+With the [work window](Usage-guard#the-work-window) configured (`/hadouken:janela`), the expected value uses **working minutes**: window minutes already elapsed since the start of the week ÷ window minutes in the whole week, counted day by day in local time. Outside the window, the expected value stands still. The example below is the default one, with no window.
 
 In the example, the week resets Monday at 22:00, so it started **the previous Monday at 22:00**. It is now **Saturday, 12:00**.
 
@@ -72,7 +74,7 @@ What each mode means:
 | slack (`folga`) | usage more than 10 points **below** expected | Invests the slack in quality (extra review, higher effort on specs and audits), not volume. |
 | read-only (`só leitura`) | usage at 90 % or more **and** reset more than 24 h away | Read-only; recommends stopping. Overrides the other modes. |
 
-Expected always stays between 0 % and 100 %, even if the machine's clock is ahead or behind. The maths is done in UTC; only the display uses the local time zone, so daylight saving time does not throw anything off. The expected value and the mode show up in the notices and in the report; the bar, the panel and the session-start line do not show them.
+Expected always stays between 0 % and 100 %, even if the machine's clock is ahead or behind. With no work window, the maths is done in UTC and only the display uses the local time zone, so daylight saving time does not throw anything off. With the [work window](Usage-guard#the-work-window), its days and hours count in local time, day by day, and the day the clocks change (23 or 25 h) goes into the maths by the local clock. The expected value and the mode show up in the notices and in the report; the bar, the panel and the session-start line do not show them.
 
 ### Projection and several sessions
 

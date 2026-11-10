@@ -85,7 +85,7 @@ By default, the week's pace counts the 168 hours of 7 days, and the overrun fore
 - `/hadouken:janela seg-sex 9-21` or `/hadouken:janela seg,qua,sex 08:30-18:00`: saves it. Days accept a list (`seg,qua,sex`), a range (`seg-sex`) and a mix (`seg-qua,sex`); a range follows the order of the week (`sex-seg` does not wrap around). Days: `dom seg ter qua qui sex sab` (also `sáb`). The time goes from `9` to `09:30`, to the minute, in the computer's local time.
 - `/hadouken:janela off`: removes the window.
 
-The window lives under the `janela` key of `config.json` (`{"dias": ["seg","ter","qua","qui","sex"], "inicio": "09:00", "fim": "21:00"}`); saving keeps the other keys. The start must be before the end on the same day, and the end goes up to `23:59` (`24:00` is invalid). An invalid window (no days, an unknown day, `inicio` after `fim`, a wrong format) becomes the warning "janela inválida; usando 168 h" (invalid window; using 168 h) and the 168-hour calculation.
+The window lives under the `janela` key of `config.json` (`{"dias": ["seg","ter","qua","qui","sex"], "inicio": "09:00", "fim": "21:00"}`); saving keeps the other keys. The start must be before the end on the same day, and the end goes up to `23:59` (`24:00` is invalid). An invalid window (no days, an unknown day, `inicio` equal to or after `fim`, a wrong format) becomes the warning "janela inválida; usando 168 h" (invalid window; using 168 h) and the 168-hour calculation.
 
 What changes, only on the 7-day window:
 
@@ -93,7 +93,7 @@ What changes, only on the 7-day window:
 - **The forecast.** The rate is usage per working minute, the time left moves only in working minutes, and outside the window the projected usage is zero. The week's forecast needs 2 working hours of sample, and the "esgota" (runs out) phrase needs 2 working hours elapsed. If the forecast instant falls past the reset, the phrase says it does not run out before the reset. The G2 lock uses this forecast.
 - **The 5 h window** does not change.
 
-A scheduled prompt (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` or an MCP scheduler) that contains `hadouken:janela` or `/janela` as a word is denied, and the message asks you to take the command out of the text: it only counts when typed. The bare word "janela" ("janela de 5 h") is not watched. The window uses the system time zone; a container or an SSH session in another time zone shifts the hours.
+A scheduled prompt (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` or an MCP scheduler) that contains `hadouken:janela`, `/janela`, `hadouken:agentes` or `/agentes` as a word is denied (`/hadouken:liberar` and `/hadouken:aprender` fall under the same rule), and the message asks you to take the command out of the text: it only counts when typed. The bare word "janela" ("janela de 5 h") and the bare word "agentes" are not watched. The window uses the system time zone; a container or an SSH session in another time zone shifts the hours.
 
 ### What the bar says
 
@@ -118,12 +118,12 @@ Besides the guard, hadouken has four fixed blocks: child `claude` session, hadou
 
 hadouken checks every agent Claude launches, and the main session, without calling any model:
 
-- **Denies (N1):** a search agent (`Explore`, `hadouken:busca`) on Opus or Fable, or with effort `xhigh` or `max`.
-- **Denies (N2):** `hadouken:busca` or `hadouken:mecanico` with the model switched to Opus or Fable at dispatch.
+- **Denies (N1):** a search agent (`Explore`, `hadouken:busca`, `hadouken:varredor`) on Opus or Fable, or with effort `xhigh` or `max`.
+- **Denies (N2):** `hadouken:busca`, `hadouken:varredor` or `hadouken:mecanico` with the model switched to Opus or Fable at dispatch.
 - **Warns (A1 to A3):** an agent on Fable or effort `max` when the agent file does not ask for it; an expensive agent with a search description; more than 5 short dispatches in 10 minutes.
 - **Suggests for the session:** `/effort medium` or `/model sonnet` when nearly everything was simple work, `/effort high` when there are signs of difficulty; at most once every 30 minutes.
 - **Optimizations:** a file read in full several times, a command with huge output, idle MCP servers, expensive fixed context, and suggesting `/compact` when context swells and the cache drops.
 
-Each rule has its own on-off switch in the Roteamento tab of the window (`roteamento.negarN1`, `roteamento.negarN2`, `roteamento.avisos`, `roteamento.sugerirSessao` and `roteamento.otimizacoes.*` in `config.json`). A release through `/hadouken:liberar` also lifts N1 and N2 while it lasts.
+Each rule has its own on-off switch in the Roteamento tab of the window (`roteamento.negarN1`, `roteamento.negarN2`, `roteamento.avisos`, `roteamento.sugerirSessao` and `roteamento.otimizacoes.*` in `config.json`). A release through `/hadouken:liberar` also lifts N1 and N2 while it lasts. The model and effort you approved for an agent, through `/hadouken:agentes` (config) or `roteamento.subir`, are not denied by N1 or N2.
 
 ---

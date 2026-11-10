@@ -41,7 +41,9 @@ A conta também tem um limite semanal. Para ele, o plugin calcula o **esperado**
 
 #### A conta do ritmo, com um exemplo
 
-A semana tem 168 horas. Depois de *h* horas, o esperado é *h* ÷ 168 × 100 %.
+Sem janela de trabalho (o padrão), a semana tem 168 horas. Depois de *h* horas, o esperado é *h* ÷ 168 × 100 %.
+
+Com a [janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho) configurada (`/hadouken:janela`), o esperado é o dos **minutos úteis**: minutos da janela já passados desde o início da semana ÷ minutos da janela na semana inteira, contados dia a dia em hora local. Fora da janela, o esperado fica parado. O exemplo abaixo é o do padrão, sem janela.
 
 No exemplo, a semana zera segunda às 22:00, então ela começou na **segunda anterior, às 22:00**. Agora é **sábado, 12:00**.
 
@@ -70,7 +72,7 @@ O que cada modo quer dizer:
 | folga | uso mais de 10 pontos **abaixo** do esperado | Investe a folga em qualidade (review extra, effort maior em spec e auditoria), não em volume. |
 | só leitura | uso de 90 % ou mais **e** reset a mais de 24 h | Só leitura; recomenda parar. Vale acima dos outros modos. |
 
-O esperado fica sempre entre 0 % e 100 %, mesmo com o relógio da máquina adiantado ou atrasado. As contas são feitas em UTC; só a exibição usa o fuso local, então o horário de verão não bagunça nada. O esperado e o modo aparecem nos avisos e no relatório; a barra, o painel e a linha do início de sessão não os mostram.
+O esperado fica sempre entre 0 % e 100 %, mesmo com o relógio da máquina adiantado ou atrasado. Sem janela de trabalho, as contas são feitas em UTC e só a exibição usa o fuso local, então o horário de verão não bagunça nada. Com a [janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho), os dias e as horas dela valem em hora local, dia a dia, e o dia da troca do horário de verão (23 ou 25 h) entra na conta pelo relógio local. O esperado e o modo aparecem nos avisos e no relatório; a barra, o painel e a linha do início de sessão não os mostram.
 
 ### Projeção e várias sessões
 

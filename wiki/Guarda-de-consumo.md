@@ -83,7 +83,7 @@ Por padrão, o ritmo da semana conta as 168 horas de 7 dias, e a previsão de es
 - `/hadouken:janela seg-sex 9-21` ou `/hadouken:janela seg,qua,sex 08:30-18:00`: grava. Os dias aceitam lista (`seg,qua,sex`), intervalo (`seg-sex`) e mistura (`seg-qua,sex`); o intervalo vai na ordem da semana (`sex-seg` não dá a volta). Dias: `dom seg ter qua qui sex sab` (também `sáb`). A hora vai de `9` a `09:30`, de minuto em minuto, no horário do computador.
 - `/hadouken:janela off`: remove a janela.
 
-A janela fica na chave `janela` do `config.json` (`{"dias": ["seg","ter","qua","qui","sex"], "inicio": "09:00", "fim": "21:00"}`); gravar preserva as outras chaves. O início tem de ser antes do fim no mesmo dia, e o fim vai até `23:59` (`24:00` é inválido). Janela inválida (sem dias, dia desconhecido, `inicio` depois de `fim`, formato errado) vira o aviso "janela inválida; usando 168 h" e o cálculo de 168 horas.
+A janela fica na chave `janela` do `config.json` (`{"dias": ["seg","ter","qua","qui","sex"], "inicio": "09:00", "fim": "21:00"}`); gravar preserva as outras chaves. O início tem de ser antes do fim no mesmo dia (igual não vale), e o fim vai até `23:59` (`24:00` é inválido). Janela inválida (sem dias, dia desconhecido, `inicio` igual ou depois de `fim`, formato errado) vira o aviso "janela inválida; usando 168 h" e o cálculo de 168 horas.
 
 O que muda, só na janela de 7 dias:
 
@@ -91,7 +91,7 @@ O que muda, só na janela de 7 dias:
 - **A previsão.** A taxa é consumo por minuto útil, o tempo que falta anda só em minutos úteis, e fora da janela o consumo projetado é zero. A previsão da semana pede 2 h úteis de amostra, e a frase "esgota" pede 2 h úteis decorridas. Se o instante previsto passa do reset, a frase diz que não esgota antes do reset. A trava G2 usa essa previsão.
 - **A janela de 5 h** não muda.
 
-Um prompt agendado (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` ou agendador MCP) que contenha `hadouken:janela` ou `/janela` como palavra é negado, e a mensagem pede para tirar o comando do texto: ele só vale digitado. A palavra solta "janela" ("janela de 5 h") não é vigiada. A janela usa o fuso do sistema; um contêiner ou uma sessão SSH em outro fuso desloca o horário.
+Um prompt agendado (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` ou agendador MCP) que contenha `hadouken:janela`, `/janela`, `hadouken:agentes` ou `/agentes` como palavra é negado (o `/hadouken:liberar` e o `/hadouken:aprender` entram na mesma regra), e a mensagem pede para tirar o comando do texto: ele só vale digitado. A palavra solta "janela" ("janela de 5 h") e a palavra solta "agentes" não são vigiadas. A janela usa o fuso do sistema; um contêiner ou uma sessão SSH em outro fuso desloca o horário.
 
 ### O que a barra diz
 
@@ -116,12 +116,12 @@ Além da guarda, o hadouken tem quatro bloqueios fixos: sessão `claude` filha, 
 
 O hadouken confere cada agente lançado pelo Claude e a sessão principal, sem chamar modelo nenhum:
 
-- **Nega (N1):** agente de busca (`Explore`, `hadouken:busca`) em Opus ou Fable, ou com effort `xhigh` ou `max`.
-- **Nega (N2):** `hadouken:busca` ou `hadouken:mecanico` com o modelo trocado para Opus ou Fable no despacho.
+- **Nega (N1):** agente de busca (`Explore`, `hadouken:busca`, `hadouken:varredor`) em Opus ou Fable, ou com effort `xhigh` ou `max`.
+- **Nega (N2):** `hadouken:busca`, `hadouken:varredor` ou `hadouken:mecanico` com o modelo trocado para Opus ou Fable no despacho.
 - **Avisa (A1 a A3):** agente em Fable ou effort `max` sem o arquivo do agente pedir isso; agente caro com descrição de busca; mais de 5 despachos curtos em 10 minutos.
 - **Sugere para a sessão:** `/effort medium` ou `/model sonnet` quando quase tudo foi trabalho simples, `/effort high` quando há sinais de dificuldade; no máximo uma vez a cada 30 minutos.
 - **Otimizações:** arquivo lido inteiro várias vezes, comando com saída enorme, servidores MCP parados, contexto fixo caro e sugerir `/compact` quando o contexto incha e o cache cai.
 
-Cada regra tem o seu liga-desliga na aba Roteamento da janela (`roteamento.negarN1`, `roteamento.negarN2`, `roteamento.avisos`, `roteamento.sugerirSessao` e `roteamento.otimizacoes.*` no `config.json`). Uma liberação pelo `/hadouken:liberar` também solta N1 e N2 enquanto durar.
+Cada regra tem o seu liga-desliga na aba Roteamento da janela (`roteamento.negarN1`, `roteamento.negarN2`, `roteamento.avisos`, `roteamento.sugerirSessao` e `roteamento.otimizacoes.*` no `config.json`). Uma liberação pelo `/hadouken:liberar` também solta N1 e N2 enquanto durar. O modelo e o effort que você aprovou para um agente, pelo `/hadouken:agentes` (config) ou por `roteamento.subir`, não são negados por N1 nem por N2.
 
 ---

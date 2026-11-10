@@ -4,9 +4,9 @@
 
 ## hadouken-kit e hadouken-rea (opcionais)
 
-O marketplace `claude-hadouken` traz mais dois plugins, separados do consumo e da guarda. O **hadouken-kit** instala de uma vez o conjunto de skills do dia a dia: `hadouken`, `superpowers` (`claude-plugins-official`), `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` e `ui-ux-pro-max` (estes quatro como entradas do próprio marketplace `claude-hadouken`, com o commit fixado). Leva também a skill `hadouken-kit:fluxo`, que diz qual usar em cada etapa, e cópias da `yu-ux-web-expert` e da `graphify`. Quem quer só o consumo e a guarda instala só o `hadouken`.
+O marketplace `claude-hadouken` traz mais dois plugins, separados do consumo e da guarda. O **hadouken-kit** é o conjunto de skills do dia a dia: o `hadouken`, que o kit declara como dependência, mais cinco terceiros, `superpowers` (`claude-plugins-official`), `mattpocock-skills`, `poka-yoke`, `fullstack-dev-skills` e `ui-ux-pro-max` (estes quatro como entradas do próprio marketplace `claude-hadouken`, com o commit fixado). Leva também a skill `hadouken-kit:fluxo`, que diz qual usar em cada etapa, e cópias da `yu-ux-web-expert` e da `graphify`. Quem garante os cinco terceiros é o instalador de um comando; o manifesto do kit (1.2.0) traz só o `hadouken`. Quem quer só o consumo e a guarda instala só o `hadouken`.
 
-No terminal (fora de sessão, ou com `!` dentro dela):
+No terminal (fora de sessão, ou com `!` dentro dela), este comando instala só o kit e o `hadouken`:
 
 ```bash
 claude plugin marketplace add Garioli-Labs/claude-hadouken
@@ -15,10 +15,22 @@ claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin install hadouken-kit@claude-hadouken
 ```
 
-- **Por que os `marketplace add` antes.** O primeiro registra o marketplace do hadouken (quem já tem a v0.4.0 vê "already" e segue; o `update` traz a entrada do kit). O Claude Code só instala uma dependência de um marketplace já registrado. Sem ele, o kit instala com o aviso `dependency "<nome>" was not installed (no marketplace you have added lists it)` e não carrega.
+Os cinco terceiros ficam por sua conta nesse caminho. O instalador de um comando roda, para cada um que falta, o `claude plugin install` do id abaixo (e pula o que você já tem de outro marketplace; veja [Dependências e cópias em dobro](#dependências-e-cópias-em-dobro)):
+
+```bash
+claude plugin install superpowers@claude-plugins-official
+claude plugin install mattpocock-skills@claude-hadouken
+claude plugin install poka-yoke@claude-hadouken
+claude plugin install fullstack-dev-skills@claude-hadouken
+claude plugin install ui-ux-pro-max@claude-hadouken
+```
+
+Sem os terceiros, o kit carrega, e o SessionStart mostra uma linha por plugin que falta: `hadouken-kit: falta <nome>. Instale, no terminal: claude plugin install <id>`.
+
+- **Por que os `marketplace add` antes.** O primeiro registra o marketplace do hadouken (quem já tem a v0.4.0 vê "already" e segue; o `update` traz a entrada do kit). O Claude Code só instala um plugin, e a dependência dele, de um marketplace já registrado. Sem ele, o kit instala com o aviso `dependency "<nome>" was not installed (no marketplace you have added lists it)` e não carrega. O `marketplace add anthropics/claude-plugins-official` registra o marketplace do `superpowers`, para o `plugin install` dele.
 - **Fora de sessão.** Instalar ou ligar plugin dentro de uma sessão aberta é segurado pelo hook `ConfigChange` da guarda. Rode os comandos no terminal e abra uma sessão nova.
 - **As skills na hora certa.** A cada sessão, o kit põe no contexto um resumo de 5 linhas (uns 400 tokens, nenhuma chamada de modelo) com o momento de cada skill: o `superpowers` cuida do processo e as do Matt Pocock entram nos momentos delas (pôr um plano à prova, protótipo, spec, tickets, handoff, revisão do branch, corpo de PR, passos que só você pode fazer, desenho de módulo, domínio, pesquisa, triagem, ensino). O Claude aciona sozinho as que o autor deixa o modelo acionar; as outras 16 (`to-spec`, `to-tickets`, `handoff`, `triage`, `teach` e mais) têm `disable-model-invocation`, e no momento delas o Claude sugere que você digite o comando (`/mattpocock-skills:handoff`, por exemplo). A tabela completa, com as 27 skills do Matt (mattpocock-skills 1.3.1), está em `/hadouken-kit:fluxo`.
-- **Já tinha o `mattpocock-skills`?** O mapa segue a 1.3.1 (27 skills). Quem o instalou antes continua na versão do cache até atualizar; na 1.2.0, `pr` e `wizard` não existem e o Claude não as acha. Desde a v0.5.2, o kit traz a cópia do marketplace `claude-hadouken`; rode o comando único (que trata a cópia em dobro com a antiga, `mattpocock-skills@mattpocock`; veja [Dependências e cópias em dobro](#dependências-e-cópias-em-dobro)) ou, no terminal, `claude plugin marketplace update claude-hadouken` e `claude plugin update mattpocock-skills@claude-hadouken`, e abra uma sessão nova.
+- **Já tinha o `mattpocock-skills`?** O mapa segue a 1.3.1 (27 skills). Quem o instalou antes continua na versão do cache até atualizar; na 1.2.0, `pr` e `wizard` não existem e o Claude não as acha. Desde a v0.5.2, a cópia que o kit usa é a do marketplace `claude-hadouken`, e o instalador de um comando a instala; rode o comando único (que trata a cópia em dobro com a antiga, `mattpocock-skills@mattpocock`; veja [Dependências e cópias em dobro](#dependências-e-cópias-em-dobro)) ou, no terminal, `claude plugin marketplace update claude-hadouken` e `claude plugin update mattpocock-skills@claude-hadouken`, e abra uma sessão nova.
 - **clean-architecture fora do kit.** Desde 2026-10-14 o `plugin.json` dele é um link simbólico. No Windows, o git clona o link como texto e a instalação falha com `JSON parse error: Unexpected token '.'`; como dependência, derrubaria o kit inteiro. No Linux e no macOS ele instala à parte: `claude plugin marketplace add nathankim0/clean-architecture-skills` e `claude plugin install clean-architecture@clean-architecture-skills`.
 - **yu-ux-web-expert.** Na primeira vez, o `setup.sh` dela instala `axe-core` e `lighthouse` (pelo `package-lock.json` do kit) na pasta do plugin, o `playwright` no Python do usuário e o Chromium no cache do Playwright; o `axe-core` e o `lighthouse` voltam a ser instalados depois de cada atualização do kit, porque a pasta muda de versão. A cópia do kit não libera Bash, Write, Edit nem WebFetch sem pergunta (`allowed-tools: Read Grep Glob`): ela lê páginas de terceiros, e cada comando passa pela sua permissão.
 - **REA, desligado por padrão quando instalado à mão.** O instalador de um comando o liga só na primeira instalação, se o Node servir; desligado por você, continua desligado. Para ligar à mão: `claude plugin install hadouken-rea@claude-hadouken` e `claude plugin enable hadouken-rea@claude-hadouken`. Ele abre `npx -y rea-agents@6.1.0 mcp` (versão exata; no Windows, pelo `cmd.exe /d /c`) com o cwd na pasta do plugin, nunca no projeto aberto (um `node_modules` ou `.npmrc` do repositório não entra); passe caminhos absolutos ao REA. Precisa de Node 22.19+, 24.11+ ou 26+ e **executa os programas analisados com as permissões do seu usuário**. Na primeira vez, o `npx` baixa o pacote (uns 20 a 30 s) e o `/mcp` pode acusar tempo esgotado; com o pacote no cache, conecta em segundos (reconecte pelo `/mcp` ou abra uma sessão nova).
