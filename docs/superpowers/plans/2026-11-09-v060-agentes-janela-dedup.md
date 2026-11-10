@@ -597,6 +597,59 @@ Decisão do Fernando (10/11/2026): merge de `origin/main` no branch (sem rebase)
 - [ ] **Passo 6** — commit de merge `merge: hadouken 0.5.9 (origin/main 71c381e) na 0.6.0`, com a resolução, o `passoDedup`, o `linhasAviso` e o `dirHadouken`.
 - [ ] **Passo 7** — `revisor` sobre `git show --remerge-diff HEAD` e `git diff origin/main...HEAD -- src/instalar src/instalar-tudo.js kit/hooks`.
 
+## Auditoria da spec
+
+Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos com os scripts em `<job tmp>/aud/scripts/`. Spec emendada (§0 "Ritmo da linha econômica", Fatia 2, Fatia 7, J4, R11–R15, §8.2 P-e). Uma tarefa por vez; cada uma mostra o vermelho antes do verde.
+
+### Tarefa A1: janela no ritmo da linha econômica e borda de DST
+
+**Arquivos:** `src/previsao.js` (`ritmo7dPorHora`, `ritmoMisturado`), `src/alerta.js` (`parteRitmo`, `linha7d`), `src/hooks/prompt-submit.js:113`, `src/janela.js` (`intervaloDoDia`); testes nos arquivos de teste existentes de cada módulo.
+
+**Interfaces:**
+- `ritmo7dPorHora({ historico, agoraMs, trabalho = null })` → pontos por hora útil com `trabalho` (a conversão de `preverJanela`, cobertura `regras.coberturaMinMs` em minutos úteis); `null` abaixo dela. Sem `trabalho`, saída de hoje.
+- `parteRitmo(f7, ritmoH, agoraMs, trabalho = null)`; `avaliarAlertas` repassa o `trabalho` que já recebe.
+- `ritmoMisturado(b, perfil, coluna, agoraMs, trabalho = null)`: com `trabalho` e agora fora da janela → `b`.
+
+- [ ] **Passo 1 — vermelho**:
+  - script do auditor para o achado #1 → saída idêntica com e sem janela (colar);
+  - `parteRitmo com janela: sustentável por hora útil` → `(100 − usado) ÷ (minutosUteis(trabalho, agora, reset) ÷ 60)`, 1 casa;
+  - `parteRitmo com janela: acaba em minutos úteis` → horário de `quandoLocal(avancarUteis(trabalho, agora, (100 − usado) ÷ ritmoH × 60))`;
+  - `parteRitmo com janela: zero hora útil até o reset` → `''`;
+  - `parteRitmo sem janela` → texto byte a byte igual ao de `d38ce6d`;
+  - `ritmo7dPorHora com janela abaixo de 120 min úteis` → `null`;
+  - `ritmoMisturado fora da janela` → `b`;
+  - DST, `TZ=America/New_York`, janela todos os dias `02:30-21:00`: 08/03/2026 → início `2026-03-08T07:00:00Z` (03:00 EDT); 01/11/2026 com `01:30-21:00` → início `2026-11-01T05:30:00Z` (primeira 01:30).
+- [ ] **Passo 2** — implementar até o Passo 1 passar.
+- [ ] **Passo 3** — `node --test` → 0 falhas; commit `fix(janela): ritmo da linha econômica e borda de DST pela janela`.
+
+### Tarefa A2: régua — validação em qualquer escopo, queda de nível, rascunho do usuário
+
+**Arquivos:** `kit/hooks/regua.js` (`catalogo`, `textoRegua`, `limpar`, `reguaDaSessao`), `kit/hooks/regua-comando.js` (sem argumento, `editar`, `aplicar`), `kit/skills/regua/SKILL.md` só se o texto citar o caminho, `SECURITY.md` K2 pt/en (mitigações: catálogo, seletor de variação, rascunho); testes em `test/kit-regua*.test.js`.
+
+**Interfaces:**
+- `catalogo({ pastaConfig, raiz })` → `{ skills, agentes, lido }`; `lido` = `installed_plugins.json` legível no v2, sem depender da entrada do kit no escopo do usuário.
+- `reguaEfetiva({ raiz, dirHadouken, padrao, catalogo, limite })` → `{ origem, regua, texto, avisos, desconhecidos, nomes }`: repo → global → padrão, descendo também quando o texto validado fica vazio (R12); usada por `reguaDaSessao` e pelo comando sem argumento (some a cópia em `regua-comando.js:96-102`).
+- `caminhoRascunho(tmpDir, uid)` → `<tmp>/hadouken-<uid>/regua-rascunho.json` (POSIX) ou `<tmp>/hadouken/regua-rascunho.json` (sem uid); `pastaRascunhoSegura(pasta, uid)` → `boolean` por `lstat` (pasta real, dono = uid, sem `0o022`); leitura do rascunho com `O_NOFOLLOW` e `fstat` (regular, dono = uid).
+
+- [ ] **Passo 1 — vermelho** (scripts do auditor #3, #4, #6, #9 colados antes):
+  - R11: kit só no escopo `project` + régua do repo com `outro:naotenho` → texto sem `outro:naotenho` e aviso `1 skill(s)`;
+  - R12: régua do repo só com nomes desconhecidos e global válida → "Régua (global)"; sem global → "Régua (padrão)"; o aviso de desconhecidos fica nos dois;
+  - componentes declarados: plugin de fixture com `plugin.json` `"agents": ["./extra/x.md"]` e `"commands": "./cmds"` → `plugin:x` e o comando são conhecidos;
+  - R14: skill só no `marketplace.json` (`strict: false`) → desconhecida;
+  - R15: o mesmo nome desconhecido em 3 fases → aviso `1 skill(s)` e lista com 1 nome;
+  - saneamento: `fase` com `\u{FE0F}` e `\u{E0101}` → espaço; ausência em `validarRegua(...).regua`;
+  - R13: pasta do rascunho que é link, com modo `0777`, ou de outro dono (o teste passa a `pastaRascunhoSegura` um `uid` diferente do dono real, porque `chown` pede root) → `editar` e `aplicar` respondem "rascunho inseguro em <pasta>" e nada é gravado; rascunho que é link → o mesmo;
+  - `aplicar` → resposta contém o texto da régua aplicada (`Régua (global): …`) e o resumo.
+- [ ] **Passo 2** — confirmar na doc oficial de plugins (`plugins-reference`, componentes e caminhos) se caminhos declarados somam ou substituem as pastas padrão; seguir a doc, URL no comentário do teste.
+- [ ] **Passo 3** — implementar até o Passo 1 passar; `node --test` → 0 falhas.
+- [ ] **Passo 4** — commit `fix(regua): validação em qualquer escopo do kit, queda de nível e rascunho do usuário`.
+
+### Tarefa A3: SECURITY.md K1/S-dedup e D4 (depois da P-e)
+
+- [ ] **Passo 1** — `SECURITY.md:179` e `:371`: o instalador não escreve `enabledPlugins`; a dedup só roda `claude plugin disable <D> --scope user` na cópia do kit com `auto: true` (texto da K1 `:70`/`:262`).
+- [ ] **Passo 2** — D4 conforme a decisão da P-e (spec §5 D4/D11 reescritos, `outraCopia` nos dois lados, teste de paridade com `source: "./"` irmão).
+- [ ] **Passo 3** — `node --test` → 0 falhas; commit `fix(dedup): …` ou `docs(security): …` conforme o que entrar.
+
 ## Fechamento
 
 ### Tarefa 13: mutação, auditoria do diff, e2e
