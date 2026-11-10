@@ -40,6 +40,7 @@ const MATT = 'mattpocock-skills@claude-hadouken';
 const POKA = 'poka-yoke@claude-hadouken';
 const MATT_USUARIO = 'mattpocock-skills@mattpocock';
 const KIT = 'hadouken-kit@claude-hadouken';
+const UI = 'ui-ux-pro-max@claude-hadouken';
 
 // ------------------------------------------------------------ paridade
 
@@ -70,6 +71,11 @@ const CASOS = [
   ['D11 irmão de monorepo em subpasta não casa com a raiz', { deps: ['fullstack-dev-skills@claude-hadouken'], repos: [['fullstack-dev-skills@claude-hadouken', 'mono/repo'], ['outro-plugin@mk', 'mono/repo/plugins/outro']], plugins: [['fullstack-dev-skills@claude-hadouken', p('1', true)], ['outro-plugin@mk', p('1', true)]] }],
   ['D4 mesma subpasta, nome diferente', { deps: [POKA], repos: [[POKA, 'rainmanjam/poka-yoke/plugins/poka-yoke'], ['guardrails@poka-yoke', 'rainmanjam/poka-yoke/plugins/poka-yoke']], plugins: [['guardrails@poka-yoke', p('0.2.0', true)]] }],
   ['D1 desligada por origem', { deps: [MATT], repos: [[MATT, 'mattpocock/skills'], ['skills@x', 'mattpocock/skills']], plugins: [[MATT, p('1', true)], ['skills@x', p('1', false)]] }],
+  ['D4 origem compartilhada por irmãos do marketplace: só o nome decide', { deps: [UI], repos: [[UI, 'o/r'], ['outra-coisa@mono', 'o/r'], ['terceira@mono', 'o/r']], plugins: [[UI, p('1', true)], ['outra-coisa@mono', p('1', true)]] }],
+  ['D4 origem compartilhada, irmão desligado', { deps: [UI], repos: [[UI, 'o/r'], ['outra-coisa@mono', 'o/r'], ['terceira@mono', 'o/r']], plugins: [[UI, p('1', true)], ['outra-coisa@mono', p('1', false)]] }],
+  ['D4 origem única no marketplace (fork renomeado)', { deps: [UI], repos: [[UI, 'o/r'], ['outra-coisa@mono', 'o/r']], plugins: [[UI, p('1', true)], ['outra-coisa@mono', p('1', true)]] }],
+  ['D4 mesmo nome em marketplace com irmãos', { deps: [UI], repos: [[UI, 'o/r'], ['ui-ux-pro-max@mono', 'o/r'], ['outra-coisa@mono', 'o/r']], plugins: [[UI, p('1', true)], ['ui-ux-pro-max@mono', p('1', true)], ['outra-coisa@mono', p('1', true)]] }],
+  ['D4 compartilhada em outro marketplace não impede a origem única neste', { deps: [UI], repos: [[UI, 'o/r'], ['a@mono', 'o/r'], ['b@mono', 'o/r'], ['c@outro', 'o/r']], plugins: [[UI, p('1', true)], ['a@mono', p('1', true)], ['c@outro', p('1', true)]] }],
   ['uma avaliação por dependência, na ordem', { deps: ['a@m', 'b@m'], plugins: [['a@m', p('1', true)]] }],
   ['G1 cópia do kit com auto', { deps: [MATT], plugins: [[MATT, p('1.3.2', true, 'user', { auto: true })], [MATT_USUARIO, p('1.3.2', true)]] }],
   ['G1 auto que não é true', { deps: [MATT], plugins: [[MATT, p('1.3.2', true, 'user', { auto: 'true' })], [MATT_USUARIO, p('1.3.2', true)]] }],
@@ -443,6 +449,40 @@ test('G3 no hook: outro plugin ligado depende da cópia do kit → nenhuma linha
   assert.match(saida(desligado).systemMessage, /Desligue a cópia do kit, no terminal: claude plugin disable mattpocock-skills@claude-hadouken --scope user/);
   const quebrado = cenario({ instalados: { ...base, 'app@claude-hadouken': dependenteLigado('app@claude-hadouken', null, '{quebrado') }, habilitados: { [MATT_USUARIO]: true, 'app@claude-hadouken': true } });
   assert.match(saida(quebrado).systemMessage, /^hadouken-kit: mattpocock-skills em dobro/, 'manifesto ilegível = sem dependências');
+});
+
+// D4 (decisão do Fernando, 10/11/2026) pelos arquivos de verdade: lerRepos das duas
+// cópias e o SessionStart, com o marketplace `mono` de um e de dois plugins "./".
+function registrarMono(cfg, pluginsDoMono) {
+  const pasta = path.join(cfg, 'plugins');
+  const locMono = path.join(pasta, 'marketplaces', 'mono');
+  const locKit = path.join(pasta, 'marketplaces', 'claude-hadouken');
+  gravar(path.join(pasta, 'known_marketplaces.json'), {
+    mono: { source: { source: 'github', repo: 'nextlevelbuilder/ui-ux-pro-max-skill' }, installLocation: locMono },
+    'claude-hadouken': { source: { source: 'github', repo: 'Garioli-Labs/claude-hadouken' }, installLocation: locKit },
+  });
+  gravar(path.join(locMono, '.claude-plugin', 'marketplace.json'), { plugins: pluginsDoMono });
+  gravar(path.join(locKit, '.claude-plugin', 'marketplace.json'), { plugins: [{ name: 'ui-ux-pro-max', source: { source: 'url', url: 'https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git' } }] });
+  return pasta;
+}
+const cenarioD4 = (pluginsDoMono) => {
+  const cfg = cenario({ instalados: { [UI]: usuario('1.0.0', true), 'outra-coisa@mono': usuario('1.0.0') }, habilitados: { 'outra-coisa@mono': true } });
+  return { cfg, pasta: registrarMono(cfg, pluginsDoMono) };
+};
+
+test('D4 no hook: irmão ligado em marketplace com dois plugins "./" → sem linha de desligar a cópia do kit; lerRepos igual nas duas cópias', () => {
+  const { cfg, pasta } = cenarioD4([{ name: 'outra-coisa', source: './' }, { name: 'terceira', source: './' }]);
+  assert.deepStrictEqual(kit.lerRepos(pasta), proj.lerRepos(pasta));
+  const [a] = kit.avaliarDependencias({ ...kit.lerRegistro(cfg), deps: [UI], testado: {} });
+  assert.deepEqual([a.estado, a.equivalente], ['propria', null]);
+  const j = saida(cfg);
+  assert.equal(j.systemMessage, undefined);
+  assert.equal(j.hookSpecificOutput.additionalContext, CONTEXTO);
+});
+
+test('D4 no hook: o único plugin do marketplace com a origem (fork renomeado) → a linha de desligar a cópia do kit continua', () => {
+  const { cfg } = cenarioD4([{ name: 'outra-coisa', source: './' }]);
+  assert.equal(saida(cfg).systemMessage, 'hadouken-kit: ui-ux-pro-max em dobro (outra-coisa@mono e ui-ux-pro-max@claude-hadouken). Desligue a cópia do kit, no terminal: claude plugin disable ui-ux-pro-max@claude-hadouken --scope user');
 });
 
 test('hook: terceiro ausente e não instalado → sem systemMessage (é sugerido, não exigido)', () => {

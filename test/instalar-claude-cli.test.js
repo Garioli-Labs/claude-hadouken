@@ -198,6 +198,20 @@ test('passoDedup: duplicada por origem (nome diferente), com `auto` e kit 1.2.0 
   semDisable(sem);
 });
 
+test('passoDedup D4 (decisão do Fernando, 10/11/2026): irmão ligado com origem compartilhada no marketplace → própria, nenhum disable; origem única → disable', async () => {
+  const UI = 'ui-ux-pro-max@claude-hadouken';
+  const compartilhada = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(UI, '1.0.0'), entrada('outra-coisa@mono', '1.0.0')], log: [], raiz: '/r' };
+  const reposDois = new Map([[UI, 'o/r'], ['outra-coisa@mono', 'o/r'], ['terceira@mono', 'o/r']]);
+  const r = await dedup(compartilhada, { repos: reposDois, autos: new Set([UI]) });
+  assert.deepEqual([r.dedup.find((a) => a.id === UI).estado, r.dedup.find((a) => a.id === UI).equivalente], ['propria', null]);
+  assert.equal(r.item, null);
+  semDisable(compartilhada);
+  const unica = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(UI, '1.0.0'), entrada('outra-coisa@mono', '1.0.0')], log: [], raiz: '/r' };
+  const u = await dedup(unica, { repos: new Map([[UI, 'o/r'], ['outra-coisa@mono', 'o/r']]), autos: new Set([UI]) });
+  assert.equal(u.dedup.find((a) => a.id === UI).estado, 'duplicada');
+  assert.ok(unica.log.includes(`plugin disable ${UI} --scope user`));
+});
+
 test('passoDedup: nada a dizer (tudo próprio, ou kit sem entrada) → item nulo, a lista de entrada volta e nenhum comando roda', async () => {
   const estado = { plugins: [entrada(ID_KIT, '1.2.0'), ...TERCEIROS_KIT.map((d) => entrada(d, '1.0.0'))], log: [], raiz: '/r' };
   const lista = await listarPlugins(rodarFalso(estado));

@@ -145,7 +145,10 @@ export function avaliarDependencias({ deps, plugins, repos, testado } = {}) {
     const nome = nomeDe(id);
     const repo = reposDe.get(id) ?? null;
     const propria = doUsuario.find(([k]) => k === id)?.[1];
-    const outraCopia = ([k]) => marketplaceDe(k) !== marketplaceDe(id) && (nomeDe(k) === nome || (repo !== null && reposDe.get(k) === repo));
+    // D4 (decisão do Fernando, 10/11/2026): a origem só vale quando nenhum outro
+    // plugin do marketplace de `k` tem a mesma origem; compartilhada → só o nome.
+    const origemUnica = (k) => ![...reposDe].some(([j, r]) => j !== k && r === repo && marketplaceDe(j) === marketplaceDe(k));
+    const outraCopia = ([k]) => marketplaceDe(k) !== marketplaceDe(id) && (nomeDe(k) === nome || (repo !== null && reposDe.get(k) === repo && origemUnica(k)));
     const primeiro = (lista) => lista.map(([k]) => k).sort()[0] ?? null;
     const equivalente = primeiro(doUsuario.filter((e) => e[1].enabled === true && outraCopia(e)));
     const desligada = primeiro(doUsuario.filter((e) => e[1].enabled !== true && outraCopia(e)));

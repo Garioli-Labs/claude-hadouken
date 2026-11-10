@@ -233,6 +233,60 @@ test('D4 com subpasta: poka-yoke de um marketplace relativo em plugins/poka-yoke
   assert.equal(b.estado, 'ausente', 'outra subpasta do mesmo repo não conta');
 });
 
+// D4 (decisão do Fernando, 10/11/2026): a origem só vale como equivalência quando
+// nenhum outro plugin do marketplace da outra cópia tem a mesma origem; origem
+// compartilhada (irmãos com `source: "./"` no mesmo repo, ou a mesma subpasta)
+// → só o nome decide.
+const UI = 'ui-ux-pro-max@claude-hadouken';
+function mercadosD4(d, pluginsDoMono, repoMono = 'nextlevelbuilder/ui-ux-pro-max-skill') {
+  registrar(d, {
+    'claude-hadouken': { repo: 'Garioli-Labs/claude-hadouken', plugins: [{ name: 'ui-ux-pro-max', source: { source: 'url', url: 'https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git' } }] },
+    mono: { repo: repoMono, plugins: pluginsDoMono },
+  });
+  return lerRepos(d);
+}
+
+test('D4: irmão ligado de um marketplace com dois plugins de source "./" no mesmo repo não é equivalente (só o nome decide)', () => {
+  const repos = mercadosD4(novoTmp(), [{ name: 'outra-coisa', source: './' }, { name: 'terceira', source: './' }]);
+  assert.equal(repos.get(UI), 'nextlevelbuilder/ui-ux-pro-max-skill');
+  assert.equal(repos.get('outra-coisa@mono'), 'nextlevelbuilder/ui-ux-pro-max-skill');
+  const [a] = avaliar([[UI, p('1.0.0', true)], ['outra-coisa@mono', p('1.0.0', true)]], { repos, deps: [UI] });
+  assert.deepEqual([a.estado, a.equivalente, a.desligada], ['propria', null, null]);
+  const [b] = avaliar([[UI, p('1.0.0', true)], ['outra-coisa@mono', p('1.0.0', false)]], { repos, deps: [UI] });
+  assert.deepEqual([b.estado, b.equivalente, b.desligada], ['propria', null, null], 'desligado também não conta como cópia');
+});
+
+test('D4: marketplace com um só plugin de origem igual e nome diferente continua equivalente (fork renomeado)', () => {
+  const repos = mercadosD4(novoTmp(), [{ name: 'outra-coisa', source: './' }]);
+  const [a] = avaliar([[UI, p('1.0.0', true)], ['outra-coisa@mono', p('1.0.0', true)]], { repos, deps: [UI] });
+  assert.deepEqual([a.estado, a.equivalente], ['duplicada', 'outra-coisa@mono']);
+});
+
+test('D4: mesmo nome num marketplace com irmãos de source "./" → duplicada pelo nome', () => {
+  const repos = mercadosD4(novoTmp(), [{ name: 'ui-ux-pro-max', source: './' }, { name: 'outra-coisa', source: './' }]);
+  const [a] = avaliar([[UI, p('1.0.0', true)], ['ui-ux-pro-max@mono', p('1.0.0', true)], ['outra-coisa@mono', p('1.0.0', true)]], { repos, deps: [UI] });
+  assert.deepEqual([a.estado, a.equivalente], ['duplicada', 'ui-ux-pro-max@mono'], 'o irmão não entra; o de mesmo nome sim');
+});
+
+test('D4: a mesma subpasta em dois plugins do marketplace também é origem compartilhada; subpasta só de um continua valendo', () => {
+  const POKA = 'poka-yoke@claude-hadouken';
+  const d = novoTmp();
+  registrar(d, {
+    'claude-hadouken': { repo: 'Garioli-Labs/claude-hadouken', plugins: [{ name: 'poka-yoke', source: { source: 'git-subdir', url: 'https://github.com/rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke' } }] },
+    'poka-yoke': { repo: 'rainmanjam/poka-yoke', plugins: [{ name: 'guardrails', source: './plugins/poka-yoke' }, { name: 'guardrails-bis', source: 'plugins/poka-yoke/' }, { name: 'docs', source: './docs' }] },
+  });
+  const repos = lerRepos(d);
+  const [a] = avaliar([[POKA, p('1', true)], ['guardrails@poka-yoke', p('1', true)]], { repos, deps: [POKA] });
+  assert.deepEqual([a.estado, a.equivalente], ['propria', null], 'duas entradas na mesma subpasta');
+  const so = novoTmp();
+  registrar(so, {
+    'claude-hadouken': { repo: 'Garioli-Labs/claude-hadouken', plugins: [{ name: 'poka-yoke', source: { source: 'git-subdir', url: 'https://github.com/rainmanjam/poka-yoke.git', path: 'plugins/poka-yoke' } }] },
+    'poka-yoke': { repo: 'rainmanjam/poka-yoke', plugins: [{ name: 'guardrails', source: './plugins/poka-yoke' }, { name: 'docs', source: './docs' }] },
+  });
+  const [b] = avaliar([[POKA, p('1', true)], ['guardrails@poka-yoke', p('1', true)]], { repos: lerRepos(so), deps: [POKA] });
+  assert.deepEqual([b.estado, b.equivalente], ['duplicada', 'guardrails@poka-yoke']);
+});
+
 test('D1: cópia do usuário desligada (mesmo nome ou mesma origem) aparece em `desligada`; ligada ou de outra origem, não', () => {
   const [a] = avaliar([[MATT, p('1.3.2', true)], ['mattpocock-skills@mattpocock', p('1.3.2', false)]]);
   assert.deepEqual([a.estado, a.desligada], ['propria', 'mattpocock-skills@mattpocock']);
