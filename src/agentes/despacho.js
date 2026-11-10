@@ -4,12 +4,14 @@ import { PALETA, REMOVIDOS } from './paleta.js';
 // recebe o que o hook leu e devolve a ação. Nunca lança; na dúvida, passa.
 //   { acao: 'passa' }
 //   { acao: 'negar', razao }
-// A injeção de model/effort (acao 'injetar') é da Tarefa 6b.
-// `agentes` é a chave `agentes` já validada (lerAgentes).
+//   { acao: 'injetar', updatedInput }  (o tool_input inteiro + model/effort da config)
+// Ordem (spec §4 Fatia 4): remoção, `ativo`, injeção; `fork`, Workflow e outro
+// plugin passam. `agentes` é a chave `agentes` já validada (lerAgentes).
 const FERRAMENTAS = new Set(['Agent', 'Task']);
 const PREFIXO = 'hadouken:';
 const POR_NOME = new Map(PALETA.map((p) => [p.nome, p]));
 
+const ausente = (v) => v === undefined || v === null || v === '';
 const inativo = (agentes, nome) => agentes !== null && typeof agentes === 'object' && Object.hasOwn(agentes, nome) && agentes[nome]?.ativo === false;
 
 // O substituto da tabela, um nível só (spec §4 Fatia 4): null quando a tabela
@@ -31,7 +33,18 @@ export function avaliarPaleta({ toolName, toolInput, agentes = {} } = {}) {
       const substituto = substitutoAtivo(agentes, nome);
       return { acao: 'negar', razao: `hadouken:${nome} está desligado na config; ${substituto === null ? 'faça direto' : `use hadouken:${substituto}`}` };
     }
-    return passa;
+    // Injeção: só o campo ausente, e só com valor na config. O campo explícito
+    // do despacho nunca é sobrescrito (A1). `fork` e agente de outro plugin já
+    // saíram acima (não começam por `hadouken:`).
+    if (!POR_NOME.has(nome)) return passa;
+    const c = Object.hasOwn(agentes, nome) && agentes[nome] !== null && typeof agentes[nome] === 'object' ? agentes[nome] : {};
+    const injetado = {};
+    for (const campo of ['model', 'effort']) {
+      if (!ausente(toolInput[campo]) || typeof c[campo] !== 'string') continue;
+      injetado[campo] = c[campo];
+    }
+    if (Object.keys(injetado).length === 0) return passa;
+    return { acao: 'injetar', updatedInput: { ...toolInput, ...injetado } };
   } catch {
     return passa;
   }

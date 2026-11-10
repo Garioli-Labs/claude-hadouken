@@ -16,10 +16,11 @@ import { avaliarPaleta } from '../src/agentes/despacho.js';
 import { validarAgentes, lerAgentes } from '../src/agentes/config.js';
 import * as agcfg from '../src/agentes/config.js';
 
-// Spec v0.6.0 §4 Fatia 4, Tarefa 6a do plano: config `agentes`, negação de
-// agente inativo antes dos portões da guarda, perfil efetivo (frontmatter do
-// plugin) em G5/G6/G7 e aprovação por `agentes.<nome>` e por `subir` em N1/N2.
-// A injeção de model/effort (updatedInput) é da Tarefa 6b.
+// Spec v0.6.0 §4 Fatia 4, Tarefas 6a e 6b do plano: config `agentes`, negação
+// de agente inativo antes dos portões da guarda, perfil efetivo (config e
+// frontmatter do plugin) em G5/G6/G7, aprovação por `agentes.<nome>` e por
+// `subir` em N1/N2 e injeção de model/effort (updatedInput, sem
+// permissionDecision) no despacho.
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -416,4 +417,185 @@ test('hook N1/N2 (guarda de regressão): sem aprovação, o parâmetro explícit
   assert.equal(razao({ agentes: { busca: { model: 'sonnet' } } }, 'hadouken:busca', { model: 'opus' }), mensagens.N1_CLAUDE);
   assert.equal(razao({}, 'hadouken:busca', { effort: 'xhigh' }), mensagens.N1_CLAUDE);
   assert.equal(razao({}, 'hadouken:mecanico', { model: 'opus' }), mensagens.N2_CLAUDE);
+});
+
+// ============================================ Tarefa 6b: injeção no despacho
+
+const injecao = (o) => {
+  assert.ok(o?.hookSpecificOutput?.updatedInput, `sem updatedInput: ${JSON.stringify(o)}`);
+  return o.hookSpecificOutput.updatedInput;
+};
+const semPermissao = (o) => assert.equal(Object.hasOwn(o.hookSpecificOutput, 'permissionDecision'), false, JSON.stringify(o));
+const TRAVA_5H = { u5: 99 };
+
+test('injeção: config com model e effort -> updatedInput é o tool_input original mais os campos, sem permissionDecision', () => {
+  const home = homeCom({ ...GUARDA_OFF, agentes: { revisor: { model: 'opus', effort: 'high' } } });
+  const original = ti('hadouken:revisor');
+  const o = lerSaida(rodar(despacho(original), home));
+  assert.deepEqual(injecao(o), { ...original, model: 'opus', effort: 'high' });
+  semPermissao(o);
+  assert.equal(o.hookSpecificOutput.hookEventName, 'PreToolUse');
+});
+
+test('injeção A1: campo explícito no despacho nunca é sobrescrito; só o ausente é injetado', () => {
+  const home = homeCom({ ...GUARDA_OFF, agentes: { revisor: { model: 'opus', effort: 'high' } } });
+  const u = injecao(lerSaida(rodar(despacho(ti('hadouken:revisor', { model: 'sonnet' })), home)));
+  assert.equal(u.model, 'sonnet');
+  assert.equal(u.effort, 'high');
+  const e = injecao(lerSaida(rodar(despacho(ti('hadouken:revisor', { effort: 'low' })), home)));
+  assert.equal(e.model, 'opus');
+  assert.equal(e.effort, 'low');
+  // Os dois explícitos: nada a injetar.
+  semSaida(rodar(despacho(ti('hadouken:revisor', { model: 'sonnet', effort: 'low' })), home));
+});
+
+test('injeção: config só com effort injeta só effort; agente sem config e config só com ativo:true não injetam', () => {
+  const so = homeCom({ ...GUARDA_OFF, agentes: { revisor: { effort: 'xhigh' } } });
+  const u = injecao(lerSaida(rodar(despacho(ti('hadouken:revisor')), so)));
+  assert.equal(u.effort, 'xhigh');
+  assert.equal(Object.hasOwn(u, 'model'), false);
+  semSaida(rodar(despacho(ti('hadouken:auditor')), so));
+  semSaida(rodar(despacho(ti('hadouken:revisor')), homeCom({ ...GUARDA_OFF, agentes: { revisor: { ativo: true } } })));
+});
+
+test('injeção: fork e Workflow (A7) nunca recebem; outro plugin e agente sem prefixo também não', () => {
+  const home = homeCom({ ...GUARDA_OFF, agentes: { revisor: { model: 'opus', effort: 'high' } } });
+  semSaida(rodar(despacho(ti('fork')), home));
+  semSaida(rodar(despacho(ti('hadouken:revisor'), { tool_name: 'Workflow' }), home));
+  semSaida(rodar(despacho(ti('outro-plugin:revisor')), home));
+  semSaida(rodar(despacho(ti('revisor')), home));
+});
+
+test('injeção: Task injeta como o Agent', () => {
+  const home = homeCom({ ...GUARDA_OFF, agentes: { revisor: { model: 'opus' } } });
+  assert.equal(injecao(lerSaida(rodar(despacho(ti('hadouken:revisor'), { tool_name: 'Task' }), home))).model, 'opus');
+});
+
+test('injeção A10: antes dos portões da guarda (desligada, session_id inválido, sessão fora de ativas, status erro)', () => {
+  const cfg = { ...GUARDA_OFF, agentes: { revisor: { model: 'opus' } } };
+  assert.equal(injecao(lerSaida(rodar(despacho(ti('hadouken:revisor')), homeCom(cfg)))).model, 'opus');
+  assert.equal(injecao(lerSaida(rodar(despacho(ti('hadouken:revisor'), { session_id: '../x' }), homeCom(cfg)))).model, 'opus');
+  assert.equal(injecao(lerSaida(rodar(despacho(ti('hadouken:revisor')), homeCom(cfg, { sessao: false })))).model, 'opus');
+  // Guarda ligada e sessão ativa, mas avaliarGuarda com status erro.
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { revisor: { model: 'opus' } } });
+  const preload = path.join(home, 'iso-quebrado.cjs');
+  fs.writeFileSync(preload, "Date.prototype.toISOString = () => { throw new Error('iso quebrado'); };\n");
+  const original = Date.prototype.toISOString;
+  let status;
+  try {
+    Date.prototype.toISOString = () => { throw new Error('iso quebrado'); };
+    status = comHome(home, () => avaliarGuarda({ dir: home, agoraMs: Date.now(), sessionId: 's1' }).status);
+  } finally { Date.prototype.toISOString = original; }
+  assert.equal(status, 'erro');
+  const o = lerSaida(rodar(despacho(ti('hadouken:revisor')), home, {}, ['--require', preload]));
+  assert.equal(injecao(o).model, 'opus');
+  semPermissao(o);
+});
+
+test('injeção A3: config dá opus a busca, despacho sem model, guarda ligada -> injeta opus e N1/N2 não negam', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { busca: { model: 'opus' } } });
+  const o = lerSaida(rodar(despacho(ti('hadouken:busca')), home));
+  assert.deepEqual(injecao(o), { ...ti('hadouken:busca'), model: 'opus' });
+  semPermissao(o);
+  const m = homeCom({ ...PERGUNTAR_OFF, agentes: { mecanico: { model: 'opus' } } });
+  assert.equal(injecao(lerSaida(rodar(despacho(ti('hadouken:mecanico')), m))).model, 'opus');
+});
+
+test('G5: o perfil efetivo vem da config (revisor fable·max sem parâmetro) e a guarda nega, sem updatedInput', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { revisor: { model: 'fable', effort: 'max' } } });
+  const o = lerSaida(rodar(despacho(ti('hadouken:revisor')), home));
+  deny(o);
+  assert.equal(Object.hasOwn(o.hookSpecificOutput, 'updatedInput'), false);
+  assert.equal(o.hookSpecificOutput.permissionDecisionReason, mensagens.caroClaude({ modelo: 'fable', effort: 'max', origem: 'config' }));
+});
+
+test('perfilDoDespacho: parâmetro > config > frontmatter para model e para effort; origem config quando a config decide', () => {
+  const ag = { revisor: { model: 'fable', effort: 'max' } };
+  assert.deepEqual(pd({ subagent_type: 'hadouken:revisor' }, { agentes: ag }), { modelo: 'fable', effort: 'max', origem: 'config' });
+  assert.deepEqual(pd({ subagent_type: 'hadouken:revisor' }), { modelo: 'outro', effort: 'high', origem: 'frontmatter' });
+  assert.deepEqual(pd({ subagent_type: 'hadouken:revisor', model: 'sonnet' }, { agentes: ag }), { modelo: 'outro', effort: 'max', origem: 'parametro' });
+  assert.deepEqual(pd({ subagent_type: 'hadouken:revisor', effort: 'low' }, { agentes: ag }), { modelo: 'fable', effort: 'low', origem: 'config' });
+  assert.deepEqual(pd({ subagent_type: 'hadouken:revisor', model: 'sonnet', effort: 'low' }, { agentes: ag }), { modelo: 'outro', effort: 'low', origem: 'parametro' });
+  // Config só com effort: o model segue do frontmatter.
+  assert.deepEqual(pd({ subagent_type: 'hadouken:auditor' }, { agentes: { auditor: { effort: 'xhigh' } } }), { modelo: 'fable', effort: 'xhigh', origem: 'frontmatter' });
+  // Config só com model: o effort segue do frontmatter.
+  assert.deepEqual(pd({ subagent_type: 'hadouken:revisor' }, { agentes: { revisor: { model: 'opus' } } }), { modelo: 'outro', effort: 'high', origem: 'config' });
+  // A config de um agente não vale para outro, para fork nem para outro plugin.
+  assert.deepEqual(pd({ subagent_type: 'hadouken:auditor' }, { agentes: ag }), { modelo: 'fable', effort: 'high', origem: 'frontmatter' });
+  assert.deepEqual(pd({ subagent_type: 'fork' }, { agentes: { fork: { model: 'fable' } } }), { modelo: 'outro', effort: null, origem: 'sessao' });
+  const desc = { modelo: 'desconhecido', effort: null, origem: 'desconhecido' };
+  assert.deepEqual(pd({ subagent_type: 'outro-plugin:revisor' }, { agentes: ag }), desc);
+  assert.deepEqual(pd({ subagent_type: 'revisor' }, { agentes: ag }), desc);
+});
+
+test('saída final: guarda.perguntar ligado e injeção pendente -> ask com updatedInput (trava do 5h e G5)', () => {
+  const trava = homeCom({ guarda: { perguntar: true }, agentes: { revisor: { model: 'opus' } } }, TRAVA_5H);
+  const o = lerSaida(rodar(despacho(ti('hadouken:revisor')), trava));
+  assert.equal(o.hookSpecificOutput.permissionDecision, 'ask');
+  assert.deepEqual(injecao(o), { ...ti('hadouken:revisor'), model: 'opus' });
+  const caro = homeCom({ guarda: { perguntar: true }, agentes: { revisor: { model: 'fable', effort: 'max' } } });
+  const c = lerSaida(rodar(despacho(ti('hadouken:revisor')), caro));
+  assert.equal(c.hookSpecificOutput.permissionDecision, 'ask');
+  assert.deepEqual(injecao(c), { ...ti('hadouken:revisor'), model: 'fable', effort: 'max' });
+});
+
+test('saída final: deny da guarda (trava) com injeção pendente sai só com deny, sem updatedInput', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { revisor: { model: 'opus' } } }, TRAVA_5H);
+  const o = lerSaida(rodar(despacho(ti('hadouken:revisor')), home));
+  deny(o);
+  assert.equal(Object.hasOwn(o.hookSpecificOutput, 'updatedInput'), false);
+  // N2 negando um model explícito sem config e sem injeção: só deny também.
+  const n2 = lerSaida(rodar(despacho(ti('hadouken:mecanico', { model: 'opus' })), homeCom(PERGUNTAR_OFF)));
+  deny(n2);
+  assert.equal(Object.hasOwn(n2.hookSpecificOutput, 'updatedInput'), false);
+  // N1 negando o explícito com injeção pendente de outro campo: só deny.
+  const n1 = lerSaida(rodar(despacho(ti('hadouken:busca', { model: 'opus' })), homeCom({ ...PERGUNTAR_OFF, agentes: { busca: { effort: 'low' } } })));
+  deny(n1);
+  assert.equal(Object.hasOwn(n1.hookSpecificOutput, 'updatedInput'), false);
+});
+
+test('saída final: aviso A1 com injeção pendente leva additionalContext e updatedInput na mesma saída', () => {
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { implementador: { effort: 'low' } } });
+  const original = ti('hadouken:implementador', { model: 'fable' });
+  const o = lerSaida(rodar(despacho(original), home));
+  assert.equal(o.hookSpecificOutput.additionalContext, mensagens.A1_CLAUDE);
+  assert.deepEqual(injecao(o), { ...original, effort: 'low' });
+  semPermissao(o);
+  // Sem injeção pendente, o aviso segue como antes: só additionalContext.
+  const sem = lerSaida(rodar(despacho(original), homeCom(PERGUNTAR_OFF)));
+  assert.equal(sem.hookSpecificOutput.additionalContext, mensagens.A1_CLAUDE);
+  assert.equal(Object.hasOwn(sem.hookSpecificOutput, 'updatedInput'), false);
+});
+
+test('saída final: injeção sem aviso nem ask -> updatedInput e nenhum permissionDecision; nenhuma saída traz allow', () => {
+  const casos = [
+    homeCom({ ...GUARDA_OFF, agentes: { revisor: { model: 'opus' } } }),
+    homeCom({ ...PERGUNTAR_OFF, agentes: { revisor: { model: 'opus', effort: 'high' } } }),
+    homeCom({ guarda: { perguntar: true }, agentes: { revisor: { effort: 'xhigh' } } }),
+  ];
+  for (const home of casos) {
+    const o = lerSaida(rodar(despacho(ti('hadouken:revisor')), home));
+    injecao(o);
+    semPermissao(o);
+    assert.equal(Object.hasOwn(o.hookSpecificOutput, 'additionalContext'), false);
+  }
+  // Varre as saídas de outros cenários de 6b: nenhuma tem permissionDecision allow.
+  const home = homeCom({ ...PERGUNTAR_OFF, agentes: { implementador: { effort: 'low' } } });
+  for (const t of [ti('hadouken:implementador'), ti('hadouken:implementador', { model: 'fable' })]) {
+    const o = lerSaida(rodar(despacho(t), home));
+    assert.notEqual(o?.hookSpecificOutput?.permissionDecision, 'allow');
+  }
+});
+
+test('avaliarPaleta: injetar devolve o tool_input inteiro mais os campos; passa quando nada falta ou sem config', () => {
+  const original = { subagent_type: 'hadouken:revisor', prompt: 'x', description: 'y', run_in_background: true };
+  const r = avaliarPaleta({ toolName: 'Agent', toolInput: original, agentes: { revisor: { model: 'opus', effort: 'high' } } });
+  assert.deepEqual(r, { acao: 'injetar', updatedInput: { ...original, model: 'opus', effort: 'high' } });
+  assert.equal(Object.hasOwn(original, 'model'), false, 'não muta o tool_input');
+  assert.deepEqual(avaliarPaleta({ toolName: 'Agent', toolInput: original, agentes: {} }), { acao: 'passa' });
+  assert.deepEqual(avaliarPaleta({ toolName: 'Agent', toolInput: { ...original, model: 'sonnet', effort: 'low' }, agentes: { revisor: { model: 'opus', effort: 'high' } } }), { acao: 'passa' });
+  assert.deepEqual(avaliarPaleta({ toolName: 'Workflow', toolInput: original, agentes: { revisor: { model: 'opus' } } }), { acao: 'passa' });
+  assert.deepEqual(avaliarPaleta({ toolName: 'Agent', toolInput: { ...original, subagent_type: 'fork' }, agentes: { fork: { model: 'opus' }, revisor: { model: 'opus' } } }), { acao: 'passa' });
+  // Remoção e inativo vencem a injeção.
+  assert.equal(avaliarPaleta({ toolName: 'Agent', toolInput: original, agentes: { revisor: { ativo: false, model: 'opus' } } }).acao, 'negar');
 });

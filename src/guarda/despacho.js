@@ -77,7 +77,7 @@ const classificar = (m) => (FABLE.test(m) ? 'fable' : 'outro');
 // Para `hadouken:<nome>` o frontmatter vem de <raizPlugin>/agents/<nome>.md
 // (frontmatterRoteamento, a mesma busca do perfil do roteamento); outro
 // plugin e nome inexistente ficam desconhecidos.
-export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env, modeloSessao, raizPlugin } = {}) {
+export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env, modeloSessao, raizPlugin, agentes = {} } = {}) {
   const desconhecido = { modelo: 'desconhecido', effort: null, origem: 'desconhecido' };
   try {
     const ti = toolInput !== null && typeof toolInput === 'object' ? toolInput : {};
@@ -90,9 +90,17 @@ export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env,
       return { modelo: 'desconhecido', effort: effortSessao, origem: 'desconhecido' };
     }
     const fm = typeof nome === 'string' ? frontmatterRoteamento(nome, cwd, dirCfg, raizPlugin) : null;
+    // Spec v0.6.0 §4 Fatia 4: parâmetro > agentes.<nome> da config > frontmatter.
+    // A config vale para `hadouken:<nome>`, só para o campo que o despacho não
+    // traz (o que a paleta injetaria).
+    const nomeCurto = typeof nome === 'string' ? DO_PLUGIN.exec(nome)?.[1] : undefined;
+    const cfg = nomeCurto !== undefined && agentes !== null && typeof agentes === 'object' && Object.hasOwn(agentes, nomeCurto) && agentes[nomeCurto] !== null && typeof agentes[nomeCurto] === 'object' ? agentes[nomeCurto] : {};
+    const modeloCfg = !ehTexto(ti.model) && ehTexto(cfg.model) ? cfg.model : null;
+    const effortCfg = !ehTexto(ti.effort) ? effortValido(cfg.effort) : null;
     // O parâmetro effort vence o frontmatter, como o model (portão v0.4.0, I1).
-    const effort = effortValido(ti.effort) ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
+    const effort = effortValido(ti.effort) ?? effortCfg ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
     if (ehTexto(ti.model) && ti.model !== 'inherit') return { modelo: classificar(ti.model), effort, origem: 'parametro' };
+    if (modeloCfg !== null) return { modelo: classificar(modeloCfg), effort, origem: 'config' };
     if (fm !== null && ehTexto(fm.model) && fm.model !== 'inherit') return { modelo: classificar(fm.model), effort, origem: 'frontmatter' };
     // Modelo desconhecido não apaga o effort conhecido: G5 vale para effort
     // max de qualquer modelo (D1 emendado), inclusive de um que o hook não

@@ -15,7 +15,8 @@ import { sessaoAtiva } from '../ativas.js';
 // o status 'erro' de avaliarGuarda quanto qualquer exceção depois do gate
 // (falharAberto, em comum.js).
 // Antes do gate roda só a paleta (spec v0.6.0 §4 Fatia 4): agente removido ou
-// desligado na config é negado com a guarda ligada ou não. Fora isso, caminho
+// desligado na config é negado com a guarda ligada ou não, e model/effort da
+// config entram no despacho (updatedInput) quando faltam. Fora isso, caminho
 // curto até o gate, como os outros hooks; a guarda vem por import dinâmico
 // depois dele.
 
@@ -24,17 +25,31 @@ const GERAIS = new Set(['ilegivel', 'five_hour', 'seven_day']);
 const DO_FABLE = new Set(['fable', 'fable-despachos']);
 const DESCONHECIDO = Object.freeze({ modelo: 'desconhecido', effort: null, origem: 'desconhecido' });
 
+// Uma saída por chamada (spec v0.6.0 §4 Fatia 4, passos 4 e 5). `saiu` marca
+// que alguma decisão da guarda já foi escrita; sem ela, a injeção pendente da
+// paleta sai sozinha no fim. Nenhuma saída deste hook devolve
+// permissionDecision 'allow' (variante A, decisão do Fernando em 10/11/2026).
+let saiu = false;
+function emitir(saida) {
+  saiu = true;
+  emitirJson(saida);
+}
+
+// O `deny` prevalece e sai sem updatedInput.
 function negar(razaoClaude, razaoUsuario) {
   const saida = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: razaoClaude } };
   if (razaoUsuario !== null) Object.assign(saida, { continue: false, stopReason: razaoUsuario });
-  emitirJson(saida);
+  emitir(saida);
 }
 
 // guarda.perguntar: na thread principal, o usuário aprova ou recusa na tela
 // do Claude Code; nada para o turno. Dentro de subagente não há a quem
-// perguntar com segurança, e o deny sem stop de antes continua.
-function perguntar(razaoUsuario) {
-  emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: razaoUsuario } });
+// perguntar com segurança, e o deny sem stop de antes continua. Com injeção
+// pendente, o `ask` leva o updatedInput.
+function perguntar(razaoUsuario, injecao) {
+  const saida = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: razaoUsuario } };
+  if (injecao !== null) saida.hookSpecificOutput.updatedInput = injecao;
+  emitir(saida);
 }
 
 function casa() {
@@ -46,21 +61,25 @@ function casa() {
 // removido na 0.6.0 ou desligado na config (`ativo: false`) é negado com o
 // substituto; o turno não para (o modelo relança). Só despachos `hadouken:*`
 // carregam os módulos da paleta: o resto segue no caminho curto. Devolve o
-// `agentes` lido (para N1/N2) e se já negou. `dir` null: sem config, e a
-// remoção (pura) ainda nega.
+// `agentes` lido (para N1/N2 e o perfil efetivo), se já negou e a injeção
+// pendente (o tool_input original inteiro mais model/effort da config, ou
+// null). A injeção só sai na saída final. `dir` null: sem config, e a remoção
+// (pura) ainda nega.
 async function aplicarPaleta(entrada, dir) {
   const ti = entrada.tool_input;
   const tipo = ti !== null && typeof ti === 'object' ? ti.subagent_type : undefined;
-  if (entrada.tool_name === 'Workflow' || typeof tipo !== 'string' || !tipo.startsWith('hadouken:')) return { negou: false, agentes: {} };
+  if (entrada.tool_name === 'Workflow' || typeof tipo !== 'string' || !tipo.startsWith('hadouken:')) return { negou: false, agentes: {}, injecao: null };
   const [{ avaliarPaleta }, { lerAgentes }] = await Promise.all([import('../agentes/despacho.js'), import('../agentes/config.js')]);
   const { agentes } = lerAgentes(dir);
   const paleta = avaliarPaleta({ toolName: entrada.tool_name, toolInput: ti, agentes });
-  if (paleta.acao !== 'negar') return { negou: false, agentes };
-  negar(paleta.razao, null);
-  return { negou: true, agentes };
+  if (paleta.acao === 'negar') {
+    negar(paleta.razao, null);
+    return { negou: true, agentes, injecao: null };
+  }
+  return { negou: false, agentes, injecao: paleta.acao === 'injetar' ? paleta.updatedInput : null };
 }
 
-async function avaliarDespacho(entrada, dir, sessionId, agoraMs, agentes) {
+async function avaliarDespacho(entrada, dir, sessionId, agoraMs, agentes, injecao) {
   const [{ avaliarGuarda }, desp, reg, msg] = await Promise.all([
     import('../guarda/avaliar.js'),
     import('../guarda/despacho.js'),
@@ -77,14 +96,14 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs, agentes) {
   const noSubagente = typeof entrada.agent_id === 'string' && entrada.agent_id.length > 0;
   const perfil = entrada.tool_name === 'Workflow' ? DESCONHECIDO : desp.perfilDoDespacho({
     toolInput: entrada.tool_input, cwd: entrada.cwd, dirConfigClaude: desp.dirConfigClaude(process.env, casa()),
-    env: process.env, modeloSessao: g.modeloSessao, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT,
+    env: process.env, modeloSessao: g.modeloSessao, raizPlugin: process.env.CLAUDE_PLUGIN_ROOT, agentes,
   });
 
   const chaves = g.ativas.filter((k) => GERAIS.has(k) || (perfil.modelo === 'fable' && DO_FABLE.has(k)));
   if (chaves.length > 0) {
     const motivos = g.motivos.filter((mo) => chaves.includes(mo.trava));
     if (!noSubagente && g.config.perguntar) {
-      perguntar(msg.p1Perguntar(motivos, agoraMs));
+      perguntar(msg.p1Perguntar(motivos, agoraMs), injecao);
       reg.anexarEvento(dir, 'perguntado', `P1:${chaves.join(':')}`, agoraMs);
       // O hook não sabe a resposta: conta o Fable já (G7), a favor da cota.
       if (perfil.modelo === 'fable') reg.registrarDespachoFable(dir, agoraMs);
@@ -99,7 +118,7 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs, agentes) {
   }
   if (desp.despachoCaro(perfil) && !g.cobertura.solta.has('despacho-caro')) {
     if (!noSubagente && g.config.perguntar) {
-      perguntar(msg.caroPerguntar(perfil));
+      perguntar(msg.caroPerguntar(perfil), injecao);
       reg.anexarEvento(dir, 'perguntado', 'G5', agoraMs);
       if (perfil.modelo === 'fable') reg.registrarDespachoFable(dir, agoraMs);
       return;
@@ -128,7 +147,9 @@ async function avaliarDespacho(entrada, dir, sessionId, agoraMs, agentes) {
       return;
     }
     if (d.decisao === 'avisar') {
-      emitirJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: msg[`${d.regra}_CLAUDE`] } });
+      const aviso = { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: msg[`${d.regra}_CLAUDE`] } };
+      if (injecao !== null) aviso.hookSpecificOutput.updatedInput = injecao;
+      emitir(aviso);
       reg.anexarEvento(dir, 'roteamento-aviso', d.regra, agoraMs);
     }
   }
@@ -144,13 +165,20 @@ rodarHook(async (entrada) => {
   // Ordem dos portões (spec v0.6.0 §4 Fatia 4): paleta, session_id válido,
   // pasta de dados, sessão ativa, e só então a guarda. Exceção na paleta passa
   // e vira evento 'erro' (falharAberto), como na guarda.
-  let paleta = { negou: false, agentes: {} };
+  let paleta = { negou: false, agentes: {}, injecao: null };
   await falharAberto(dir, 'P1', agoraMs, async () => { paleta = await aplicarPaleta(entrada, dir); });
   if (paleta.negou) return;
-  const sessionId = entrada.session_id;
-  if (!idValido(sessionId)) return;
-  if (dir === null) return;
-  if (!sessaoAtiva(sessionId, agoraMs)) return;
-  // Depois do gate, toda exceção passa e vira evento 'erro' (§4.5).
-  await falharAberto(dir, 'P1', agoraMs, () => avaliarDespacho(entrada, dir, sessionId, agoraMs, paleta.agentes));
+  // A injeção pendente sai ao fim, depois dos portões e da guarda, quando
+  // nenhuma decisão da guarda foi escrita (deny, ask e aviso já a levam, ou
+  // prevalecem sem ela). Portão fechado ou status erro também injetam (A10).
+  try {
+    const sessionId = entrada.session_id;
+    if (!idValido(sessionId)) return;
+    if (dir === null) return;
+    if (!sessaoAtiva(sessionId, agoraMs)) return;
+    // Depois do gate, toda exceção passa e vira evento 'erro' (§4.5).
+    await falharAberto(dir, 'P1', agoraMs, () => avaliarDespacho(entrada, dir, sessionId, agoraMs, paleta.agentes, paleta.injecao));
+  } finally {
+    if (!saiu && paleta.injecao !== null) emitir({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: paleta.injecao } });
+  }
 }, undefined, undefined, 'P1');
