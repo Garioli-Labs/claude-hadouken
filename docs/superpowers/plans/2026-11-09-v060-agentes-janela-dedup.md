@@ -610,7 +610,7 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
 - `parteRitmo(f7, ritmoH, agoraMs, trabalho = null)`; `avaliarAlertas` repassa o `trabalho` que já recebe.
 - `ritmoMisturado(b, perfil, coluna, agoraMs, trabalho = null)`: com `trabalho` e agora fora da janela → `b`.
 
-- [ ] **Passo 1 — vermelho**:
+- [x] **Passo 1 — vermelho**:
   - script do auditor para o achado #1 → saída idêntica com e sem janela (colar);
   - `parteRitmo com janela: sustentável por hora útil` → `(100 − usado) ÷ (minutosUteis(trabalho, agora, reset) ÷ 60)`, 1 casa;
   - `parteRitmo com janela: acaba em minutos úteis` → horário de `quandoLocal(avancarUteis(trabalho, agora, (100 − usado) ÷ ritmoH × 60))`;
@@ -619,8 +619,8 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
   - `ritmo7dPorHora com janela abaixo de 120 min úteis` → `null`;
   - `ritmoMisturado fora da janela` → `b`;
   - DST, `TZ=America/New_York`, janela todos os dias `02:30-21:00`: 08/03/2026 → início `2026-03-08T07:00:00Z` (03:00 EDT); 01/11/2026 com `01:30-21:00` → início `2026-11-01T05:30:00Z` (primeira 01:30).
-- [ ] **Passo 2** — implementar até o Passo 1 passar.
-- [ ] **Passo 3** — `node --test` → 0 falhas; commit `fix(janela): ritmo da linha econômica e borda de DST pela janela`.
+- [x] **Passo 2** — implementar até o Passo 1 passar.
+- [x] **Passo 3** — `node --test` → 0 falhas; commit `fix(janela): ritmo da linha econômica e borda de DST pela janela`.
 
 ### Tarefa A2: régua — validação em qualquer escopo, queda de nível, rascunho do usuário
 
@@ -631,11 +631,11 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
 - `reguaEfetiva({ raiz, dirHadouken, padrao, catalogo, limite })` → `{ origem, regua, texto, avisos, desconhecidos, nomes }`: repo → global → padrão, descendo também quando o texto validado fica vazio (R12); usada por `reguaDaSessao` e pelo comando sem argumento (some a cópia em `regua-comando.js:96-102`).
 - `caminhoRascunho(tmpDir, uid)` → `<tmp>/hadouken-<uid>/regua-rascunho.json` (POSIX) ou `<tmp>/hadouken/regua-rascunho.json` (sem uid); `pastaRascunhoSegura(pasta, uid)` → `boolean` por `lstat` (pasta real, dono = uid, sem `0o022`); leitura do rascunho com `O_NOFOLLOW` e `fstat` (regular, dono = uid).
 
-- [ ] **Passo 0 — testes herméticos** (achado de 10/11/2026: um mutante do Stryker em `dirHadouken` caiu no fallback `~/.claude/hadouken` porque `rodarHook` de `test/kit-regua-comando.test.js:308` herda o `HOME` real, e o teste do `aplicar` gravou `{"fases":[{"fase":"F","usar":["a:b"]}]}` no `regua.json` real às 16:23; desde então 14 testes de `test/kit-fluxo.test.js` e `test/kit-dependencias.test.js` falham com o `HOME` real, porque leem essa régua):
+- [x] **Passo 0 — testes herméticos** (achado de 10/11/2026: um mutante do Stryker em `dirHadouken` caiu no fallback `~/.claude/hadouken` porque `rodarHook` de `test/kit-regua-comando.test.js:308` herda o `HOME` real, e o teste do `aplicar` gravou `{"fases":[{"fase":"F","usar":["a:b"]}]}` no `regua.json` real às 16:23; desde então 14 testes de `test/kit-fluxo.test.js` e `test/kit-dependencias.test.js` falham com o `HOME` real, porque leem essa régua):
   - vermelho: `HOME=<tmp com .claude/hadouken/regua.json de fixture> node --test test/kit-*.test.js` → falhas (colar);
   - todo teste de `test/kit-*.test.js` que roda hook ou chama `dirHadouken`/`catalogo`/`reguaDaSessao` passa `HOME`, `USERPROFILE`, `CLAUDE_CONFIG_DIR` e `HADOUKEN_HOME` temporários (um helper de env isolado);
   - verde: o mesmo comando com o `HOME` envenenado → 0 falhas.
-- [ ] **Passo 1 — vermelho** (scripts do auditor #3, #4, #6, #9 colados antes):
+- [x] **Passo 1 — vermelho** (scripts do auditor #3, #4, #6, #9 colados antes):
   - R11: kit só no escopo `project` + régua do repo com `outro:naotenho` → texto sem `outro:naotenho` e aviso `1 skill(s)`;
   - R12: régua do repo só com nomes desconhecidos e global válida → "Régua (global)"; sem global → "Régua (padrão)"; o aviso de desconhecidos fica nos dois;
   - componentes declarados: plugin de fixture com `plugin.json` `"agents": ["./extra/x.md"]` e `"commands": "./cmds"` → `plugin:x` e o comando são conhecidos;
@@ -644,18 +644,18 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
   - saneamento: `fase` com `\u{FE0F}` e `\u{E0101}` → espaço; ausência em `validarRegua(...).regua`;
   - R13: pasta do rascunho que é link, com modo `0777`, ou de outro dono (o teste passa a `pastaRascunhoSegura` um `uid` diferente do dono real, porque `chown` pede root) → `editar` e `aplicar` respondem "rascunho inseguro em <pasta>" e nada é gravado; rascunho que é link → o mesmo;
   - `aplicar` → resposta contém o texto da régua aplicada (`Régua (global): …`) e o resumo.
-- [ ] **Passo 2** — confirmar na doc oficial de plugins (`plugins-reference`, componentes e caminhos) se caminhos declarados somam ou substituem as pastas padrão; seguir a doc, URL no comentário do teste.
-- [ ] **Passo 3** — implementar até o Passo 1 passar; `node --test` → 0 falhas.
-- [ ] **Passo 4** — commit `fix(regua): validação em qualquer escopo do kit, queda de nível e rascunho do usuário`.
+- [x] **Passo 2** — confirmar na doc oficial de plugins (`plugins-reference`, componentes e caminhos) se caminhos declarados somam ou substituem as pastas padrão; seguir a doc, URL no comentário do teste.
+- [x] **Passo 3** — implementar até o Passo 1 passar; `node --test` → 0 falhas.
+- [x] **Passo 4** — commit `fix(regua): validação em qualquer escopo do kit, queda de nível e rascunho do usuário`.
 
 ### Tarefa A3: SECURITY.md K1/S-dedup e D4 (depois da P-e)
 
-- [ ] **Passo 1** — `SECURITY.md:179` e `:371`: o instalador não escreve `enabledPlugins`; a dedup só roda `claude plugin disable <D> --scope user` na cópia do kit com `auto: true` (texto da K1 `:70`/`:262`).
-- [ ] **Passo 2** — D4 (spec §5, decisão do Fernando 10/11/2026): `outraCopia` (`src/instalar/dedup.js:148` e `kit/hooks/dependencias.js:147`) só usa a origem quando nenhum outro plugin do marketplace da outra cópia tem a mesma origem; origem compartilhada → só o nome. Testes nos dois lados e de paridade:
+- [x] **Passo 1** — `SECURITY.md:179` e `:371`: o instalador não escreve `enabledPlugins`; a dedup só roda `claude plugin disable <D> --scope user` na cópia do kit com `auto: true` (texto da K1 `:70`/`:262`).
+- [x] **Passo 2** — D4 (spec §5, decisão do Fernando 10/11/2026): `outraCopia` (`src/instalar/dedup.js:148` e `kit/hooks/dependencias.js:147`) só usa a origem quando nenhum outro plugin do marketplace da outra cópia tem a mesma origem; origem compartilhada → só o nome. Testes nos dois lados e de paridade:
   - irmão `outra-coisa@mono` ligado, `mono` com dois plugins `source: "./"`, kit com `ui-ux-pro-max` de origem igual → `propria`, nenhum `disable` no log do falso;
   - `mono` com um só plugin de origem igual e nome diferente → `duplicada` (D4 de fork renomeado continua);
   - mesmo nome em marketplace com irmãos `./` → `duplicada` (o nome decide).
-- [ ] **Passo 3** — `node --test` → 0 falhas; commit `fix(dedup): …` ou `docs(security): …` conforme o que entrar.
+- [x] **Passo 3** — `node --test` → 0 falhas; commit `fix(dedup): …` ou `docs(security): …` conforme o que entrar.
 
 ## Fechamento
 
