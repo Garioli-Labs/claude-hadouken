@@ -133,6 +133,10 @@ test('dirDados segue CLAUDE_CONFIG_DIR da conta; a pasta padrão e valores ruins
       process.env.CLAUDE_CONFIG_DIR = ruim;
       assert.equal(base.dirDados(), padrao, JSON.stringify(ruim));
     }
+    for (const fora of [path.join(casa, 'outra-claude'), path.join(casa, '.claude-contas', 'a', 'b'), path.join(casa, '.claude-contas', 'Principal'), path.join(casa, '.claude-contas')]) {
+      process.env.CLAUDE_CONFIG_DIR = fora;
+      assert.equal(base.dirDados(), padrao, 'fora das contas: ' + fora);
+    }
     process.env.CLAUDE_CONFIG_DIR = conta;
     process.env.HADOUKEN_HOME = path.join(casa, 'h');
     assert.equal(base.dirDados(), path.join(casa, 'h'), 'HADOUKEN_HOME vence');

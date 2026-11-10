@@ -107,10 +107,9 @@ export function caminhoDoAmbiente(valor) {
 // lança.
 //
 // v0.5.9 (uma conta por janela do VS Code): sem HADOUKEN_HOME, um
-// CLAUDE_CONFIG_DIR absoluto completo que não é a pasta padrão (~/.claude) é a
-// pasta de uma conta, e os dados dela ficam em <CLAUDE_CONFIG_DIR>/hadouken.
-// Valor relativo, vazio ou a própria pasta padrão: ~/.claude/hadouken, como
-// antes.
+// CLAUDE_CONFIG_DIR que é ~/.claude-contas/<nome> é a pasta de uma conta, e os
+// dados dela ficam em <CLAUDE_CONFIG_DIR>/hadouken. Qualquer outro valor:
+// ~/.claude/hadouken, como antes.
 export function dirDados() {
   try {
     const configurado = process.env.HADOUKEN_HOME;
@@ -131,11 +130,13 @@ export function pastaDeConta(config, padrao) {
     if (typeof config !== 'string' || config.trim() === '') return null;
     const p = caminhoDoAmbiente(config);
     if (p === null) return null;
-    const norm = (x) => {
-      const r = path.resolve(x).replace(/[\\/]+$/, '');
-      return process.platform === 'win32' ? r.toLowerCase() : r;
-    };
-    return norm(p) === norm(padrao) ? null : path.resolve(p);
+    // Só ~/.claude-contas/<nome> é conta: um CLAUDE_CONFIG_DIR global de quem
+    // já usava outra pasta segue com os dados em ~/.claude/hadouken.
+    const r = path.resolve(p).replace(/[\\/]+$/, '');
+    const raiz = path.join(path.dirname(padrao), '.claude-contas');
+    const igual = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+    const nome = path.basename(r);
+    return igual(path.dirname(r), raiz) && /^[a-z0-9-]{1,32}$/.test(nome) && nome !== 'principal' ? r : null;
   } catch {
     return null;
   }

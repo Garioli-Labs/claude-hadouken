@@ -155,18 +155,10 @@ function dirDados() {
     }
     const home = os.homedir();
     if (typeof home !== 'string' || !path.isAbsolute(home)) return null;
-    // v0.5.9: CLAUDE_CONFIG_DIR de uma conta (pasta que não é ~/.claude) leva
+    // v0.5.9: CLAUDE_CONFIG_DIR de uma conta (~/.claude-contas/<nome>) leva
     // os dados para <conta>/hadouken, como em base.js.
-    const padrao = path.join(home, '.claude');
-    const c = process.env.CLAUDE_CONFIG_DIR;
-    if (typeof c === 'string' && completo(c) && !c.includes('\0')) {
-      const norm = (x) => {
-        const r = path.resolve(x).replace(/[\\/]+$/, '');
-        return process.platform === 'win32' ? r.toLowerCase() : r;
-      };
-      if (norm(c) !== norm(padrao)) return path.join(path.resolve(c), 'hadouken');
-    }
-    return path.join(padrao, 'hadouken');
+    const conta = contaValida(process.env.CLAUDE_CONFIG_DIR, home);
+    return path.join(conta ?? path.join(home, '.claude'), 'hadouken');
   } catch {
     return null;
   }
@@ -201,10 +193,23 @@ function envComConta(env, pasta) {
   if (pasta !== null) r.CLAUDE_CONFIG_DIR = pasta;
   return r;
 }
+// A pasta só vale se for ~/.claude-contas/<nome>: um .vscode/settings.json
+// de repositório não leva o painel a carregar código de outra pasta.
+function contaValida(c, home) {
+  try {
+    if (!completo(c) || c.includes('\0') || typeof home !== 'string' || !path.isAbsolute(home)) return null;
+    const r = path.resolve(c).replace(/[\\/]+$/, '');
+    const igual = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+    const nome = path.basename(r);
+    return igual(path.dirname(r), path.join(home, PASTA_CONTAS)) && NOME_CONTA.test(nome) && nome !== 'principal' ? r : null;
+  } catch {
+    return null;
+  }
+}
 function pastaDaJanela(vars) {
   if (!Array.isArray(vars)) return null;
   const v = vars.find((x) => objetoSimples(x) && x.name === 'CLAUDE_CONFIG_DIR');
-  return v !== undefined && completo(v.value) && !v.value.includes('\0') ? path.resolve(v.value) : null;
+  return v !== undefined ? contaValida(v.value, os.homedir()) : null;
 }
 function listarContas(raiz) {
   try {
@@ -227,11 +232,11 @@ function comandoNovaConta(raiz, plataforma) {
   return { shellPath: undefined, texto: `bash "${path.posix.join(raiz, 'install.sh')}" --sim --sem-extras; claude` };
 }
 const soDoTerminal = () => (process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux');
-// O valor do workspace (não o mesclado com o do usuário), para não copiar as
-// configurações globais para o projeto.
-function valorDoWorkspace(cfg, chave) {
+// O valor do workspace e o global. O objeto do terminal é mesclado entre os
+// escopos; a lista do Claude Code não: o do workspace substitui o global.
+function valoresDe(cfg, chave) {
   const i = typeof cfg.inspect === 'function' ? cfg.inspect(chave) : undefined;
-  return i !== undefined ? i.workspaceValue : cfg.get(chave);
+  return i !== undefined ? { ws: i.workspaceValue, global: i.globalValue } : { ws: cfg.get(chave), global: undefined };
 }
 // .vscode/settings.json versionado no git? Nunca lança; sem git, false.
 function versionadoNoGit(pasta) {
@@ -707,6 +712,8 @@ function activate(ctx) {
 
     // Conta desta janela (v0.5.9). O processo da extensão é um por janela:
     // pôr o CLAUDE_CONFIG_DIR nele leva o painel para os dados da conta.
+    // O CLAUDE_CONFIG_DIR que a janela herdou: a Principal volta a ele.
+    const envOriginal = process.env.CLAUDE_CONFIG_DIR;
     const raizContas = () => {
       const home = os.homedir();
       return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, PASTA_CONTAS) : null;
@@ -724,17 +731,25 @@ function activate(ctx) {
       contaRotulo = p !== null && igual(path.dirname(p), raiz) && contas.includes(path.basename(p)) ? rotuloConta(path.basename(p)) : 'Principal';
     };
     const aplicarConta = (pasta) => {
-      if (pasta === null) delete process.env.CLAUDE_CONFIG_DIR;
-      else process.env.CLAUDE_CONFIG_DIR = pasta;
+      const alvo = pasta ?? envOriginal;
+      if (alvo === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = alvo;
       atualizarRotulo();
       carregar(false).then((m) => redesenhar(m), () => null);
     };
     const gravarConta = async (pasta) => {
       const cc = vscode.workspace.getConfiguration('claudeCode');
-      await cc.update('environmentVariables', varsComConta(valorDoWorkspace(cc, 'environmentVariables'), pasta), vscode.ConfigurationTarget.Workspace);
+      const v = valoresDe(cc, 'environmentVariables');
+      // Parte do valor que vale hoje (o global, sem um do workspace) e só
+      // põe ou tira o CLAUDE_CONFIG_DIR; sem sobra própria, volta ao global.
+      let vars = varsComConta(v.ws ?? v.global, pasta);
+      if (pasta === null && (vars.length === 0 || JSON.stringify(vars) === JSON.stringify(varsComConta(v.global, null)))) vars = undefined;
+      await cc.update('environmentVariables', vars, vscode.ConfigurationTarget.Workspace);
       const ti = vscode.workspace.getConfiguration('terminal.integrated');
       const chave = `env.${soDoTerminal()}`;
-      await ti.update(chave, envComConta(valorDoWorkspace(ti, chave), pasta), vscode.ConfigurationTarget.Workspace);
+      let env = envComConta(valoresDe(ti, chave).ws, pasta);
+      if (pasta === null && Object.keys(env).length === 0) env = undefined;
+      await ti.update(chave, env, vscode.ConfigurationTarget.Workspace);
       aplicarConta(pasta);
     };
     const escolherConta = async () => {
@@ -799,7 +814,7 @@ function activate(ctx) {
         ctx.subscriptions.push(vscode.workspace.onDidChangeConfiguration((ev) => {
           if (!ev.affectsConfiguration('claudeCode.environmentVariables')) return;
           const p = pastaDaJanela(vscode.workspace.getConfiguration('claudeCode').get('environmentVariables'));
-          if ((p ?? undefined) !== process.env.CLAUDE_CONFIG_DIR) aplicarConta(p);
+          if ((p ?? envOriginal) !== process.env.CLAUDE_CONFIG_DIR) aplicarConta(p);
         }));
       }
     } catch {

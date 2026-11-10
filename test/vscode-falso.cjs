@@ -13,7 +13,7 @@ function criar() {
     mensagens: [],
     respostas: [],
     avisos: [], respostasAviso: [], quickPicks: [], escolhas: [], inputBoxes: [], digitados: [],
-    config: {}, atualizacoes: [], ouvintesConfig: [], pastas: undefined,
+    config: {}, configGlobal: {}, atualizacoes: [], ouvintesConfig: [], pastas: undefined,
     terminais: [],
     comandos: new Map(),
     executados: [],
@@ -111,7 +111,8 @@ function criar() {
       get workspaceFolders() { return estado.pastas; },
       getConfiguration(secao) {
         return {
-          get: (chave) => (secao === 'workbench' && chave === 'reduceMotion' ? estado.reduceMotion : estado.config[`${secao}.${chave}`]),
+          get: (chave) => (secao === 'workbench' && chave === 'reduceMotion' ? estado.reduceMotion : (estado.config[`${secao}.${chave}`] ?? estado.configGlobal[`${secao}.${chave}`])),
+          inspect: (chave) => ({ globalValue: estado.configGlobal[`${secao}.${chave}`], workspaceValue: estado.config[`${secao}.${chave}`] }),
           update: (chave, valor, alvo) => {
             estado.atualizacoes.push({ chave: `${secao}.${chave}`, valor, alvo });
             estado.config[`${secao}.${chave}`] = valor;

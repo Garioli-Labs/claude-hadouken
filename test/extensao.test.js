@@ -51,7 +51,7 @@ async function esperar(cond, voltas = 20_000) {
 
 // Ativa a extensão com o shim dado e o relógio falso. Devolve os dois itens e
 // um `fim` para o finally.
-async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', globalState = new Map(), respostas = [], config = {}, pastas } = {}) {
+async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', globalState = new Map(), respostas = [], config = {}, configGlobal = {}, pastas } = {}) {
   globalThis.hdk = {
     desenhos: 0, leituras: [], nivel: 'ok', pcts: { h5: 55, d7: null, fable: null }, em: 1, ems: [], portao: null, nova: null, animarLogo: true,
     versaoCfg: 'ausente', gravacoes: [], desfeitos: [], respostaGravar: { ok: true, desfazer: { antes: {}, versaoDepois: 'v', ate: 1 } }, consultas: [],
@@ -61,6 +61,7 @@ async function montar(t, { shim = PAINEL_NOVO, hdk = {}, reduceMotion = 'off', g
   estado.reduceMotion = reduceMotion;
   estado.respostas.push(...respostas);
   Object.assign(estado.config, config);
+  Object.assign(estado.configGlobal, configGlobal);
   estado.pastas = pastas;
   const cargaOriginal = Module._load;
   Module._load = function carregar(pedido, ...resto) { return pedido === 'vscode' ? api : cargaOriginal.call(this, pedido, ...resto); };
@@ -548,6 +549,8 @@ test('_teste.dirDados: a regra do base.js, com o CLAUDE_CONFIG_DIR da conta', ()
     assert.equal(_teste.dirDados(), path.join(conta, 'hadouken'));
     process.env.CLAUDE_CONFIG_DIR = 'relativo';
     assert.equal(_teste.dirDados(), padrao);
+    process.env.CLAUDE_CONFIG_DIR = path.join(os.homedir(), 'outra-claude');
+    assert.equal(_teste.dirDados(), padrao, 'CLAUDE_CONFIG_DIR global fora das contas fica na Principal');
   } finally {
     for (const [k, v] of [['HADOUKEN_HOME', antes.h], ['CLAUDE_CONFIG_DIR', antes.c]]) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
@@ -576,7 +579,10 @@ test('conta: nome, variáveis do Claude Code e do terminal, comando do instalado
   assert.deepEqual(t.varsComConta(undefined, null), []);
   assert.deepEqual(t.envComConta({ FOO: '1', CLAUDE_CONFIG_DIR: '/velho' }, conta), { FOO: '1', CLAUDE_CONFIG_DIR: conta });
   assert.deepEqual(t.envComConta({ FOO: '1', CLAUDE_CONFIG_DIR: '/velho' }, null), { FOO: '1' });
-  assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: conta }]), conta);
+  const minha = path.join(os.homedir(), '.claude-contas', 'trabalho');
+  assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: minha }]), minha);
+  assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: path.join(os.homedir(), 'x') }]), null, 'settings.json de repo não aponta para qualquer pasta');
+  assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: '\\\\host\\share\\x' }]), null);
   assert.equal(t.pastaDaJanela([{ name: 'CLAUDE_CONFIG_DIR', value: 'relativo' }]), null);
   assert.equal(t.pastaDaJanela('x'), null);
   const w = t.comandoNovaConta('C:\\p\\hadouken\\0.5.9', 'win32');
@@ -590,9 +596,11 @@ test('conta: Nova conta cria a pasta, prende a janela a ela e abre o terminal co
   const projeto = fs.mkdtempSync(path.join(os.tmpdir(), 'hdk projeto '));
   const homeOriginal = os.homedir;
   const envAntes = process.env.CLAUDE_CONFIG_DIR;
-  delete process.env.CLAUDE_CONFIG_DIR;
+  const herdado = path.join(casa, 'global-claude');
+  process.env.CLAUDE_CONFIG_DIR = herdado;
   os.homedir = () => casa;
-  const m = await montar(t, { hdk: { raiz: process.platform === 'win32' ? 'C:\\p\\hadouken\\0.5.9' : '/p/hadouken/0.5.9' }, pastas: [{ uri: { fsPath: projeto } }] });
+  const proxy = { name: 'HTTPS_PROXY', value: 'http://p' };
+  const m = await montar(t, { configGlobal: { 'claudeCode.environmentVariables': [proxy] }, hdk: { raiz: process.platform === 'win32' ? 'C:\\p\\hadouken\\0.5.9' : '/p/hadouken/0.5.9' }, pastas: [{ uri: { fsPath: projeto } }] });
   try {
     m.estado.escolhas.push((itens) => itens.find((i) => i.nova === true));
     m.estado.digitados.push('Trabalho');
@@ -601,7 +609,7 @@ test('conta: Nova conta cria a pasta, prende a janela a ela e abre o terminal co
     assert.equal(fs.statSync(pasta).isDirectory(), true);
     assert.deepEqual(m.estado.quickPicks[0].itens.map((i) => i.label), ['Principal', '$(add) Nova conta…']);
     const vars = m.estado.atualizacoes.find((a) => a.chave === 'claudeCode.environmentVariables');
-    assert.deepEqual(vars, { chave: 'claudeCode.environmentVariables', valor: [{ name: 'CLAUDE_CONFIG_DIR', value: pasta }], alvo: 2 });
+    assert.deepEqual(vars, { chave: 'claudeCode.environmentVariables', valor: [proxy, { name: 'CLAUDE_CONFIG_DIR', value: pasta }], alvo: 2 });
     const so = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
     assert.deepEqual(m.estado.atualizacoes.find((a) => a.chave === `terminal.integrated.env.${so}`).valor, { CLAUDE_CONFIG_DIR: pasta });
     assert.equal(process.env.CLAUDE_CONFIG_DIR, pasta, 'o processo desta janela segue a conta');
@@ -615,8 +623,9 @@ test('conta: Nova conta cria a pasta, prende a janela a ela e abre o terminal co
     // Voltar para a Principal tira a variável.
     m.estado.escolhas.push((itens) => itens.find((i) => i.label === 'Principal'));
     await m.api.commands.executeCommand('claudeHadouken.conta');
-    assert.deepEqual(m.estado.config['claudeCode.environmentVariables'], []);
-    assert.equal(process.env.CLAUDE_CONFIG_DIR, undefined);
+    assert.equal(m.estado.config['claudeCode.environmentVariables'], undefined, 'volta a valer o global');
+    assert.equal(m.estado.config[`terminal.integrated.env.${so}`], undefined);
+    assert.equal(process.env.CLAUDE_CONFIG_DIR, herdado, 'o valor herdado volta');
     // A caixa recusa nome ruim e nome repetido.
     m.estado.escolhas.push((itens) => itens.find((i) => i.nova === true));
     m.estado.digitados.push(undefined);
