@@ -6,6 +6,7 @@
 // SessionStart, relatorio.js e hooks/alertas-gravados.js).
 import { MAX_SESSOES as MAX_SESSOES_ATIVAS } from './estado.js';
 import { calcularRitmo } from './ritmo.js';
+import { avancarUteis, minutosUteis } from './janela.js';
 import { decimal, horaLocal, quandoLocal, janelaValida, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
 
 // Spec v0.4.0 §10, item 1: sem leitura fresca nem piso, a linha diz desde
@@ -137,15 +138,29 @@ function em(j, extra = null) {
 // pt/h, sustentável 0,6 pt/h; nesse ritmo acaba amanhã 13:30". Só com leitura
 // fresca e ritmo numérico ≥ 0 (ritmo7dPorHora dá null sem as 2 h de
 // cobertura). Sustentável = (100 − usado) ÷ horas até o reset (decisão 2 do
-// plano da parte 2). Só números validados e o horário de quandoLocal.
-function parteRitmo(f7, ritmoH, agoraMs) {
+// plano da parte 2). Só números validados e o horário de quandoLocal. Com
+// `trabalho` (janela de trabalho, janela.js), o ritmo vem em pontos por hora
+// útil: sustentável = (100 − usado) ÷ horas úteis de agora ao reset, e "acaba"
+// avança (100 − usado) ÷ ritmo em minutos úteis; zero hora útil até o reset,
+// sem a parte do ritmo.
+export function parteRitmo(f7, ritmoH, agoraMs, trabalho = null) {
   if (f7.piso === true || typeof ritmoH !== 'number' || !numeroFinito(ritmoH) || ritmoH < 0) return '';
-  const faltaMs = f7.resets_at * 1000 - agoraMs;
+  const resetMs = f7.resets_at * 1000;
+  const faltaMs = resetMs - agoraMs;
   if (!(faltaMs > 0)) return '';
   const resta = 100 - f7.used_percentage;
-  const sustentavel = resta / (faltaMs / HORA_MS);
-  const acabaMs = ritmoH > 0 ? Math.round(agoraMs + (resta / ritmoH) * HORA_MS) : Infinity;
-  const fim = acabaMs < f7.resets_at * 1000
+  let sustentavel;
+  let acabaMs;
+  if (trabalho === null || trabalho === undefined) {
+    sustentavel = resta / (faltaMs / HORA_MS);
+    acabaMs = ritmoH > 0 ? Math.round(agoraMs + (resta / ritmoH) * HORA_MS) : Infinity;
+  } else {
+    const horasUteis = minutosUteis(trabalho, agoraMs, resetMs) / 60;
+    if (!(horasUteis > 0)) return '';
+    sustentavel = resta / horasUteis;
+    acabaMs = ritmoH > 0 ? Math.round(avancarUteis(trabalho, agoraMs, (resta / ritmoH) * 60)) : Infinity;
+  }
+  const fim = acabaMs < resetMs
     ? `nesse ritmo acaba ${quandoLocal(acabaMs / 1000, agoraMs)}`
     : 'nesse ritmo não acaba antes do reset';
   return `; ritmo ${decimal(ritmoH, 1)} pt/h, sustentável ${decimal(sustentavel, 1)} pt/h; ${fim}`;
@@ -173,10 +188,10 @@ function linha5h(faixa, anterior, f5, agoraMs) {
   }
 }
 
-function linha7d(faixa, f7, esperado, agoraMs, ritmoH) {
+function linha7d(faixa, f7, esperado, agoraMs, ritmoH, trabalho) {
   const base = `7d ${em(f7)} vs ${pct(esperado)} esperado`;
   switch (faixa) {
-    case 'economico': return `${base} → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review${parteRitmo(f7, ritmoH, agoraMs)}.`;
+    case 'economico': return `${base} → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review${parteRitmo(f7, ritmoH, agoraMs, trabalho)}.`;
     case 'folga': return `${base} → modo folga: o padrão de modelo e effort sobe um degrau; qualidade (review extra), não volume.`;
     case 'so-leitura': return `7d em ${em(f7)} com reset ${quandoLocal(f7.resets_at, agoraMs)}: só leitura; recomendar parar.`;
     default: return `${base} → modo normal.`;
@@ -315,7 +330,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
     if (!mesma && guardada && RESTRITIVAS_7D.has(guardada.faixa) && faixa === 'normal') {
       linhas.push(`7d: janela nova, ${em(f7)} vs ${pct(esperado)} esperado → modo normal — ${SUSPENSAS}.`);
     } else if (anterior !== faixa && !(anterior === null && faixa === 'normal')) {
-      linhas.push(linha7d(faixa, f7, esperado, agoraMs, ritmo7dH));
+      linhas.push(linha7d(faixa, f7, esperado, agoraMs, ritmo7dH, trabalho));
     }
     novos.seven_day = { resets_at: f7.resets_at, faixa };
   }

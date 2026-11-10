@@ -19,7 +19,9 @@ import { avancarUteis, minutosUteis } from './janela.js';
 // por minuto útil (inclinação × minutos corridos da amostra ÷ minutos úteis
 // dela, que é Δuso ÷ úteis) e o instante avança só dentro da janela. Amostra
 // com menos minutos úteis que a cobertura mínima do 7d (2 h; inclui J3, a
-// amostra sem nenhum) dá null. O 5h nunca usa a janela.
+// amostra sem nenhum) dá null. O 5h nunca usa a janela. O mesmo ritmo por
+// minuto útil alimenta ritmo7dPorHora (linha econômica), e a mistura do perfil
+// (ritmoMisturado) só vale com agora dentro da janela.
 //
 // Com o aprendizado ligado (spec aprendizado §4.3, R10), o UserPromptSubmit
 // passa `perfil` ({ peso, h5, d7 } de perfilDaPrevisao): o ritmo atual é
@@ -119,14 +121,17 @@ function pontosDaColuna(historico, coluna, alcance, agoraMs) {
 // R10: (1 − peso)·b + peso·típico da hora local, em pontos por minuto. Só
 // com b > 0 (sem ritmo atual não há previsão, e o perfil não cria uma), peso
 // em (0; PESO_PERFIL_MAX] e o típico da hora número finito > 0; em qualquer
-// outro caso, b como veio. Nunca lança.
-export function ritmoMisturado(b, perfil, coluna, agoraMs) {
+// outro caso, b como veio. Com `trabalho` e agora fora da janela, b como veio.
+// Nunca lança.
+export function ritmoMisturado(b, perfil, coluna, agoraMs, trabalho = null) {
   try {
     if (!numeroFinito(b) || b <= 0 || perfil === null || typeof perfil !== 'object') return b;
     const { peso } = perfil;
     if (!numeroFinito(peso) || peso <= 0 || peso > PESO_PERFIL_MAX) return b;
     const serie = perfil[coluna];
     if (!Array.isArray(serie) || serie.length !== 24 || !numeroFinito(agoraMs)) return b;
+    // Com janela, o típico da hora local só entra com agora dentro dela (R10).
+    if (trabalho !== null && trabalho !== undefined && !(minutosUteis(trabalho, agoraMs, agoraMs + MINUTO_MS) > 0)) return b;
     const tipico = serie[new Date(agoraMs).getHours()];
     if (!numeroFinito(tipico) || tipico <= 0) return b;
     const r = (1 - peso) * b + peso * tipico;
@@ -134,6 +139,20 @@ export function ritmoMisturado(b, perfil, coluna, agoraMs) {
   } catch {
     return b;
   }
+}
+
+// Inclinação da amostra; com `trabalho`, por minuto útil: × minutos corridos
+// da amostra ÷ minutos úteis dela. Amostra com poucos minutos úteis: Δt ÷
+// úteis amplifica a taxa (uma noite de amostra e 30 s de janela aberta
+// projetariam estouro em 10 min), então vale a mesma cobertura mínima da regra
+// da janela, agora em minutos úteis (J7); abaixo dela, null.
+function inclinacaoPorMinutoUtil(pontos, regras, trabalho, agoraMs) {
+  const b = inclinacao(pontos, regras);
+  if (trabalho === null || trabalho === undefined || b === null) return b;
+  const inicioMs = Math.min(...pontos.map((p) => p[0]));
+  const uteis = minutosUteis(trabalho, inicioMs, agoraMs);
+  if (!(uteis >= regras.coberturaMinMs / MINUTO_MS)) return null;
+  return b * ((agoraMs - inicioMs) / MINUTO_MS / uteis);
 }
 
 // Previsão de uma janela: os pontos da coluna dentro do alcance (de agora −
@@ -150,18 +169,8 @@ function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfi
   if (!numeroFinito(usado) || usado < 0 || usado >= 100 || !numeroFinito(resetS)) return null;
   const resetMs = resetS * 1000;
   if (!numeroFinito(resetMs) || resetMs <= agoraMs) return null;
-  const pontos = pontosDaColuna(historico, coluna, alcance, agoraMs);
-  let b = inclinacao(pontos, regras);
-  if (trabalho !== null && b !== null) {
-    const inicioMs = Math.min(...pontos.map((p) => p[0]));
-    const uteis = minutosUteis(trabalho, inicioMs, agoraMs);
-    // Amostra com poucos minutos úteis: Δt ÷ úteis amplifica a taxa (uma
-    // noite de amostra e 30 s de janela aberta projetariam estouro em 10 min).
-    // Vale a mesma cobertura mínima da regra da janela, agora em minutos úteis.
-    if (!(uteis >= regras.coberturaMinMs / MINUTO_MS)) return null;
-    b *= (agoraMs - inicioMs) / MINUTO_MS / uteis;
-  }
-  b = ritmoMisturado(b, perfil, coluna, agoraMs);
+  let b = inclinacaoPorMinutoUtil(pontosDaColuna(historico, coluna, alcance, agoraMs), regras, trabalho, agoraMs);
+  b = ritmoMisturado(b, perfil, coluna, agoraMs, trabalho);
   if (b === null || b <= 0) return null;
   const faltaMin = (100 - usado) / b;
   const quando = Math.round(trabalho === null ? agoraMs + faltaMin * MINUTO_MS : avancarUteis(trabalho, agoraMs, faltaMin));
@@ -187,15 +196,17 @@ export function preverEstouro(opcoes) {
 }
 
 // Ritmo do 7d em pontos por hora (spec v0.4.0 §10, item 6): a mesma
-// inclinação da projeção de 7d (JANELA_7D_MS, 2 h e 10 pontos), vezes 60.
-// null sem cobertura ou entrada inválida; nunca negativo (o uso não desce na
-// mesma janela; uma queda é troca de janela ou de conta). Nunca lança.
+// inclinação da projeção de 7d (JANELA_7D_MS, 2 h e 10 pontos), vezes 60. Com
+// `trabalho` (v0.6.0), pontos por hora útil e null abaixo de 2 h úteis na
+// amostra, como na projeção. null sem cobertura ou entrada inválida; nunca
+// negativo (o uso não desce na mesma janela; uma queda é troca de janela ou
+// de conta). Nunca lança.
 export function ritmo7dPorHora(opcoes) {
   try {
-    const { historico, agoraMs } = opcoes ?? {};
+    const { historico, agoraMs, trabalho = null } = opcoes ?? {};
     if (!Array.isArray(historico) || !numeroFinito(agoraMs)) return null;
     const [coluna, alcance, regras] = ALCANCE.seven_day;
-    const b = inclinacao(pontosDaColuna(historico, coluna, alcance, agoraMs), regras);
+    const b = inclinacaoPorMinutoUtil(pontosDaColuna(historico, coluna, alcance, agoraMs), regras, trabalho, agoraMs);
     return b === null ? null : Math.max(0, b * 60);
   } catch {
     return null;

@@ -110,7 +110,7 @@ rodarHook(async (entrada) => {
   const { linhas, novos } = avaliarAlertas({
     limites, leituras, ultima, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
     previsao, limiares, trabalho,
-    ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs }),
+    ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs, trabalho }),
     sessoesAtivas: ativas,
   });
   // `at` só anda quando a memória foi conferida contra uma leitura (decisão

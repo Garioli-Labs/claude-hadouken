@@ -84,16 +84,39 @@ export function lerJanela(dir) {
   }
 }
 
+// O instante (ms) da hora local `min` (minutos desde 00:00) do dia ano/mes/dia
+// (J4). Hora que existe: o `Date` local, que na hora repetida (fim do horário
+// de verão) é a primeira ocorrência. Hora pulada (início do horário de verão:
+// 02:30 não existe): o `Date` a empurra pelo tamanho do salto (03:30), e a
+// borda vale o primeiro instante válido depois do salto (03:00). Esse instante
+// sai por bisseção, em minutos inteiros, sobre o deslocamento de fuso.
+function instanteLocal(ano, mes, dia, min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  const t = new Date(ano, mes, dia, h, m).getTime();
+  const d = new Date(t);
+  if (d.getHours() === h && d.getMinutes() === m) return t;
+  const depois = d.getTimezoneOffset();
+  let baixo = Math.floor(t / MINUTO_MS) - 24 * 60;
+  let alto = Math.floor(t / MINUTO_MS);
+  if (new Date(baixo * MINUTO_MS).getTimezoneOffset() === depois) return t;
+  while (alto - baixo > 1) {
+    const meio = Math.floor((baixo + alto) / 2);
+    if (new Date(meio * MINUTO_MS).getTimezoneOffset() === depois) alto = meio;
+    else baixo = meio;
+  }
+  return alto * MINUTO_MS;
+}
+
 // Janela inteira do dia local `d` (Date de meia-noite local) como [início,
 // fim] em ms absolutos, ou null se o dia não está na janela. Em ms absolutos
 // porque o dia de troca de horário tem 23 ou 25 h (J4): construir o intervalo
-// pela hora local do dia e subtrair em ms trata isso sem caso especial.
+// pela hora local do dia e subtrair em ms trata isso sem caso especial; as
+// bordas na hora pulada ou repetida seguem instanteLocal.
 function intervaloDoDia(janela, ano, mes, dia) {
   const dow = new Date(ano, mes, dia).getDay();
   if (!janela.dias.includes(dow)) return null;
-  const ini = new Date(ano, mes, dia, Math.floor(janela.inicioMin / 60), janela.inicioMin % 60).getTime();
-  const fim = new Date(ano, mes, dia, Math.floor(janela.fimMin / 60), janela.fimMin % 60).getTime();
-  return [ini, fim];
+  return [instanteLocal(ano, mes, dia, janela.inicioMin), instanteLocal(ano, mes, dia, janela.fimMin)];
 }
 
 // Minutos de [t1Ms, t2Ms] dentro da janela, dia a dia em hora local (J4: a

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DIAS, validarJanela, lerJanela, minutosUteis, avancarUteis } from '../src/janela.js';
 import { calcularRitmo } from '../src/ritmo.js';
-import { preverEstouro, REGRAS_JANELA } from '../src/previsao.js';
+import { preverEstouro, REGRAS_JANELA, ritmo7dPorHora, ritmoMisturado } from '../src/previsao.js';
 import { fraseEsgota } from '../src/uso/frase.js';
 import { linhaEstado } from '../src/hooks/linha-estado.js';
 import { estadoPainel } from '../src/uso/painel.js';
@@ -470,4 +470,79 @@ test('F5: uso fora da janela conta como adiantamento: 12% às 09:30 de segunda �
   const r = calcularRitmo({ usado7d: 12, resetsAt7d: D(15, 19) / 1000, agoraMs: D(9, 9, 30), trabalho: J });
   assert.equal(r.esperado, 0.8);
   assert.equal(r.modo, 'economico');
+});
+
+// --- A1: ritmo da linha econômica com janela (spec §4 Fatia 2, J7) -----------
+
+test('A1: ritmo7dPorHora com janela é pontos por hora útil (segunda 11:30, 150 min úteis de 180)', () => {
+  const agoraMs = D(9, 11, 30);
+  const historico = serieAte(agoraMs, 10, 12, 15 * MIN);
+  // Δuso 2 pontos em 180 min corridos, 150 úteis: 2 ÷ 150 × 60 = 0,8 pt/h útil.
+  assert.ok(Math.abs(ritmo7dPorHora({ historico, agoraMs, trabalho: J }) - 0.8) < 1e-9);
+  // Sem janela (ou null), a saída de hoje: 2 ÷ 180 × 60.
+  assert.ok(Math.abs(ritmo7dPorHora({ historico, agoraMs }) - 2 / 3) < 1e-9);
+  assert.ok(Math.abs(ritmo7dPorHora({ historico, agoraMs, trabalho: null }) - 2 / 3) < 1e-9);
+});
+
+test('A1: ritmo7dPorHora com janela abaixo de 120 min úteis → null (J7)', () => {
+  const agoraMs = D(9, 10, 30);
+  const historico = serieAte(agoraMs, 10, 12, 15 * MIN);
+  assert.equal(ritmo7dPorHora({ historico, agoraMs, trabalho: J }), null);
+  assert.ok(ritmo7dPorHora({ historico, agoraMs }) !== null);
+});
+
+test('A1: ritmo7dPorHora com a amostra inteira fora da janela → null (J3)', () => {
+  const agoraMs = D(14, 12);
+  assert.equal(ritmo7dPorHora({ historico: serieAte(agoraMs, 10, 12, 15 * MIN), agoraMs, trabalho: J }), null);
+});
+
+test('A1: ritmoMisturado com janela só mistura o perfil quando agora está dentro dela (R10)', () => {
+  const perfil = { peso: 0.5, h5: new Array(24).fill(0), d7: new Array(24).fill(2) };
+  // Dentro: 0,5 × 1 + 0,5 × 2.
+  assert.equal(ritmoMisturado(1, perfil, 'd7', D(9, 10), J), 1.5);
+  assert.equal(ritmoMisturado(1, perfil, 'd7', D(9, 9), J), 1.5, '09:00 já é dentro');
+  // Fora (noite, 21:00 em ponto, fim de semana): b como veio.
+  assert.equal(ritmoMisturado(1, perfil, 'd7', D(9, 22), J), 1);
+  assert.equal(ritmoMisturado(1, perfil, 'd7', D(9, 21), J), 1, '21:00 já é fora');
+  assert.equal(ritmoMisturado(1, perfil, 'd7', D(14, 12), J), 1);
+  // Sem janela: a mistura de hoje, em qualquer hora.
+  assert.equal(ritmoMisturado(1, perfil, 'd7', D(14, 12)), 1.5);
+  assert.equal(ritmoMisturado(1, perfil, 'd7', D(14, 12), null), 1.5);
+});
+
+// --- A1: prompt-submit com a linha econômica por hora útil -------------------
+
+test('A1: prompt-submit: o ritmo, o sustentável e o "acaba" da linha econômica usam a janela', () => {
+  const agoraMs = D(13, 20);
+  const montar = (config) => {
+    const d = novoDir();
+    const at = iso(agoraMs);
+    fs.writeFileSync(path.join(d, 'estado.json'), JSON.stringify({
+      versao: 1, at,
+      five_hour: { used_percentage: 10, resets_at: (agoraMs + 3 * 3_600_000) / 1000, at },
+      seven_day: { used_percentage: 80, resets_at: D(17, 19) / 1000, at },
+      sessoes: {}, historico: serie(agoraMs, 78, 80),
+    }));
+    if (config !== undefined) gravarConfig(d, config);
+    const antes = process.env.HADOUKEN_HOME;
+    process.env.HADOUKEN_HOME = d;
+    try { assert.ok(registrarSessao('s1', agoraMs).ok); } finally {
+      if (antes === undefined) delete process.env.HADOUKEN_HOME;
+      else process.env.HADOUKEN_HOME = antes;
+    }
+    return d;
+  };
+  const prompt = { session_id: 's1', hook_event_name: 'UserPromptSubmit', cwd: '/tmp/x', prompt: 'olá' };
+  const textoDe = (saida) => JSON.parse(saida).hookSpecificOutput.additionalContext;
+
+  // Sem janela: 1,0 pt/h, 20 pt restantes em 95 h corridas (0,2 pt/h), acaba 20 h depois (amanhã, sábado, 16:00).
+  const sem = textoDe(hook('prompt-submit.js', montar(), prompt, { agoraMs }));
+  assert.match(sem, /modo econômico/);
+  assert.match(sem, /ritmo 1,0 pt\/h, sustentável 0,2 pt\/h; nesse ritmo acaba amanhã 16:00/);
+
+  // Com janela: 23 h úteis até o reset (60 min de sexta, 720 de segunda, 600 de terça): 20 ÷ 23 = 0,9 pt/h;
+  // 20 h úteis a 1 pt/h terminam na terça às 16:00.
+  const com = textoDe(hook('prompt-submit.js', montar({ janela: CFG }), prompt, { agoraMs }));
+  assert.match(com, /modo econômico/);
+  assert.match(com, /ritmo 1,0 pt\/h, sustentável 0,9 pt\/h; nesse ritmo acaba ter 17\/11 16:00/);
 });

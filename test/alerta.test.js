@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO, linhaSemLeitura, LINHA_SEM_LEITURA_NUNCA } from '../src/alerta.js';
+import { faixa5h, faixa7d, avaliarAlertas, ALERTAS_VAZIO, linhaSemLeitura, LINHA_SEM_LEITURA_NUNCA, parteRitmo } from '../src/alerta.js';
 import { decimal, horaLocal, quandoLocal } from '../src/util.js';
 import { calcularRitmo, LIMIAR_PONTOS } from '../src/ritmo.js';
 
@@ -556,4 +556,49 @@ test('projeção 7d com limiar de 12 h: 13 h não avisa, 11 h avisa e guarda a f
   assert.equal(projetar({ seven_day: agora + 13 * 60 * MIN }).linhas.length, 1);
   // Limiares fora do formato: a tabela de sempre.
   assert.equal(projetar({ seven_day: agora + 13 * 60 * MIN }, ALERTAS_VAZIO, { limiares: { seven_day: 'x' } }).linhas.length, 1);
+});
+
+// --- A1: parteRitmo com a janela de trabalho (spec §4 Fatia 2, "Ritmo da linha econômica") ---
+
+const TRAB = { dias: [1, 2, 3, 4, 5], inicioMin: 540, fimMin: 1260 };
+const L = (dia, h, m = 0) => new Date(2026, 10, dia, h, m).getTime();
+const f7de = (usado, resetMs) => ({ used_percentage: usado, resets_at: resetMs / 1000, piso: false, idadeMs: 0 });
+
+test('A1: parteRitmo com janela: sustentável por hora útil e "acaba" em minutos úteis', () => {
+  // Sexta 20:00, reset terça 19:00: 60 + 720 + 600 = 1380 min úteis (23 h); faltam 20 pt.
+  const agora = L(13, 20);
+  const reset = L(17, 19);
+  // 20 ÷ 23 = 0,87 → "0,9". A 1 pt/h, 20 h úteis a partir de sexta 20:00 terminam na terça 16:00.
+  assert.equal(
+    parteRitmo(f7de(80, reset), 1, agora, TRAB),
+    `; ritmo 1,0 pt/h, sustentável 0,9 pt/h; nesse ritmo acaba ${quandoLocal(L(17, 16) / 1000, agora)}`,
+  );
+  // A 0,5 pt/h seriam 40 h úteis: passa do reset.
+  assert.equal(
+    parteRitmo(f7de(80, reset), 0.5, agora, TRAB),
+    '; ritmo 0,5 pt/h, sustentável 0,9 pt/h; nesse ritmo não acaba antes do reset',
+  );
+});
+
+test('A1: parteRitmo com janela e zero hora útil até o reset → sem a parte do ritmo', () => {
+  // Sábado 12:00, reset domingo 12:00: nenhum minuto útil no caminho.
+  assert.equal(parteRitmo(f7de(80, L(15, 12)), 1, L(14, 12), TRAB), '');
+});
+
+test('A1: parteRitmo sem janela: texto de sempre, em horas corridas', () => {
+  const reset = reset7 * 1000;
+  const acaba = Math.round(agora + (39 / 3.3) * H);
+  const esperado = `; ritmo 3,3 pt/h, sustentável 0,5 pt/h; nesse ritmo acaba ${quandoLocal(acaba / 1000, agora)}`;
+  assert.equal(parteRitmo(f7de(61, reset), 3.3, agora), esperado);
+  assert.equal(parteRitmo(f7de(61, reset), 3.3, agora, null), esperado);
+  assert.equal(parteRitmo(f7de(61, reset), 0.2, agora), '; ritmo 0,2 pt/h, sustentável 0,5 pt/h; nesse ritmo não acaba antes do reset');
+});
+
+test('A1: avaliarAlertas repassa o trabalho à parte do ritmo da linha econômica', () => {
+  const agoraMs = L(13, 20);
+  const limitesJ = { five_hour: null, seven_day: { used_percentage: 80, resets_at: L(17, 19) / 1000 } };
+  const r = avaliarAlertas({ limites: limitesJ, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs, ritmo7dH: 1, trabalho: TRAB });
+  assert.equal(r.linhas.length, 1);
+  assert.match(r.linhas[0], /7d 80% vs 61% esperado → modo econômico/);
+  assert.ok(r.linhas[0].includes(`; ritmo 1,0 pt/h, sustentável 0,9 pt/h; nesse ritmo acaba ${quandoLocal(L(17, 16) / 1000, agoraMs)}.`), r.linhas[0]);
 });
