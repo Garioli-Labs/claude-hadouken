@@ -196,6 +196,7 @@ The complete plugin has four subprojects, each with its own spec, plan and revie
 - **v0.5.4** (this one) = the hadouken window in VS Code, with every setting, Save and Undo; `/hadouken:limites`; model and effort routing, with ready-made agents and the optimizations; four protections the user can turn off, and no more mistaken blocks of commands that mention the project folder; the new-version notice with an Update button; local learning on by default (`--sem-aprender` to go without); and the documentation in this wiki.
 - **v0.5.5** = security, stability, compatibility and RAM use.
 - **v0.5.6** = the Pro or Max plan in the estimates, idle agents and fewer tokens per session.
+- **v0.5.9** = Pro, Max and Ultra plans; the kit with only Garioli's skills and suggestions for third-party ones; the bar in every VS Code profile; one Claude Code account per window.
 - **v0.6.0** = notifications on [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (priority), on WhatsApp or both, as the user chooses (pushes and finished tasks). It gets its own spec, with security as a precondition: the credential stays out of the repo, activation is per project, and messages carry the minimum, with no code, personal paths or secrets.
 - **v1.0** = A + B + C + D.
 

@@ -23,10 +23,10 @@
 | 🧠 **Context and cache** | How much context each session uses and how much came from cache, in the Claude Code status line. |
 | 🛡️ **Usage guard** | Warns Claude when the pace will run out the window and holds expensive dispatches until you release them (`/hadouken:liberar`, including `noite`). |
 | 🧭 **Routing** | Suggests model, effort and when to launch an agent, so Fable or high effort is not burned for nothing. |
-| 📈 **Report** | `/hadouken:consumo`: tokens per project and per model·effort, account plan (Pro, Max 5x, Max 20x) and GitHub Actions minutes. |
+| 📈 **Report** | `/hadouken:consumo`: tokens per project and per model·effort, account plan (Pro, Max, Ultra) and GitHub Actions minutes. |
 | 🖥️ **PC health** | `/hadouken:saude`: RAM, temperatures, battery, disk, idle sessions, light mode and the install check. |
 | ⚙️ **VS Code window** | Every setting one click away on the status bar: caps, bands, alerts, routing and protections. |
-| 🧰 **Kit and REA** | `hadouken-kit`, the daily skills with a map of which to use; `hadouken-rea`, reverse engineering (off by default). |
+| 🧰 **Kit and REA** | `hadouken-kit`, Garioli's skills (yu-ux-web-expert, graphify) with a map of which to use, and suggestions for third-party ones; `hadouken-rea`, reverse engineering (off by default). |
 
 ## Install
 

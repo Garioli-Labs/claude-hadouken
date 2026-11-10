@@ -83,6 +83,7 @@ This sentence is not the projection in the notices to Claude. The projection use
 ### Install, turn off and remove
 
 - **Automatic install.** When a session starts on a plugin version that is not yet installed in VS Code, the session start builds the extension (a `.vsix`, in `<data folder>/painel/`) and runs `code --install-extension <vsix> --force` in the background. It needs the `code` command on `PATH` (on Windows, `code.cmd`; on a Mac, the one in `Visual Studio Code.app` in `/Applications` or `~/Applications` also works). If the install fails, the next session start gives the reason in one line, with the fix. One attempt per hour, whether it works or not, and none of it goes into Claude's context.
+- **VS Code profiles** (since v0.5.9). The installer also installs the extension in each VS Code profile (read from `User/globalStorage/storage.json`, `userDataProfiles` field), besides Default. If you use a non-Default profile, you now see the bar.
 - **Manual install:** `node "$HOME/.claude/hadouken/bin/cli.mjs" painel instalar`.
 - **On another PC:** `/hadouken:saude` shows, on the `Painel` line, the path of the `.vsix` in the data folder. Copy the file and run `code --install-extension <that file>` on the other PC.
 - When hadouken is updated, the item moves to the new version by itself, without reloading the window (since v0.5.7).
@@ -91,6 +92,18 @@ This sentence is not the projection in the notices to Claude. The projection use
 - **`HADOUKEN_SEM_PAINEL=1`** makes the session start stop installing and updating the extension. For an already installed extension to stop reading `/usage`, the variable has to be in VS Code's own environment: set it as a user variable (on Windows) or in your shell profile, and quit and reopen VS Code completely. A variable set only in one terminal does not reach the extension.
 - **`HADOUKEN_HOME`** follows the same rule: if you move the data folder, the extension only sees it with the variable in VS Code's environment.
 - **The bar while the session is idle.** Since v0.4.0, the installer writes `refreshInterval: 60`: the bar redraws every minute even while the session is idle, and the reading's age stays right (a repeated reading with no new conversation does not count as new). Cost: one Node process per minute in each open terminal. Anyone who already had the v0.3.0 bar sees the `atualizar` (update) action, which only adds that key, with a backup. Measured in Claude Code: with the session idle, the bar ran every 60 s exactly.
+
+### This window's account
+
+Since v0.5.9, each VS Code window can use its own Claude Code account. Run the `Claude Hadouken: conta desta janela` command (command palette; "this window's account") or click **Trocar ou criar conta** (switch or create an account) in the "Conta desta janela" section of the hadouken window. The list shows Principal, the existing accounts and "Nova conta…" (new account).
+
+- **An account is a folder:** `~/.claude-contas/<name>`, used as `CLAUDE_CONFIG_DIR`. The name has letters, numbers and spaces, up to 32 characters, and cannot be "Principal".
+- **Per window:** the choice goes into the workspace settings (`.vscode/settings.json`: `claudeCode.environmentVariables` and `terminal.integrated.env.<os>`). Another window, with another project, keeps its own account, without interference.
+- **New account:** opens a terminal that installs hadouken in that account and opens `claude`. Type `/login` once and sign in with the other account. Logging in through the Claude Code extension with a non-default folder has a known bug, which is why it happens in the terminal.
+- **Applies to new sessions.** Close and reopen the ones already open.
+- **In the bar:** with more than one account, the tooltip starts with `Conta: <name> · trocar`.
+- **Git warning:** if the project's `.vscode/settings.json` is tracked by git, hadouken warns first, because the account folder gets written into it.
+- **Data:** each account's hadouken data lives in `<account folder>/hadouken`. `HADOUKEN_HOME`, if set, still wins.
 
 ## The hadouken window
 

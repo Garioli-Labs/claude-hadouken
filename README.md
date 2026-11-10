@@ -23,10 +23,10 @@
 | 🧠 **Contexto e cache** | Quanto do contexto cada sessão usa e quanto veio do cache, na barra do Claude Code. |
 | 🛡️ **Guarda de consumo** | Avisa o Claude quando o ritmo vai esgotar a janela e segura o despacho caro até você liberar (`/hadouken:liberar`, inclusive `noite`). |
 | 🧭 **Roteamento** | Sugere modelo, effort e quando lançar agente, para não queimar Fable ou effort alto à toa. |
-| 📈 **Relatório** | `/hadouken:consumo`: tokens por projeto e por modelo·effort, plano da conta (Pro, Max 5x, Max 20x) e minutos do GitHub Actions. |
+| 📈 **Relatório** | `/hadouken:consumo`: tokens por projeto e por modelo·effort, plano da conta (Pro, Max, Ultra) e minutos do GitHub Actions. |
 | 🖥️ **Saúde do PC** | `/hadouken:saude`: RAM, temperaturas, bateria, disco, sessões paradas, modo leve e a instalação conferida. |
 | ⚙️ **Janela no VS Code** | Todas as configurações num clique na barra: tetos, faixas, alertas, roteamento e proteções. |
-| 🧰 **Kit e REA** | `hadouken-kit`, as skills do dia a dia com o mapa de qual usar; `hadouken-rea`, engenharia reversa (desligado por padrão). |
+| 🧰 **Kit e REA** | `hadouken-kit`, as skills do Garioli (yu-ux-web-expert, graphify) com o mapa de qual usar, e sugestões das de terceiros; `hadouken-rea`, engenharia reversa (desligado por padrão). |
 
 ## Instalar
 

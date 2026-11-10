@@ -52,7 +52,9 @@ The items are the ones in the table; on-off items take `liga` and `desliga` (for
 
 ## Account plan
 
-Since v0.5.6, the health collector reads the account plan (Pro, Max 5x or Max 20x) once a day from Claude Code's `.claude.json`, only the `organizationRateLimitTier` field, and keeps just the label in `conta-plano.json`. The credentials file is never read. The plan shows in `/hadouken:consumo`, below the limits, in `/hadouken:saude` and in the VS Code window. With no plan identified, the line says "não identificado (os relatórios mostram só tokens)", that is, not identified, reports show tokens only. Reports stay in tokens: measurement showed the conversion to a percentage of the quota varies too much to be reliable.
+Since v0.5.6, the health collector reads the account plan (Pro, Max or Ultra) once a day from Claude Code's `.claude.json`, only the `organizationRateLimitTier` field, and keeps just the label in `conta-plano.json`. The credentials file is never read. The plan shows in `/hadouken:consumo`, below the limits, in `/hadouken:saude` and in the VS Code window. With no plan identified, the line says "não identificado (os relatórios mostram só tokens)", that is, not identified, reports show tokens only. Reports stay in tokens: measurement showed the conversion to a percentage of the quota varies too much to be reliable.
+
+**Plans (v0.5.9).** The plans are Pro, Max and Ultra. Max (formerly Max 5x) has a 5-hour and a weekly limit. Ultra (formerly Max 20x) has no 5-hour limit on verified accounts, but keeps the weekly limit (10× Pro's). In `conta-plano.json` and in the `/hadouken:consumo --json` output, the `plano` field is `pro`, `max` or `ultra`; the old `max5` and `max20` values are read as `max` and `ultra`. On Ultra with no 5-hour reading, the VS Code bar, the statusline and the tooltip leave out the "5h" part.
 
 ## Protections
 

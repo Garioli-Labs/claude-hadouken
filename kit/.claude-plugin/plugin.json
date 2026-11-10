@@ -1,7 +1,7 @@
 {
   "name": "hadouken-kit",
   "displayName": "Hadouken Kit",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "The Hadouken daily skills (yu-ux-web-expert, graphify) plus the hadouken-kit:fluxo map of which skill to use at each step.",
   "author": {
     "name": "Lucas Garioli",
