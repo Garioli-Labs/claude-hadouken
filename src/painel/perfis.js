@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { regexOu } from '../util.js';
 
 // Perfis do VS Code (v0.5.9, issue #7). O `code --install-extension` sem
 // `--profile` instala só no perfil Default; quem abre as janelas noutro
@@ -9,7 +10,9 @@ import path from 'node:path';
 // arquivo, e só os que passam pela lista de caracteres abaixo: o nome vai
 // para a linha do cmd.exe no Windows, e aspas, %, ^, &, | e ! ficam fora.
 
-const NOME = /^[\p{L}\p{N} ._-]{1,60}$/u;
+// Sem ICU, uma propriedade Unicode numa regex literal quebra o módulo: a
+// reserva aceita só ASCII e Latin-1.
+const NOME = regexOu(String.raw`^[\p{L}\p{N} ._-]{1,60}$`, 'u', /^[A-Za-z0-9À-ÿ ._-]{1,60}$/u);
 const TETO_PERFIS = 20;
 const TETO_BYTES = 4 * 1024 * 1024;
 
