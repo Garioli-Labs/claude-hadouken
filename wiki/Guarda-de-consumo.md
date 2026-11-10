@@ -21,7 +21,7 @@ Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subage
 | P5 | sempre, mesmo com a guarda desligada | editar a pasta de dados do hadouken (`~/.claude/hadouken`) com Write, Edit, MultiEdit ou NotebookEdit |
 | P5 (settings e plugin) | sempre, mesmo com a guarda desligada | editar com essas ferramentas os `settings.json` e `settings.local.json` do usuário (em `~/.claude` e no `CLAUDE_CONFIG_DIR`) e o próprio plugin (a raiz e o `claude-hadouken` em `plugins/`); nos settings de projeto, só a edição que muda o valor de `disableAllHooks`, `enabledPlugins` ou `hooks` (a P5 a aplica ao arquivo atual e compara) ou que traz ou apaga uma dessas palavras ou `claude-hadouken` e, num arquivo que já tem uma delas, o Write e a troca de um trecho curto (menos de 40 caracteres). Acima de 1 MiB, a edição que cita `settings` ou `hadouken` é negada sem ser lida; a que não cita passa (SECURITY.md, R2). A mudança, se for preciso, você aplica à mão |
 | P5 (config) | sempre, numa sessão registrada, mesmo com a guarda desligada | uma mudança em `disableAllHooks`, `enabledPlugins` ou `hooks` no `settings.json` do usuário ou nos `.claude/settings.json` e `.claude/settings.local.json` do projeto, venha de onde vier (a P5 comum cobre as ferramentas de edição antes; o Bash, o PowerShell, você ou outro programa caem aqui). Ela é segurada só na sessão em curso: o arquivo no disco fica mudado, e a próxima sessão o lê. Medido ao vivo só nos settings de projeto; os do usuário e o local são cobertos pelo código, sem medição ao vivo |
-| liberação | sempre, mesmo com a guarda desligada | uma sessão `claude` filha com `/hadouken:liberar` no texto; uma tarefa agendada, um `/loop` ou uma rotina (CronCreate, ScheduleWakeup, RemoteTrigger e os schedulers MCP com `cron`, `schedule`, `trigger` ou `task` no nome) com `/hadouken:liberar` ou, desde o aprendizado local, `/hadouken:aprender` no texto |
+| liberação | sempre, mesmo com a guarda desligada | uma sessão `claude` filha com `/hadouken:liberar` no texto; uma tarefa agendada, um `/loop` ou uma rotina (CronCreate, ScheduleWakeup, RemoteTrigger e os schedulers MCP com `cron`, `schedule`, `trigger` ou `task` no nome) com `/hadouken:liberar`, `/hadouken:aprender` (desde o aprendizado local), `/hadouken:janela` ou `/hadouken:agentes` (desde a v0.6.0) no texto |
 
 Os números são ajustáveis na chave `guarda` do `config.json` (o 90% do Fable é `guarda.fable.tetoPct`). Afrouxar a configuração não solta na hora um teto (G3, G4) que já disparou; uma trava de projeção (G1, G2) cai sozinha quando a projeção deixa de valer (veja abaixo).
 
@@ -110,7 +110,7 @@ Um prompt agendado (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` ou agendador
 
 ### Proteções que o senhor liga e desliga
 
-Além da guarda, o hadouken tem quatro bloqueios fixos: sessão `claude` filha, arquivos do hadouken, mudança de hooks e liberar pedido por tarefa agendada. Desde a v0.5.4, cada um pode ser desligado na aba Proteções da janela do VS Code ou pelo `/hadouken:limites`. A tabela com o risco de cada um está em [Proteções](Limites#proteções).
+Além da guarda, o hadouken tem quatro bloqueios fixos: sessão `claude` filha, arquivos do hadouken, mudança de hooks e comando do hadouken (liberar, aprender, janela ou agentes) pedido por tarefa agendada. Desde a v0.5.4, cada um pode ser desligado na aba Proteções da janela do VS Code ou pelo `/hadouken:limites`. A tabela com o risco de cada um está em [Proteções](Limites#proteções).
 
 ## Roteamento de modelo e effort
 

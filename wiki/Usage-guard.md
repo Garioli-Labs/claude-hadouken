@@ -21,7 +21,7 @@ Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch,
 | P5 | always, even with the guard off | editing hadouken's data folder (`~/.claude/hadouken`) with Write, Edit, MultiEdit or NotebookEdit |
 | P5 (settings and plugin) | always, even with the guard off | editing with those tools the user's `settings.json` and `settings.local.json` (in `~/.claude` and in `CLAUDE_CONFIG_DIR`) and the plugin itself (its root and `claude-hadouken` under `plugins/`); in project settings, only an edit that changes the value of `disableAllHooks`, `enabledPlugins` or `hooks` (P5 applies it to the current file and compares) or that adds or removes one of those words or `claude-hadouken` and, in a file that already has one of them, a Write or the replacement of a short stretch (under 40 characters). Above 1 MiB, an edit that names `settings` or `hadouken` is denied without being read; one that names neither passes (SECURITY.md, R2). If the change is needed, you apply it by hand |
 | P5 (config) | always, in a registered session, even with the guard off | a change to `disableAllHooks`, `enabledPlugins` or `hooks` in the user's `settings.json` or in the project's `.claude/settings.json` and `.claude/settings.local.json`, wherever it comes from (the regular P5 covers the edit tools first; Bash, PowerShell, you or another program land here). It is held only for the current session: the file on disk stays changed, and the next session reads it. Measured live only on the project settings; the user and local settings are covered by the code, with no live measurement |
-| release | always, even with the guard off | a child `claude` session with `/hadouken:liberar` in its text; a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger, and MCP schedulers with `cron`, `schedule`, `trigger` or `task` in the name) with `/hadouken:liberar` or, since local learning, `/hadouken:aprender` in its text |
+| release | always, even with the guard off | a child `claude` session with `/hadouken:liberar` in its text; a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger, and MCP schedulers with `cron`, `schedule`, `trigger` or `task` in the name) with `/hadouken:liberar`, `/hadouken:aprender` (since local learning), `/hadouken:janela` or `/hadouken:agentes` (since v0.6.0) in its text |
 
 The numbers can be tuned under the `guarda` key of `config.json` (the Fable 90% is `guarda.fable.tetoPct`). Loosening the configuration does not immediately lift a ceiling (G3, G4) that has already tripped; a projection lock (G1, G2) lifts on its own once the projection no longer holds (see below).
 
@@ -112,7 +112,7 @@ A scheduled prompt (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` or an MCP sc
 
 ### Protections you turn on and off
 
-Besides the guard, hadouken has four fixed blocks: child `claude` session, hadouken files, hook changes, and liberar requested by a scheduled task. Since v0.5.4, each one can be turned off in the Proteções tab of the VS Code window or through `/hadouken:limites`. The table with the risk of each is in [Protections](Limits#protections).
+Besides the guard, hadouken has four fixed blocks: child `claude` session, hadouken files, hook changes, and a hadouken command (liberar, aprender, janela or agentes) requested by a scheduled task. Since v0.5.4, each one can be turned off in the Proteções tab of the VS Code window or through `/hadouken:limites`. The table with the risk of each is in [Protections](Limits#protections).
 
 ## Model and effort routing
 

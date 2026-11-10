@@ -63,7 +63,7 @@ Desde a v0.5.4, os quatro bloqueios abaixo podem ser desligados, na aba Proteç�
 | `protecoes.sessaoFilha` | Bloqueia o Claude de abrir outra sessão `claude` (`claude -p`, `claude plugin install`) quando a guarda disparou. | O Claude pode contornar a guarda abrindo uma sessão nova. |
 | `protecoes.arquivos` | Bloqueia o Claude de editar a configuração do hadouken e os `settings.json` do Claude Code. | O Claude pode afrouxar a guarda ou mudar os seus settings sozinho. |
 | `protecoes.hooks` | Segura, na sessão em curso, mudanças em hooks, plugins e `disableAllHooks` feitas nos settings por fora (pelo shell, por exemplo); a próxima sessão lê o arquivo novo. | Uma mudança desse tipo vale na hora, inclusive a que desliga o próprio hadouken. |
-| `protecoes.agenda` | Nega tarefa agendada, `/loop` ou rotina que peça o liberar ou o aprender. | Uma tarefa sem o senhor presente pode pedi-los (o liberar ainda recusa o que não foi digitado). |
+| `protecoes.agenda` | Nega tarefa agendada, `/loop` ou rotina que peça o liberar, o aprender, a janela ou os agentes. | Uma tarefa sem o senhor presente pode pedi-los (o liberar ainda recusa o que não foi digitado). |
 
 Nenhuma proteção bloqueia comandos só por citarem a pasta do projeto: um comando com o caminho do repositório (por exemplo `node` ou `grep` dentro de `claude-hadouken`) passa, e um caminho absoluto entre aspas com uma pasta `Claude …` no meio (`"C:/Projetos DEV/Claude Hadouken/x"`) também passa, mesmo fora da pasta da sessão. Antes da v0.5.4, isso era bloqueado por engano.
 
