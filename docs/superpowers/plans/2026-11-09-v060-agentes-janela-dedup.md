@@ -326,26 +326,7 @@ Sem injeção: nenhuma saída leva `updatedInput` (é a Tarefa 6b). Não depende
 
 Depende da 6a.
 
-**Passo 0 (portão, antes de qualquer código):** medir as perguntas 1 e 2 da spec §8.1 com `claude -p` em auto mode (o modo real do mantenedor).
-- A guarda bloqueia sessão `claude` filha: o Fernando precisa digitar `/hadouken:liberar` antes.
-- Ambiente, sem login novo: `HOME` e `CLAUDE_CONFIG_DIR` reais. No macOS a credencial fica no Keychain, numa entrada ligada ao `CLAUDE_CONFIG_DIR` (https://code.claude.com/docs/en/authentication.md); trocar um dos dois pede login.
-  - cwd numa pasta temporária `ZZE2E-passo0`, sem `.claude/`;
-  - `claude -p --setting-sources project,local --settings <ZZE2E-settings.json> --permission-mode auto`, sem `--bare` (o `--bare` pula hooks de `--settings`, https://code.claude.com/docs/en/headless.md). `defaultMode: "auto"` fora do settings do usuário não vale (https://code.claude.com/docs/en/permission-modes.md); o modo vem da flag;
-  - `ZZE2E-settings.json`: o hook de teste fora do repo, que devolve `updatedInput` no `Agent` (troca o `model` de `haiku` para `sonnet`), e as regras `ask`/`deny` dos itens 3 e 4;
-  - primeiro despacho de controle, sem o hook: confirma que nenhum hook do `~/.claude/settings.json` real nem de plugin habilitado nele roda na filha (o `--setting-sources` sem `user` tira os dois; a doc não diz isso com todas as letras);
-  - resíduo: transcripts em `~/.claude/projects/*ZZE2E-passo0*`, apagados ao final.
-- Variantes, cada uma com a saída colada na spec §0, numa linha "Medido no passo 0 (Claude Code `<versão>`)":
-  - **A**: `updatedInput` sem `permissionDecision`;
-  - **B**: `updatedInput` com `permissionDecision: "allow"`.
-- Registrar, para cada variante:
-  1. o modelo do subagente: o campo do modelo em `~/.claude/projects/<projeto>/<sessão>/subagents/agent-<id>.jsonl` ou `agent-<id>.meta.json` (a doc não nomeia o campo; https://code.claude.com/docs/en/sub-agents.md), e o `effort.level` que a entrada do hook recebe;
-  2. se o despacho é negado; a doc só garante o texto `a hook changed this call's input after auto mode reviewed it` em sessão interativa, então em `-p` vale o resultado da ferramenta;
-  3. com uma regra `ask` de `Agent(...)` no `ZZE2E-settings.json`: se ainda pergunta;
-  4. com uma regra `deny` de `Agent(...)`: se ainda nega.
-  5. com a config `{mecanico:{effort:'max'}}` (haiku): o Claude Code aceita, ignora ou recusa o effort injetado; se recusar, `lerArgsAgentes` e `validarAgentes` passam a recusar a combinação (achado B5 do revisor da fatia 4).
-- Doc (spec §0): sem `permissionDecision`, o auto mode pode negar a chamada alterada; com `"allow"`, as regras `deny` e `ask` continuam valendo. A medição confirma ou contradiz; contradição → pare e traga ao Fernando.
-- O código usa a variante que injeta **e** respeita a regra do usuário.
-- Se só a variante `"allow"` injetar, pare e traga a decisão ao Fernando (a doc espera esse resultado em auto mode; o `allow` pula o prompt do modo e mantém as regras `deny`/`ask`).
+**Passo 0 (medido em 10/11/2026, Claude Code 2.1.322):** saída e decisão na spec §0, bloco "Medido no passo 0". A saída com injeção leva só `updatedInput`, sem `permissionDecision` (variante A, decisão do Fernando); nenhuma saída do hook devolve `"allow"`. Haiku aceita `effort`: `lerArgsAgentes` e `validarAgentes` não mudam.
 
 **Arquivos:**
 - Modificar:
@@ -380,11 +361,12 @@ Depende da 6a.
   - **saída final**:
     - `guarda.perguntar` ligado e injeção pendente → `permissionDecision: 'ask'` com `updatedInput`;
     - `deny` da guarda (trava) com injeção pendente → só `deny`, sem `updatedInput`;
-    - aviso A1–A3 com injeção pendente → `additionalContext` e `updatedInput` na mesma saída.
+    - aviso A1–A3 com injeção pendente → `additionalContext` e `updatedInput` na mesma saída;
+    - injeção sem aviso nem `ask` → `updatedInput` e nenhum `permissionDecision` na saída (variante A); nenhuma saída de `src/hooks/guarda-despacho.js` traz `permissionDecision: 'allow'`.
 - [ ] **Passo 2** — `node --test test/agentes-config.test.js` → FAIL.
 - [ ] **Passo 3** — implementar:
   - `avaliarPaleta` devolve `{acao: 'injetar', updatedInput}` quando falta `model` ou `effort` no despacho e a config os define (campo explícito nunca é sobrescrito; `fork` e `Workflow` não recebem). O hook guarda a injeção e a aplica na saída final.
-  - `deny` da guarda prevalece; nos outros casos, a saída final leva `updatedInput` (com ou sem `permissionDecision: "allow"`, conforme o passo 0) mais o `additionalContext` que já existia.
+  - `deny` da guarda prevalece; nos outros casos, a saída final leva `updatedInput`, sem `permissionDecision` (passo 0), mais o `additionalContext` que já existia; com `ask` da guarda, `permissionDecision: 'ask'` e `updatedInput` juntos.
 - [ ] **Passo 4** — `node --test` → 0 falhas.
 - [ ] **Passo 5** — commit `feat(agentes): paleta configurável aplicada no despacho`.
 

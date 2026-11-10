@@ -70,13 +70,37 @@ Fatos da doc oficial do Claude Code (plugins/dependencies, troubleshooting, load
   - auto mode: "When your hook returns `updatedInput` with no `permissionDecision` in auto mode, Claude Code can deny the changed call. The server reviewed the input Claude wrote, not the input your hook returned." A negação traz o texto `a hook changed this call's input after auto mode reviewed it`;
   - `permissionDecision`: "`"allow"` skips the permission prompt, except for actions no mode auto-approves and reads from network paths. [...] Deny and ask rules are still evaluated regardless of what the hook returns";
   - precedência entre hooks: "`deny` > `defer` > `ask` > `allow`".
-  - Decorre da doc: a variante com `permissionDecision: "allow"` junto do `updatedInput` não contorna regra `deny`/`ask` do usuário; a variante sem `permissionDecision` pode ser negada em auto mode (o modo real do mantenedor). A Tarefa 6b, passo 0, mede as duas variantes em `permissions.defaultMode: "auto"`.
+  - Decorre da doc: a variante com `permissionDecision: "allow"` junto do `updatedInput` não contorna regra `deny`/`ask` do usuário; a variante sem `permissionDecision` pode ser negada em auto mode (o modo real do mantenedor). O bloco "Medido no passo 0" abaixo registra o comportamento das duas.
 - Dependências de plugin (https://code.claude.com/docs/en/plugins/dependencies.md): a entrada é string (`"nome"`, `"nome@marketplace"`) ou objeto `{name, version, marketplace?}`; `version` é faixa semver (`>=1.4`, `~2.1.0`, `^2.0`). Plugin referenciado por caminho relativo no marketplace: "the install uses the marketplace's current copy instead, and the constraint is checked when the plugin loads. If that copy is outside the range, the dependent plugin stays disabled and `claude plugin list` shows `Requires "<dep>@<marketplace>" <faixa>, installed <versão>`". O `hadouken` é `"source": "./"` (`.claude-plugin/marketplace.json:13`) e o repo não tem tag `<plugin>--v<versão>` (`git tag | grep -c -- '--v'` → `0`; as tags são `v0.5.8` e anteriores).
 
 Fato medido em Claude Code 2.1.321 (experimento `claude -p`, transcript do subagente):
 
 - PreToolUse com `updatedInput` no tool Agent troca o modelo (pedido `haiku` → hook `sonnet` → `message.model` = `claude-sonnet-5-5`) e o effort (hook `low` → `agent-*.meta.json` `"effort":"low"`) do subagente.
 - O `tool_input` que o principal manda não traz `effort`; o stdin do hook traz o effort da sessão num campo de topo `effort`.
+
+Medido no passo 0 (Claude Code 2.1.322, 10/11/2026). Comando: `claude -p --model sonnet --setting-sources project,local --settings <ZZE2E-settings.json> --permission-mode <modo> --output-format stream-json --verbose`, cwd vazia `ZZE2E-passo0`. O principal despacha `Agent` com `subagent_type: "general-purpose"` e `model: "haiku"`. O hook de teste devolve `updatedInput` com `model: "sonnet"` (variante A, sem `permissionDecision`; variante B, com `"allow"`; A0, `updatedInput` idêntico ao input). Regras de teste: `deny`/`ask` de `Agent(general-purpose)`. Modelo do subagente lido em `subagents/agent-*.meta.json` (`model`) e `message.model`.
+
+| Rodada | Modo | Hook | Regra | Resultado |
+|---|---|---|---|---|
+| controle | auto | nenhum | — | executa; subagente `claude-haiku-5-5`; nenhum hook do usuário nem de plugin roda (`grep -ci hadouken` no stream = 0) |
+| A | auto | A | — | executa; subagente `claude-sonnet-5-5` |
+| B | auto | B | — | executa; subagente `claude-sonnet-5-5` |
+| A-deny (2 rodadas) | auto | A | `deny` | negada pelo classificador: `Permission for this action was denied by the Claude Code auto mode classifier. Reason: Blocked by classifier.` (`decision_reason_type: "classifier"`) |
+| A0-deny | auto | A0 | `deny` | negada pela regra: `Agent type 'general-purpose' has been denied by permission rule 'Agent(general-purpose)' from flagSettings.` |
+| B-deny | auto | B | `deny` | negada pela regra (mesmo texto) |
+| deny sem hook | auto | nenhum | `deny` | negada pela regra (mesmo texto) |
+| A-default | default | A | — | executa; subagente `claude-sonnet-5-5` |
+| A-deny-default | default | A | `deny` | negada pela regra (mesmo texto) |
+| B-default | default | B | — | executa; subagente `claude-sonnet-5-5` |
+| A-ask, B-ask, ask sem hook | auto | A, B, nenhum | `ask` | executam sem perguntar nas três, inclusive sem hook: `ask` não se observa em `-p` |
+| E5A | auto | A com `effort: "max"` | — | aceito no subagente `haiku`: `params.effort = "max"`, meta `"effort":"max"` |
+
+- O texto `a hook changed this call's input after auto mode reviewed it` não aparece em nenhuma rodada (`grep -c` = 0 nos 15 streams).
+- Em auto mode, com o input alterado e sem `permissionDecision`, quem nega é o classificador; com o input idêntico (A0), é a regra. Em default, a regra nega nas duas variantes.
+- O stdin do hook traz `effort: {"level": "medium"}`; o `tool_use` do stream mostra o input original, não o injetado.
+- Haiku aceita `effort`: `lerArgsAgentes` e `validarAgentes` aceitam qualquer combinação modelo·effort da lista.
+
+Decisão do Fernando (10/11/2026): a saída do hook com injeção usa a variante A, `updatedInput` sem `permissionDecision`. O classificador do auto mode segue revisando todo despacho injetado; a regra `deny` do usuário segurou nas 4 rodadas com `deny` (default pela regra; auto pelo classificador, 2 de 2). Risco aceito: em auto mode, `deny` e `ask` do usuário sobre despacho injetado dependem do classificador, e o `ask` em auto não se mede em `-p`.
 
 ## 1. Problema
 
@@ -241,7 +265,7 @@ Dez agentes em `agents/`, conteúdo genérico (sem prefixo de teste, e-mail, emp
      - exceção no código da paleta → passa adiante sem injetar nem negar, e registra o erro.
   3. Portões da guarda: `session_id` inválido, sessão inativa, status `erro`, guarda desligada. A saída é a injeção pendente (se houver) ou nada.
   4. Com guarda ligada: travas, G5, G6, G7 (perfil efetivo), N1/N2 e A1–A3 (`tool_input` original). Um `deny` da guarda prevalece e sai sem `updatedInput`.
-  5. Saída final, quando há injeção: `updatedInput` com o `tool_input` original inteiro mais os campos injetados, com ou sem `permissionDecision: "allow"`: o passo 0 da Tarefa 6b mede as duas variantes em auto mode e fixa a que injeta e respeita as regras do usuário (§0: com `allow`, as regras `deny`/`ask` seguem valendo). `ask` da guarda (`guarda.perguntar`) leva o `updatedInput` também; o aviso A1–A3 mantém o `additionalContext`.
+  5. Saída final, quando há injeção: `updatedInput` com o `tool_input` original inteiro mais os campos injetados, sem `permissionDecision` (variante A, decisão do Fernando em §0, "Medido no passo 0"); nenhuma saída do hook devolve `"allow"`. `ask` da guarda (`guarda.perguntar`) leva o `updatedInput` também; o aviso A1–A3 mantém o `additionalContext`.
 - O texto do SessionStart reflete a config do início da sessão.
 - **Comando** `/hadouken:agentes` (skill + `UserPromptExpansion`): sem argumento mostra a tabela (agente, padrão, override, ativo); `<nome> <model> [effort]`, `<nome> off`, `<nome> on`, `<nome> padrao` gravam. Só o usuário grava.
 
@@ -377,10 +401,9 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 
 ### 8.1 Fatos a medir (início da fatia indicada)
 
-1. (Fatia 4, passo 0) A medição em `permissions.defaultMode: "auto"` confere com a doc (§0): a variante sem `permissionDecision` é negada com o texto `a hook changed this call's input after auto mode reviewed it`, e a variante com `"allow"` injeta e mantém as regras `deny`/`ask`? O registro da saída entra no §0, na linha "Medido no passo 0".
-2. (Fatia 4) `updatedInput` vence o `model` do frontmatter de um agente de plugin? (A doc diz que o parâmetro por invocação vence o frontmatter; falta medir quando ele vem do hook.)
-3. (e2e) Com `--plugin-dir` apontando para o branch e o mesmo plugin instalado do marketplace, quais hooks rodam?
-4. (e2e, D18) A dependência instalada por `plugin install <D>` do instalador 0.6.0 fica sem `auto` em `installed_plugins.json`?
+1. (e2e, passo 5) `updatedInput` vence o `model` do frontmatter de um agente de plugin? (A doc diz que o parâmetro por invocação vence o frontmatter; o passo 0 mediu com `general-purpose`, sem frontmatter.)
+2. (e2e) Com `--plugin-dir` apontando para o branch e o mesmo plugin instalado do marketplace, quais hooks rodam?
+3. (e2e, D18) A dependência instalada por `plugin install <D>` do instalador 0.6.0 fica sem `auto` em `installed_plugins.json`?
 
 ### 8.2 Decisões do Fernando (dono: Fernando)
 
