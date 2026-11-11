@@ -665,6 +665,7 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
   - `npx -y @stryker-mutator/core run` com config temporária fora do repo, `testRunner: "command"` e `commandRunner.command` = `node --test` sobre os testes das Tarefas 1–12.
   - `mutate` = faixas `arquivo:início-fim` de `git diff -U0 main...HEAD -- src kit` (só `.js`/`.mjs`).
   - Cada sobrevivente vira teste novo (commit `test(mutação): …`) ou uma linha de justificativa guardada para o corpo do PR.
+  - **Fechamento desta frente** (decisão do Fernando, 11/11/2026, com o limite de 7 dias em 85 %): a matança para em `7b1961b` (20 mutantes mortos em agentes e roteamento). O corpo do PR traz: os grupos medidos e o escore de cada um, os grupos não medidos (`kit/hooks/regua.js`, `regua-comando.js`, `fluxo.js`; `kit/hooks/dependencias.js`, `src/instalar/dedup.js` e os arquivos da janela depois de A1–A3), a justificativa por padrão dos sobreviventes (guarda de tipo redundante, texto, `?.` sobre valor já validado) e o restante como follow-up.
 - [ ] **Auditoria do diff**: `auditor` sobre `main...HEAD` com o foco da spec §5. Achado confirmado → correção com teste.
 - [ ] **e2e**:
   - Agente `e2e`, seção 9 da spec, passos 1–9.
