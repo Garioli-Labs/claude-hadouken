@@ -724,3 +724,46 @@ test('saída final: aviso A3 com injeção pendente leva additionalContext e upd
   assert.deepEqual(injecao(o), { ...ti('hadouken:implementador'), effort: 'low' });
   semPermissao(o);
 });
+
+// ===================== Mutação (Tarefa 13, M1a): despacho e paleta efetiva
+
+test('avaliarPaleta: agente de outro plugin com o nome de um nosso, atrás de um prefixo de 9 caracteres, não é tocado', () => {
+  // 'hadouken:'.length === 9: fatiar sem conferir o prefixo faria de 'plugin-x:busca' o agente 'busca'.
+  const agentes = { busca: { ativo: false }, revisor: { model: 'opus' } };
+  for (const tipo of ['plugin-x:busca', 'xxxxxxxxxbusca', 'xxxxxxxxxrevisor', 'Hadouken:busca', ' hadouken:busca', 'hadouken :busca']) {
+    assert.deepEqual(avaliarPaleta({ toolName: 'Agent', toolInput: { subagent_type: tipo, prompt: 'x' }, agentes }), { acao: 'passa' }, tipo);
+  }
+});
+
+test('avaliarPaleta: só a chave própria de agentes vale; o que vem do protótipo não desliga nem injeta', () => {
+  const herdado = Object.create({ busca: { ativo: false }, revisor: { model: 'opus', effort: 'high' } });
+  const chama = (tipo) => avaliarPaleta({ toolName: 'Agent', toolInput: { subagent_type: tipo, prompt: 'x' }, agentes: herdado });
+  assert.deepEqual(chama('hadouken:busca'), { acao: 'passa' });
+  assert.deepEqual(chama('hadouken:revisor'), { acao: 'passa' });
+});
+
+test('avaliarPaleta: entrada nula do substituto não derruba a negação; o substituto vale como ativo', () => {
+  const r = avaliarPaleta({ toolName: 'Agent', toolInput: { subagent_type: 'hadouken:busca' }, agentes: { busca: { ativo: false }, varredor: null } });
+  assert.deepEqual(r, { acao: 'negar', razao: 'hadouken:busca está desligado na config; use hadouken:varredor' });
+});
+
+test('avaliarPaleta: nome fora da paleta nunca recebe injeção, mesmo com config para ele', () => {
+  const agentes = { zzz: { model: 'opus', effort: 'high' }, fork: { model: 'opus' } };
+  for (const tipo of ['hadouken:zzz', 'hadouken:fork']) {
+    assert.deepEqual(avaliarPaleta({ toolName: 'Agent', toolInput: { subagent_type: tipo, prompt: 'x' }, agentes }), { acao: 'passa' }, tipo);
+  }
+});
+
+test('avaliarPaleta: entrada que quebra por dentro (agentes nulo) devolve passa, nunca lança nem devolve undefined', () => {
+  assert.deepEqual(avaliarPaleta({ toolName: 'Agent', toolInput: { subagent_type: 'hadouken:busca', prompt: 'x' }, agentes: null }), { acao: 'passa' });
+  assert.deepEqual(avaliarPaleta({ toolName: 'Agent', toolInput: { subagent_type: 'hadouken:revisor', prompt: 'x' }, agentes: null }), { acao: 'passa' });
+});
+
+test('paletaEfetiva: entrada nula, que não é objeto ou herdada do protótipo vale como ausente (o padrão, sem lançar)', () => {
+  const padrao = paletaEfetiva({});
+  assert.deepEqual(paletaEfetiva({ busca: null }), padrao);
+  assert.deepEqual(paletaEfetiva({ busca: 'x', varredor: 5, pesquisa: true }), padrao);
+  assert.deepEqual(paletaEfetiva(Object.create({ busca: { model: 'opus', effort: 'max', ativo: false } })), padrao);
+  // Com a entrada própria, vale (controle).
+  assert.deepEqual(paletaEfetiva({ busca: { model: 'opus', ativo: false } })[0], { nome: 'busca', model: 'opus', effort: 'low', ativo: false, override: true });
+});

@@ -67,3 +67,38 @@ test('regra curta: linha completa do auditor', () => {
     'hadouken:auditor (fable·high): auditoria adversarial de spec ou plano com impacto em produção, migração de dados, segurança, autenticação ou dinheiro, contra código vivo.',
   ));
 });
+
+// ===================== Mutação (Tarefa 13, M1a): textos fixos e o "use para" de cada agente
+
+test('regra curta: abertura e fechamento literais; o fechamento manda fazer direto, sem agente', () => {
+  const linhas = linhasRegra(paletaEfetiva());
+  assert.equal(linhas[0], 'Roteamento: antes de lançar um agente, carregue hadouken:roteamento.');
+  assert.equal(linhas.at(-1), 'Cabe em poucas chamadas sobre arquivos conhecidos: faça direto, sem agente.');
+  assert.deepEqual(linhasRegra(null), [linhas[0], linhas.at(-1)]);
+});
+
+test('regra curta: elemento nulo ou que não é entrada da paleta é ignorado, sem lançar', () => {
+  const [abertura, fechamento] = linhasRegra(null);
+  assert.deepEqual(linhasRegra([null, undefined, 5, 'x']), [abertura, fechamento]);
+  const busca = paletaEfetiva()[0];
+  assert.equal(linhasRegra([null, busca, undefined]).length, 3);
+});
+
+// O "use para" de cada agente é o que o Claude lê para escolher quem lançar:
+// o trecho essencial de cada um (o do auditor já tem a linha inteira acima).
+test('regra curta: a linha de cada agente traz o seu "use para", terminada em ponto', () => {
+  const esperado = [
+    ['busca', 'achar arquivo e símbolo'], ['varredor', 'número de fonte primária'], ['pesquisa', 'doc, API e versão na web, com a URL'],
+    ['mecanico', 'edição com instrução exata'], ['implementador-mecanico', 'fatia mecânica provada por teste'],
+    ['implementador', 'fatia com spec e plano fechados'], ['revisor', 'review de fatia contra spec, plano e convenções'],
+    ['auditor', 'auditoria adversarial de spec ou plano'], ['e2e', 'e2e onde o usuário vê'], ['redator', 'texto para terceiros'],
+  ];
+  const linhas = linhasRegra(paletaEfetiva());
+  for (const [nome, trecho] of esperado) {
+    const linha = linhas.find((l) => l.startsWith(`hadouken:${nome} (`));
+    assert.ok(linha, nome);
+    const uso = linha.slice(linha.indexOf('): ') + 3);
+    assert.ok(uso.includes(trecho), `${nome}: ${linha}`);
+    assert.ok(uso.endsWith('.') && uso.length > trecho.length, `${nome}: ${linha}`);
+  }
+});

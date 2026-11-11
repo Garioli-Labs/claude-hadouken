@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registrarSessao } from '../src/ativas.js';
 import * as mensagens from '../src/guarda/mensagens.js';
+import { lerEventos } from '../src/guarda/registros.js';
 import * as cfg from '../src/agentes/config.js';
 import { PALETA, paletaEfetiva } from '../src/agentes/paleta.js';
 import { linhasRegra } from '../src/roteamento/regra.js';
@@ -441,4 +442,59 @@ test('agente desligado pelo comando é negado no despacho com o substituto; reli
   assert.match(negado(despachar(home, 'busca')), /hadouken:varredor/);
   bloqueio(comando('busca on', home));
   assert.equal(despachar(home, 'busca'), null);
+});
+
+// ===================== Mutação (Tarefa 13, M1a): o texto das respostas e o fail-open do hook
+
+const VALE = 'Vale nos próximos despachos; o texto do início da sessão só muda na próxima.';
+const RESPOSTA_INTERNA = 'hadouken: nada mudado. Erro interno ao tratar /hadouken:agentes.';
+const lerErros = (home) => lerEventos(home, Date.now()).filter((e) => e.tipo === 'erro').map((e) => e.detalhe);
+const rodarCru = (home, input, { preload } = {}, extra = {}) => spawnSync(
+  process.execPath, [...(preload === undefined ? [] : ['--require', preload]), path.join(repo, 'src', 'hooks', 'agentes.js')],
+  { input, env: ambiente(home, extra), encoding: 'utf8', timeout: 15_000 },
+);
+
+test('resposta de gravar e de padrao: a linha efetiva e o aviso de vigência, texto completo', () => {
+  const home = novoHome();
+  assert.equal(bloqueio(comando('revisor opus high', home)), `hadouken: revisor: sonnet·high → opus·high. ${VALE}`);
+  assert.equal(bloqueio(comando('auditor off', home)), `hadouken: auditor: fable·high (desligado). ${VALE}`);
+  assert.equal(bloqueio(comando('revisor padrao', home)), `hadouken: revisor: padrão (sonnet·high). ${VALE}`);
+  assert.equal(bloqueio(comando('auditor padrao', home)), `hadouken: auditor: padrão (fable·high). ${VALE}`);
+  assert.equal(bloqueio(comando('busca padrao', home)), `hadouken: busca: padrão (haiku·low). ${VALE}`);
+});
+
+test('sem pasta de dados válida (HADOUKEN_HOME relativo): bloqueia com a resposta de erro interno, sem ler nem gravar', () => {
+  const home = novoHome();
+  for (const args of ['', 'revisor opus', 'revisor padrao']) {
+    const reason = bloqueio(comando(args, home, { extra: { HADOUKEN_HOME: 'pasta-relativa' } }));
+    assert.equal(reason, RESPOSTA_INTERNA, args);
+  }
+  assert.equal(fs.existsSync(path.join(repo, 'pasta-relativa')), false);
+  assert.equal(fs.existsSync(arqConfig(home)), false);
+});
+
+test('exceção ao tratar o comando: bloqueia com a resposta de erro interno e registra o evento erro "agentes"', () => {
+  const home = novoHome();
+  // Só a chamada que vem de paleta.js lança: o hook roda inteiro até a tabela.
+  const preload = path.join(home, 'quebra-paleta.cjs');
+  fs.writeFileSync(preload, "const map = Array.prototype.map; Array.prototype.map = function (...a) { if (new Error().stack.includes('paleta.js')) throw new Error('paleta quebrada'); return map.apply(this, a); };\n");
+  const r = rodarCru(home, JSON.stringify(expansao('agentes', '')), { preload });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, '');
+  assert.deepEqual(JSON.parse(r.stdout), { decision: 'block', reason: RESPOSTA_INTERNA });
+  assert.deepEqual(lerErros(home), ['agentes']);
+  assert.equal(fs.existsSync(arqConfig(home)), false);
+});
+
+test('stdin acima do teto: sem resposta (fail-open) e o evento erro "agentes" registrado', () => {
+  const home = novoHome();
+  const r = rodarCru(home, `{"command_name":"hadouken:agentes","x":"${'a'.repeat(2 * 1024 * 1024)}"}`);
+  assert.equal(r.stdout, '');
+  assert.deepEqual(lerErros(home), ['agentes']);
+  // Entrada pequena e ilegível: nada na saída, nenhum evento.
+  const ok = novoHome();
+  const j = rodarCru(ok, '{ não é json');
+  assert.equal(j.status, 0, j.stderr);
+  assert.equal(j.stdout, '');
+  assert.deepEqual(lerErros(ok), []);
 });
