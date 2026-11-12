@@ -64,6 +64,25 @@ test('sugerirFechar junta os Helper do macOS no app', () => {
   assert.deepEqual(s, [{ nome: 'Google Chrome', rssBytes: 450 * MB }]);
 });
 
+// No macOS o `ps -o comm=` devolve o título que o processo se deu: o Claude
+// Code aparece como "claude bg-spare", não "claude".
+test('claude com título no macOS ("claude bg-spare") é claude; nomes parecidos seguem outro', () => {
+  const c = classeDe([
+    p(51, 'claude bg-spare'), p(52, 'claude --resume abc'), p(53, '/Users/x/.local/bin/claude bg-spare'), p(54, 'Claude Helper (Renderer)'),
+    p(55, 'claude'), p(56, 'claude.exe'),
+    p(60, 'claudette'), p(61, 'claude-foo'), p(62, 'claudefoo bar'), p(63, 'meu claude bg-spare'),
+  ]);
+  assert.deepEqual([51, 52, 53, 54, 55, 56].map((pid) => c[pid]), Array(6).fill('claude'));
+  assert.deepEqual([60, 61, 62, 63].map((pid) => c[pid]), Array(4).fill('outro'));
+});
+
+test('sugerirFechar não sugere o claude com título do macOS', () => {
+  const s = sugerirFechar(classificar([
+    p(51, 'claude bg-spare', 900), p(52, 'claude --resume abc', 800), p(60, 'claudette', 100), p(70, 'Slack', 50),
+  ]), {});
+  assert.deepEqual(s, [{ nome: 'claudette', rssBytes: 100 * MB }, { nome: 'Slack', rssBytes: 50 * MB }]);
+});
+
 test('sugerirFechar sem pidSessao e com lista vazia', () => {
   assert.deepEqual(sugerirFechar([], {}), []);
   assert.deepEqual(sugerirFechar(null), []);
