@@ -714,3 +714,37 @@ test('estadoPainel: Ultra sem leitura de 5 h tira a janela de 5 h; com leitura, 
   assert.equal(p.texto, '5h 25% · sem 41% · Fable 57%');
   fs.rmSync(path.join(dir, 'conta-plano.json'));
 });
+
+// macOS: os.freemem() conta só páginas livres (~0,08 GB numa máquina de
+// 24 GB com 4 GB reaproveitáveis); o padrão de memLivre usa o disponível e a
+// leitura oficial deixa de parar por 'pouca-ram'.
+async function comMemoriaDoMac(plataforma, fn) {
+  const livre = os.freemem;
+  const tinhaPlat = Object.getOwnPropertyDescriptor(process, 'platform');
+  const tinhaDisp = Object.getOwnPropertyDescriptor(process, 'availableMemory');
+  os.freemem = () => 0.08 * 1024 ** 3;
+  process.availableMemory = () => 4 * 1024 ** 3;
+  Object.defineProperty(process, 'platform', { ...tinhaPlat, value: plataforma });
+  try {
+    return await fn();
+  } finally {
+    Object.defineProperty(process, 'platform', tinhaPlat);
+    os.freemem = livre;
+    if (tinhaDisp) Object.defineProperty(process, 'availableMemory', tinhaDisp);
+    else delete process.availableMemory;
+  }
+}
+
+test('talvezAtualizar: no macOS com freemem baixo e disponível alto, lê (padrão de memLivre)', async () => {
+  const { rodar, chamadas } = rodarFalso();
+  const r = await comMemoriaDoMac('darwin', () => talvezAtualizar({ ...opcoes({ rodar }), memLivre: undefined }));
+  assert.deepEqual(r, { feito: true, motivo: 'ok' });
+  assert.equal(chamadas.length, 1);
+});
+
+test('talvezAtualizar: fora do macOS o padrão segue o freemem (pouca-ram)', async () => {
+  const { rodar, chamadas } = rodarFalso();
+  const r = await comMemoriaDoMac('linux', () => talvezAtualizar({ ...opcoes({ rodar }), memLivre: undefined }));
+  assert.deepEqual(r, { feito: false, motivo: 'pouca-ram' });
+  assert.equal(chamadas.length, 0);
+});

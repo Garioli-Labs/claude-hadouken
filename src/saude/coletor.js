@@ -1,5 +1,6 @@
 import { classificar } from './processos.js';
 import { tempoCpuMs } from './ociosas.js';
+import { memoriaDisponivel } from '../memoria.js';
 
 // As leituras do PC por plataforma (spec v0.5.5 §6.A). Roda só no coletor
 // desanexado, nunca num hook. Toda saída externa é dado: cada número passa
@@ -57,10 +58,13 @@ async function rodar(executar, nome, args, prazoMs) {
 
 const linhas = (texto) => texto.split(/\r?\n/, LINHAS_MAX);
 
-function lerRam(os) {
+// A "livre" sai da memoriaDisponivel: no macOS o os.freemem() não conta o
+// cache reaproveitável e a RAM sairia em ~100%. livreBytes e usadaPct vêm da
+// mesma leitura.
+function lerRam(os, plataforma = process.platform) {
   try {
     const total = os.totalmem();
-    const livre = os.freemem();
+    const livre = memoriaDisponivel({ plataforma, livre: () => os.freemem() });
     if (!Number.isFinite(total) || !Number.isFinite(livre) || total <= 0 || livre < 0 || livre > total) {
       return { totalBytes: Number.isFinite(total) ? total : null, livreBytes: Number.isFinite(livre) ? livre : null, usadaPct: null };
     }
@@ -323,7 +327,7 @@ export async function coletar({ agoraMs, plataforma, executar, fs, os, dirDados,
   return {
     versao: 1,
     em: agoraMs,
-    ram: lerRam(os),
+    ram: lerRam(os, plataforma),
     cpu,
     gpu,
     bateria,

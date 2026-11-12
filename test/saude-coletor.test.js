@@ -229,3 +229,38 @@ test('ram: total zero ou os que lança não vira NaN', async () => {
   assert.deepEqual(l2.ram, { totalBytes: null, livreBytes: null, usadaPct: null });
   assert.equal(l2.cpu.cargaPct, null);
 });
+
+// macOS: os.freemem() conta só páginas livres; com 24 GB e ~0,08 GB "livres"
+// a RAM saía em ~100% e o aviso de RAM ficava ligado o tempo todo. A fonte é
+// o disponível, igual para livreBytes e usadaPct.
+async function comDisponivel(valor, fn) {
+  const tinha = Object.getOwnPropertyDescriptor(process, 'availableMemory');
+  process.availableMemory = valor;
+  try {
+    return await fn();
+  } finally {
+    if (tinha) Object.defineProperty(process, 'availableMemory', tinha);
+    else delete process.availableMemory;
+  }
+}
+
+test('ram no darwin: livreBytes e usadaPct vêm do disponível, não do freemem', async () => {
+  const { executar } = falsoExecutar({ ps: '', pmset: '' });
+  const os = falsoOs({ total: 24 * GB, livre: 0.08 * GB });
+  const l = await comDisponivel(() => 4 * GB, () => coletar(base({ plataforma: 'darwin', executar, os })));
+  assert.deepEqual(l.ram, { totalBytes: 24 * GB, livreBytes: 4 * GB, usadaPct: 83 });
+});
+
+test('ram no darwin sem process.availableMemory (Node antigo): cai no freemem', async () => {
+  const { executar } = falsoExecutar({ ps: '', pmset: '' });
+  const os = falsoOs({ total: 24 * GB, livre: 6 * GB });
+  const l = await comDisponivel(undefined, () => coletar(base({ plataforma: 'darwin', executar, os })));
+  assert.deepEqual(l.ram, { totalBytes: 24 * GB, livreBytes: 6 * GB, usadaPct: 75 });
+});
+
+test('ram no linux ignora o disponível', async () => {
+  const { executar } = falsoExecutar({ ps: '' });
+  const os = falsoOs({ total: 24 * GB, livre: 6 * GB });
+  const l = await comDisponivel(() => 20 * GB, () => coletar(base({ plataforma: 'linux', executar, os })));
+  assert.deepEqual(l.ram, { totalBytes: 24 * GB, livreBytes: 6 * GB, usadaPct: 75 });
+});
