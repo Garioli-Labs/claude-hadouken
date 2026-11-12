@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
 import { memoriaDisponivel } from '../src/memoria.js';
 
 // Memória "livre" para decidir se dá para rodar algo: no macOS o
@@ -45,4 +46,16 @@ test('o livre que lança propaga (cada consumidor já trata)', () => {
 test('padrões: sem argumento devolve um número finito', () => {
   const v = memoriaDisponivel();
   assert.ok(Number.isFinite(v) && v >= 0);
+});
+
+// Sem nada injetado: roda no sistema de verdade de cada máquina do CI (Linux,
+// Windows e macOS). A leitura tem de caber na RAM instalada e não pode ser
+// zero, que é o que faria a RAM sair em 100 % usada.
+test(`leitura real em ${process.platform}: maior que zero e até a RAM total`, () => {
+  const total = os.totalmem();
+  const v = memoriaDisponivel();
+  assert.ok(v > 0, `disponível ${v}`);
+  assert.ok(v <= total, `disponível ${v} acima do total ${total}`);
+  const usadaPct = Math.round((1 - v / total) * 100);
+  assert.ok(usadaPct >= 0 && usadaPct < 100, `RAM usada ${usadaPct}%`);
 });
