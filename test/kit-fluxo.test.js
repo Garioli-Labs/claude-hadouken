@@ -1,10 +1,11 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { envIsolado } from './kit-env-isolado.js';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const FLUXO = path.join(repo, 'kit', 'hooks', 'fluxo.js');
@@ -59,6 +60,8 @@ const EXISTENTES = new Set([
   'hadouken-kit:yu-ux-web-expert', 'hadouken-kit:graphify', 'hadouken-kit:fluxo',
   // v0.5.3 (spec roteamento §2): skill do plugin principal, no repo.
   'hadouken:roteamento',
+  // v0.6.0 (Fatia 7): a régua padrão cita o agente auditor e a skill de mutação (Tarefa 12).
+  'hadouken:auditor', 'hadouken-kit:mutacao',
 ]);
 
 // v0.5.1: os nomes de superpowers e poka-yoke da lista existem no cache
@@ -69,8 +72,13 @@ const CACHE_DE = {
   'poka-yoke': primeiro(path.join(CACHE, 'claude-hadouken', 'poka-yoke', '0.2.0'), path.join(CACHE, 'poka-yoke', 'poka-yoke', '0.2.0')),
 };
 
+// O SessionStart lê o registro de plugins de CLAUDE_CONFIG_DIR: sempre uma
+// pasta vazia, nunca o ~/.claude de quem roda o teste.
+const CONFIG_VAZIA = fs.mkdtempSync(path.join(os.tmpdir(), 'kit fluxo cfg '));
+const CASA_VAZIA = fs.mkdtempSync(path.join(os.tmpdir(), 'kit fluxo casa '));
+after(() => { for (const d of [CONFIG_VAZIA, CASA_VAZIA]) fs.rmSync(d, { recursive: true, force: true }); });
 function rodar(cwd, input = '') {
-  return spawnSync(process.execPath, [FLUXO], { cwd, input, encoding: 'utf8', timeout: 5000 });
+  return spawnSync(process.execPath, [FLUXO], { cwd, input, encoding: 'utf8', timeout: 5000, env: envIsolado(CASA_VAZIA, { CLAUDE_CONFIG_DIR: CONFIG_VAZIA }) });
 }
 const contexto = () => JSON.parse(rodar(repo).stdout).hookSpecificOutput.additionalContext;
 
@@ -80,8 +88,10 @@ test('fluxo.js: sai 0 com stdin vazio e imprime JSON de SessionStart', () => {
   const j = JSON.parse(r.stdout);
   assert.equal(j.hookSpecificOutput.hookEventName, 'SessionStart');
   const t = j.hookSpecificOutput.additionalContext;
-  assert.ok(t.length <= 1600, `${t.length} caracteres`);
+  // v0.6.0 (Fatia 7): 2 000 da régua mais as duas linhas fixas, com folga.
+  assert.ok(t.length <= 2400, `${t.length} caracteres`);
   assert.ok(t.split('\n').length <= 5);
+  assert.match(t, /Régua \(padrão\): /);
   assert.match(t, /superpowers:brainstorming/);
   assert.match(t, /hadouken-kit:fluxo/);
 });
@@ -101,9 +111,9 @@ test('fluxo.js: fronteira estática (spec §5.2)', () => {
   assert.doesNotMatch(texto, /process\.stdin|readFileSync|process\.env/);
 });
 
-test('hooks.json: SessionStart em forma exec com args e timeout 5', () => {
+test('hooks.json: SessionStart em forma exec com args e timeout 5 (e o UserPromptExpansion do /hadouken-kit:regua)', () => {
   const h = JSON.parse(fs.readFileSync(path.join(repo, 'kit', 'hooks', 'hooks.json'), 'utf8'));
-  assert.deepEqual(Object.keys(h.hooks), ['SessionStart']);
+  assert.deepEqual(Object.keys(h.hooks), ['SessionStart', 'UserPromptExpansion']);
   const c = h.hooks.SessionStart[0].hooks[0];
   assert.deepEqual(c, { type: 'command', command: 'node',
     args: ['${CLAUDE_PLUGIN_ROOT}/hooks/fluxo.js'], timeout: 5 });

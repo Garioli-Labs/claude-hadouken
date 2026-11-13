@@ -18,7 +18,7 @@ Os exemplos são de um sábado, 26/09, ao meio-dia, com a janela de 5 horas zera
 - **Reset em minutos.** As linhas de atenção e de serializar dizem quanto falta para o reset: `5h em 74% (reset em 210 min): atenção ao ritmo.` Com menos de 15 minutos, a mudança de ritmo não rende antes do reset, e a linha diz isso: `5h em 74% (reset em 10 min): sem mudança de ritmo.`
 - **Fechar, com o horário da volta.** A faixa de 90 % dá o horário exato do reset e, para quem agenda a volta, o reset mais 2 minutos, para ela cair na janela nova: `5h em 91%: fechar a tarefa em curso e não abrir etapa nova; reset às 15:30 (o usuário vê as opções em /rate-limit-options). Se agendar a volta, marque 15:32.`
 - **Datas sem ambiguidade.** Fora da janela de 5 horas, os horários saem como `hoje 15:30`, `amanhã 09:00`, `ontem 20:15` ou, a partir de dois dias, com o dia e a data, `seg 28/09 22:00`. Vale também para a linha do início da sessão: `Consumo: 5h 42% (reset 15:30) · 7d 59% (reset seg 28/09 22:00); nesse ritmo, não esgota antes do reinício.`
-- **Modo econômico com o ritmo.** Com pelo menos 2 horas de leituras, a linha do modo econômico diz o ritmo da semana agora e o sustentável até o reset, em pontos por hora, e quando a semana acaba nesse ritmo: `7d 78% vs 65% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação; ritmo 1,5 pt/h, sustentável 0,4 pt/h; nesse ritmo acaba amanhã 02:40.`
+- **Modo econômico com o ritmo.** Com pelo menos 2 horas de leituras, a linha do modo econômico diz o ritmo da semana agora e o sustentável até o reset, em pontos por hora, e quando a semana acaba nesse ritmo: `7d 78% vs 65% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review; ritmo 1,5 pt/h, sustentável 0,4 pt/h; nesse ritmo acaba amanhã 02:40.`
 - **Retomar uma sessão parada.** Ao retomar (`resume`) uma sessão cujo cache provavelmente expirou, com 20 mil tokens de contexto ou mais, **você** (não o Claude) vê quantos tokens o Claude Code vai gravar de novo no cache: `hadouken: retomar reescreve ~35 k tokens de cache.` A linha vai como mensagem ao usuário, fora do contexto do Claude, sem valor em dólar (a assinatura não cobra por token). Um `fork` não a mostra.
 - **Subagentes ficam quietos.** O início de sessão dentro de um subagente não gera linha, não registra nada e não muda o modelo gravado da sessão mãe.
 
@@ -41,7 +41,9 @@ A conta também tem um limite semanal. Para ele, o plugin calcula o **esperado**
 
 #### A conta do ritmo, com um exemplo
 
-A semana tem 168 horas. Depois de *h* horas, o esperado é *h* ÷ 168 × 100 %.
+Sem janela de trabalho (o padrão), a semana tem 168 horas. Depois de *h* horas, o esperado é *h* ÷ 168 × 100 %.
+
+Com a [janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho) configurada (`/hadouken:janela`), o esperado é o dos **minutos úteis**: minutos da janela já passados desde o início da semana ÷ minutos da janela na semana inteira, contados dia a dia em hora local. Fora da janela, o esperado fica parado. O exemplo abaixo é o do padrão, sem janela.
 
 No exemplo, a semana zera segunda às 22:00, então ela começou na **segunda anterior, às 22:00**. Agora é **sábado, 12:00**.
 
@@ -66,11 +68,11 @@ O que cada modo quer dizer:
 | Modo | Quando | O que o Claude passa a fazer |
 |---|---|---|
 | normal | uso até 10 pontos longe do esperado, para cima ou para baixo | Nada muda. |
-| econômico | uso mais de 10 pontos **acima** do esperado | Menos volume e paralelismo, sem cortar testes, review nem effort de implementação. |
-| folga | uso mais de 10 pontos **abaixo** do esperado | Investe a folga em qualidade (review extra, effort maior em spec e auditoria), não em volume. |
-| só leitura | uso de 90 % ou mais **e** reset a mais de 24 h | Só leitura; recomenda parar. Vale acima dos outros modos. |
+| econômico | uso mais de 10 pontos **acima** do esperado | O padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review. |
+| folga | uso mais de 10 pontos **abaixo** do esperado | O padrão de modelo e effort sobe um degrau; investe a folga em qualidade (review extra), não em volume. |
+| só leitura | uso de 90 % ou mais **e** reset a mais de 24 h (com [janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho), também 2 h úteis ou mais até o reset) | Só leitura; recomenda parar. Vale acima dos outros modos. |
 
-O esperado fica sempre entre 0 % e 100 %, mesmo com o relógio da máquina adiantado ou atrasado. As contas são feitas em UTC; só a exibição usa o fuso local, então o horário de verão não bagunça nada. O esperado e o modo aparecem nos avisos e no relatório; a barra, o painel e a linha do início de sessão não os mostram.
+O esperado fica sempre entre 0 % e 100 %, mesmo com o relógio da máquina adiantado ou atrasado. Sem janela de trabalho, as contas são feitas em UTC e só a exibição usa o fuso local, então o horário de verão não bagunça nada. Com a [janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho), os dias e as horas dela valem em hora local, dia a dia, e o dia da troca do horário de verão (23 ou 25 h) entra na conta pelo relógio local. O esperado e o modo aparecem nos avisos e no relatório; a barra, o painel e a linha do início de sessão não os mostram.
 
 ### Projeção e várias sessões
 
@@ -118,9 +120,9 @@ Os números abaixo são exemplos; o texto é fixo.
 | 5 h desceu para atenção ou serializar a menos de 15 min do reset | `5h voltou a 75% (reset em 10 min): sem mudança de ritmo.` |
 | 5 h desceu para normal | `5h voltou a 65%: faixa normal.` |
 | 5 h: janela nova depois de faixa restritiva | `5h: janela nova em 3%, faixa normal — restrições anteriores suspensas.` |
-| 7 d entrou em econômico, com menos de 2 h de leituras | `7d 78% vs 65% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação.` |
-| 7 d entrou em econômico, com 2 h de leituras ou mais | `7d 78% vs 65% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação; ritmo 1,5 pt/h, sustentável 0,4 pt/h; nesse ritmo acaba amanhã 02:40.` |
-| 7 d entrou em folga | `7d 50% vs 65% esperado → modo folga: investir em qualidade (review extra, effort maior em spec/auditoria), não em volume.` |
+| 7 d entrou em econômico, com menos de 2 h de leituras | `7d 78% vs 65% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review.` |
+| 7 d entrou em econômico, com 2 h de leituras ou mais | `7d 78% vs 65% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review; ritmo 1,5 pt/h, sustentável 0,4 pt/h; nesse ritmo acaba amanhã 02:40.` |
+| 7 d entrou em folga | `7d 50% vs 65% esperado → modo folga: o padrão de modelo e effort sobe um degrau; qualidade (review extra), não volume.` |
 | 7 d voltou ao normal | `7d 60% vs 65% esperado → modo normal.` |
 | 7 d entrou em só leitura | `7d em 91% com reset seg 28/09 22:00: só leitura; recomendar parar.` |
 | 7 d: janela nova depois de modo restritivo | `7d: janela nova, 1% vs 0% esperado → modo normal — restrições anteriores suspensas.` |

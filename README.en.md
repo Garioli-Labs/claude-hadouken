@@ -13,7 +13,7 @@
 </p>
 
 > [!IMPORTANT]
-> **After updating, close open sessions with `/exit` and come back with `claude -c`.** Since v0.5.7 Hadouken keeps the plugin, the VS Code extension and the shortcuts on the same version on any PC; `/hadouken:saude` shows anything out of step (the `Instal.` line).
+> **After updating, close open sessions with `/exit` and come back with `claude -c`.** Since v0.5.7 Hadouken keeps the plugin, the VS Code extension and the shortcuts on the same version on any PC; `/hadouken:saude` shows anything out of step (the `Instal.` line). In 0.6.0 agents were renamed and the kit's dependencies changed: see the [breaking changes](https://github.com/Garioli-Labs/claude-hadouken/wiki/Home-en#breaking-changes-in-060).
 
 ## Features
 
@@ -22,11 +22,13 @@
 | 📊 **Limits on screen** | 5-hour session, week and Fable week in a VS Code status bar item, with the animated logo, spending no tokens. |
 | 🧠 **Context and cache** | How much context each session uses and how much came from cache, in the Claude Code status line. |
 | 🛡️ **Usage guard** | Warns Claude when the pace will run out the window and holds expensive dispatches until you release them (`/hadouken:liberar`, including `noite`). |
-| 🧭 **Routing** | Suggests model, effort and when to launch an agent, so Fable or high effort is not burned for nothing. |
+| 🧭 **Routing** | Suggests model, effort and when to launch an agent, so Fable or high effort is not burned for nothing; ten ready-made agents, and `/hadouken:agentes` changes each one's model, effort and whether it is on. [Details](https://github.com/Garioli-Labs/claude-hadouken/wiki/Commands#agents-claude-uses) |
+| 🕘 **Work window** | `/hadouken:janela seg-sex 9-21`: the week's pace and forecast count only your hours, not the 168. [Details](https://github.com/Garioli-Labs/claude-hadouken/wiki/Usage-guard#the-work-window) |
 | 📈 **Report** | `/hadouken:consumo`: tokens per project and per model·effort, account plan (Pro, Max, Ultra) and GitHub Actions minutes. |
 | 🖥️ **PC health** | `/hadouken:saude`: RAM, temperatures, battery, disk, idle sessions, light mode and the install check. |
 | ⚙️ **VS Code window** | Every setting one click away on the status bar: caps, bands, alerts, routing and protections. |
-| 🧰 **Kit and REA** | `hadouken-kit`, Garioli's skills (yu-ux-web-expert, graphify) with a map of which to use, and suggestions for third-party ones; `hadouken-rea`, reverse engineering (off by default). |
+| 🧰 **Kit and REA** | `hadouken-kit`, Garioli's skills (yu-ux-web-expert, graphify) with a map of which to use; third-party ones are suggested, and the duplicate copy the kit installed is turned off ([dedup](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit-en#dependencies-and-duplicate-copies)); `hadouken-rea`, reverse engineering (off by default). |
+| 📏 **Development ruler** | `/hadouken-kit:regua`: the skill for each work phase, with audit and mutation testing before the PR; the repo's ruler applies in place of yours. [Details](https://github.com/Garioli-Labs/claude-hadouken/wiki/Kit-en#development-ruler) |
 
 ## Install
 

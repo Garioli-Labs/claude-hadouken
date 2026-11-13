@@ -26,8 +26,8 @@ const LIMITE = /^Limite atingido; /u;
 // linha): o texto entra no contexto do modelo, e cada palavra custa token.
 // Sem frase (menos de 30 min decorridos, uso zero) ou fora das formas
 // conhecidas: nenhuma cauda.
-function cauda7d(f7, agoraMs) {
-  const frase = fraseEsgota({ usado: f7.used_percentage, resetsAtMs: f7.resets_at * 1000, janelaMs: JANELA_7D_MS, agoraMs });
+function cauda7d(f7, agoraMs, trabalho) {
+  const frase = fraseEsgota({ usado: f7.used_percentage, resetsAtMs: f7.resets_at * 1000, janelaMs: JANELA_7D_MS, agoraMs, trabalho });
   if (typeof frase !== 'string') return '';
   if (LIMITE.test(frase)) return '; limite semanal atingido';
   if (NAO_ESGOTA.test(frase)) return '; nesse ritmo, não esgota antes do reinício';
@@ -71,14 +71,18 @@ function parte(nome, l, reset) {
 // alerta.js, com `ultima` (ultimaLeitura). A cauda de 7d só com a leitura
 // fresca. Nunca lança.
 // v0.5.9: no Ultra sem leitura de 5 h, a parte do 5h sai (plano 'ultra').
-export function linhaEstado(leituras, agoraMs, ultima = null, plano = null) {
+// v0.6.0: `trabalho` (janela.js) é a janela de trabalho, que a faixa da linha
+// "sem leitura nova" usa; null, as 168 h. A cauda de 7d usa `trabalhoProjecao`
+// (previsao.js, trabalhoDaProjecao, P-b: null quando o uso sobe fora da
+// janela), e sem ele vale `trabalho`.
+export function linhaEstado(leituras, agoraMs, ultima = null, plano = null, trabalho = null, trabalhoProjecao = trabalho) {
   try {
     const l = ehObjeto(leituras) ? leituras : {};
     // Cada janela passa de novo por janelaValida (util.js). Sem agora
     // válido, a janela de 7 d não tem como ter horário nem ritmo.
     const j5 = janelaValida(l.five_hour);
     const j7 = numeroFinito(agoraMs) ? janelaValida(l.seven_day) : null;
-    if (j5 === null && j7 === null) return linhaSemLeitura(ultima, agoraMs);
+    if (j5 === null && j7 === null) return linhaSemLeitura(ultima, agoraMs, trabalho);
     const sem5h = plano === 'ultra' && j5 === null;
     // Os dois números conferidos por cima; `fresca` e `idadeMs` ficam.
     const f5 = j5 === null ? null : { ...l.five_hour, ...j5 };
@@ -87,7 +91,7 @@ export function linhaEstado(leituras, agoraMs, ultima = null, plano = null) {
       f5 ? parte('5h', f5, horaLocal(f5.resets_at)) : '5h sem leitura',
       f7 ? parte('7d', f7, quandoLocal(f7.resets_at, agoraMs)) : '7d sem leitura',
     ].slice(sem5h ? 1 : 0);
-    const cauda = f7 && f7.fresca !== false ? cauda7d(f7, agoraMs) : '';
+    const cauda = f7 && f7.fresca !== false ? cauda7d(f7, agoraMs, trabalhoProjecao) : '';
     return `Consumo: ${partes.join(' · ')}${cauda}.`;
   } catch {
     return LINHA_SEM_LEITURA_NUNCA;

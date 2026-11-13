@@ -30,7 +30,8 @@ test('o plugin principal se chama hadouken, e o renames migra o nome antigo', ()
 test('os ids e as dependências usam hadouken@claude-hadouken', () => {
   assert.equal(ID_PRINCIPAL, NOVO);
   const deps = json('kit/.claude-plugin/plugin.json').dependencies;
-  assert.ok(deps.includes('hadouken') && !deps.includes('claude-hadouken'));
+  assert.deepEqual(deps, [{ name: 'hadouken', version: '>=0.6.0' }]);
+  assert.ok(!JSON.stringify(deps).includes('claude-hadouken'));
   for (const rel of ['kit/testado.json', 'test/dados/kit-robo/testado.json']) {
     const t = json(rel).dependencias;
     assert.ok(NOVO in t && !('claude-hadouken@claude-hadouken' in t), rel);
@@ -39,9 +40,9 @@ test('os ids e as dependências usam hadouken@claude-hadouken', () => {
   assert.match(ler('install.ps1'), /^\s*\$ID = 'hadouken@claude-hadouken'$/m);
 });
 
-test('os hooks dos comandos casam com hadouken:liberar, hadouken:aprender, hadouken:limites e hadouken:saude', () => {
+test('os hooks dos comandos casam com hadouken:liberar, hadouken:aprender, hadouken:limites, hadouken:saude, hadouken:janela e hadouken:agentes', () => {
   const matchers = json('hooks/hooks.json').hooks.UserPromptExpansion.map((h) => h.matcher).sort();
-  assert.deepEqual(matchers, ['hadouken:aprender', 'hadouken:liberar', 'hadouken:limites', 'hadouken:saude']);
+  assert.deepEqual(matchers, ['hadouken:agentes', 'hadouken:aprender', 'hadouken:janela', 'hadouken:liberar', 'hadouken:limites', 'hadouken:saude']);
 });
 
 test('nenhum texto do plugin cita o nome antigo como comando ou id', () => {

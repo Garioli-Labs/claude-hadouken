@@ -1,7 +1,7 @@
 {
   "name": "hadouken-kit",
   "displayName": "Hadouken Kit",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "The Hadouken daily skills (yu-ux-web-expert, graphify) plus the hadouken-kit:fluxo map of which skill to use at each step.",
   "author": {
     "name": "Lucas Garioli",
@@ -10,6 +10,9 @@
   "homepage": "https://github.com/Garioli-Labs/claude-hadouken",
   "license": "MIT AND Apache-2.0",
   "dependencies": [
-    "hadouken"
+    {
+      "name": "hadouken",
+      "version": ">=0.6.0"
+    }
   ]
 }

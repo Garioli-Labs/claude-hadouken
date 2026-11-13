@@ -65,7 +65,7 @@ Since v0.5.4, the four blocks below can be turned off, in the Proteções tab of
 | `protecoes.sessaoFilha` | Stops Claude from opening another `claude` session (`claude -p`, `claude plugin install`) once the guard has fired. | Claude can get around the guard by opening a new session. |
 | `protecoes.arquivos` | Stops Claude from editing the hadouken configuration and Claude Code's `settings.json` files. | Claude can loosen the guard or change your settings by itself. |
 | `protecoes.hooks` | Holds, for the current session, changes to hooks, plugins and `disableAllHooks` made to the settings from outside (through the shell, for example); the next session reads the new file. | Such a change applies at once, including one that turns hadouken itself off. |
-| `protecoes.agenda` | Denies a scheduled task, `/loop` or routine that asks for liberar or aprender. | A task running without you can ask for them (liberar still refuses anything that was not typed). |
+| `protecoes.agenda` | Denies a scheduled task, `/loop` or routine that asks for liberar, aprender, limites, janela or agentes. | A task running without you can ask for them (liberar still refuses anything that was not typed). |
 
 No protection blocks a command just for mentioning the project folder: a command with the repository path (for example `node` or `grep` inside `claude-hadouken`) goes through, and so does a quoted absolute path with a `Claude …` folder in it (`"C:/Projetos DEV/Claude Hadouken/x"`), even outside the session's folder. Before v0.5.4, that was blocked by mistake.
 

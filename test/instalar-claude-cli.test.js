@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { conferirSugeridas, criarClaude, ID_KIT, ID_PRINCIPAL, ID_REA, listarPlugins, passoKit, passoPlugin } from '../src/instalar/claude-cli.js';
+import { conferirSugeridas, criarClaude, ID_KIT, ID_PRINCIPAL, ID_REA, listarPlugins, passoDedup, passoKit, passoPlugin } from '../src/instalar/claude-cli.js';
+import { TERCEIROS_KIT } from '../src/instalar/dedup.js';
 import { codigoDeSaida, formatarResumo, item } from '../src/instalar/itens.js';
 import { instalarFalso, rodarFalso } from './dados/instalador/claude-falso.mjs';
 
@@ -118,13 +119,13 @@ test('passoPlugin: novo instala; mesma versão é igual; versão nova é atualiz
   const estado = { plugins: [], log: [], raiz: '/r' };
   const rodar = rodarFalso(estado);
   const novo = await passoPlugin(rodar, ID_KIT, 'hadouken-kit');
-  assert.deepEqual(novo.item, item.ok('hadouken-kit', 'instalado (1.1.0)'));
+  assert.deepEqual(novo.item, item.ok('hadouken-kit', 'instalado (1.2.0)'));
   assert.equal(novo.entrada.installPath, '/r/hadouken-kit');
   assert.deepEqual(estado.log, ['plugin list --json', `plugin install ${ID_KIT}`, 'plugin list --json']);
   assert.deepEqual((await passoPlugin(rodar, ID_KIT, 'hadouken-kit')).item, item.igual('hadouken-kit'));
   assert.equal(estado.log.at(-2), `plugin update ${ID_KIT}`);
   estado.plugins[0].version = '1.0.1';
-  assert.deepEqual((await passoPlugin(rodar, ID_KIT, 'hadouken-kit')).item, item.ok('hadouken-kit', 'atualizado (1.0.1 → 1.1.0)'));
+  assert.deepEqual((await passoPlugin(rodar, ID_KIT, 'hadouken-kit')).item, item.ok('hadouken-kit', 'atualizado (1.0.1 → 1.2.0)'));
   const ruim = { plugins: [], log: [], raiz: '/r', falhar: [`install ${ID_PRINCIPAL}`] };
   const r = await passoPlugin(rodarFalso(ruim), ID_PRINCIPAL, 'claude-hadouken');
   assert.equal(r.entrada, null);
@@ -157,4 +158,210 @@ test('conferirSugeridas: qualquer marketplace ou skill solta conta como instalad
   assert.equal(codigoDeSaida(r), 0);
   // Sem lista (o plugin list falhou) e sem pasta: tudo sugerido, sem lançar.
   assert.equal(conferirSugeridas({ lista: null, pastaSkills: null }).filter((i) => i.estado === 'sugerido').length, 6);
+});
+
+// ------------------------------------------------------------ v0.6.0, dedup no modelo da 0.5.9 (Tarefa M)
+
+const MATT = 'mattpocock-skills@claude-hadouken';
+const MATT_UPSTREAM = 'mattpocock-skills@mattpocock';
+const NOME_DEDUP = 'hadouken-kit: cópias em dobro';
+const entrada = (id, version, enabled = true) => ({ id, version, scope: 'user', enabled, installPath: `/r/${id.split('@')[0]}` });
+const OUTRAS = TERCEIROS_KIT.filter((d) => d !== MATT).map((d) => entrada(d, '1.0.0'));
+const duplicada = (extra = []) => ({ plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(MATT_UPSTREAM, '1.3.2'), ...OUTRAS, ...extra], log: [], raiz: '/r' });
+const semDisable = (estado) => assert.ok(!estado.log.some((l) => l.startsWith('plugin disable')), 'nenhum plugin disable');
+const semInstalarNemLigar = (estado) => assert.ok(!estado.log.some((l) => /^plugin (install|enable|uninstall)/.test(l)), 'nenhum plugin install, enable ou uninstall');
+// O passo do jeito do instalador: a entrada do kit e a lista vêm da lista de plugins.
+async function dedup(estado, opcoes = {}) {
+  const lista = await listarPlugins(rodarFalso(estado));
+  return passoDedup(rodarFalso(estado), { entrada: lista.get(ID_KIT) ?? null, lista, ...opcoes });
+}
+
+test('passoDedup: duplicada por origem (nome diferente), com `auto` e kit 1.2.0 → disable com --scope user, conferido pela lista; avisa as versões', async () => {
+  const SKILLS = 'skills@outro';
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(SKILLS, '1.3.1')], log: [], raiz: '/r' };
+  const lerTestado = (caminho) => (caminho === '/r/hadouken-kit' ? { [MATT]: '1.3.2' } : {});
+  const repos = new Map([[MATT, 'mattpocock/skills'], [SKILLS, 'mattpocock/skills']]);
+  const r = await dedup(estado, { repos, lerTestado, autos: new Set([MATT]) });
+  const matt = r.dedup.find((a) => a.id === MATT);
+  assert.deepEqual([matt.estado, matt.equivalente, matt.versao], ['duplicada', SKILLS, { equivalente: '1.3.1', testada: '1.3.2' }]);
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`));
+  semInstalarNemLigar(estado);
+  assert.equal(r.lista.get(MATT).enabled, false);
+  assert.equal(r.item.nome, NOME_DEDUP);
+  assert.equal(r.item.estado, 'ok');
+  assert.match(r.item.detalhe, /mattpocock-skills já instalado via skills@outro; cópia do kit desligada/);
+  assert.match(r.item.detalhe, /skills@outro na 1\.3\.1, testada 1\.3\.2/);
+  const sem = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(SKILLS, '1.3.1')], log: [], raiz: '/r' };
+  const rSem = await dedup(sem);
+  assert.equal(rSem.dedup.find((a) => a.id === MATT).estado, 'propria', 'sem repos nem testado, o nome diferente não casa');
+  assert.equal(rSem.item, null);
+  semDisable(sem);
+});
+
+test('passoDedup D4 (decisão do Fernando, 10/11/2026): irmão ligado com origem compartilhada no marketplace → própria, nenhum disable; origem única → disable', async () => {
+  const UI = 'ui-ux-pro-max@claude-hadouken';
+  const compartilhada = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(UI, '1.0.0'), entrada('outra-coisa@mono', '1.0.0')], log: [], raiz: '/r' };
+  const reposDois = new Map([[UI, 'o/r'], ['outra-coisa@mono', 'o/r'], ['terceira@mono', 'o/r']]);
+  const r = await dedup(compartilhada, { repos: reposDois, autos: new Set([UI]) });
+  assert.deepEqual([r.dedup.find((a) => a.id === UI).estado, r.dedup.find((a) => a.id === UI).equivalente], ['propria', null]);
+  assert.equal(r.item, null);
+  semDisable(compartilhada);
+  const unica = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(UI, '1.0.0'), entrada('outra-coisa@mono', '1.0.0')], log: [], raiz: '/r' };
+  const u = await dedup(unica, { repos: new Map([[UI, 'o/r'], ['outra-coisa@mono', 'o/r']]), autos: new Set([UI]) });
+  assert.equal(u.dedup.find((a) => a.id === UI).estado, 'duplicada');
+  assert.ok(unica.log.includes(`plugin disable ${UI} --scope user`));
+});
+
+test('passoDedup: nada a dizer (tudo próprio, ou kit sem entrada) → item nulo, a lista de entrada volta e nenhum comando roda', async () => {
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), ...TERCEIROS_KIT.map((d) => entrada(d, '1.0.0'))], log: [], raiz: '/r' };
+  const lista = await listarPlugins(rodarFalso(estado));
+  const r = await passoDedup(rodarFalso(estado), { entrada: lista.get(ID_KIT), lista, autos: new Set(TERCEIROS_KIT) });
+  assert.equal(r.item, null);
+  assert.equal(r.lista, lista);
+  assert.deepEqual(r.dedup.map((a) => a.estado), TERCEIROS_KIT.map(() => 'propria'));
+  assert.deepEqual(estado.log, ['plugin list --json'], 'só a leitura que o teste fez');
+  const semKit = { plugins: [], log: [], raiz: '/r' };
+  const s = await passoDedup(rodarFalso(semKit), { entrada: null, lista: null });
+  assert.deepEqual([s.item, s.lista, s.dedup], [null, null, []]);
+  assert.deepEqual(semKit.log, []);
+});
+
+test('passoDedup: lista nula depois do disable é ✗ "não consegui conferir", sem usar a lista velha', async () => {
+  // list #1 é a do teste; list #2 é a conferência depois do disable
+  const estado = { ...duplicada(), falharListaNa: 2 };
+  const r = await dedup(estado, { autos: new Set([MATT]) });
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`), 'o disable rodou; só a conferência falhou');
+  assert.deepEqual(r.item, item.falhou(NOME_DEDUP, 'não consegui conferir a lista de plugins', 'rode claude plugin list'), 'não afirma "cópia desligada" sem ter conferido');
+  assert.equal(r.lista, null);
+});
+
+test('passoDedup D1: cópia do usuário instalada e desligada, a do kit própria → nada a dizer; nada é ligado, desligado nem instalado', async () => {
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2'), entrada(MATT_UPSTREAM, '1.3.2', false), ...OUTRAS], log: [], raiz: '/r' };
+  const r = await dedup(estado, { autos: new Set([MATT]) });
+  assert.equal(r.item, null);
+  assert.ok(!estado.log.some((l) => /^plugin (enable|disable|install)/.test(l)));
+  assert.equal(estado.plugins.find((x) => x.id === MATT_UPSTREAM).enabled, false);
+});
+
+test('passoDedup: dependência instalada e desligada, sem equivalente, não é religada nem avisada (D8); versão da equivalente ≠ testada avisa só a versão', async () => {
+  const estado = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT, '1.3.2', false)], log: [], raiz: '/r' };
+  const r = await dedup(estado, { autos: new Set([MATT]) });
+  semInstalarNemLigar(estado);
+  assert.equal(r.item, null);
+  const so = { plugins: [entrada(ID_KIT, '1.2.0'), entrada(MATT_UPSTREAM, '1.3.1')], log: [], raiz: '/r' };
+  const v = await dedup(so, { lerTestado: () => ({ [MATT]: '1.3.2' }) });
+  semInstalarNemLigar(so);
+  semDisable(so);
+  assert.deepEqual(v.item, item.ok(NOME_DEDUP, `${MATT_UPSTREAM} na 1.3.1, testada 1.3.2`));
+});
+
+test('passoDedup G1: duplicada sem `auto` (o usuário instalou as duas) → nada é desligado; o detalhe diz que fazem o mesmo e traz o comando', async () => {
+  const estado = duplicada();
+  const r = await dedup(estado, { autos: new Set() });
+  semDisable(estado);
+  assert.equal(estado.plugins.find((x) => x.id === MATT).enabled, true);
+  assert.equal(r.item.estado, 'ok');
+  assert.match(r.item.detalhe, new RegExp(`mattpocock-skills em dobro com ${MATT_UPSTREAM}; as duas fazem o mesmo\\. Para ficar com uma: claude plugin disable ${MATT} --scope user`));
+  assert.doesNotMatch(r.item.detalhe, /cópia do kit desligada/);
+  const [matt] = r.dedup.filter((a) => a.id === MATT);
+  assert.deepEqual([matt.estado, matt.auto], ['duplicada', false]);
+});
+
+test('passoDedup G1: sem a opção `autos`, nada conta como instalado pelo kit e nada é desligado', async () => {
+  const estado = duplicada();
+  await dedup(estado);
+  semDisable(estado);
+});
+
+test('passoDedup G1/G2: duplicada com `auto` → disable com --scope user, conferido pela lista; a segunda rodada não tem o que dizer', async () => {
+  const estado = duplicada();
+  const autos = new Set([MATT]);
+  const r = await dedup(estado, { autos });
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`));
+  assert.ok(!estado.log.includes(`plugin disable ${MATT}`), 'nunca sem o escopo');
+  semInstalarNemLigar(estado);
+  assert.equal(r.lista.get(MATT).enabled, false);
+  assert.deepEqual(r.item, item.ok(NOME_DEDUP, `mattpocock-skills já instalado via ${MATT_UPSTREAM}; cópia do kit desligada`));
+  assert.equal((await dedup(estado, { autos })).item, null);
+});
+
+test('passoDedup G2: o disable que não surte efeito é ✗ com o comando que traz --scope user', async () => {
+  const estado = { ...duplicada(), falhar: [`disable ${MATT} --scope user`] };
+  const r = await dedup(estado, { autos: new Set([MATT]) });
+  assert.equal(r.item.nome, NOME_DEDUP);
+  assert.equal(r.item.estado, 'falhou');
+  assert.equal(r.item.conserto, `rode claude plugin disable ${MATT} --scope user`);
+});
+
+// Manifesto sintético em tmp: <pasta>/.claude-plugin/plugin.json.
+function pluginComManifesto(id, conteudo, enabled = true) {
+  const pasta = novoTmp('hdk dep ç ');
+  fs.mkdirSync(path.join(pasta, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(pasta, '.claude-plugin', 'plugin.json'), typeof conteudo === 'string' ? conteudo : JSON.stringify(conteudo));
+  return { id, version: '1.0.0', scope: 'user', enabled, installPath: pasta };
+}
+
+test('passoDedup G3: outro plugin ligado depende da cópia do kit (nome solto ou nome@marketplace) → não roda disable; linha informativa nomeia o dependente', async () => {
+  for (const dependencies of [[MATT], ['mattpocock-skills'], [{ name: 'mattpocock-skills', version: '^1.3' }], [{ name: 'mattpocock-skills', marketplace: 'claude-hadouken' }]]) {
+    const estado = duplicada([pluginComManifesto('app@claude-hadouken', { name: 'app', dependencies })]);
+    const r = await dedup(estado, { autos: new Set([MATT]) });
+    semDisable(estado);
+    assert.equal(estado.plugins.find((x) => x.id === MATT).enabled, true, JSON.stringify(dependencies));
+    assert.equal(r.item.estado, 'ok', 'informa, não falha');
+    assert.match(r.item.detalhe, /mattpocock-skills em dobro com mattpocock-skills@mattpocock; a cópia do kit fica ligada porque app@claude-hadouken depende dela/, JSON.stringify(dependencies));
+    assert.deepEqual(r.dedup.find((a) => a.id === MATT).dependentes, ['app@claude-hadouken']);
+  }
+});
+
+test('passoDedup G3: dois dependentes são nomeados; dependente desligado, nome solto de outro marketplace e dependência de outro plugin não impedem o disable', async () => {
+  const dois = duplicada([pluginComManifesto('b@m', { dependencies: [MATT] }), pluginComManifesto('a@m', { dependencies: [MATT] })]);
+  const r = await dedup(dois, { autos: new Set([MATT]) });
+  semDisable(dois);
+  assert.match(r.item.detalhe, /porque a@m e b@m dependem dela/);
+  const livre = duplicada([
+    pluginComManifesto('app@claude-hadouken', { dependencies: [MATT] }, false),
+    pluginComManifesto('app2@outro', { dependencies: ['mattpocock-skills'] }),
+    pluginComManifesto('app3@claude-hadouken', { dependencies: ['poka-yoke@outro'] }),
+  ]);
+  await dedup(livre, { autos: new Set([MATT]) });
+  assert.ok(livre.log.includes(`plugin disable ${MATT} --scope user`));
+});
+
+test('passoDedup G3: manifesto ilegível, ausente ou de forma errada conta como sem dependências e não lança', async () => {
+  for (const conteudo of ['{quebrado', '[]', { dependencies: 'x' }]) {
+    const estado = duplicada([pluginComManifesto('app@claude-hadouken', conteudo)]);
+    await dedup(estado, { autos: new Set([MATT]) });
+    assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`), JSON.stringify(conteudo));
+  }
+  const estado = duplicada([{ ...pluginComManifesto('app@claude-hadouken', {}), installPath: '/nao/existe' }]);
+  await dedup(estado, { autos: new Set([MATT]) });
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`));
+});
+
+test('passoDedup G3: o leitor de dependências é injetável e um leitor que lança conta como sem dependências', async () => {
+  const estado = duplicada([entrada('app@m', '1.0.0')]);
+  const lerDependencias = (caminho, id) => { if (id === 'app@m') throw new Error('x'); return []; };
+  await dedup(estado, { autos: new Set([MATT]), lerDependencias });
+  assert.ok(estado.log.includes(`plugin disable ${MATT} --scope user`));
+  const outro = duplicada([entrada('app@m', '1.0.0')]);
+  const r = await dedup(outro, { autos: new Set([MATT]), lerDependencias: (caminho, id) => (id === 'app@m' ? [MATT] : []) });
+  semDisable(outro);
+  assert.match(r.item.detalhe, /porque app@m depende dela/);
+});
+
+test('passoDedup D2: kit < 1.2.0 com `auto` e dependente → continua mandando atualizar o kit (o kit antigo é o dependente)', async () => {
+  const estado = duplicada();
+  estado.plugins[0].version = '1.1.2';
+  const r = await dedup(estado, { autos: new Set([MATT]), lerDependencias: (caminho, id) => (id === ID_KIT ? TERCEIROS_KIT : []) });
+  semDisable(estado);
+  assert.match(r.item.detalhe, /atualize o hadouken-kit para desligar a cópia em dobro/);
+  assert.doesNotMatch(r.item.detalhe, /depende/);
+});
+
+test('passoDedup G1/G3: duplicada sem `auto` e com dependente ligado da cópia do kit → nada é desligado; a linha diz que as duas fazem o mesmo e quem depende', async () => {
+  const estado = duplicada([pluginComManifesto('app@claude-hadouken', { dependencies: ['mattpocock-skills'] })]);
+  const r = await dedup(estado, { autos: new Set() });
+  semDisable(estado);
+  assert.match(r.item.detalhe, new RegExp(`mattpocock-skills em dobro com ${MATT_UPSTREAM}; as duas fazem o mesmo, e ${MATT} fica ligada porque app@claude-hadouken depende dela`));
+  assert.doesNotMatch(r.item.detalhe, /Para ficar com uma/, 'o comando falharia');
 });

@@ -82,10 +82,10 @@ export const P4_TEXTO = 'hadouken: bloqueado: sessões claude filhas ficam fecha
 export const P5_TEXTO = 'hadouken: bloqueado: arquivos do hadouken só o usuário edita.';
 
 // Spec roteamento §6: textos fixos; nada do despacho entra aqui.
-export const N1_CLAUDE = 'hadouken: busca não usa Opus/Fable nem effort alto. Relance com hadouken:busca (ou Explore sem model/effort). Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
-export const N2_CLAUDE = 'hadouken: este agente existe para ser barato. Use hadouken:executor ou hadouken:revisor se a tarefa pede mais. Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
+export const N1_CLAUDE = 'hadouken: busca não usa Opus/Fable nem effort alto. Relance o mesmo agente sem model/effort explícitos. Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
+export const N2_CLAUDE = 'hadouken: este agente existe para ser barato. Use hadouken:implementador ou hadouken:revisor se a tarefa pede mais. Se o usuário quiser mesmo assim, só ele libera com /hadouken:liberar.';
 export const N_SUBAGENTE = 'hadouken: despacho negado pelo roteamento (modelo ou effort caro para esta tarefa). Relance com o agente barato indicado ou termine sem ele e relate.';
-export const A1_CLAUDE = 'hadouken (aviso): despacho em Fable ou effort max fora de hadouken:revisor-critico. Fable só vale para segurança, autenticação, dinheiro e arquitetura; no resto use hadouken:revisor ou hadouken:executor.';
+export const A1_CLAUDE = 'hadouken (aviso): despacho em Fable ou effort max fora de hadouken:revisor e hadouken:auditor. Fable só vale para segurança, autenticação, dinheiro e arquitetura; no resto use hadouken:revisor ou hadouken:implementador.';
 export const A2_CLAUDE = 'hadouken (aviso): parece busca em Opus/Fable. hadouken:busca (Haiku) faz isso mais barato.';
 export const A3_CLAUDE = 'hadouken (aviso): muitos despachos curtos em 10 min. Faça direto ou junte num agente só.';
 // P5 estendida (Task 0 da parte 2): os settings do usuário e o próprio
@@ -111,8 +111,10 @@ export const CONFIG_BLOQUEADA_TEXTO = 'hadouken: bloqueado: uma mudança em disa
 export const P4_LIBERAR_TEXTO = 'hadouken: bloqueado: uma sessão claude filha não libera a guarda. Pare e pergunte ao usuário; só ele libera, digitando /hadouken:liberar. Se o texto só cita o comando (numa mensagem de commit, por exemplo), use git commit -F <arquivo>.';
 // Hook da agenda (C1 da revisão final da parte 1): CronCreate, ScheduleWakeup
 // e RemoteTrigger com o pedido de liberação no texto, negados sempre. Desde a
-// Task 11 do aprendizado, também o /hadouken:aprender.
-export const AGENDA_LIBERAR_TEXTO = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda nem mexe no aprendizado. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar ou /hadouken:aprender. Se o texto só cita o comando, tire-o do prompt agendado.';
+// Task 11 do aprendizado, também o /hadouken:aprender; desde os achados da
+// fatia 2 da v0.6.0, também o /hadouken:janela (a janela adia a projeção G2); desde a Tarefa 7, também o
+// /hadouken:agentes (só o usuário grava a paleta).
+export const AGENDA_LIBERAR_TEXTO = 'hadouken: bloqueado: uma tarefa agendada, um loop ou uma rotina não libera a guarda, não mexe no aprendizado, não muda os limites, a janela de trabalho nem os agentes. Pare e pergunte ao usuário; só ele faz isso, digitando /hadouken:liberar, /hadouken:aprender, /hadouken:limites, /hadouken:janela ou /hadouken:agentes. Se o texto só cita o comando, tire-o do prompt agendado.';
 
 // v0.5.6 (Task 4): CronCreate ou ScheduleWakeup com a trava de 5h ou de 7d
 // ativa e sem liberação. Uma linha de contexto, não um deny: diz até quando

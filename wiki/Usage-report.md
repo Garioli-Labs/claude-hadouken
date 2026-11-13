@@ -354,7 +354,7 @@ The full output, with all three periods, is in [`docs/imagens/relatorio-exemplo.
 ```
 
 - `faixa` (band) is `ok`, `atencao`, `serializar` or `fechar`; `modo` (mode) is `normal`, `economico`, `folga` or `so-leitura`.
-- `esperado` (expected) has one decimal (the "Limites e ritmo" panel shows the floor, `65%`); `desvio` is the whole-number distance that decides the mode.
+- `esperado` (expected) has one decimal (the "Limites e ritmo" panel shows the floor, `65%`); `desvio` is the whole-number distance that decides the mode. With the [work window](Usage-guard#the-work-window) configured, `esperado`, `desvio` and `modo` use working minutes, as at SessionStart; without it, the 168 hours.
 - `resets_at` is the reset instant in Unix seconds; `idade_min` is the reading's age in minutes.
 - Tokens are in `claude.hoje`, `claude.sete_dias` and `claude.semana` (today, last 7 days, weekly window), with the same sums as the tables (`respostas`, `input`, `output`, `cacheRead`, `cacheCreate`, `cacheCreate1h`, `cacheCreate5m`, `cacheCreateSemDetalhe`, `acertoCache` from 0 to 1).
 - The v0.1.0 keys are the same, byte for byte: bars, share of total, short names, decimal comma and thousands separator are markdown only. Numbers come raw, and ids and names in full.

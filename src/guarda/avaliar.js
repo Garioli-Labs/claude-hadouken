@@ -2,6 +2,7 @@ import path from 'node:path';
 import { ARQ_ESTADO, lerJson, validarEstado, limitesValidos, leiturasComPiso } from '../estado.js';
 import { numeroFinito } from '../base.js';
 import { preverEstouro } from '../previsao.js';
+import { lerJanela } from '../janela.js';
 import { lerUso } from '../uso/ler-uso.js';
 import { lerConfigGuarda, PADRAO_GUARDA } from './config.js';
 import { avaliarGatilhos } from './gatilhos.js';
@@ -77,7 +78,8 @@ export function avaliarGuarda({ dir, agoraMs, sessionId } = {}) {
     const lidoEstado = lerJson(path.join(dir, ARQ_ESTADO));
     const estado = lidoEstado.ok ? validarEstado(lidoEstado.valor, agoraMs) : null;
     const leituras = leiturasComPiso(estado, agoraMs);
-    const previsao = preverEstouro({ historico: estado?.historico, limites: limitesValidos(estado, agoraMs), agoraMs });
+    const { janela: trabalho } = lerJanela(dir);
+    const previsao = preverEstouro({ historico: estado?.historico, limites: limitesValidos(estado, agoraMs), agoraMs, trabalho });
     const despachosFable = despachosFableRecentes(dir, agoraMs);
     const usoFable = fableOficial(lerUso(dir, agoraMs), agoraMs);
     const disparos = avaliarGatilhos({

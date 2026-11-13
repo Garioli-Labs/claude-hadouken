@@ -58,7 +58,7 @@ rodarHook(async (entrada) => {
       ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar, urgenciaDoAlerta,
       ARQ_PROJECAO, projecaoGuardada, projecaoParaGravar, precisaGravarProjecao,
     },
-    { preverEstouro, ritmo7dPorHora },
+    { preverEstouro, ritmo7dPorHora, trabalhoDaProjecao },
   ] = await Promise.all([
     import('../estado.js'),
     import('../alerta.js'),
@@ -92,7 +92,8 @@ rodarHook(async (entrada) => {
   } catch {
     perfil = null;
   }
-  const previsao = (await tetos.rodar('previsao', () => preverEstouro({ historico: estado?.historico, limites, agoraMs, perfil }))) ?? null;
+  const { janela: trabalho } = (await import('../janela.js')).lerJanela(dir);
+  const previsao = (await tetos.rodar('previsao', () => preverEstouro({ historico: estado?.historico, limites, agoraMs, perfil, trabalho }))) ?? null;
   const ativas = sessoesAtivas(estado, agoraMs, sessionId);
   const arqAlertas = join(dir, ARQ_ALERTAS);
   const lidoAlertas = lerJson(arqAlertas, ALERTAS_MAX_BYTES);
@@ -108,8 +109,10 @@ rodarHook(async (entrada) => {
   } catch { /* limiares de sempre */ }
   const { linhas, novos } = avaliarAlertas({
     limites, leituras, ultima, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
-    previsao, limiares,
-    ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs }),
+    previsao, limiares, trabalho,
+    // P-b: fora da janela com o uso subindo, a parte de ritmo segue o relógio.
+    trabalhoProjecao: trabalhoDaProjecao({ historico: estado?.historico, agoraMs, trabalho }),
+    ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs, trabalho }),
     sessoesAtivas: ativas,
   });
   // `at` só anda quando a memória foi conferida contra uma leitura (decisão

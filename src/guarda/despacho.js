@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { effortValido } from '../util.js';
 import { lerLimitado } from '../estado.js';
+import { ausente } from '../agentes/config.js';
 
 // Perfil de um despacho de subagente (spec v0.4.0 §4.3 e G5 do D1 emendado):
 // o modelo, na ordem de resolução da documentação (C7): parâmetro `model`,
@@ -74,7 +75,10 @@ function frontmatterDoAgente(nome, cwd, dirCfg) {
 
 const classificar = (m) => (FABLE.test(m) ? 'fable' : 'outro');
 
-export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env, modeloSessao } = {}) {
+// Para `hadouken:<nome>` o frontmatter vem de <raizPlugin>/agents/<nome>.md
+// (frontmatterRoteamento, a mesma busca do perfil do roteamento); outro
+// plugin e nome inexistente ficam desconhecidos.
+export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env, modeloSessao, raizPlugin, agentes = {} } = {}) {
   const desconhecido = { modelo: 'desconhecido', effort: null, origem: 'desconhecido' };
   try {
     const ti = toolInput !== null && typeof toolInput === 'object' ? toolInput : {};
@@ -86,10 +90,18 @@ export function perfilDoDespacho({ toolInput, cwd, dirConfigClaude: dirCfg, env,
       if (ehTexto(modeloSessao)) return { modelo: classificar(modeloSessao), effort: effortSessao, origem: 'sessao' };
       return { modelo: 'desconhecido', effort: effortSessao, origem: 'desconhecido' };
     }
-    const fm = frontmatterDoAgente(nome, cwd, dirCfg);
+    const fm = typeof nome === 'string' ? frontmatterRoteamento(nome, cwd, dirCfg, raizPlugin) : null;
+    // Spec v0.6.0 §4 Fatia 4: parâmetro > agentes.<nome> da config > frontmatter.
+    // A config vale para `hadouken:<nome>`, só para o campo ausente do despacho
+    // (`ausente`, o mesmo critério da paleta: o que ela injetaria).
+    const nomeCurto = typeof nome === 'string' ? DO_PLUGIN.exec(nome)?.[1] : undefined;
+    const cfg = nomeCurto !== undefined && agentes !== null && typeof agentes === 'object' && Object.hasOwn(agentes, nomeCurto) && agentes[nomeCurto] !== null && typeof agentes[nomeCurto] === 'object' ? agentes[nomeCurto] : {};
+    const modeloCfg = ausente(ti.model) && ehTexto(cfg.model) ? cfg.model : null;
+    const effortCfg = ausente(ti.effort) ? effortValido(cfg.effort) : null;
     // O parâmetro effort vence o frontmatter, como o model (portão v0.4.0, I1).
-    const effort = effortValido(ti.effort) ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
+    const effort = effortValido(ti.effort) ?? effortCfg ?? effortValido(fm?.effort) ?? effortValido(env?.CLAUDE_EFFORT);
     if (ehTexto(ti.model) && ti.model !== 'inherit') return { modelo: classificar(ti.model), effort, origem: 'parametro' };
+    if (modeloCfg !== null) return { modelo: classificar(modeloCfg), effort, origem: 'config' };
     if (fm !== null && ehTexto(fm.model) && fm.model !== 'inherit') return { modelo: classificar(fm.model), effort, origem: 'frontmatter' };
     // Modelo desconhecido não apaga o effort conhecido: G5 vale para effort
     // max de qualquer modelo (D1 emendado), inclusive de um que o hook não
@@ -123,7 +135,7 @@ export function despachoCaro(perfil) {
 // <raiz do plugin>/agents/<x>.md. Só o prefixo hadouken: é resolvido aqui;
 // outro plugin fica desconhecido, como no perfil da guarda.
 const NOME_ROTEAMENTO = /^[A-Za-z0-9_:-]{1,80}$/;
-const DO_PLUGIN = /^hadouken:([a-z][a-z-]{0,40})$/;
+const DO_PLUGIN = /^hadouken:([a-z][a-z0-9-]{0,40})$/;
 export function familiaDoModelo(nome) {
   if (typeof nome !== 'string') return 'desconhecido';
   for (const f of ['haiku', 'sonnet', 'opus', 'fable']) if (nome.toLowerCase().includes(f)) return f;

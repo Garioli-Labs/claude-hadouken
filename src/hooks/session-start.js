@@ -143,7 +143,19 @@ rodarHook(async (entrada) => {
   const shims = sincronizarShims(raizEmUso);
   const lido = lerJson(path.join(dir, ARQ_ESTADO));
   const estado = lido.ok ? validarEstado(lido.valor, agoraMs) : null;
-  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs), plano)];
+  // v0.6.0: a janela de trabalho do config.json; inválida, o aviso vai ao
+  // usuário (aoUsuario, abaixo) e a conta fica nas 168 h.
+  let janela = { janela: null, aviso: null };
+  try {
+    janela = (await import('../janela.js')).lerJanela(dir);
+  } catch { /* sem janela nesta sessão: 168 h */ }
+  // P-b: fora da janela, com o uso subindo nas últimas 2 h, a cauda de 7d
+  // projeta em relógio; qualquer falha deixa a janela.
+  let trabalhoProjecao = janela.janela;
+  try {
+    trabalhoProjecao = (await import('../previsao.js')).trabalhoDaProjecao({ historico: estado?.historico, agoraMs, trabalho: janela.janela });
+  } catch { /* a janela */ }
+  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs), plano, janela.janela, trabalhoProjecao)];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
   // v0.5.2: a instalação do item do VS Code falhou e a versão atual não está
@@ -190,11 +202,16 @@ rodarHook(async (entrada) => {
   // retomada (spec v0.4.0 §10, item 11: ao retomar com o cache expirado) e
   // as do aprendizado (R13).
   const retomada = linhas.linhaRetomada(entrada);
-  const aoUsuario = [retomada, ...aprendizado, saude.usuario].filter((x) => typeof x === 'string' && x.length > 0);
+  const aoUsuario = [retomada, janela.aviso, ...aprendizado, saude.usuario].filter((x) => typeof x === 'string' && x.length > 0);
   // Spec roteamento §2: a regra curta vai sempre, por último; um import que
   // falha só a tira.
   try {
-    saida.push(...(await import('../roteamento/regra.js')).LINHAS_REGRA);
+    const [{ linhasRegra }, { paletaEfetiva }, { lerAgentes, resumirAvisos }] = await Promise.all([import('../roteamento/regra.js'), import('../agentes/paleta.js'), import('../agentes/config.js').catch(() => ({ lerAgentes: () => ({ agentes: {}, avisos: [] }), resumirAvisos: (a) => a }))]);
+    // v0.6.0: a paleta efetiva (padrão + `agentes` do config.json); os avisos
+    // da config vão ao usuário, fora do contexto do Claude.
+    const { agentes, avisos } = lerAgentes(dir);
+    aoUsuario.push(...resumirAvisos(avisos));
+    saida.push(...linhasRegra(paletaEfetiva(agentes)));
   } catch { /* sem a regra nesta sessão */ }
   // As subidas de agente aprovadas pelo usuário (roteamento.subir): o Claude
   // passa o model no despacho, e a N2 não o nega.

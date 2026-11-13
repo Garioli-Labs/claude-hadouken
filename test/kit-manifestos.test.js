@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VERSAO_REA } from '../rea/lancar.mjs';
 import { GRAPHIFY } from '../src/instalar-tudo.js';
+import { TERCEIROS_KIT } from '../src/instalar/dedup.js';
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ler = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
@@ -67,14 +68,32 @@ test('marketplace: allowlist só com o oficial', () => {
   }
 });
 
-test('kit: versão igual à do marketplace, dependências só por nome (menos o superpowers) e sem faixa de versão', () => {
+// v0.6.0: o manifesto declara só o hadouken, com a faixa >=0.6.0. Dependência
+// de terceiro desabilitada derruba o kit; o instalador só sugere os terceiros
+// e desliga a cópia em dobro que o kit instalou, e o SessionStart do kit avisa
+// de cópia em dobro.
+test('kit: versão igual à do marketplace e dependências = o objeto {name:\'hadouken\', version:\'>=0.6.0\'} (sem terceiros)', () => {
   const kit = ler('kit/.claude-plugin/plugin.json');
   assert.equal(kit.name, 'hadouken-kit');
   assert.match(kit.version, /^\d+\.\d+\.\d+$/);
   assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken-kit').version, kit.version);
-  // v0.5.9: só o hadouken; os de terceiros são só sugeridos pelo instalador.
-  assert.deepEqual(kit.dependencies, ['hadouken']);
-  for (const d of kit.dependencies) if (typeof d === 'object') assert.equal(d.version, undefined, d.name);
+  assert.deepEqual(kit.dependencies, [{ name: 'hadouken', version: '>=0.6.0' }]);
+});
+
+// A faixa do kit tem de ser satisfeita pela versão do próprio plugin; senão o
+// kit nasce desabilitado. Comparação numérica por partes, sem biblioteca.
+test('kit: a faixa do hadouken é satisfeita pela versão do plugin', () => {
+  const kit = ler('kit/.claude-plugin/plugin.json');
+  const hadouken = ler('.claude-plugin/plugin.json');
+  const dep = kit.dependencies.find((d) => d.name === hadouken.name);
+  assert.ok(dep, 'o kit depende do plugin hadouken');
+  const faixa = /^>=(\d+)\.(\d+)\.(\d+)$/.exec(dep.version);
+  assert.ok(faixa, `faixa ">=X.Y.Z": ${dep.version}`);
+  const minimo = faixa.slice(1).map(Number);
+  const atual = hadouken.version.split('.').map(Number);
+  let cmp = 0;
+  for (let i = 0; i < 3 && cmp === 0; i++) cmp = Math.sign(atual[i] - minimo[i]);
+  assert.ok(cmp >= 0, `${hadouken.version} deve ser >= ${dep.version}`);
 });
 
 // v0.5.1: o kit leva código próprio (MIT) e a cópia do graphify 0.9.25
@@ -89,14 +108,9 @@ test('kit: o REA não é dependência do kit (dependência sobe sempre ligada)',
   assert.ok(!JSON.stringify(kit.dependencies).includes('rea'));
 });
 
-test('testado.json: uma versão para cada dependência, chaves novas e as mesmas versões', () => {
-  const kit = ler('kit/.claude-plugin/plugin.json');
+test('testado.json: uma versão para o hadouken e para cada terceiro do kit, chaves novas e as mesmas versões', () => {
   const t = ler('kit/testado.json');
-  // v0.5.9: as dependências do kit e as skills sugeridas (menos o REA, nosso),
-  // que o instalador só sugere mas seguem com a versão testada aqui.
-  const sugeridas = ['superpowers@claude-plugins-official', 'mattpocock-skills@claude-hadouken', 'poka-yoke@claude-hadouken', 'fullstack-dev-skills@claude-hadouken', 'ui-ux-pro-max@claude-hadouken'];
-  const chaves = [...new Set([...kit.dependencies.map((d) =>
-    typeof d === 'string' ? `${d}@claude-hadouken` : `${d.name}@${d.marketplace}`), ...sugeridas])].sort();
+  const chaves = ['hadouken@claude-hadouken', ...TERCEIROS_KIT].sort();
   assert.deepEqual(Object.keys(t.dependencias).sort(), chaves);
   for (const v of Object.values(t.dependencias)) assert.match(v, /^\d+\.\d+\.\d+$/);
   // As versões dos terceiros e do rea-agents são do robô; aqui, só o que anda
@@ -120,8 +134,8 @@ test('rea: desligado por padrão, MIT, e o .mcp.json abre o lançador com node',
     command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/lancar.mjs'] } } });
 });
 
-test('hadouken: plugin.json, package.json e marketplace em 0.5.10', () => {
-  assert.equal(ler('.claude-plugin/plugin.json').version, '0.5.10');
-  assert.equal(ler('package.json').version, '0.5.10');
-  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken').version, '0.5.10');
+test('hadouken: plugin.json, package.json e marketplace em 0.6.0', () => {
+  assert.equal(ler('.claude-plugin/plugin.json').version, '0.6.0');
+  assert.equal(ler('package.json').version, '0.6.0');
+  assert.equal(ler('.claude-plugin/marketplace.json').plugins.find((p) => p.name === 'hadouken').version, '0.6.0');
 });

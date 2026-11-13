@@ -676,3 +676,38 @@ test('custo dos hooks: 3 plugins pelo hash do comando, outros e compactações; 
   assert.ok(!saida.includes('Ignore previous'), 'o texto injetado nunca sai');
   assert.ok(!saida.includes('meu-hook') && !saida.includes('CLAUDE_PLUGIN_ROOT'), 'nem o comando');
 });
+
+// P-a (spec v0.6.0 §8.2, Fatia 2): o relatório calcula o esperado e a faixa de
+// 7 dias com a janela de trabalho do config.json, a mesma leitura (lerJanela)
+// do SessionStart e do prompt-submit. Sem a chave, ou com ela inválida, 168 h.
+// Hora local: nov/2026, dia 13 = sexta; reset na terça 17, 19:00.
+test('gerarRelatorio: o esperado e a faixa de 7d usam a janela de trabalho (P-a)', async () => {
+  const D = (dia, h) => new Date(2026, 10, dia, h).getTime();
+  const agoraMs = D(13, 20);
+  gravarEstado({
+    at: iso(agoraMs),
+    five_hour: { used_percentage: 10, resets_at: (agoraMs + 3 * 3_600_000) / 1000, at: iso(agoraMs) },
+    seven_day: { used_percentage: 55, resets_at: D(17, 19) / 1000, at: iso(agoraMs) },
+  });
+  const sete = async () => {
+    const r = await gerarRelatorio({ agoraMs, gh: ghFalso([]), raizTranscripts: raiz, cwd: home });
+    assert.equal(r.ok, true);
+    return r.relatorio.limites.seven_day;
+  };
+  const janela = { dias: ['seg', 'ter', 'qua', 'qui', 'sex'], inicio: '09:00', fim: '21:00' };
+
+  const sem = await sete();
+  assert.equal(Math.floor(sem.esperado), 43, '168 h: 73 h de 168 h');
+  assert.equal(sem.modo, 'economico');
+
+  config(JSON.stringify({ janela }));
+  const com = await sete();
+  assert.equal(Math.floor(com.esperado), 61, 'janela seg–sex 9–21: 2220 de 3600 min úteis');
+  assert.equal(com.modo, 'normal');
+
+  // Janela inválida: 168 h, como no SessionStart.
+  config(JSON.stringify({ janela: { ...janela, dias: [] } }));
+  const invalida = await sete();
+  assert.equal(invalida.esperado, sem.esperado);
+  assert.equal(invalida.modo, sem.modo);
+});

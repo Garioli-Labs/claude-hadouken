@@ -20,7 +20,7 @@ The examples are from Saturday 26/09 at noon, with the 5-hour window resetting a
 - **Reset in minutes.** The attention and serialise lines say how long until the reset: `5h em 74% (reset em 210 min): atenção ao ritmo.` (5h at 74% (reset in 210 min): watch the pace.) With less than 15 minutes left, a change of pace does not pay off before the reset, and the line says so: `5h em 74% (reset em 10 min): sem mudança de ritmo.` (5h at 74% (reset in 10 min): no change of pace.)
 - **Wrap up, with the return time.** The 90 % band gives the exact reset time and, for whoever schedules the return, the reset plus 2 minutes, so it lands in the new window: `5h em 91%: fechar a tarefa em curso e não abrir etapa nova; reset às 15:30 (o usuário vê as opções em /rate-limit-options). Se agendar a volta, marque 15:32.` (5h at 91%: wrap up the current task and open no new stage; reset at 15:30 (the user sees the options in /rate-limit-options). If you schedule the return, set it for 15:32.)
 - **Unambiguous dates.** Outside the 5-hour window, times show as `hoje 15:30` (today), `amanhã 09:00` (tomorrow), `ontem 20:15` (yesterday) or, from two days on, with the day and date, `seg 28/09 22:00` (Mon 28/09). This also applies to the session-start line: `Consumo: 5h 42% (reset 15:30) · 7d 59% (reset seg 28/09 22:00); nesse ritmo, não esgota antes do reinício.`
-- **Economy mode with the pace.** With at least 2 hours of readings, the economy mode line gives the week's current pace and the sustainable pace until the reset, in points per hour, and when the week runs out at that pace: `7d 78% vs 65% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação; ritmo 1,5 pt/h, sustentável 0,4 pt/h; nesse ritmo acaba amanhã 02:40.` (…; pace 1.5 pt/h, sustainable 0.4 pt/h; at this pace it runs out tomorrow 02:40.)
+- **Economy mode with the pace.** With at least 2 hours of readings, the economy mode line gives the week's current pace and the sustainable pace until the reset, in points per hour, and when the week runs out at that pace: `7d 78% vs 65% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review; ritmo 1,5 pt/h, sustentável 0,4 pt/h; nesse ritmo acaba amanhã 02:40.` (…; pace 1.5 pt/h, sustainable 0.4 pt/h; at this pace it runs out tomorrow 02:40.)
 - **Resuming an idle session.** When you resume (`resume`) a session whose cache has probably expired, with 20 thousand context tokens or more, **you** (not Claude) see how many tokens Claude Code will write to the cache again: `hadouken: retomar reescreve ~35 k tokens de cache.` (hadouken: resuming rewrites ~35 k cache tokens.) The line goes as a message to the user, outside Claude's context, with no dollar value (the subscription does not charge per token). A `fork` does not show it.
 - **Subagents stay quiet.** The session start inside a subagent produces no line, records nothing and does not change the parent session's recorded model.
 
@@ -43,7 +43,9 @@ The account also has a weekly limit. For it, the plugin works out the **expected
 
 #### The pace maths, with an example
 
-The week has 168 hours. After *h* hours, the expected value is *h* ÷ 168 × 100 %.
+With no work window (the default), the week has 168 hours. After *h* hours, the expected value is *h* ÷ 168 × 100 %.
+
+With the [work window](Usage-guard#the-work-window) configured (`/hadouken:janela`), the expected value uses **working minutes**: window minutes already elapsed since the start of the week ÷ window minutes in the whole week, counted day by day in local time. Outside the window, the expected value stands still. The example below is the default one, with no window.
 
 In the example, the week resets Monday at 22:00, so it started **the previous Monday at 22:00**. It is now **Saturday, 12:00**.
 
@@ -68,11 +70,11 @@ What each mode means:
 | Mode | When | What Claude starts doing |
 |---|---|---|
 | normal | usage within 10 points of expected, up or down | Nothing changes. |
-| economy (`econômico`) | usage more than 10 points **above** expected | Less volume and parallelism, without cutting tests, review or implementation effort. |
-| slack (`folga`) | usage more than 10 points **below** expected | Invests the slack in quality (extra review, higher effort on specs and audits), not volume. |
-| read-only (`só leitura`) | usage at 90 % or more **and** reset more than 24 h away | Read-only; recommends stopping. Overrides the other modes. |
+| economy (`econômico`) | usage more than 10 points **above** expected | The default model and effort go one step down, except for tasks where a mistake is costly; less volume and parallelism, without cutting tests or review. |
+| slack (`folga`) | usage more than 10 points **below** expected | The default model and effort go one step up; invests the slack in quality (extra review), not volume. |
+| read-only (`só leitura`) | usage at 90 % or more **and** reset more than 24 h away (with a [work window](Usage-guard#the-work-window), also 2 working hours or more until the reset) | Read-only; recommends stopping. Overrides the other modes. |
 
-Expected always stays between 0 % and 100 %, even if the machine's clock is ahead or behind. The maths is done in UTC; only the display uses the local time zone, so daylight saving time does not throw anything off. The expected value and the mode show up in the notices and in the report; the bar, the panel and the session-start line do not show them.
+Expected always stays between 0 % and 100 %, even if the machine's clock is ahead or behind. With no work window, the maths is done in UTC and only the display uses the local time zone, so daylight saving time does not throw anything off. With the [work window](Usage-guard#the-work-window), its days and hours count in local time, day by day, and the day the clocks change (23 or 25 h) goes into the maths by the local clock. The expected value and the mode show up in the notices and in the report; the bar, the panel and the session-start line do not show them.
 
 ### Projection and several sessions
 
@@ -120,9 +122,9 @@ The numbers below are examples; the text is fixed.
 | 5 h went down to attention or serialise less than 15 min before the reset | `5h voltou a 75% (reset em 10 min): sem mudança de ritmo.` | 5h back to 75% (reset in 10 min): no change of pace. |
 | 5 h went down to normal | `5h voltou a 65%: faixa normal.` | 5h back to 65%: normal band. |
 | 5 h: new window after a restrictive band | `5h: janela nova em 3%, faixa normal — restrições anteriores suspensas.` | 5h: new window at 3%, normal band — previous restrictions lifted. |
-| 7 d entered economy, with less than 2 h of readings | `7d 78% vs 65% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação.` | 7d 78% vs 65% expected → economy mode: less volume and parallelism, without cutting tests, review or implementation effort. |
-| 7 d entered economy, with 2 h of readings or more | `7d 78% vs 65% esperado → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação; ritmo 1,5 pt/h, sustentável 0,4 pt/h; nesse ritmo acaba amanhã 02:40.` | 7d 78% vs 65% expected → economy mode: less volume and parallelism, without cutting tests, review or implementation effort; pace 1.5 pt/h, sustainable 0.4 pt/h; at this pace it runs out tomorrow 02:40. |
-| 7 d entered slack | `7d 50% vs 65% esperado → modo folga: investir em qualidade (review extra, effort maior em spec/auditoria), não em volume.` | 7d 50% vs 65% expected → slack mode: invest in quality (extra review, higher effort on spec/audit), not volume. |
+| 7 d entered economy, with less than 2 h of readings | `7d 78% vs 65% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review.` | 7d 78% vs 65% expected → economy mode: the model and effort default drops one step, except on costly-error tasks; less volume and parallelism, without cutting tests or review. |
+| 7 d entered economy, with 2 h of readings or more | `7d 78% vs 65% esperado → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review; ritmo 1,5 pt/h, sustentável 0,4 pt/h; nesse ritmo acaba amanhã 02:40.` | 7d 78% vs 65% expected → economy mode: the model and effort default drops one step, except on costly-error tasks; less volume and parallelism, without cutting tests or review; pace 1.5 pt/h, sustainable 0.4 pt/h; at this pace it runs out tomorrow 02:40. |
+| 7 d entered slack | `7d 50% vs 65% esperado → modo folga: o padrão de modelo e effort sobe um degrau; qualidade (review extra), não volume.` | 7d 50% vs 65% expected → slack mode: the model and effort default rises one step; quality (extra review), not volume. |
 | 7 d back to normal | `7d 60% vs 65% esperado → modo normal.` | 7d 60% vs 65% expected → normal mode. |
 | 7 d entered read-only | `7d em 91% com reset seg 28/09 22:00: só leitura; recomendar parar.` | 7d at 91% with reset Mon 28/09 22:00: read-only; recommend stopping. |
 | 7 d: new window after a restrictive mode | `7d: janela nova, 1% vs 0% esperado → modo normal — restrições anteriores suspensas.` | 7d: new window, 1% vs 0% expected → normal mode — previous restrictions lifted. |

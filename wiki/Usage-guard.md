@@ -21,7 +21,7 @@ Since v0.4.0, hadouken locks spending where it starts: at the subagent dispatch,
 | P5 | always, even with the guard off | editing hadouken's data folder (`~/.claude/hadouken`) with Write, Edit, MultiEdit or NotebookEdit |
 | P5 (settings and plugin) | always, even with the guard off | editing with those tools the user's `settings.json` and `settings.local.json` (in `~/.claude` and in `CLAUDE_CONFIG_DIR`) and the plugin itself (its root and `claude-hadouken` under `plugins/`); in project settings, only an edit that changes the value of `disableAllHooks`, `enabledPlugins` or `hooks` (P5 applies it to the current file and compares) or that adds or removes one of those words or `claude-hadouken` and, in a file that already has one of them, a Write or the replacement of a short stretch (under 40 characters). Above 1 MiB, an edit that names `settings` or `hadouken` is denied without being read; one that names neither passes (SECURITY.md, R2). If the change is needed, you apply it by hand |
 | P5 (config) | always, in a registered session, even with the guard off | a change to `disableAllHooks`, `enabledPlugins` or `hooks` in the user's `settings.json` or in the project's `.claude/settings.json` and `.claude/settings.local.json`, wherever it comes from (the regular P5 covers the edit tools first; Bash, PowerShell, you or another program land here). It is held only for the current session: the file on disk stays changed, and the next session reads it. Measured live only on the project settings; the user and local settings are covered by the code, with no live measurement |
-| release | always, even with the guard off | a child `claude` session with `/hadouken:liberar` in its text; a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger, and MCP schedulers with `cron`, `schedule`, `trigger` or `task` in the name) with `/hadouken:liberar` or, since local learning, `/hadouken:aprender` in its text |
+| release | always, even with the guard off | a child `claude` session with `/hadouken:liberar` in its text; a scheduled task, a `/loop` or a routine (CronCreate, ScheduleWakeup, RemoteTrigger, and MCP schedulers with `cron`, `schedule`, `trigger` or `task` in the name) with `/hadouken:liberar`, `/hadouken:aprender` (since local learning), `/hadouken:janela`, `/hadouken:agentes` or `/hadouken:limites` (since v0.6.0) in its text |
 
 The numbers can be tuned under the `guarda` key of `config.json` (the Fable 90% is `guarda.fable.tetoPct`). Loosening the configuration does not immediately lift a ceiling (G3, G4) that has already tripped; a projection lock (G1, G2) lifts on its own once the projection no longer holds (see below).
 
@@ -77,6 +77,25 @@ Every release ends early if the week rises 10 points. It applies to every sessio
 
 Since v0.5.6, when Claude schedules the next turn of a loop (`ScheduleWakeup`) or creates a scheduled task (`CronCreate`) while the guard is locked on the 5-hour or 7-day window, it gets a line with the reset time: waking up before that only spends quota. A `ScheduleWakeup` waits at most 1 h, so the guidance is to repeat the wait until the reset. For a fixed-interval task, the guidance is to switch to a `ScheduleWakeup` after the reset. Nothing is denied because of this; with an active release, the line does not show.
 
+### The work window
+
+By default, the week's pace counts the 168 hours of 7 days, and the overrun forecast assumes use around the clock. If you work fixed hours, say which, and the pace counts only those hours. The command only counts when typed:
+
+- `/hadouken:janela`: shows the current window (`hadouken: janela seg–sex 09:00–21:00.`) or "sem janela: ritmo em 168 h" (no window: pace over 168 h).
+- `/hadouken:janela seg-sex 9-21` or `/hadouken:janela seg,qua,sex 08:30-18:00`: saves it. Days accept a list (`seg,qua,sex`), a range (`seg-sex`) and a mix (`seg-qua,sex`); a range follows the order of the week (`sex-seg` does not wrap around). Days: `dom seg ter qua qui sex sab` (also `sáb`). The time goes from `9` to `09:30`, to the minute, in the computer's local time.
+- `/hadouken:janela off`: removes the window.
+
+The window lives under the `janela` key of `config.json` (`{"dias": ["seg","ter","qua","qui","sex"], "inicio": "09:00", "fim": "21:00"}`); saving keeps the other keys. The start must be before the end on the same day, and the end goes up to `23:59` (`24:00` is invalid). An invalid window (no days, an unknown day, `inicio` equal to or after `fim`, a wrong format) becomes the warning "janela inválida; usando 168 h" (invalid window; using 168 h) and the 168-hour calculation.
+
+What changes, only on the 7-day window:
+
+- **The expected value.** The expected percentage is the working minutes already elapsed over the working minutes of the week, not the clock hours. Outside the window, the expected value stands still.
+- **The forecast.** The rate is usage per working minute, the time left moves only in working minutes, and outside the window the projected usage is zero. The week's forecast needs 2 working hours of sample, and the "esgota" (runs out) phrase needs 2 working hours elapsed. If the forecast instant falls past the reset, the phrase says it does not run out before the reset. The G2 lock uses this forecast. **Exception:** if now is outside the window and the 7-day usage rose in the last 2 h (at least 2 readings, the last one higher than the first), whoever uses it outside working hours is spending the week now, so the forecast of that moment (the "esgota" phrase, the pace of the economy line and the G2 lock) follows the wall clock, as with no window. The expected value and the mode still use the window.
+- **The read-only mode.** Besides 90 % usage and a reset more than 24 clock hours away, it needs 2 working hours or more until the reset; with less, the mode is the pace one. With no window, only the 24 h rule.
+- **The 5 h window** does not change.
+
+A scheduled prompt (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` or an MCP scheduler) that contains `hadouken:janela`, `/janela`, `hadouken:agentes`, `/agentes`, `hadouken:limites` or `/limites` as a word is denied (`/hadouken:liberar` and `/hadouken:aprender` fall under the same rule), and the message asks you to take the command out of the text: it only counts when typed. The bare word "janela" ("janela de 5 h"), the bare word "agentes" and the bare word "limites" ("os limites de 5 h") are not watched. The window uses the system time zone; a container or an SSH session in another time zone shifts the hours.
+
 ### What the bar says
 
 - `guarda: 7d`: tripped, with the window or `Fable` (guard: 7d).
@@ -94,18 +113,18 @@ Since v0.5.6, when Claude schedules the next turn of a loop (`ScheduleWakeup`) o
 
 ### Protections you turn on and off
 
-Besides the guard, hadouken has four fixed blocks: child `claude` session, hadouken files, hook changes, and liberar requested by a scheduled task. Since v0.5.4, each one can be turned off in the Proteções tab of the VS Code window or through `/hadouken:limites`. The table with the risk of each is in [Protections](Limits#protections).
+Besides the guard, hadouken has four fixed blocks: child `claude` session, hadouken files, hook changes, and a hadouken command (liberar, aprender, janela or agentes) requested by a scheduled task. Since v0.5.4, each one can be turned off in the Proteções tab of the VS Code window or through `/hadouken:limites`. The table with the risk of each is in [Protections](Limits#protections).
 
 ## Model and effort routing
 
 hadouken checks every agent Claude launches, and the main session, without calling any model:
 
-- **Denies (N1):** a search agent (`Explore`, `hadouken:busca`) on Opus or Fable, or with effort `xhigh` or `max`.
-- **Denies (N2):** `hadouken:busca` or `hadouken:mecanico` with the model switched to Opus or Fable at dispatch.
+- **Denies (N1):** a search agent (`Explore`, `hadouken:busca`, `hadouken:varredor`) on Opus or Fable, or with effort `xhigh` or `max`.
+- **Denies (N2):** `hadouken:busca`, `hadouken:varredor` or `hadouken:mecanico` with the model switched to Opus or Fable at dispatch.
 - **Warns (A1 to A3):** an agent on Fable or effort `max` when the agent file does not ask for it; an expensive agent with a search description; more than 5 short dispatches in 10 minutes.
 - **Suggests for the session:** `/effort medium` or `/model sonnet` when nearly everything was simple work, `/effort high` when there are signs of difficulty; at most once every 30 minutes.
 - **Optimizations:** a file read in full several times, a command with huge output, idle MCP servers, expensive fixed context, and suggesting `/compact` when context swells and the cache drops.
 
-Each rule has its own on-off switch in the Roteamento tab of the window (`roteamento.negarN1`, `roteamento.negarN2`, `roteamento.avisos`, `roteamento.sugerirSessao` and `roteamento.otimizacoes.*` in `config.json`). A release through `/hadouken:liberar` also lifts N1 and N2 while it lasts.
+Each rule has its own on-off switch in the Roteamento tab of the window (`roteamento.negarN1`, `roteamento.negarN2`, `roteamento.avisos`, `roteamento.sugerirSessao` and `roteamento.otimizacoes.*` in `config.json`). A release through `/hadouken:liberar` also lifts N1 and N2 while it lasts. The model and effort you approved for an agent, through `/hadouken:agentes` (config) or `roteamento.subir`, are not denied by N1 or N2.
 
 ---

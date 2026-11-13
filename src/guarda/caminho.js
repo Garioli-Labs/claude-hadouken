@@ -748,12 +748,20 @@ export function claudeComLiberar(comandoBruto, opcoes) {
 // ('hadouken:aprender' ou '/aprender' como palavra): o `aprovar` afrouxa a
 // guarda e o `desligar` tira o aprendizado, então ele também só vale
 // digitado pelo usuário.
-const BARRA_LIBERAR = /(?<![a-z0-9_./-])\/(?:liberar|aprender)(?![a-z0-9_/-]|\.[a-z0-9_])/;
+// Desde os achados da fatia 2 da v0.6.0, o mesmo teste vale para o
+// /hadouken:janela ('hadouken:janela' ou '/janela' como palavra): a janela de
+// trabalho adia a projeção G2, então mudá-la afrouxa a guarda. A palavra solta
+// "janela" não conta.
+// Idem para o /hadouken:agentes (T7 da v0.6.0, spec Fatia 4: "só o usuário
+// grava"): trocar ou desligar um agente muda o que a guarda aprova em N1/N2.
+// Idem para o /hadouken:limites (P-d da v0.6.0): ele sobe `guarda.teto7d` e os
+// demais itens da guarda; a palavra solta "limites" não conta.
+const BARRA_LIBERAR = /(?<![a-z0-9_./-])\/(?:liberar|aprender|janela|agentes|limites)(?![a-z0-9_/-]|\.[a-z0-9_])/;
 export function pedeLiberacao(texto) {
   try {
     if (typeof texto !== 'string') return false;
     const normal = semEscapeDe(semAspasDe(texto.toLowerCase().replace(/[\\`^]\r?\n/g, '')));
-    return normal.includes('hadouken:liberar') || normal.includes('hadouken:aprender') || BARRA_LIBERAR.test(normal);
+    return normal.includes('hadouken:liberar') || normal.includes('hadouken:aprender') || normal.includes('hadouken:janela') || normal.includes('hadouken:agentes') || normal.includes('hadouken:limites') || BARRA_LIBERAR.test(normal);
   } catch {
     return true;
   }

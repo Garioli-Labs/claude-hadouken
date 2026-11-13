@@ -11,7 +11,8 @@ import { lerJson } from './estado.js';
 import { instalarPainel, versaoDoPlugin } from './painel/instalar-painel.js';
 import { sincronizarShims } from './shim.js';
 import { ligarAtualizacao, marketplaceConhecido } from './instalar/atualizacao-auto.js';
-import { conferirSugeridas, criarClaude, ID_KIT, passoKit } from './instalar/claude-cli.js';
+import { conferirSugeridas, criarClaude, ID_KIT, passoDedup, passoKit } from './instalar/claude-cli.js';
+import { lerAutos, lerRepos, lerTestadoDoKit } from './instalar/dedup.js';
 import { codigoDeSaida, formatarResumo, item } from './instalar/itens.js';
 
 // Instalador de um comando, passos 6 e 7 (spec v0.5.2). O install.sh ou o
@@ -108,23 +109,13 @@ async function passo(itens, nome, f) {
   }
 }
 
-// As cópias antigas dos terceiros só são desligadas quando a nova está
-// pronta (prontas: ids instalados e ligados, da lista do passo do kit); a
-// que fica ligada por falta da nova faz o item sair com ✗.
-function passoAtualizacao({ settings, configDir, agoraMs, ligar, prontas }) {
+function passoAtualizacao({ settings, configDir, agoraMs, ligar }) {
   const nome = 'atualização automática';
   const outra = item.pulado(nome, 'marketplace claude-hadouken de outra fonte');
   if (!settings.ok) return item.falhou(nome, settings.motivo, DE_NOVO);
   if (configDir !== null && marketplaceConhecido(path.join(configDir, 'plugins', 'known_marketplaces.json')) === 'outra') return outra;
-  const r = ligar({ arquivo: settings.arquivo, agoraMs, prontas });
-  if (r.ok) {
-    const mantidas = r.mantidas ?? [];
-    if (r.acao === 'ja-estava' && mantidas.length === 0) return item.igual(nome);
-    const feito = r.desligadas.length > 0 ? `ligada; ${r.desligadas.length} cópia(s) antiga(s) desligada(s)` : 'ligada';
-    // v0.5.9: cópia antiga sem a nova é skill de terceiro já instalada; fica
-    // ligada, e não é falha.
-    return item.ok(nome, feito);
-  }
+  const r = ligar({ arquivo: settings.arquivo, agoraMs });
+  if (r.ok) return r.acao === 'ja-estava' ? item.igual(nome) : item.ok(nome, 'ligada');
   return r.motivo === 'outra-fonte' ? outra : item.falhou(nome, r.motivo, DE_NOVO);
 }
 
@@ -308,18 +299,30 @@ export async function instalarTudo(o) {
   const dir = dirDados();
   const settings = arquivoSettings();
   let kitPath = null;
-  let prontas = [];
   let lista = null;
+  let entradaKit = null;
   await passo(itens, 'hadouken-kit', async () => {
     const p = await passoKit(rodar);
     kitPath = p.entrada?.installPath ?? null;
+    entradaKit = p.entrada ?? null;
     lista = p.lista ?? null;
-    prontas = p.lista ? [...p.lista].filter(([, e]) => e.enabled).map(([id]) => id) : [];
     return p.item;
   });
   const config = pastaConfig(ambiente);
+  // As cópias em dobro que o kit antigo instalou: só esse item sai, e só quando
+  // há o que dizer. A lista final (depois do disable) alimenta as sugeridas.
+  try {
+    const plugins = config === null ? null : path.join(config, 'plugins');
+    const d = await passoDedup(rodar, {
+      entrada: entradaKit, lista, repos: plugins === null ? new Map() : lerRepos(plugins), autos: plugins === null ? new Set() : lerAutos(plugins), lerTestado: lerTestadoDoKit,
+    });
+    lista = d.lista ?? lista; // relistagem falha: mantém a anterior; o ✗ de cópias em dobro já avisa
+    if (d.item !== null) itens.push(d.item);
+  } catch {
+    itens.push(item.falhou('hadouken-kit: cópias em dobro', 'erro-interno', DE_NOVO));
+  }
   itens.push(...conferirSugeridas({ lista, pastaSkills: config === null ? null : path.join(config, 'skills'), existe }));
-  await passo(itens, 'atualização automática', () => passoAtualizacao({ settings, configDir: pastaConfig(ambiente), agoraMs, ligar: ligarAuto, prontas }));
+  await passo(itens, 'atualização automática', () => passoAtualizacao({ settings, configDir: pastaConfig(ambiente), agoraMs, ligar: ligarAuto }));
   await passo(itens, 'arquivos da barra', () => passoShims({ raizPlugin, sincronizar }));
   await passo(itens, 'barra', () => passoBarra({ settings, opcoes, perguntar, agoraMs: agoraMs + 1, aplicar }));
   await passo(itens, 'item do VS Code', () => passoPainel({ dir, raizPlugin, agoraMs, ambiente, instalar }));

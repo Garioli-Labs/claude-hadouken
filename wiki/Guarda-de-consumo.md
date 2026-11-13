@@ -21,7 +21,7 @@ Desde a v0.4.0, o hadouken trava o gasto onde ele começa: no despacho de subage
 | P5 | sempre, mesmo com a guarda desligada | editar a pasta de dados do hadouken (`~/.claude/hadouken`) com Write, Edit, MultiEdit ou NotebookEdit |
 | P5 (settings e plugin) | sempre, mesmo com a guarda desligada | editar com essas ferramentas os `settings.json` e `settings.local.json` do usuário (em `~/.claude` e no `CLAUDE_CONFIG_DIR`) e o próprio plugin (a raiz e o `claude-hadouken` em `plugins/`); nos settings de projeto, só a edição que muda o valor de `disableAllHooks`, `enabledPlugins` ou `hooks` (a P5 a aplica ao arquivo atual e compara) ou que traz ou apaga uma dessas palavras ou `claude-hadouken` e, num arquivo que já tem uma delas, o Write e a troca de um trecho curto (menos de 40 caracteres). Acima de 1 MiB, a edição que cita `settings` ou `hadouken` é negada sem ser lida; a que não cita passa (SECURITY.md, R2). A mudança, se for preciso, você aplica à mão |
 | P5 (config) | sempre, numa sessão registrada, mesmo com a guarda desligada | uma mudança em `disableAllHooks`, `enabledPlugins` ou `hooks` no `settings.json` do usuário ou nos `.claude/settings.json` e `.claude/settings.local.json` do projeto, venha de onde vier (a P5 comum cobre as ferramentas de edição antes; o Bash, o PowerShell, você ou outro programa caem aqui). Ela é segurada só na sessão em curso: o arquivo no disco fica mudado, e a próxima sessão o lê. Medido ao vivo só nos settings de projeto; os do usuário e o local são cobertos pelo código, sem medição ao vivo |
-| liberação | sempre, mesmo com a guarda desligada | uma sessão `claude` filha com `/hadouken:liberar` no texto; uma tarefa agendada, um `/loop` ou uma rotina (CronCreate, ScheduleWakeup, RemoteTrigger e os schedulers MCP com `cron`, `schedule`, `trigger` ou `task` no nome) com `/hadouken:liberar` ou, desde o aprendizado local, `/hadouken:aprender` no texto |
+| liberação | sempre, mesmo com a guarda desligada | uma sessão `claude` filha com `/hadouken:liberar` no texto; uma tarefa agendada, um `/loop` ou uma rotina (CronCreate, ScheduleWakeup, RemoteTrigger e os schedulers MCP com `cron`, `schedule`, `trigger` ou `task` no nome) com `/hadouken:liberar`, `/hadouken:aprender` (desde o aprendizado local), `/hadouken:janela`, `/hadouken:agentes` ou `/hadouken:limites` (desde a v0.6.0) no texto |
 
 Os números são ajustáveis na chave `guarda` do `config.json` (o 90% do Fable é `guarda.fable.tetoPct`). Afrouxar a configuração não solta na hora um teto (G3, G4) que já disparou; uma trava de projeção (G1, G2) cai sozinha quando a projeção deixa de valer (veja abaixo).
 
@@ -75,6 +75,25 @@ Toda liberação acaba antes do prazo se a semana subir 10 pontos. Ela vale para
 
 Desde a v0.5.6, quando o Claude agenda a próxima volta de um loop (`ScheduleWakeup`) ou cria uma tarefa agendada (`CronCreate`) com a guarda travada na janela de 5 h ou de 7 dias, ele recebe uma linha com o horário do reset: acordar antes disso só gasta cota. Um `ScheduleWakeup` espera no máximo 1 h, então a orientação é repetir a espera até o reset. Numa tarefa com intervalo fixo, a orientação é trocar por um `ScheduleWakeup` depois do reset. Nada é negado por isso; com uma liberação ativa, a linha não aparece.
 
+### A janela de trabalho
+
+Por padrão, o ritmo da semana conta as 168 horas de 7 dias, e a previsão de estouro presume uso o tempo todo. Quem trabalha em horário fixo diz qual é, e o ritmo passa a contar só esse horário. O comando só vale digitado:
+
+- `/hadouken:janela`: mostra a janela atual (`hadouken: janela seg–sex 09:00–21:00.`) ou "sem janela: ritmo em 168 h".
+- `/hadouken:janela seg-sex 9-21` ou `/hadouken:janela seg,qua,sex 08:30-18:00`: grava. Os dias aceitam lista (`seg,qua,sex`), intervalo (`seg-sex`) e mistura (`seg-qua,sex`); o intervalo vai na ordem da semana (`sex-seg` não dá a volta). Dias: `dom seg ter qua qui sex sab` (também `sáb`). A hora vai de `9` a `09:30`, de minuto em minuto, no horário do computador.
+- `/hadouken:janela off`: remove a janela.
+
+A janela fica na chave `janela` do `config.json` (`{"dias": ["seg","ter","qua","qui","sex"], "inicio": "09:00", "fim": "21:00"}`); gravar preserva as outras chaves. O início tem de ser antes do fim no mesmo dia (igual não vale), e o fim vai até `23:59` (`24:00` é inválido). Janela inválida (sem dias, dia desconhecido, `inicio` igual ou depois de `fim`, formato errado) vira o aviso "janela inválida; usando 168 h" e o cálculo de 168 horas.
+
+O que muda, só na janela de 7 dias:
+
+- **O esperado.** O percentual esperado é o dos minutos úteis já passados sobre os minutos úteis da semana, e não mais o das horas corridas. Fora da janela, o esperado fica parado.
+- **A previsão.** A taxa é consumo por minuto útil, o tempo que falta anda só em minutos úteis, e fora da janela o consumo projetado é zero. A previsão da semana pede 2 h úteis de amostra, e a frase "esgota" pede 2 h úteis decorridas. Se o instante previsto passa do reset, a frase diz que não esgota antes do reset. A trava G2 usa essa previsão. **Exceção:** se agora está fora da janela e o uso de 7 dias subiu nas últimas 2 h (ao menos 2 leituras, a última maior que a primeira), quem usa fora do expediente está gastando a semana agora, e a previsão daquele momento (a frase "esgota", o ritmo da linha econômica e a trava G2) segue o relógio de parede, como sem janela. O esperado e o modo continuam com a janela.
+- **O modo só leitura.** Além dos 90 % de uso e do reset a mais de 24 h de relógio, pede 2 h úteis ou mais até o reset; com menos, o modo é o do ritmo. Sem janela, só a regra das 24 h.
+- **A janela de 5 h** não muda.
+
+Um prompt agendado (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger` ou agendador MCP) que contenha `hadouken:janela`, `/janela`, `hadouken:agentes`, `/agentes`, `hadouken:limites` ou `/limites` como palavra é negado (o `/hadouken:liberar` e o `/hadouken:aprender` entram na mesma regra), e a mensagem pede para tirar o comando do texto: ele só vale digitado. A palavra solta "janela" ("janela de 5 h"), a palavra solta "agentes" e a palavra solta "limites" ("os limites de 5 h") não são vigiadas. A janela usa o fuso do sistema; um contêiner ou uma sessão SSH em outro fuso desloca o horário.
+
 ### O que a barra diz
 
 - `guarda: 7d`: disparada, com a janela ou `Fable`.
@@ -92,18 +111,18 @@ Desde a v0.5.6, quando o Claude agenda a próxima volta de um loop (`ScheduleWak
 
 ### Proteções que o senhor liga e desliga
 
-Além da guarda, o hadouken tem quatro bloqueios fixos: sessão `claude` filha, arquivos do hadouken, mudança de hooks e liberar pedido por tarefa agendada. Desde a v0.5.4, cada um pode ser desligado na aba Proteções da janela do VS Code ou pelo `/hadouken:limites`. A tabela com o risco de cada um está em [Proteções](Limites#proteções).
+Além da guarda, o hadouken tem quatro bloqueios fixos: sessão `claude` filha, arquivos do hadouken, mudança de hooks e comando do hadouken (liberar, aprender, janela ou agentes) pedido por tarefa agendada. Desde a v0.5.4, cada um pode ser desligado na aba Proteções da janela do VS Code ou pelo `/hadouken:limites`. A tabela com o risco de cada um está em [Proteções](Limites#proteções).
 
 ## Roteamento de modelo e effort
 
 O hadouken confere cada agente lançado pelo Claude e a sessão principal, sem chamar modelo nenhum:
 
-- **Nega (N1):** agente de busca (`Explore`, `hadouken:busca`) em Opus ou Fable, ou com effort `xhigh` ou `max`.
-- **Nega (N2):** `hadouken:busca` ou `hadouken:mecanico` com o modelo trocado para Opus ou Fable no despacho.
+- **Nega (N1):** agente de busca (`Explore`, `hadouken:busca`, `hadouken:varredor`) em Opus ou Fable, ou com effort `xhigh` ou `max`.
+- **Nega (N2):** `hadouken:busca`, `hadouken:varredor` ou `hadouken:mecanico` com o modelo trocado para Opus ou Fable no despacho.
 - **Avisa (A1 a A3):** agente em Fable ou effort `max` sem o arquivo do agente pedir isso; agente caro com descrição de busca; mais de 5 despachos curtos em 10 minutos.
 - **Sugere para a sessão:** `/effort medium` ou `/model sonnet` quando quase tudo foi trabalho simples, `/effort high` quando há sinais de dificuldade; no máximo uma vez a cada 30 minutos.
 - **Otimizações:** arquivo lido inteiro várias vezes, comando com saída enorme, servidores MCP parados, contexto fixo caro e sugerir `/compact` quando o contexto incha e o cache cai.
 
-Cada regra tem o seu liga-desliga na aba Roteamento da janela (`roteamento.negarN1`, `roteamento.negarN2`, `roteamento.avisos`, `roteamento.sugerirSessao` e `roteamento.otimizacoes.*` no `config.json`). Uma liberação pelo `/hadouken:liberar` também solta N1 e N2 enquanto durar.
+Cada regra tem o seu liga-desliga na aba Roteamento da janela (`roteamento.negarN1`, `roteamento.negarN2`, `roteamento.avisos`, `roteamento.sugerirSessao` e `roteamento.otimizacoes.*` no `config.json`). Uma liberação pelo `/hadouken:liberar` também solta N1 e N2 enquanto durar. O modelo e o effort que você aprovou para um agente, pelo `/hadouken:agentes` (config) ou por `roteamento.subir`, não são negados por N1 nem por N2.
 
 ---

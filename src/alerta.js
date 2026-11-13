@@ -6,6 +6,7 @@
 // SessionStart, relatorio.js e hooks/alertas-gravados.js).
 import { MAX_SESSOES as MAX_SESSOES_ATIVAS } from './estado.js';
 import { calcularRitmo } from './ritmo.js';
+import { avancarUteis, minutosUteis } from './janela.js';
 import { decimal, horaLocal, quandoLocal, janelaValida, numeroFinito, TOLERANCIA_JANELA_S } from './util.js';
 
 // Spec v0.4.0 §10, item 1: sem leitura fresca nem piso, a linha diz desde
@@ -65,14 +66,28 @@ export function faixa5h(pct) {
   return 'ok';
 }
 
+// P-c (v0.6.0): com janela de trabalho, só leitura pede também ao menos
+// MIN_UTEIS_SO_LEITURA_MIN minutos úteis até o reset (a mesma cobertura de 2 h
+// da projeção de 7d); sem janela (null), só a regra das 24 h. Com a projeção
+// em relógio (P-b: `trabalhoProjecao` null), a exigência não vale: faixa e
+// projeção dizem a mesma coisa (J15).
+const MIN_UTEIS_SO_LEITURA_MIN = 120;
+const ateOResetTemMinutosUteis = (trabalho, agoraMs, resetMs) => trabalho === null || trabalho === undefined
+  || minutosUteis(trabalho, agoraMs, resetMs) >= MIN_UTEIS_SO_LEITURA_MIN;
+
 // A faixa de 7d é o modo de calcularRitmo (ritmo.js guarda a regra única e o
 // limiar, revisão da Task 5, M-2 e N-5: inteiros exibidos, piso de usado e de
 // esperado contra ±10), com uma faixa a mais: só leitura quando o uso chega a
 // 90% e o reset está a mais de 24 h. O limiar de 90% é inteiro e compara o uso
 // cru, o que concorda com o piso exibido. `desvio` é a distância de ritmo.js.
-export function faixa7d({ usado, resetsAt, agoraMs }) {
-  const { esperado, desvio, modo } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs });
-  const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS ? 'so-leitura' : modo;
+// Com `trabalho` (janela de trabalho, v0.6.0), só leitura pede ainda 2 h úteis
+// até o reset (P-c); sem ele, as 24 h de relógio de sempre. `trabalhoProjecao`
+// (previsao.js, trabalhoDaProjecao, P-b) é a janela da projeção daquele
+// momento: null (uso subindo fora da janela, projeção em relógio) dispensa as
+// 2 h úteis; sem ele, vale `trabalho`. `esperado` e `modo` seguem a janela.
+export function faixa7d({ usado, resetsAt, agoraMs, trabalho = null, trabalhoProjecao = trabalho }) {
+  const { esperado, desvio, modo } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs, trabalho });
+  const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS && ateOResetTemMinutosUteis(trabalhoProjecao, agoraMs, resetsAt * 1000) ? 'so-leitura' : modo;
   return { faixa, esperado, desvio };
 }
 
@@ -81,14 +96,15 @@ export function faixa7d({ usado, resetsAt, agoraMs }) {
 // no instante da última leitura, se o reset daquela janela ainda não passou;
 // senão, normal (decisão 3 do plano da parte 2). Só o horário de quandoLocal
 // e um rótulo de NOME_MODO entram. Sem última leitura, ou entrada ilegível:
-// LINHA_SEM_LEITURA_NUNCA. Nunca lança.
-export function linhaSemLeitura(ultima, agoraMs) {
+// LINHA_SEM_LEITURA_NUNCA. `trabalho`: a janela de trabalho (janela.js) da
+// faixa de 7d; null, as 168 h. Nunca lança.
+export function linhaSemLeitura(ultima, agoraMs, trabalho = null) {
   try {
     if (!ehObjeto(ultima) || !numeroFinito(ultima.desdeMs) || !numeroFinito(agoraMs)) return LINHA_SEM_LEITURA_NUNCA;
     const desdeMs = ultima.desdeMs;
     const f7 = janelaValida(ultima.seven_day);
     const faixa = f7 !== null && f7.resets_at * 1000 > agoraMs
-      ? faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs: desdeMs }).faixa
+      ? faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs: desdeMs, trabalho }).faixa
       : 'normal';
     const quando = quandoLocal(desdeMs / 1000, agoraMs);
     return `Consumo sem leitura nova desde ${quando}; trate como o último modo conhecido (${NOME_MODO[faixa] ?? 'normal'}).`;
@@ -136,15 +152,29 @@ function em(j, extra = null) {
 // pt/h, sustentável 0,6 pt/h; nesse ritmo acaba amanhã 13:30". Só com leitura
 // fresca e ritmo numérico ≥ 0 (ritmo7dPorHora dá null sem as 2 h de
 // cobertura). Sustentável = (100 − usado) ÷ horas até o reset (decisão 2 do
-// plano da parte 2). Só números validados e o horário de quandoLocal.
-function parteRitmo(f7, ritmoH, agoraMs) {
+// plano da parte 2). Só números validados e o horário de quandoLocal. Com
+// `trabalho` (janela de trabalho, janela.js), o ritmo vem em pontos por hora
+// útil: sustentável = (100 − usado) ÷ horas úteis de agora ao reset, e "acaba"
+// avança (100 − usado) ÷ ritmo em minutos úteis; zero hora útil até o reset,
+// sem a parte do ritmo.
+export function parteRitmo(f7, ritmoH, agoraMs, trabalho = null) {
   if (f7.piso === true || typeof ritmoH !== 'number' || !numeroFinito(ritmoH) || ritmoH < 0) return '';
-  const faltaMs = f7.resets_at * 1000 - agoraMs;
+  const resetMs = f7.resets_at * 1000;
+  const faltaMs = resetMs - agoraMs;
   if (!(faltaMs > 0)) return '';
   const resta = 100 - f7.used_percentage;
-  const sustentavel = resta / (faltaMs / HORA_MS);
-  const acabaMs = ritmoH > 0 ? Math.round(agoraMs + (resta / ritmoH) * HORA_MS) : Infinity;
-  const fim = acabaMs < f7.resets_at * 1000
+  let sustentavel;
+  let acabaMs;
+  if (trabalho === null || trabalho === undefined) {
+    sustentavel = resta / (faltaMs / HORA_MS);
+    acabaMs = ritmoH > 0 ? Math.round(agoraMs + (resta / ritmoH) * HORA_MS) : Infinity;
+  } else {
+    const horasUteis = minutosUteis(trabalho, agoraMs, resetMs) / 60;
+    if (!(horasUteis > 0)) return '';
+    sustentavel = resta / horasUteis;
+    acabaMs = ritmoH > 0 ? Math.round(avancarUteis(trabalho, agoraMs, (resta / ritmoH) * 60)) : Infinity;
+  }
+  const fim = acabaMs < resetMs
     ? `nesse ritmo acaba ${quandoLocal(acabaMs / 1000, agoraMs)}`
     : 'nesse ritmo não acaba antes do reset';
   return `; ritmo ${decimal(ritmoH, 1)} pt/h, sustentável ${decimal(sustentavel, 1)} pt/h; ${fim}`;
@@ -172,11 +202,11 @@ function linha5h(faixa, anterior, f5, agoraMs) {
   }
 }
 
-function linha7d(faixa, f7, esperado, agoraMs, ritmoH) {
+function linha7d(faixa, f7, esperado, agoraMs, ritmoH, trabalho) {
   const base = `7d ${em(f7)} vs ${pct(esperado)} esperado`;
   switch (faixa) {
-    case 'economico': return `${base} → modo econômico: menos volume e paralelismo, sem cortar testes, review nem effort de implementação${parteRitmo(f7, ritmoH, agoraMs)}.`;
-    case 'folga': return `${base} → modo folga: investir em qualidade (review extra, effort maior em spec/auditoria), não em volume.`;
+    case 'economico': return `${base} → modo econômico: o padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review${parteRitmo(f7, ritmoH, agoraMs, trabalho)}.`;
+    case 'folga': return `${base} → modo folga: o padrão de modelo e effort sobe um degrau; qualidade (review extra), não volume.`;
     case 'so-leitura': return `7d em ${em(f7)} com reset ${quandoLocal(f7.resets_at, agoraMs)}: só leitura; recomendar parar.`;
     default: return `${base} → modo normal.`;
   }
@@ -254,7 +284,9 @@ function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs, 
 // sem eles, nenhum aviso de projeção. `leituras` (leiturasComPiso) e `ultima`
 // (ultimaLeitura), de estado.js, dão as faixas com piso e a linha sem leitura
 // nova (spec v0.4.0 §10, item 1); a projeção continua só com `limites`, os
-// frescos. Nunca lança (restrição global do
+// frescos. `trabalho` é a janela de trabalho da faixa de 7d; `trabalhoProjecao`
+// (previsao.js, trabalhoDaProjecao, P-b), a da parte de ritmo da linha
+// econômica, e sem ela vale `trabalho`. Nunca lança (restrição global do
 // plano v0.2.0): entrada ilegível (sem objeto, getter que lança, Proxy) não
 // dá aviso nenhum e devolve memória vazia, o lado seguro de
 // alertas-gravados.js (a faixa atual é anunciada de novo, nunca uma descida
@@ -267,7 +299,7 @@ export function avaliarAlertas(entrada) {
   }
 }
 
-function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH, limiares }) {
+function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH, limiares, trabalho = null, trabalhoProjecao = trabalho }) {
   const ant = anteriores ?? ALERTAS_VAZIO;
   const novos = {
     five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura }, projecao: { ...ant.projecao },
@@ -279,7 +311,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
   // (spec v0.4.0 §10, item 1: nunca "sem leitura" e uma faixa juntos).
   if (!janelas.five_hour && !janelas.seven_day) {
     if (!novos.sem_leitura[sessionId]) {
-      linhas.push(linhaSemLeitura(ultima, agoraMs));
+      linhas.push(linhaSemLeitura(ultima, agoraMs, trabalho));
       novos.sem_leitura[sessionId] = true;
     }
     return { linhas, novos };
@@ -303,7 +335,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
 
   const f7 = janelas.seven_day;
   if (f7) {
-    const calculada = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs });
+    const calculada = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs, trabalho, trabalhoProjecao });
     const esperado = calculada.esperado;
     // O piso é "pelo menos X%": folga com leitura velha pode ser falsa, vale
     // como normal (menor M-3 do portão v0.4.0).
@@ -314,7 +346,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
     if (!mesma && guardada && RESTRITIVAS_7D.has(guardada.faixa) && faixa === 'normal') {
       linhas.push(`7d: janela nova, ${em(f7)} vs ${pct(esperado)} esperado → modo normal — ${SUSPENSAS}.`);
     } else if (anterior !== faixa && !(anterior === null && faixa === 'normal')) {
-      linhas.push(linha7d(faixa, f7, esperado, agoraMs, ritmo7dH));
+      linhas.push(linha7d(faixa, f7, esperado, agoraMs, ritmo7dH, trabalhoProjecao));
     }
     novos.seven_day = { resets_at: f7.resets_at, faixa };
   }

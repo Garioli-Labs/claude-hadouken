@@ -9,11 +9,14 @@ import { fileURLToPath } from 'node:url';
 // comando que comeria o resto de um `curl | bash`.
 // Dependências do kit: o `install` do kit traz as que faltam (menos as de
 // estado.semDeps, que nunca instalam); o `update` só troca a versão do kit,
-// como o de verdade (revisão final da v0.5.2, Critical 2).
+// como o de verdade (revisão final da v0.5.2, Critical 2). O kit 1.2.0 só
+// declara o hadouken (DEPS_KIT); terceiro nenhum é instalado pelo falso a
+// não ser por `plugin install` direto.
+// estado.falharListaNa = n faz só a n-ésima chamada de `plugin list` falhar.
 
 export const CATALOGO = Object.freeze({
   'hadouken@claude-hadouken': '0.5.2',
-  'hadouken-kit@claude-hadouken': '1.1.0',
+  'hadouken-kit@claude-hadouken': '1.2.0',
   'hadouken-rea@claude-hadouken': '1.0.1',
   'superpowers@claude-plugins-official': '6.4.1',
   'mattpocock-skills@claude-hadouken': '1.0.0',
@@ -37,7 +40,12 @@ export function responder(estado, args) {
   if (a !== 'plugin') return nada(1);
   if ((estado.falhar ?? []).includes(args.slice(1).join(' '))) return nada(1);
   if (b === 'marketplace') return nada(0);
-  if (b === 'list') return { codigo: 0, saida: JSON.stringify(estado.plugins) };
+  if (b === 'list') {
+    // estado.falharListaNa: o número (1, 2, ...) da chamada de `plugin list` que falha, e só ela.
+    estado.chamadasLista = (estado.chamadasLista ?? 0) + 1;
+    if (estado.falharListaNa === estado.chamadasLista) return nada(1);
+    return { codigo: 0, saida: JSON.stringify(estado.plugins) };
+  }
   const p = estado.plugins.find((x) => x.id === c);
   if (b === 'install') {
     if (!Object.hasOwn(CATALOGO, c)) return nada(1);

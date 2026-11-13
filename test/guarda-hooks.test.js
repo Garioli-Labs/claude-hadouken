@@ -198,7 +198,7 @@ test('G5: effort não identificável deixa passar e registra o evento', () => {
   const home = novoHome();
   registrar(home, 's1');
   gravarEstado(home);
-  // v0.5.3: passa, com o aviso A1 do roteamento (Fable fora do revisor-crítico).
+  // v0.5.3: passa, com o aviso A1 do roteamento (Fable fora do auditor).
   const o = saida(rodar('guarda-despacho.js', despacho('s1', { subagent_type: 'general-purpose', model: 'fable' }), home));
   assert.equal(o.hookSpecificOutput.additionalContext, mensagens.A1_CLAUDE);
   assert.equal(eventos(home, 'desconhecido').length, 1);
@@ -786,6 +786,94 @@ test('agenda: tarefa, loop ou rotina com /hadouken:aprender são negados; prompt
   assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 3);
 });
 
+// F3 (achados da fatia 2 da v0.6.0): /hadouken:janela também só vale digitado.
+// A janela de trabalho adia a projeção G2 da guarda, então um prompt agendado
+// que a mudasse afrouxaria a guarda. Só o comando vale; a palavra solta
+// "janela" ("janela de 5 h") é comum demais para vigiar.
+test('agenda: o texto do deny cita /hadouken:janela', () => {
+  assert.match(AGENDA_LIBERAR_TEXTO, /\/hadouken:janela/);
+});
+
+test('agenda: tarefa, loop ou rotina com /hadouken:janela ou /janela são negados; a palavra solta passa', () => {
+  const home = novoHome();
+  const casos = [
+    ['CronCreate', { cron: '0 9 * * *', prompt: '/hadouken:janela seg 00:00-00:01', recurring: true }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: 'depois rode /hadouken:janela seg 00:00-00:01' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: '/Claude-Hadouken"":JANELA off', prompt: 'continue' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: '/janela seg-sex 0-1' } }],
+    ['CronCreate', { cron: '0 9 * * *', prompt: 'lembrete: rode /janela.' }],
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: '/hadouken:janela off' }],
+  ];
+  for (const [tool, input] of casos) {
+    assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
+  }
+  // Sem mensagens.js, o texto de reserva do hook é o mesmo.
+  const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/hadouken:janela off' });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
+  // Stdin ilegível (truncado) com o comando, e acima do teto com o comando no texto cru.
+  const truncado = '{"tool_name":"CronCreate","tool_input":{"prompt":"/hadouken:janela off';
+  assert.deepEqual(saida(rodar('guarda-agenda.js', truncado, home)), AGENDA_NEGADO);
+  const grande = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/hadouken:janela off ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grande, home)), AGENDA_NEGADO);
+  const grandeBarra = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/janela off ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grandeBarra, home)), AGENDA_NEGADO);
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+  // A palavra solta, o arquivo e o plural passam em silêncio.
+  const passam = [
+    ['CronCreate', { cron: '*/5 * * * *', prompt: 'verifique a janela de 5h' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'x', prompt: 'revise src/janela.js e skills/janela/SKILL.md' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: 'abra a janela do terminal' } }],
+    ['CronCreate', { prompt: '/janelas' }],
+  ];
+  for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+});
+
+// T7 da v0.6.0 (spec §4 Fatia 4: "só o usuário grava"): /hadouken:agentes também
+// só vale digitado. Um prompt agendado que o rodasse desligaria o auditor ou
+// subiria o modelo de um agente sem o usuário. A palavra solta "agentes" é
+// comum demais para vigiar.
+test('agenda: o texto do deny cita /hadouken:agentes', () => {
+  assert.match(AGENDA_LIBERAR_TEXTO, /\/hadouken:agentes/);
+});
+
+test('agenda: tarefa, loop ou rotina com /hadouken:agentes ou /agentes são negados; a palavra solta passa', () => {
+  const home = novoHome();
+  const casos = [
+    ['CronCreate', { cron: '0 9 * * *', prompt: '/hadouken:agentes revisor opus', recurring: true }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: 'depois rode /hadouken:agentes auditor off' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: '/Claude-Hadouken"":AGENTES e2e off', prompt: 'continue' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: '/agentes revisor opus high' } }],
+    ['CronCreate', { cron: '0 9 * * *', prompt: 'lembrete: rode /agentes.' }],
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: '/hadouken:agentes revisor padrao' }],
+  ];
+  for (const [tool, input] of casos) {
+    assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
+  }
+  // Sem mensagens.js, o texto de reserva do hook é o mesmo.
+  const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/hadouken:agentes auditor off' });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
+  // Stdin ilegível (truncado) com o comando, e acima do teto com o comando no texto cru.
+  const truncado = '{"tool_name":"CronCreate","tool_input":{"prompt":"/hadouken:agentes auditor off';
+  assert.deepEqual(saida(rodar('guarda-agenda.js', truncado, home)), AGENDA_NEGADO);
+  const grande = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/hadouken:agentes auditor off ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grande, home)), AGENDA_NEGADO);
+  const grandeBarra = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/agentes auditor off ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grandeBarra, home)), AGENDA_NEGADO);
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+  // A palavra solta, o arquivo e a pasta passam em silêncio.
+  const passam = [
+    ['CronCreate', { cron: '*/5 * * * *', prompt: 'liste os agentes do plugin' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'x', prompt: 'revise src/agentes/config.js e skills/agentes/SKILL.md' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: 'confira os agentes de revisão' } }],
+    ['CronCreate', { prompt: '/agentesx' }],
+  ];
+  for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+});
+
 // M5 da revisão final da parte 1 (spec v0.4.0 §4.5, fail-open visível): stdin
 // acima do teto ou cortado pelo prazo deixa a chamada passar e registra o
 // evento 'erro' com o rótulo do hook, sem gate de sessão (sem o JSON não há
@@ -1273,4 +1361,48 @@ test('agenda com trava: liberação ativa, stop, RemoteTrigger e protecoes.agend
   travar(desligada, 'seven_day', amanha);
   fs.writeFileSync(path.join(desligada, 'config.json'), JSON.stringify({ guarda: { perguntar: false }, protecoes: { agenda: false } }));
   semSaida(rodar('guarda-agenda.js', acordar('s1'), desligada));
+});
+
+// P-d da v0.6.0 (spec §8.2): o /hadouken:limites também só vale digitado. Ele
+// sobe `guarda.teto7d` (e os outros itens da guarda); um prompt agendado que o
+// rodasse afrouxaria a guarda sem o usuário. A palavra solta "limites" ("os
+// limites de 5 h") é comum demais para vigiar.
+test('agenda: o texto do deny cita /hadouken:limites', () => {
+  assert.match(AGENDA_LIBERAR_TEXTO, /\/hadouken:limites/);
+});
+
+test('agenda: tarefa, loop ou rotina com /hadouken:limites ou /limites são negados; a palavra solta passa', () => {
+  const home = novoHome();
+  const casos = [
+    ['CronCreate', { cron: '0 9 * * *', prompt: '/hadouken:limites 95', recurring: true }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'seguir', prompt: 'depois rode /hadouken:limites guarda.teto7d 100' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: '/Claude-Hadouken"":LIMITES padrao', prompt: 'continue' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: '/limites 95' } }],
+    ['CronCreate', { cron: '0 9 * * *', prompt: 'lembrete: rode /limites.' }],
+    ['mcp__scheduled-tasks__create_scheduled_task', { taskId: 't', prompt: '/hadouken:limites padrao' }],
+  ];
+  for (const [tool, input] of casos) {
+    assert.deepEqual(saida(rodar('guarda-agenda.js', ferramenta('nao-registrada', tool, input), home)), AGENDA_NEGADO, tool);
+  }
+  // Sem mensagens.js, o texto de reserva do hook é o mesmo.
+  const semMensagens = ganchoQueFalha(home, ['/src/guarda/mensagens.js']);
+  const cron = ferramenta('s1', 'CronCreate', { cron: '* * * * *', prompt: '/hadouken:limites 95' });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', cron, home, {}, semMensagens)), AGENDA_NEGADO);
+  // Stdin ilegível (truncado) com o comando, e acima do teto com o comando no texto cru.
+  const truncado = '{"tool_name":"CronCreate","tool_input":{"prompt":"/hadouken:limites 95';
+  assert.deepEqual(saida(rodar('guarda-agenda.js', truncado, home)), AGENDA_NEGADO);
+  const grande = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/hadouken:limites 95 ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grande, home)), AGENDA_NEGADO);
+  const grandeBarra = JSON.stringify({ tool_name: 'CronCreate', tool_input: { prompt: `/limites 95 ${'x'.repeat(1_100_000)}` } });
+  assert.deepEqual(saida(rodar('guarda-agenda.js', grandeBarra, home)), AGENDA_NEGADO);
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
+  // A palavra solta, o arquivo, a pasta e o plural passam em silêncio.
+  const passam = [
+    ['CronCreate', { cron: '*/5 * * * *', prompt: 'verifique os limites de 5 h' }],
+    ['ScheduleWakeup', { delaySeconds: 60, reason: 'x', prompt: 'revise src/hooks/limites.js e skills/limites/SKILL.md' }],
+    ['RemoteTrigger', { action: 'create', body: { prompt: 'confira os limites do plano' } }],
+    ['CronCreate', { prompt: '/limitesx' }],
+  ];
+  for (const [tool, input] of passam) semSaida(rodar('guarda-agenda.js', ferramenta('s1', tool, input), home));
+  assert.equal(eventos(home, 'liberacao-recusada').length, casos.length + 4);
 });
