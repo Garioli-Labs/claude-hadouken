@@ -1392,3 +1392,202 @@ test('frescor: janela do formato de antes (sem at próprio) nunca conta como rep
   atualizarEstado(entrada({ transcript_path: tr, rate_limits: RL_FRESCOR }), agora);
   assert.equal(lerEstado().five_hour.at, iso(agora));
 });
+
+// Fatia 8 (P-e): leitura menor da mesma janela. Cada sessão guarda em
+// `sessoes.<id>.limites` a última leitura que apresentou de cada janela; a
+// leitura repetida da sessão não entra nem renova `at`, e a menor entra
+// quando a própria sessão viu o uso mudar (spec v0.6.0, casos L1 a L10).
+const trCom = (nome, mtimeMs) => {
+  const p = path.join(dir, nome);
+  fs.writeFileSync(p, '{}\n');
+  datarArq(p, mtimeMs);
+  return p;
+};
+const velho = agora - 10 * 60_000;
+const leit = (id, tr, p5, r5, p7, r7) => entrada({ session_id: id, transcript_path: tr, rate_limits: rl(p5, r5, p7, r7) });
+const j7 = (p, r = R7) => ({ used_percentage: p, resets_at: r });
+// Estado plantado com a guardada de cada janela no `at` do teste e as sessões dadas.
+const plantadoComSessoes = (p5, p7, sessoes) => gravarBruto(estadoBase({
+  at: iso(agora),
+  five_hour: { used_percentage: p5, resets_at: agoraS + 3 * 3600 },
+  seven_day: { used_percentage: p7, resets_at: agoraS + 3 * 86400 },
+  sessoes,
+}));
+const sessaoCom = (p5, p7, trabalho = agora) => ({
+  at: iso(trabalho), trabalho: iso(trabalho),
+  limites: { five_hour: { used_percentage: p5, resets_at: agoraS + 3 * 3600 }, seven_day: { used_percentage: p7, resets_at: agoraS + 3 * 86400 } },
+});
+
+test('P-e: a sessão grava limites com a última leitura de cada janela; janela ausente mantém a anterior', () => {
+  atualizarEstado(entrada(), agora);
+  assert.deepEqual(lerEstado().sessoes.s1.limites, { five_hour: j7(42, R5), seven_day: j7(48) });
+  atualizarEstado(entrada({ rate_limits: rl(undefined, undefined, 50, R7) }), agora + 1000);
+  assert.deepEqual(lerEstado().sessoes.s1.limites, { five_hour: j7(42, R5), seven_day: j7(50) });
+  atualizarEstado(entrada({ rate_limits: { five_hour: { used_percentage: 'x', resets_at: R5 } } }), agora + 2000);
+  assert.deepEqual(lerEstado().sessoes.s1.limites, { five_hour: j7(42, R5), seven_day: j7(50) }, 'janela inválida não substitui');
+});
+
+test('P-e: limites lidos do disco passam pelo schema; o malformado é descartado sem lançar', () => {
+  const lixo = { used_percentage: 'x', resets_at: R7 };
+  const valida = { used_percentage: 33, resets_at: R7, extra: 'x' };
+  gravarBruto(estadoBase({
+    sessoes: {
+      bom: { at: iso(agora), limites: { five_hour: valida, seven_day: valida } },
+      meio: { at: iso(agora), limites: { five_hour: lixo, seven_day: valida } },
+      texto: { at: iso(agora), limites: 'x' },
+      lista: { at: iso(agora), limites: [1, 2] },
+      nulo: { at: iso(agora), limites: null },
+      vazio: { at: iso(agora), limites: { five_hour: null, seven_day: lixo } },
+    },
+  }));
+  const v = validarEstado(lerEstado(), agora);
+  assert.deepEqual(v.sessoes.bom.limites, { five_hour: j7(33), seven_day: j7(33) });
+  assert.deepEqual(v.sessoes.meio.limites, { five_hour: null, seven_day: j7(33) });
+  for (const id of ['texto', 'lista', 'nulo', 'vazio']) assert.equal(v.sessoes[id].limites, undefined, id);
+  assert.equal(atualizarEstado(entrada({ session_id: 'meio' }), agora + 1000).ok, true);
+});
+
+test('P-e: estado.json de versão anterior (sessões sem limites) é lido sem erro e sem perder sessões', () => {
+  gravarBruto(estadoBase({ sessoes: { a: { at: iso(agora), model: 'Opus' }, b: { at: iso(agora - 1000), trabalho: iso(agora - 2000) } } }));
+  const r = atualizarEstado(entrada({ session_id: 'c', transcript_path: trCom('c.jsonl', velho) }), agora + 1000);
+  assert.equal(r.ok, true);
+  const e = lerEstado();
+  assert.deepEqual(Object.keys(e.sessoes).sort(), ['a', 'b', 'c']);
+  assert.equal(e.sessoes.a.model, 'Opus');
+  assert.equal(e.sessoes.a.limites, undefined);
+});
+
+test('L1: reset antecipado: a sessão que apresentava 92 % e passa a 14 % com o mesmo resets_at entra na primeira leitura', () => {
+  const tr = trCom('a.jsonl', velho);
+  atualizarEstado(leit('A', tr, 10, R5, 92, R7), agora);
+  atualizarEstado(leit('A', tr, 10, R5, 14, R7), agora + 60_000);
+  const e = lerEstado();
+  assert.deepEqual(e.seven_day, jan(14, R7, agora + 60_000));
+  assert.deepEqual(e.sessoes.A.limites.seven_day, j7(14));
+});
+
+test('L2: a sessão parada que redesenha 92 % depois do reset não entra nem renova at (janela de 5 h dela difere)', () => {
+  const trA = trCom('a.jsonl', velho);
+  const trB = trCom('b.jsonl', velho);
+  const t1 = agora + 60_000;
+  const t2 = agora + 120_000;
+  const t3 = agora + 180_000;
+  atualizarEstado(leit('B', trB, 30, R5 + 1800, 92, R7), agora);
+  atualizarEstado(leit('A', trA, 10, R5, 92, R7), t1);
+  atualizarEstado(leit('A', trA, 10, R5, 14, R7), t2);
+  assert.deepEqual(lerEstado().seven_day, jan(14, R7, t2), 'L1 antes: 14 % entrou');
+  atualizarEstado(leit('B', trB, 30, R5 + 1800, 92, R7), t3);
+  const e = lerEstado();
+  assert.deepEqual(e.seven_day, jan(14, R7, t2), 'o snapshot fica em 14 % e o at não anda');
+  assert.deepEqual(e.sessoes.B.limites.seven_day, j7(92));
+});
+
+test('L3: duas sessões ativas: a menor que A já apresentou, com transcript escrito, fica segurada', () => {
+  const trA = trCom('a.jsonl', velho);
+  const trB = trCom('b.jsonl', velho);
+  atualizarEstado(leit('A', trA, 10, R5, 48, R7), agora);
+  atualizarEstado(leit('B', trB, 10, R5, 50, R7), agora + 60_000);
+  datarArq(trA, agora + 90_000);
+  atualizarEstado(leit('A', trA, 10, R5, 48, R7), agora + 180_000);
+  assert.deepEqual(lerEstado().seven_day, jan(50, R7, agora + 60_000));
+});
+
+test('L4: subagente em curso (transcript parado, uso subindo): valor diferente não é repetido e o maior entra', () => {
+  const tr = trCom('a.jsonl', velho);
+  atualizarEstado(leit('A', tr, 10, R5, 40, R7), agora);
+  atualizarEstado(leit('A', tr, 10, R5, 45, R7), agora + 60_000);
+  assert.deepEqual(lerEstado().seven_day, jan(45, R7, agora + 60_000));
+  atualizarEstado(leit('A', tr, 10, R5, 52, R7), agora + 120_000);
+  assert.deepEqual(lerEstado().seven_day, jan(52, R7, agora + 120_000));
+});
+
+test('L5: sem apresentação anterior, a leitura menor entra só com transcript escrito depois do at da guardada', () => {
+  const trX = trCom('x.jsonl', velho);
+  // (a) sessão nova, transcript escrito depois do at da guardada: entra.
+  atualizarEstado(leit('X', trX, 10, R5, 50, R7), agora);
+  const trC = trCom('c.jsonl', agora + 30_000);
+  atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 60_000);
+  assert.deepEqual(lerEstado().seven_day, jan(30, R7, agora + 60_000), 'escrito depois do at');
+  // (b) sessão nova com transcript anterior ao at: segurada.
+  fs.rmSync(arqEstado(), { force: true });
+  atualizarEstado(leit('X', trX, 10, R5, 50, R7), agora);
+  datarArq(trC, velho);
+  atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 60_000);
+  assert.deepEqual(lerEstado().seven_day, jan(50, R7, agora), 'escrito antes do at');
+  // (c) entrada de versão anterior (sem limites) vale como sem apresentação.
+  const legado = () => gravarBruto(estadoBase({ sessoes: { C: { at: iso(agora - 1000), trabalho: iso(agora - 1000) } } }));
+  legado();
+  atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 60_000);
+  assert.equal(lerEstado().seven_day.used_percentage, 48, 'sem limites, transcript antigo: segurada');
+  legado();
+  datarArq(trC, agora + 30_000);
+  atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 90_000);
+  assert.deepEqual(lerEstado().seven_day, jan(30, R7, agora + 90_000), 'sem limites, transcript novo: entra');
+});
+
+test('L6: valor alto plantado e sessão igual à leitura real: a menor fica segurada no máximo 1 h depois do at plantado', () => {
+  plantadoComSessoes(100, 100, { C: sessaoCom(30, 40) });
+  const tr = trCom('c.jsonl', velho);
+  const real = (t) => atualizarEstado(entrada({ session_id: 'C', transcript_path: tr, rate_limits: genuina(30, 40).rate_limits }), t);
+  real(agora + 60_000);
+  assert.equal(lerEstado().at, iso(agora));
+  assert.equal(lerEstado().five_hour.used_percentage, 100);
+  const t = agora + LIMITE_VELHO_MS + 60_000;
+  real(t);
+  assert.deepEqual([lerEstado().five_hour.used_percentage, lerEstado().seven_day.used_percentage, lerEstado().at], [30, 40, iso(t)]);
+});
+
+test('L7: valor baixo plantado e sessão parada com a leitura real maior: segura com a guardada fresca; passada 1 h ou com transcript escrito, entra', () => {
+  const tr = trCom('c.jsonl', velho);
+  const real = (t) => atualizarEstado(entrada({ session_id: 'C', transcript_path: tr, rate_limits: genuina(50, 60).rate_limits }), t);
+  plantadoComSessoes(10, 10, { C: sessaoCom(50, 60) });
+  real(agora + 60_000);
+  let e = lerEstado();
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage, e.at], [10, 10, iso(agora)], 'repetida: não entra nem renova');
+  const t = agora + LIMITE_VELHO_MS + 60_000;
+  real(t);
+  e = lerEstado();
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage, e.at], [50, 60, iso(t)], 'guardada velha: entra');
+  // Sessão que escreve o transcript entra na hora.
+  plantadoComSessoes(10, 10, { C: sessaoCom(50, 60) });
+  datarArq(tr, agora + 30_000);
+  real(agora + 60_000);
+  e = lerEstado();
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage, e.at], [50, 60, iso(agora + 60_000)]);
+});
+
+test('L8: todas as sessões paradas há mais de 1 h: a leitura repetida da parada entra (guardada velha)', () => {
+  plantadoComSessoes(14, 14, { B: sessaoCom(92, 92) });
+  const tr = trCom('b.jsonl', velho);
+  const t = agora + 2 * 3_600_000;
+  atualizarEstado(entrada({ session_id: 'B', transcript_path: tr, rate_limits: genuina(92, 92).rate_limits }), t);
+  const e = lerEstado();
+  assert.deepEqual([e.five_hour.used_percentage, e.seven_day.used_percentage, e.at], [92, 92, iso(t)]);
+});
+
+test('L9: transcript escrito sem resposta nova e valor antigo maior: entra; a próxima menor de sessão cujo valor mudou corrige', () => {
+  plantadoComSessoes(10, 14, { B: sessaoCom(10, 92, agora - 10 * 60_000), A: sessaoCom(10, 80, agora - 10 * 60_000) });
+  const trB = trCom('b.jsonl', agora + 30_000);
+  const trA = trCom('a.jsonl', velho);
+  atualizarEstado(entrada({ session_id: 'B', transcript_path: trB, rate_limits: genuina(10, 92).rate_limits }), agora + 60_000);
+  assert.deepEqual([lerEstado().seven_day.used_percentage, lerEstado().seven_day.at], [92, iso(agora + 60_000)]);
+  atualizarEstado(entrada({ session_id: 'A', transcript_path: trA, rate_limits: genuina(10, 14).rate_limits }), agora + 120_000);
+  assert.deepEqual([lerEstado().seven_day.used_percentage, lerEstado().seven_day.at], [14, iso(agora + 120_000)]);
+});
+
+test('L10: sem session_id válido ou sem transcript_path utilizável, a leitura menor fica segurada', () => {
+  const base = { rate_limits: rl(10, R5, 92, R7) };
+  const menor = { rate_limits: rl(10, R5, 14, R7) };
+  for (const [nome, extra] of [
+    ['sem session_id', { session_id: undefined }],
+    ['session_id inválido', { session_id: '../x' }],
+    ['sem transcript_path', { session_id: 'A' }],
+    ['transcript relativo', { session_id: 'A', transcript_path: 'a.jsonl' }],
+    ['transcript não .jsonl', { session_id: 'A', transcript_path: path.join(dir, 'a.txt') }],
+  ]) {
+    fs.rmSync(arqEstado(), { force: true });
+    atualizarEstado(entrada({ ...extra, ...base }), agora);
+    atualizarEstado(entrada({ ...extra, ...menor }), agora + 60_000);
+    assert.deepEqual(lerEstado().seven_day, jan(92, R7, agora), nome);
+  }
+});
