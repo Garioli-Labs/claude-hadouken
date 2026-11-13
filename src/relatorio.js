@@ -4,6 +4,7 @@ import { barrinha } from './barrinha.js';
 import { DATA_MAX_MS, numeroFinito, somaSegura } from './base.js';
 import { AMBIGUO, OUTROS, ROTULO_PLUGIN } from './custo-hooks.js';
 import { instante, LIMITE_VELHO_MS, limitesValidos, validarEstado } from './estado.js';
+import { trabalhoDaProjecao } from './previsao.js';
 import { CHAVES_CONCLUSAO, CHAVES_EVENTO, motivoValido, repoValido } from './github.js';
 import { ROTULO_PLANO, textoPlano } from './conta/plano.js';
 import { ESCOPOS_MAX, GATILHOS, escopoDe } from './guarda/resumo.js';
@@ -300,7 +301,9 @@ function montarLimites(estado, agoraMs, trabalho = null) {
   }
   if (i7 !== null) {
     const { used_percentage: u, resets_at: r } = lim.seven_day;
-    const { faixa, esperado, desvio } = faixa7d({ usado: u, resetsAt: r, agoraMs, trabalho });
+    // P-b: a mesma janela de projeção do SessionStart e do prompt-submit.
+    const trabalhoProjecao = trabalhoDaProjecao({ historico: e.historico, agoraMs, trabalho });
+    const { faixa, esperado, desvio } = faixa7d({ usado: u, resetsAt: r, agoraMs, trabalho, trabalhoProjecao });
     seven = { used_percentage: u, resets_at: r, esperado, desvio, modo: faixa, idade_min: i7 };
   }
   return {

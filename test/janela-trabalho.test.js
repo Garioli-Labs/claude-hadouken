@@ -9,6 +9,7 @@ import { DIAS, validarJanela, lerJanela, minutosUteis, avancarUteis } from '../s
 import { calcularRitmo } from '../src/ritmo.js';
 import { preverEstouro, REGRAS_JANELA, ritmo7dPorHora, ritmoMisturado, trabalhoDaProjecao } from '../src/previsao.js';
 import { ALERTAS_VAZIO, avaliarAlertas } from '../src/alerta.js';
+import { montarRelatorio } from '../src/relatorio.js';
 import { fraseEsgota } from '../src/uso/frase.js';
 import { linhaEstado } from '../src/hooks/linha-estado.js';
 import { estadoPainel } from '../src/uso/painel.js';
@@ -722,7 +723,39 @@ test('P-b: prompt-submit fora da janela e subindo: a linha econômica traz o rit
   assert.match(texto, /ritmo 0,3 pt\/h, sustentável 0,3 pt\/h; nesse ritmo acaba ter 17\/11 04:00/);
 });
 
-// --- achados do auditor do diff da 0.6.0 (C3, C4) ---------------------------
+// --- achados do auditor do diff da 0.6.0 (C2, C3, C4) -----------------------
+
+// J15: sábado 13:00, 96 %, reset segunda 08:00. Sem minuto útil até o reset, a
+// regra P-c (2 h úteis) não deixaria `so-leitura`; com a projeção em relógio
+// (P-b), vale só a regra de 24 h de relógio, e a faixa concorda com a projeção.
+test('J15: projeção em relógio (P-b): so-leitura vale pela regra de 24 h, no alerta e no relatório, iguais', () => {
+  const agoraMs = D(14, 13);
+  const resetMs = D(16, 8);
+  const estadoCom = (historico) => ({
+    versao: 1, at: iso(agoraMs),
+    five_hour: { used_percentage: 10, resets_at: (agoraMs + 3_600_000) / 1000, at: iso(agoraMs) },
+    seven_day: { used_percentage: 96, resets_at: resetMs / 1000, at: iso(agoraMs) },
+    sessoes: {}, historico,
+  });
+  const faixas = (historico) => {
+    const trabalhoProjecao = trabalhoDaProjecao({ historico, agoraMs, trabalho: J });
+    const limites = {
+      five_hour: { used_percentage: 10, resets_at: (agoraMs + 3_600_000) / 1000 },
+      seven_day: { used_percentage: 96, resets_at: resetMs / 1000 },
+    };
+    const { linhas, novos } = avaliarAlertas({ limites, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs, trabalho: J, trabalhoProjecao });
+    const rel = montarRelatorio({ estado: estadoCom(historico), agoraMs, trabalho: J });
+    return { alerta: novos.seven_day.faixa, linha: linhas.find((l) => l.startsWith('7d')) ?? '', relatorio: rel.limites.seven_day.modo };
+  };
+  const subindoSab = faixas(serieAte(agoraMs, 94.5, 96, 15 * MIN));
+  assert.equal(subindoSab.alerta, 'so-leitura');
+  assert.match(subindoSab.linha, /só leitura/);
+  assert.equal(subindoSab.relatorio, 'so-leitura', 'o relatório diz o mesmo que o alerta');
+  // Uso parado fora da janela: a projeção segue a janela e vale P-c (J14), sem so-leitura nos dois.
+  const paradoSab = faixas(serieAte(agoraMs, 96, 96, 15 * MIN));
+  assert.notEqual(paradoSab.alerta, 'so-leitura');
+  assert.equal(paradoSab.relatorio, paradoSab.alerta);
+});
 
 test('C3: P-b fora da janela com o uso subindo não mistura o perfil (R10): previsão igual à sem perfil', () => {
   const limites = limites7d(96, RESET_DOM);

@@ -68,7 +68,9 @@ export function faixa5h(pct) {
 
 // P-c (v0.6.0): com janela de trabalho, só leitura pede também ao menos
 // MIN_UTEIS_SO_LEITURA_MIN minutos úteis até o reset (a mesma cobertura de 2 h
-// da projeção de 7d); sem janela (null), só a regra das 24 h.
+// da projeção de 7d); sem janela (null), só a regra das 24 h. Com a projeção
+// em relógio (P-b: `trabalhoProjecao` null), a exigência não vale: faixa e
+// projeção dizem a mesma coisa (J15).
 const MIN_UTEIS_SO_LEITURA_MIN = 120;
 const ateOResetTemMinutosUteis = (trabalho, agoraMs, resetMs) => trabalho === null || trabalho === undefined
   || minutosUteis(trabalho, agoraMs, resetMs) >= MIN_UTEIS_SO_LEITURA_MIN;
@@ -79,10 +81,13 @@ const ateOResetTemMinutosUteis = (trabalho, agoraMs, resetMs) => trabalho === nu
 // 90% e o reset está a mais de 24 h. O limiar de 90% é inteiro e compara o uso
 // cru, o que concorda com o piso exibido. `desvio` é a distância de ritmo.js.
 // Com `trabalho` (janela de trabalho, v0.6.0), só leitura pede ainda 2 h úteis
-// até o reset (P-c); sem ele, as 24 h de relógio de sempre.
-export function faixa7d({ usado, resetsAt, agoraMs, trabalho = null }) {
+// até o reset (P-c); sem ele, as 24 h de relógio de sempre. `trabalhoProjecao`
+// (previsao.js, trabalhoDaProjecao, P-b) é a janela da projeção daquele
+// momento: null (uso subindo fora da janela, projeção em relógio) dispensa as
+// 2 h úteis; sem ele, vale `trabalho`. `esperado` e `modo` seguem a janela.
+export function faixa7d({ usado, resetsAt, agoraMs, trabalho = null, trabalhoProjecao = trabalho }) {
   const { esperado, desvio, modo } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs, trabalho });
-  const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS && ateOResetTemMinutosUteis(trabalho, agoraMs, resetsAt * 1000) ? 'so-leitura' : modo;
+  const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS && ateOResetTemMinutosUteis(trabalhoProjecao, agoraMs, resetsAt * 1000) ? 'so-leitura' : modo;
   return { faixa, esperado, desvio };
 }
 
@@ -330,7 +335,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
 
   const f7 = janelas.seven_day;
   if (f7) {
-    const calculada = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs, trabalho });
+    const calculada = faixa7d({ usado: f7.used_percentage, resetsAt: f7.resets_at, agoraMs, trabalho, trabalhoProjecao });
     const esperado = calculada.esperado;
     // O piso é "pelo menos X%": folga com leitura velha pode ser falsa, vale
     // como normal (menor M-3 do portão v0.4.0).
