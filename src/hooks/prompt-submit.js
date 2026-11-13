@@ -58,7 +58,7 @@ rodarHook(async (entrada) => {
       ARQ_ALERTAS, ALERTAS_MAX_BYTES, alertasGuardados, alertasParaGravar, precisaGravar, urgenciaDoAlerta,
       ARQ_PROJECAO, projecaoGuardada, projecaoParaGravar, precisaGravarProjecao,
     },
-    { preverEstouro, ritmo7dPorHora },
+    { preverEstouro, ritmo7dPorHora, trabalhoDaProjecao },
   ] = await Promise.all([
     import('../estado.js'),
     import('../alerta.js'),
@@ -110,6 +110,8 @@ rodarHook(async (entrada) => {
   const { linhas, novos } = avaliarAlertas({
     limites, leituras, ultima, anteriores: { ...anteriores, projecao: projecaoGuardada(projecaoLida) }, sessionId, agoraMs,
     previsao, limiares, trabalho,
+    // P-b: fora da janela com o uso subindo, a parte de ritmo segue o relógio.
+    trabalhoProjecao: trabalhoDaProjecao({ historico: estado?.historico, agoraMs, trabalho }),
     ritmo7dH: ritmo7dPorHora({ historico: estado?.historico, agoraMs, trabalho }),
     sessoesAtivas: ativas,
   });

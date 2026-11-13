@@ -270,7 +270,9 @@ function avaliarProjecao({ limites, guardada, previsao, sessoesAtivas, agoraMs, 
 // sem eles, nenhum aviso de projeção. `leituras` (leiturasComPiso) e `ultima`
 // (ultimaLeitura), de estado.js, dão as faixas com piso e a linha sem leitura
 // nova (spec v0.4.0 §10, item 1); a projeção continua só com `limites`, os
-// frescos. Nunca lança (restrição global do
+// frescos. `trabalho` é a janela de trabalho da faixa de 7d; `trabalhoProjecao`
+// (previsao.js, trabalhoDaProjecao, P-b), a da parte de ritmo da linha
+// econômica, e sem ela vale `trabalho`. Nunca lança (restrição global do
 // plano v0.2.0): entrada ilegível (sem objeto, getter que lança, Proxy) não
 // dá aviso nenhum e devolve memória vazia, o lado seguro de
 // alertas-gravados.js (a faixa atual é anunciada de novo, nunca uma descida
@@ -283,7 +285,7 @@ export function avaliarAlertas(entrada) {
   }
 }
 
-function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH, limiares, trabalho = null }) {
+function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, previsao, sessoesAtivas, ritmo7dH, limiares, trabalho = null, trabalhoProjecao = trabalho }) {
   const ant = anteriores ?? ALERTAS_VAZIO;
   const novos = {
     five_hour: ant.five_hour, seven_day: ant.seven_day, sem_leitura: { ...ant.sem_leitura }, projecao: { ...ant.projecao },
@@ -330,7 +332,7 @@ function avaliar({ limites, leituras, ultima, anteriores, sessionId, agoraMs, pr
     if (!mesma && guardada && RESTRITIVAS_7D.has(guardada.faixa) && faixa === 'normal') {
       linhas.push(`7d: janela nova, ${em(f7)} vs ${pct(esperado)} esperado → modo normal — ${SUSPENSAS}.`);
     } else if (anterior !== faixa && !(anterior === null && faixa === 'normal')) {
-      linhas.push(linha7d(faixa, f7, esperado, agoraMs, ritmo7dH, trabalho));
+      linhas.push(linha7d(faixa, f7, esperado, agoraMs, ritmo7dH, trabalhoProjecao));
     }
     novos.seven_day = { resets_at: f7.resets_at, faixa };
   }

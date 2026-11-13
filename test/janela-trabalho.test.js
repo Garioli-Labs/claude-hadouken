@@ -7,7 +7,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DIAS, validarJanela, lerJanela, minutosUteis, avancarUteis } from '../src/janela.js';
 import { calcularRitmo } from '../src/ritmo.js';
-import { preverEstouro, REGRAS_JANELA, ritmo7dPorHora, ritmoMisturado } from '../src/previsao.js';
+import { preverEstouro, REGRAS_JANELA, ritmo7dPorHora, ritmoMisturado, trabalhoDaProjecao } from '../src/previsao.js';
+import { ALERTAS_VAZIO, avaliarAlertas } from '../src/alerta.js';
 import { fraseEsgota } from '../src/uso/frase.js';
 import { linhaEstado } from '../src/hooks/linha-estado.js';
 import { estadoPainel } from '../src/uso/painel.js';
@@ -186,9 +187,15 @@ test('preverEstouro com janela: o instante depois do reset é null', () => {
   assert.equal(p.seven_day, null);
 });
 
+// P-b: fora da janela com o uso subindo nas últimas 2 h, a projeção segue o
+// relógio e o J3 não se aplica. O J3 vale quando a subida da amostra de 3 h
+// ficou antes das últimas 2 h: sobe de `de` a `ate` na primeira hora e fica em
+// `ate` depois.
+const subiuSoNaPrimeiraHora = (fimMs, de, ate) => serieAte(fimMs, de, ate, 15 * MIN).map((p, i) => (i <= 4 ? { ...p, d7: de + ((ate - de) * i) / 4 } : { ...p, d7: ate }));
+
 test('J3: preverEstouro com a amostra toda fora da janela → null (sem taxa)', () => {
   const agoraMs = D(8, 23);
-  const historico = serie(agoraMs, 40, 50);
+  const historico = subiuSoNaPrimeiraHora(agoraMs, 40, 50);
   const limites = limites7d(50, D(15, 19));
   assert.ok(preverEstouro({ historico, limites, agoraMs }).seven_day !== null, 'sem janela há projeção');
   assert.equal(preverEstouro({ historico, limites, agoraMs, trabalho: J }).seven_day, null);
@@ -493,7 +500,7 @@ test('A1: ritmo7dPorHora com janela abaixo de 120 min úteis → null (J7)', () 
 
 test('A1: ritmo7dPorHora com a amostra inteira fora da janela → null (J3)', () => {
   const agoraMs = D(14, 12);
-  assert.equal(ritmo7dPorHora({ historico: serieAte(agoraMs, 10, 12, 15 * MIN), agoraMs, trabalho: J }), null);
+  assert.equal(ritmo7dPorHora({ historico: subiuSoNaPrimeiraHora(agoraMs, 10, 12), agoraMs, trabalho: J }), null);
 });
 
 test('A1: ritmoMisturado com janela só mistura o perfil quando agora está dentro dela (R10)', () => {
@@ -545,4 +552,172 @@ test('A1: prompt-submit: o ritmo, o sustentável e o "acaba" da linha econômica
   const com = textoDe(hook('prompt-submit.js', montar({ janela: CFG }), prompt, { agoraMs }));
   assert.match(com, /modo econômico/);
   assert.match(com, /ritmo 1,0 pt\/h, sustentável 0,9 pt\/h; nesse ritmo acaba ter 17\/11 16:00/);
+});
+
+// --- P-b: fora da janela com o consumo subindo, a projeção é de relógio -----
+//
+// Spec §8.2, P-b. Com janela configurada, agora FORA dela e a coluna de 7 dias
+// subindo nas últimas 2 h de relógio (ao menos 2 pontos, último > primeiro),
+// a projeção de 7 dias daquele momento (preverEstouro, ritmo7dPorHora, a parte
+// de ritmo e a frase "esgota") trata `trabalho` como null: 168 h. O esperado e
+// a faixa seguem com a janela. Dentro da janela, ou fora sem subida, J1 como
+// antes. Exemplo da spec: sábado 13:00–16:00, 94,5 → 96 %, reset domingo 19:00.
+
+const SAB_16 = D(14, 16);
+const subindo = serieAte(SAB_16, 94.5, 96, 15 * MIN);
+const parado = serieAte(SAB_16, 96, 96, 15 * MIN);
+const RESET_DOM = D(15, 19);
+
+test('P-b: trabalhoDaProjecao devolve a janela dentro dela e null sem janela', () => {
+  assert.equal(trabalhoDaProjecao({ historico: subindo, agoraMs: SAB_16, trabalho: null }), null);
+  assert.equal(trabalhoDaProjecao({ historico: subindo, agoraMs: SAB_16 }), null);
+  // Segunda 10:00, dentro da janela: o consumo subindo não muda nada.
+  const dentro = D(9, 10);
+  assert.equal(trabalhoDaProjecao({ historico: serieAte(dentro, 10, 12, 15 * MIN), agoraMs: dentro, trabalho: J }), J);
+  // 09:00 já é dentro; 21:00 já é fora.
+  assert.equal(trabalhoDaProjecao({ historico: serieAte(D(9, 9), 10, 12, 15 * MIN), agoraMs: D(9, 9), trabalho: J }), J);
+  assert.equal(trabalhoDaProjecao({ historico: serieAte(D(9, 21), 10, 12, 15 * MIN), agoraMs: D(9, 21), trabalho: J }), null);
+});
+
+test('P-b: fora da janela, sobe nas últimas 2 h → null (relógio); sem subir → a janela', () => {
+  assert.equal(trabalhoDaProjecao({ historico: subindo, agoraMs: SAB_16, trabalho: J }), null);
+  // Parado: o último não é maior que o primeiro.
+  assert.equal(trabalhoDaProjecao({ historico: parado, agoraMs: SAB_16, trabalho: J }), J);
+  // Caindo (troca de conta): idem.
+  assert.equal(trabalhoDaProjecao({ historico: serieAte(SAB_16, 96, 94, 15 * MIN), agoraMs: SAB_16, trabalho: J }), J);
+  // Sem histórico, ou histórico que não é lista.
+  assert.equal(trabalhoDaProjecao({ historico: [], agoraMs: SAB_16, trabalho: J }), J);
+  assert.equal(trabalhoDaProjecao({ historico: undefined, agoraMs: SAB_16, trabalho: J }), J);
+});
+
+test('P-b: a subida tem de estar nas últimas 2 h de relógio, com 2 pontos ou mais', () => {
+  // Subiu antes das 14:00 e parou: nas últimas 2 h (14:00 a 16:00) não subiu.
+  const subiuEParou = [
+    { at: iso(D(14, 13)), h5: null, d7: 94 },
+    ...[0, 30, 60, 90, 120].map((m) => ({ at: iso(D(14, 14) + m * MIN), h5: null, d7: 95 })),
+  ];
+  assert.equal(trabalhoDaProjecao({ historico: subiuEParou, agoraMs: SAB_16, trabalho: J }), J);
+  // Um ponto só nas últimas 2 h.
+  const umPonto = [{ at: iso(D(14, 13)), h5: null, d7: 94 }, { at: iso(D(14, 15, 59)), h5: null, d7: 96 }];
+  assert.equal(trabalhoDaProjecao({ historico: umPonto, agoraMs: SAB_16, trabalho: J }), J);
+  // Dois pontos subindo: basta.
+  const doisPontos = [{ at: iso(D(14, 14, 30)), h5: null, d7: 95 }, { at: iso(D(14, 15, 59)), h5: null, d7: 96 }];
+  assert.equal(trabalhoDaProjecao({ historico: doisPontos, agoraMs: SAB_16, trabalho: J }), null);
+  // Ponto de d7 inválido não conta.
+  const invalidos = [{ at: iso(D(14, 14, 30)), h5: null, d7: 'x' }, { at: iso(D(14, 15, 59)), h5: null, d7: 96 }];
+  assert.equal(trabalhoDaProjecao({ historico: invalidos, agoraMs: SAB_16, trabalho: J }), J);
+});
+
+test('P-b: sábado 13:00–16:00 a 96 % e subindo → previsão de estouro em relógio de parede', () => {
+  const limites = limites7d(96, RESET_DOM);
+  const deRelogio = preverEstouro({ historico: subindo, limites, agoraMs: SAB_16, trabalho: null }).seven_day;
+  // 0,5 pt/h, faltam 4 pt: 8 h depois, domingo 00:00.
+  assert.equal(deRelogio, D(15, 0));
+  // Com janela, a mesma série dá o mesmo instante (antes era null, J3).
+  assert.equal(preverEstouro({ historico: subindo, limites, agoraMs: SAB_16, trabalho: J }).seven_day, deRelogio);
+  // Sem subir, J1 como antes: sem taxa útil, sem previsão.
+  assert.equal(preverEstouro({ historico: parado, limites, agoraMs: SAB_16, trabalho: J }).seven_day, null);
+});
+
+test('P-b: dentro da janela a projeção segue em horas úteis (J1)', () => {
+  const agoraMs = D(13, 20);
+  const historico = serie(agoraMs, 93, 95);
+  assert.equal(preverEstouro({ historico, limites: limites7d(95, D(17, 19)), agoraMs, trabalho: J }).seven_day, D(16, 13));
+});
+
+test('P-b: ritmo7dPorHora fora da janela e subindo é pontos por hora de relógio', () => {
+  // 1,5 pt em 180 min: 0,5 pt/h. Antes: null (sem minuto útil na amostra, J3).
+  assert.ok(Math.abs(ritmo7dPorHora({ historico: subindo, agoraMs: SAB_16, trabalho: J }) - 0.5) < 1e-9);
+  assert.equal(ritmo7dPorHora({ historico: parado, agoraMs: SAB_16, trabalho: J }), null);
+});
+
+test('P-b: linhaEstado (SessionStart): a cauda de 7 dias diz "esgota", não "não esgota"', () => {
+  const leituras = {
+    five_hour: { used_percentage: 10, resets_at: (SAB_16 + 3_600_000) / 1000, fresca: true },
+    seven_day: { used_percentage: 96, resets_at: RESET_DOM / 1000, fresca: true },
+  };
+  const trabalhoProj = trabalhoDaProjecao({ historico: subindo, agoraMs: SAB_16, trabalho: J });
+  assert.equal(trabalhoProj, null);
+  // Só com a janela, a frase de antes.
+  const antes = linhaEstado(leituras, SAB_16, null, null, J);
+  assert.match(antes, /não esgota antes do reinício\.$/);
+  assert.match(linhaEstado(leituras, SAB_16, null, null, J, trabalhoProj), /; nesse ritmo, esgota por volta das 21:52\.$/);
+  // Sem o 6º argumento, vale a janela (os chamadores de antes).
+  assert.equal(linhaEstado(leituras, SAB_16, null, null, J, undefined), antes);
+});
+
+test('P-b: avaliarAlertas: a parte de ritmo da linha econômica usa a projeção de relógio', () => {
+  // Semana de terça 10, 19:00 a terça 17, 19:00: sábado 16:00 tem 38 h úteis de 60 (esperado 63 %); 80 % é econômico.
+  const limites = {
+    five_hour: { used_percentage: 10, resets_at: (SAB_16 + 3_600_000) / 1000 },
+    seven_day: { used_percentage: 80, resets_at: D(17, 19) / 1000 },
+  };
+  const linha7 = (extra) => avaliarAlertas({
+    limites, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs: SAB_16, ritmo7dH: 1 / 3, trabalho: J, ...extra,
+  }).linhas.find((l) => l.startsWith('7d')) ?? '';
+  // Relógio: 20 pt ÷ 75 h até o reset = 0,27 pt/h (0,3); a 0,33 pt/h acaba em 60 h, terça 04:00.
+  assert.match(linha7({ trabalhoProjecao: null }), /modo econômico.*; ritmo 0,3 pt\/h, sustentável 0,3 pt\/h; nesse ritmo acaba ter 17\/11 04:00\.$/);
+  // Sem `trabalhoProjecao`, vale a janela: 22 h úteis até o reset, 20 ÷ 22 = 0,9 pt/h.
+  assert.match(linha7({}), /modo econômico.*; ritmo 0,3 pt\/h, sustentável 0,9 pt\/h; nesse ritmo não acaba antes do reset\.$/);
+});
+
+test('P-b: estadoPainel: a dica da semana usa a projeção de relógio', () => {
+  const dicaCom = (historico) => {
+    const d = novoDir();
+    const at = iso(SAB_16);
+    fs.writeFileSync(path.join(d, 'estado.json'), JSON.stringify({
+      versao: 1, at,
+      five_hour: { used_percentage: 10, resets_at: (SAB_16 + 3_600_000) / 1000, at },
+      seven_day: { used_percentage: 96, resets_at: RESET_DOM / 1000, at },
+      sessoes: {}, historico,
+    }));
+    gravarConfig(d, { janela: CFG });
+    return estadoPainel({ dir: d, agoraMs: SAB_16 }).dica;
+  };
+  assert.match(dicaCom(subindo), /\*\*Semana \(todos os modelos\):\*\*[^\n]*esgota por volta das 21:52/);
+  assert.match(dicaCom(parado), /\*\*Semana \(todos os modelos\):\*\*[^\n]*não esgota antes do reinício/);
+});
+
+test('P-b: guarda: G2 de 7 dias dispara fora da janela com o consumo subindo', () => {
+  // 84 % a 1 pt/h: 16 h para 100 %, dentro do horizonte de 24 h, antes do reset (27 h). O teto G4 é 85 %.
+  const montar = (historico) => {
+    const d = novoDir();
+    const at = iso(SAB_16);
+    fs.writeFileSync(path.join(d, 'estado.json'), JSON.stringify({
+      versao: 1, at,
+      five_hour: { used_percentage: 20, resets_at: (SAB_16 + 3 * 3_600_000) / 1000, at },
+      seven_day: { used_percentage: 84, resets_at: RESET_DOM / 1000, at },
+      sessoes: {}, historico,
+    }));
+    gravarConfig(d, { janela: CFG });
+    return d;
+  };
+  const sobe = avaliarGuarda({ dir: montar(serieAte(SAB_16, 81, 84, 15 * MIN)), agoraMs: SAB_16, sessionId: 's' });
+  assert.deepEqual(sobe.ativas, ['seven_day']);
+  assert.equal(sobe.motivos[0].gatilho, 'G2');
+  assert.deepEqual(avaliarGuarda({ dir: montar(serieAte(SAB_16, 84, 84, 15 * MIN)), agoraMs: SAB_16, sessionId: 's' }).ativas, []);
+});
+
+test('P-b: prompt-submit fora da janela e subindo: a linha econômica traz o ritmo de relógio', () => {
+  // Semana de terça 10, 19:00 a terça 17, 19:00: sábado 16:00 tem 38 h úteis de 60 (esperado 63 %); 80 % é econômico.
+  const d = novoDir();
+  const at = iso(SAB_16);
+  fs.writeFileSync(path.join(d, 'estado.json'), JSON.stringify({
+    versao: 1, at,
+    five_hour: { used_percentage: 10, resets_at: (SAB_16 + 3 * 3_600_000) / 1000, at },
+    seven_day: { used_percentage: 80, resets_at: D(17, 19) / 1000, at },
+    sessoes: {}, historico: serieAte(SAB_16, 79, 80, 15 * MIN),
+  }));
+  gravarConfig(d, { janela: CFG });
+  const antes = process.env.HADOUKEN_HOME;
+  process.env.HADOUKEN_HOME = d;
+  try { assert.ok(registrarSessao('s1', SAB_16).ok); } finally {
+    if (antes === undefined) delete process.env.HADOUKEN_HOME;
+    else process.env.HADOUKEN_HOME = antes;
+  }
+  const prompt = { session_id: 's1', hook_event_name: 'UserPromptSubmit', cwd: '/tmp/x', prompt: 'olá' };
+  const texto = JSON.parse(hook('prompt-submit.js', d, prompt, { agoraMs: SAB_16 })).hookSpecificOutput.additionalContext;
+  assert.match(texto, /7d 80% vs 63% esperado → modo econômico/, 'o esperado segue com a janela');
+  // 0,3 pt/h de relógio; 20 pt em 75 h até o reset: 0,3 pt/h (com a janela seriam 0,9: 22 h úteis).
+  assert.match(texto, /ritmo 0,3 pt\/h, sustentável 0,3 pt\/h; nesse ritmo acaba ter 17\/11 04:00/);
 });

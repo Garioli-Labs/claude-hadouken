@@ -21,7 +21,9 @@ import { avancarUteis, minutosUteis } from './janela.js';
 // com menos minutos úteis que a cobertura mínima do 7d (2 h; inclui J3, a
 // amostra sem nenhum) dá null. O 5h nunca usa a janela. O mesmo ritmo por
 // minuto útil alimenta ritmo7dPorHora (linha econômica), e a mistura do perfil
-// (ritmoMisturado) só vale com agora dentro da janela.
+// (ritmoMisturado) só vale com agora dentro da janela. Fora da janela com o
+// 7d subindo nas últimas 2 h, a projeção volta ao relógio (trabalhoDaProjecao,
+// P-b).
 //
 // Com o aprendizado ligado (spec aprendizado §4.3, R10), o UserPromptSubmit
 // passa `perfil` ({ peso, h5, d7 } de perfilDaPrevisao): o ritmo atual é
@@ -41,6 +43,8 @@ export const REGRAS_JANELA = Object.freeze({
   seven_day: Object.freeze({ pontosMin: 10, coberturaMinMs: 2 * 3_600_000 }),
 });
 const MINUTO_MS = 60_000;
+// P-b: as últimas horas de relógio em que a subida do 7d vale como uso fora da janela.
+const SUBIDA_FORA_MS = 2 * 3_600_000;
 // O máximo do item previsao.pesoPerfil (src/aprendizado/arquivos.js, ITENS).
 const PESO_PERFIL_MAX = 0.5;
 // Ponto até 5 min no futuro ainda vale: a mesma folga de relógio de instante
@@ -155,6 +159,29 @@ function inclinacaoPorMinutoUtil(pontos, regras, trabalho, agoraMs) {
   return b * ((agoraMs - inicioMs) / MINUTO_MS / uteis);
 }
 
+// P-b (v0.6.0): a janela de trabalho com que a projeção de 7 dias de agora
+// conta. Com janela, agora FORA dela e a coluna de 7 dias subindo nas últimas
+// 2 h de relógio (ao menos 2 pontos e o último maior que o primeiro), quem
+// usa o Claude fora do expediente está gastando a semana agora: a projeção
+// segue o relógio de parede, como sem janela, e a função devolve null. Dentro
+// da janela, fora dela sem subida, ou sem janela (null), devolve `trabalho`
+// como veio (J1). Só a projeção a usa (preverEstouro, ritmo7dPorHora, a parte
+// de ritmo e a frase "esgota"); o esperado e a faixa seguem com a janela.
+// Nunca lança.
+export function trabalhoDaProjecao(opcoes) {
+  try {
+    const { historico, agoraMs, trabalho = null } = opcoes ?? {};
+    if (trabalho === null || trabalho === undefined) return null;
+    if (!Array.isArray(historico) || !numeroFinito(agoraMs)) return trabalho;
+    if (minutosUteis(trabalho, agoraMs, agoraMs + MINUTO_MS) > 0) return trabalho;
+    const pontos = pontosDaColuna(historico, 'd7', SUBIDA_FORA_MS, agoraMs).sort((a, b) => a[0] - b[0]);
+    if (pontos.length >= 2 && pontos[pontos.length - 1][1] > pontos[0][1]) return null;
+    return trabalho;
+  } catch {
+    return trabalho ?? null;
+  }
+}
+
 // Previsão de uma janela: os pontos da coluna dentro do alcance (de agora −
 // alcance até agora + FUTURO_MS, porcentagem em [0, 100]), a inclinação deles
 // e agora + (100 − usado) ÷ inclinação (com as regras da janela), arredondado
@@ -186,8 +213,10 @@ export function preverEstouro(opcoes) {
   try {
     const { historico, limites, agoraMs, perfil = null, trabalho = null } = opcoes ?? {};
     if (!Array.isArray(historico) || !numeroFinito(agoraMs) || limites === null || typeof limites !== 'object') return previsao;
+    // P-b: com o uso subindo fora da janela, a projeção de 7d segue o relógio.
+    const trabalho7d = trabalhoDaProjecao({ historico, agoraMs, trabalho });
     for (const [k, [coluna, alcance, regras]] of Object.entries(ALCANCE)) {
-      previsao[k] = preverJanela(historico, coluna, alcance, regras, limites[k], agoraMs, perfil, k === 'seven_day' ? trabalho : null);
+      previsao[k] = preverJanela(historico, coluna, alcance, regras, limites[k], agoraMs, perfil, k === 'seven_day' ? trabalho7d : null);
     }
     return previsao;
   } catch {
@@ -206,7 +235,7 @@ export function ritmo7dPorHora(opcoes) {
     const { historico, agoraMs, trabalho = null } = opcoes ?? {};
     if (!Array.isArray(historico) || !numeroFinito(agoraMs)) return null;
     const [coluna, alcance, regras] = ALCANCE.seven_day;
-    const b = inclinacaoPorMinutoUtil(pontosDaColuna(historico, coluna, alcance, agoraMs), regras, trabalho, agoraMs);
+    const b = inclinacaoPorMinutoUtil(pontosDaColuna(historico, coluna, alcance, agoraMs), regras, trabalhoDaProjecao({ historico, agoraMs, trabalho }), agoraMs);
     return b === null ? null : Math.max(0, b * 60);
   } catch {
     return null;

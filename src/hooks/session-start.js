@@ -149,7 +149,13 @@ rodarHook(async (entrada) => {
   try {
     janela = (await import('../janela.js')).lerJanela(dir);
   } catch { /* sem janela nesta sessão: 168 h */ }
-  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs), plano, janela.janela)];
+  // P-b: fora da janela, com o uso subindo nas últimas 2 h, a cauda de 7d
+  // projeta em relógio; qualquer falha deixa a janela.
+  let trabalhoProjecao = janela.janela;
+  try {
+    trabalhoProjecao = (await import('../previsao.js')).trabalhoDaProjecao({ historico: estado?.historico, agoraMs, trabalho: janela.janela });
+  } catch { /* a janela */ }
+  const saida = [linhas.linhaEstado(leiturasComPiso(estado, agoraMs), agoraMs, ultimaLeitura(estado, agoraMs), plano, janela.janela, trabalhoProjecao)];
   if (!registro.ok) saida.push(linhas.linhaSemRegistro(registro.motivo));
   if (!shims.ok) saida.push(linhas.linhaShimIndisponivel(shims.motivo));
   // v0.5.2: a instalação do item do VS Code falhou e a versão atual não está

@@ -71,9 +71,11 @@ function parte(nome, l, reset) {
 // alerta.js, com `ultima` (ultimaLeitura). A cauda de 7d só com a leitura
 // fresca. Nunca lança.
 // v0.5.9: no Ultra sem leitura de 5 h, a parte do 5h sai (plano 'ultra').
-// v0.6.0: `trabalho` (janela.js) é a janela de trabalho, que a cauda de 7d e a
-// faixa da linha "sem leitura nova" usam; null, as 168 h.
-export function linhaEstado(leituras, agoraMs, ultima = null, plano = null, trabalho = null) {
+// v0.6.0: `trabalho` (janela.js) é a janela de trabalho, que a faixa da linha
+// "sem leitura nova" usa; null, as 168 h. A cauda de 7d usa `trabalhoProjecao`
+// (previsao.js, trabalhoDaProjecao, P-b: null quando o uso sobe fora da
+// janela), e sem ele vale `trabalho`.
+export function linhaEstado(leituras, agoraMs, ultima = null, plano = null, trabalho = null, trabalhoProjecao = trabalho) {
   try {
     const l = ehObjeto(leituras) ? leituras : {};
     // Cada janela passa de novo por janelaValida (util.js). Sem agora
@@ -89,7 +91,7 @@ export function linhaEstado(leituras, agoraMs, ultima = null, plano = null, trab
       f5 ? parte('5h', f5, horaLocal(f5.resets_at)) : '5h sem leitura',
       f7 ? parte('7d', f7, quandoLocal(f7.resets_at, agoraMs)) : '7d sem leitura',
     ].slice(sem5h ? 1 : 0);
-    const cauda = f7 && f7.fresca !== false ? cauda7d(f7, agoraMs, trabalho) : '';
+    const cauda = f7 && f7.fresca !== false ? cauda7d(f7, agoraMs, trabalhoProjecao) : '';
     return `Consumo: ${partes.join(' · ')}${cauda}.`;
   } catch {
     return LINHA_SEM_LEITURA_NUNCA;

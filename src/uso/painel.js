@@ -7,6 +7,7 @@ import { diaHora, horaLocal } from '../util.js';
 import { acharClaude, ambienteUso, rodarUso } from './oficial.js';
 import { fraseEsgota } from './frase.js';
 import { lerJanela } from '../janela.js';
+import { trabalhoDaProjecao } from '../previsao.js';
 import { registrarEvento } from '../eventos/eventos.js';
 import { faixasDoPainel, intervaloDoPainelMs } from '../aprendizado/registro.js';
 import { planoEfetivo, semCincoHoras } from '../conta/plano.js';
@@ -431,9 +432,12 @@ export function estadoPainel(opcoes) {
       nivel = pior >= faixas.vermelho ? 'erro' : pior >= faixas.amarelo ? 'aviso' : 'ok';
     }
     const { janela: trabalho } = lerJanela(dir);
+    // P-b: a semana de todos os modelos projeta em relógio quando o uso sobe
+    // fora da janela. O histórico é dessa coluna; o Fable segue a janela.
+    const trabalhoSemana = trabalhoDaProjecao({ historico: estado?.historico, agoraMs, trabalho });
     const linhas = [
       ...(sem5h ? [] : [linhaJanela('**Sessão (5h):**', sessao, JANELA_5H_MS, agoraMs)]),
-      linhaJanela('**Semana (todos os modelos):**', semana, JANELA_7D_MS, agoraMs, trabalho),
+      linhaJanela('**Semana (todos os modelos):**', semana, JANELA_7D_MS, agoraMs, trabalhoSemana),
       linhaJanela('**Semana (Fable):**', fable, JANELA_7D_MS, agoraMs, trabalho),
       `Sessões ativas: ${sessoesAtivas(estado, agoraMs)}`,
       linhaIdade(lidoMs, agoraMs),
