@@ -197,6 +197,7 @@ O plugin completo tem quatro subprojetos, cada um com spec, plano e revisão pr�
 - **v0.5.5** = segurança, estabilidade, compatibilidade e uso de RAM.
 - **v0.5.6** = o plano Pro ou Max nas estimativas, agentes ociosos e menos tokens por sessão.
 - **v0.5.9** = planos Pro, Max e Ultra; o kit só com as skills do Garioli e sugestão das de terceiros; a barra em cada perfil do VS Code; uma conta do Claude Code por janela.
+- **v0.5.10** = no macOS, a RAM livre passa a contar a memória disponível (a leitura oficial do uso e o aviso de RAM voltam a funcionar) e o próprio Claude deixa de ser sugerido para fechar; a extensão do VS Code não fica mais presa no módulo antigo depois de uma atualização.
 - **v0.6.0** = avisos no [Pipa](https://github.com/LucasGarioli/pipa-vscode-remote) (prioridade), no WhatsApp ou nos dois, à escolha do usuário (pushes e tarefas concluídas). Ganha spec própria, e a segurança é pré-condição: a credencial fica fora do repo, a ativação é por projeto e as mensagens levam o mínimo, sem código, caminhos pessoais nem segredos.
 - **v1.0** = A + B + C + D.
 

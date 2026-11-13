@@ -261,12 +261,16 @@ let relogio = null;
 
 // Importa <dirDados>/bin/painel.mjs com um ?t= novo (um import que falhou não
 // fica guardado para a próxima tentativa) e confere os dois nomes combinados.
-// Rejeita em qualquer falha.
+// Rejeita em qualquer falha. O ?t= leva também um contador: dois imports no
+// mesmo milissegundo teriam o mesmo endereço e o segundo devolveria o módulo
+// velho guardado, que ficaria até o shim mudar de novo.
+let importes = 0;
 async function importarPainel() {
   const dir = dirDados();
   if (dir === null) throw new Error('sem pasta de dados');
   const texto = lerShim();
-  const m = await import(`${pathToFileURL(path.join(dir, 'bin', 'painel.mjs')).href}?t=${Date.now()}`);
+  importes += 1;
+  const m = await import(`${pathToFileURL(path.join(dir, 'bin', 'painel.mjs')).href}?t=${Date.now()}-${importes}`);
   if (typeof m.estadoPainel !== 'function' || typeof m.talvezAtualizar !== 'function') throw new Error('painel incompleto');
   shimCarregado = texto;
   return m;
