@@ -145,13 +145,16 @@ export function dirHadouken(env = process.env) {
 const ehPasta = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const existe = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
 
-// CLAUDE_PROJECT_DIR (absoluto e existente) → senão o diretório mais próximo,
-// do cwd para cima, com .git (pasta ou arquivo, como no worktree), achado por
-// subida de pastas e sem executar git → senão o cwd, com comGit false.
+// O diretório mais próximo com .git (pasta ou arquivo, como no worktree), de
+// CLAUDE_PROJECT_DIR (absoluto e existente; senão do cwd) para cima, achado
+// por subida de pastas e sem executar git: o Claude Code põe em
+// CLAUDE_PROJECT_DIR a pasta em que a sessão foi aberta, que pode ser uma
+// subpasta do repositório (R8). Sem .git acima: o próprio CLAUDE_PROJECT_DIR;
+// sem ele, o cwd, com comGit false.
 export function raizProjeto({ env = process.env, cwd = process.cwd() } = {}) {
-  const doAmbiente = absolutoLimpo(env?.CLAUDE_PROJECT_DIR);
-  if (doAmbiente !== null && ehPasta(doAmbiente)) return { raiz: doAmbiente, comGit: true };
-  const inicio = path.resolve(typeof cwd === 'string' && cwd !== '' ? cwd : process.cwd());
+  const bruto = absolutoLimpo(env?.CLAUDE_PROJECT_DIR);
+  const doAmbiente = bruto !== null && ehPasta(bruto) ? bruto : null;
+  const inicio = doAmbiente ?? path.resolve(typeof cwd === 'string' && cwd !== '' ? cwd : process.cwd());
   let dir = inicio;
   for (let i = 0; i < NIVEIS_ACIMA; i += 1) {
     if (existe(path.join(dir, '.git'))) return { raiz: dir, comGit: true };
@@ -159,7 +162,7 @@ export function raizProjeto({ env = process.env, cwd = process.cwd() } = {}) {
     if (pai === dir) break;
     dir = pai;
   }
-  return { raiz: inicio, comGit: false };
+  return { raiz: inicio, comGit: doAmbiente !== null };
 }
 
 // ------------------------------------------------------------ validação

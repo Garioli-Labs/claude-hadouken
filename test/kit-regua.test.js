@@ -309,6 +309,16 @@ test('R8: CLAUDE_PROJECT_DIR relativo ou inexistente é ignorado (vale o .git ma
 
 // ------------------------------------------------------------ interfaces (kit/hooks/regua.js)
 
+test('R8: CLAUDE_PROJECT_DIR numa subpasta do repo (sessão aberta ali) → a raiz é a pasta do .git acima', async () => {
+  const { raizProjeto } = await regua();
+  const g = novoTmp();
+  fs.mkdirSync(path.join(g, '.git'));
+  const fundo = path.join(g, 'sub', 'deep');
+  fs.mkdirSync(fundo, { recursive: true });
+  assert.deepEqual(raizProjeto({ env: { CLAUDE_PROJECT_DIR: fundo }, cwd: os.tmpdir() }), { raiz: g, comGit: true });
+  assert.deepEqual(raizProjeto({ env: { CLAUDE_PROJECT_DIR: g }, cwd: fundo }), { raiz: g, comGit: true });
+});
+
 test('raizProjeto: comGit false só quando cai no cwd', async () => {
   const { raizProjeto } = await regua();
   const a = novoTmp();

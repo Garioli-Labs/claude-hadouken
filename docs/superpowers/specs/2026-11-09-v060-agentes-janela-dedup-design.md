@@ -414,7 +414,7 @@ Estado verificado (`src/estado.js`): `mantemGuardada` segura toda leitura menor 
 | R5 | Texto de régua de repo de terceiro injetado no contexto | Mesmo nível de confiança do CLAUDE.md do projeto; campos com limite e sem quebra de linha; origem rotulada "régua do repo" |
 | R6 | `aplicar` sem rascunho | Mensagem "sem rascunho; rode /hadouken-kit:regua editar" |
 | R7 | `aplicar --projeto` sem `CLAUDE_PROJECT_DIR` e sem `.git` do cwd para cima | Grava em `<cwd>/.claude/hadouken.json` e avisa que não há repo |
-| R8 | Sessão aberta em subpasta do repo | Usa `<raiz do projeto>/.claude/hadouken.json` (`CLAUDE_PROJECT_DIR`, senão o `.git` mais próximo acima); se não existe, a global |
+| R8 | Sessão aberta em subpasta do repo (o Claude Code põe a subpasta em `CLAUDE_PROJECT_DIR`) | Usa `<raiz do projeto>/.claude/hadouken.json`: a raiz é a pasta com `.git` mais próxima, de `CLAUDE_PROJECT_DIR` (senão do cwd) para cima; sem `.git` acima, o próprio `CLAUDE_PROJECT_DIR`. Se o arquivo não existe, a global |
 | R9 | Régua do repo válida | Vale no lugar da global ou padrão, com a linha fixa de aviso ao usuário (Fatia 7) |
 | R10 | Nome, `fase` ou `quando` fora do formato ou do tamanho; lista acima do limite | Saneamento e descarte da Fatia 7; o aviso mostra texto fixo e contagem, nunca o conteúdo |
 | R11 | Kit instalado no escopo de projeto ou local, sem entrada no do usuário | A validação roda igual: o catálogo independe do escopo do kit; nome desconhecido sai do texto |

@@ -675,7 +675,7 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
   - Cada sobrevivente vira teste novo (commit `test(mutação): …`) ou uma linha de justificativa guardada para o corpo do PR.
   - **Fechamento desta frente** (decisão do Fernando, 11/11/2026, com o limite de 7 dias em 85 %): a matança para em `7b1961b` (20 mutantes mortos em agentes e roteamento). O corpo do PR traz: os grupos medidos e o escore de cada um, os grupos não medidos (`kit/hooks/regua.js`, `regua-comando.js`, `fluxo.js`; `kit/hooks/dependencias.js`, `src/instalar/dedup.js` e os arquivos da janela depois de A1–A3), a justificativa por padrão dos sobreviventes (guarda de tipo redundante, texto, `?.` sobre valor já validado) e o restante como follow-up.
 - [x] **Auditoria do diff**: `auditor` sobre `main...HEAD` com o foco da spec §5. Achado confirmado → correção com teste (C1 a C4: `src/estado.js`, `src/alerta.js`, `src/previsao.js`; casos L5, L11, L12, J15). Limites aceitos na spec: Fatia 8 e J16, J17.
-- [ ] **e2e**:
+- [x] **e2e** (passo 3 pelo `passoDedup` isolado; passos 4 e 6 por hook direto; passo 5 por hook direto e por sessão filha; R8 corrigido depois do e2e):
   - Agente `e2e`, seção 9 da spec, passos 1–9.
   - Passo 3 como a spec §9 descreve; o manifesto 1.3.0 no `claude plugin list` fica para depois da publicação.
   - Passo 5, em `permissions.defaultMode: "auto"`: o despacho com injeção roda sem a negação `a hook changed this call's input after auto mode reviewed it`.
