@@ -342,6 +342,17 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
   - `aplicar` / `aplicar --projeto` → o hook valida o rascunho, grava atomicamente (`~/.claude/hadouken/regua.json` ou a chave `regua` de `<raiz do projeto>/.claude/hadouken.json`, preservando outras chaves), apaga o rascunho e responde com a régua aplicada (o texto da injeção, sem corte), o resumo e os avisos;
   - `padrao` / `padrao --projeto` → remove a régua do nível.
 
+### Fatia 8 — Leitura menor da mesma janela (P-e)
+
+Estado verificado (`src/estado.js`): `mantemGuardada` segura toda leitura menor da mesma janela enquanto a guardada tem até `LIMITE_VELHO_MS` (1 h); `stdinRepetido` só reconhece repetição quando todas as janelas do stdin são iguais às guardadas. Com duas sessões ou mais, a sessão parada cuja janela de 5 h difere da guardada entra pela regra "igual ou maior" e renova o `at` da janela de 7 dias a cada redesenho da barra: depois de um reset antecipado do limite (mesmo `resets_at`, uso menor), a leitura nova nunca entra.
+
+- **Memória por sessão.** Cada entrada de `sessoes` em `estado.json` ganha `limites: { five_hour, seven_day }`, cada uma `{ used_percentage, resets_at }` ou `null`: a última leitura que aquela sessão apresentou de cada janela. Janela ausente no stdin mantém a apresentada antes. Entrada sem `limites` (arquivo de versão anterior) vale como sem apresentação.
+- **Leitura repetida da sessão** (por janela): a sessão já apresentou a mesma leitura (mesmo valor, reset a até `TOLERANCIA_JANELA_S`) e o transcript dela não foi escrito depois do último `trabalho` da sessão. Leitura repetida não entra e não renova `at`, seja menor, igual ou maior que a guardada.
+- **Leitura menor que entra**: com a guardada fresca e da mesma janela, a leitura menor entra quando a sessão apresentou antes um valor diferente para aquela janela (a própria sessão viu o uso mudar), ou quando a sessão não tem apresentação anterior e o transcript foi escrito depois do `at` da guardada. Nos outros casos a leitura menor fica segurada, como hoje.
+- **Sem mudança**: leitura igual ou maior não repetida entra e renova `at`; guardada com mais de 1 h ou sem `at` próprio deixa entrar qualquer leitura válida, repetida ou não (o teto de 1 h para valor plantado continua); janela anterior e janela de outra conta (N-1) seguem as regras de hoje; `stdinRepetido` fica como está.
+- **Sem `session_id` válido ou sem caminho de transcript utilizável no stdin**: valem só as regras de hoje (a leitura menor fica segurada).
+- A leitura oficial do `/usage` não participa desta regra.
+
 ## 5. Casos de borda
 
 | # | Caso | Tratamento |
@@ -402,6 +413,16 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 | R13 | Pasta do rascunho que é link, de outro uid ou com escrita de grupo ou de outros; rascunho que é link ou de outro uid | `editar` e `aplicar` recusam com "rascunho inseguro em <pasta>"; nada é gravado |
 | R14 | Skill declarada só no `marketplace.json` (`strict: false`) | Tida por desconhecida (limite aceito, Fatia 7) |
 | R15 | Mesmo nome desconhecido citado em várias fases | Conta uma vez no aviso e aparece uma vez na lista do comando |
+| L1 | Reset antecipado do limite: sessão ativa apresentava 92 % e passa a apresentar 14 % com o mesmo `resets_at` | 14 % entra na primeira leitura (a sessão apresentou antes um valor diferente) |
+| L2 | Sessão parada redesenha a barra com 92 % depois de L1; a janela de 5 h dela difere da guardada | Leitura repetida da sessão: 92 % não entra e não renova `at`; o snapshot fica em 14 % |
+| L3 | Duas sessões ativas: B gravou 50 %; A redesenha com os 48 % que já tinha apresentado, com transcript escrito | 48 % fica segurado (menor, e igual ao que A apresentou antes); o snapshot não oscila |
+| L4 | Subagente em curso: transcript principal parado e o uso do stdin subindo | Valor diferente do apresentado antes → não é repetida; maior → entra |
+| L5 | Sessão sem apresentação anterior (primeiro redesenho, ou entrada de versão anterior sem `limites`) com leitura menor | Entra só com transcript escrito depois do `at` da guardada; senão fica segurada |
+| L6 | `estado.json` plantado com valor alto e entrada de sessão igual à leitura real | A leitura real menor fica segurada no máximo 1 h depois do `at` plantado (o teto de hoje) |
+| L7 | `estado.json` plantado com valor baixo e entrada de sessão igual à leitura real maior, sessão parada | Repetida só segura com a guardada fresca: depois de 1 h a leitura real entra; sessão que escreve o transcript entra na hora |
+| L8 | Reset antecipado, todas as sessões paradas por mais de 1 h, e a parada redesenha com 92 % | 92 % entra (guardada velha: é o melhor dado que há); a primeira leitura de sessão ativa com valor diferente do que ela apresentou corrige. Limite aceito: se a ativa repetir exatamente o valor que já apresentou, a correção espera 1 h ou o valor mudar |
+| L9 | Sessão escreve o transcript sem resposta nova (comando local) e redesenha com o valor antigo maior | Entra (maior, não repetida); a próxima leitura menor de sessão cujo valor mudou corrige |
+| L10 | Stdin sem `session_id` válido, ou sem `transcript_path` utilizável | Regras de hoje: leitura menor da mesma janela fica segurada até 1 h |
 
 ## 6. Decisões de teste
 
@@ -432,12 +453,16 @@ Reescrita de `skills/roteamento/SKILL.md`, prescritiva:
 
 ### 8.2 Decisões do Fernando (dono: Fernando)
 
-Nenhuma está decidida; cada uma traz a recomendação.
+Decididas pelo Fernando em 13/11/2026.
 
-- **P-a.** `/hadouken:consumo` (`src/relatorio.js:290`, `faixa7d({ usado: u, resetsAt: r, agoraMs })` sem `trabalho`) calcula a faixa de 7 dias com a janela? Recomendação: sim, para o relatório mostrar o mesmo esperado e a mesma faixa do SessionStart.
-- **P-b.** O trabalho fora da janela (ex.: sábado 13:00–16:00, uso a 96 % e subindo) silencia a previsão e a frase pode dizer "não esgota" sem que seja verdade? Recomendação: com consumo crescente fora da janela nas últimas 2 h, projetar em relógio de parede.
-- **P-c.** O limiar de `so-leitura` (`src/alerta.js:75`, `usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS`) usa 24 h de relógio, não horas úteis. Recomendação: com janela, exigir também ao menos 2 h úteis até o reset.
-- **P-d.** `/hadouken:limites` (hook `src/hooks/limites.js`, sobe `guarda.teto7d`) fica fora da vigia da guarda de agenda: `VIGIA = /liberar|aprender|hadouken:janela|\/janela\b/i` (`src/hooks/guarda-agenda.js:46`) não tem `limites` (`grep -n limites src/hooks/guarda-agenda.js` → vazio). Recomendação: incluir `hadouken:limites` e `/limites` na vigia.
+- **P-a.** `/hadouken:consumo` (`src/relatorio.js`, `faixa7d`) calcula a faixa de 7 dias com a janela de trabalho configurada pelo usuário; sem janela configurada vale a janela semanal do Claude (168 h corridas). O relatório mostra o mesmo esperado e a mesma faixa do SessionStart.
+- **P-b.** Com consumo crescente fora da janela nas últimas 2 h (ex.: sábado 13:00–16:00, uso a 96 % e subindo), a previsão daquele momento projeta em relógio de parede, e não em horas úteis.
+- **P-c.** Com janela configurada, o limiar de `so-leitura` (`src/alerta.js`, `usado >= 90` e mais de 24 h de relógio até o reset) exige também ao menos 2 h úteis até o reset. Sem janela, o limiar é só o de 24 h.
+- **P-d.** A vigia da guarda de agenda (`VIGIA` em `src/hooks/guarda-agenda.js`) inclui `hadouken:limites` e `/limites`, porque o comando sobe `guarda.teto7d`.
+- **P-e. Leitura menor da mesma janela.** A correção do limite de 7 dias que fica preso depois de um reset antecipado (`mantemGuardada` em `src/estado.js`) entra na 0.6.0. A recomendação era um PR próprio depois da 0.6.0; a decisão do Fernando é incluí-la aqui.
+- **Roteiro.** v0.6.0 = agentes, janela e dedup; os avisos no Pipa e no WhatsApp passam a v0.7.0.
+- **Instalador.** O modelo do instalador da 0.6.0 não depende de coordenação prévia; o Fernando decide e faz o merge.
+- **PR.** Com a suíte, a auditoria do diff e o e2e fechados, o push e a abertura do PR seguem sem novo ok; o merge é do Fernando.
 
 ## 9. e2e passo a passo
 
