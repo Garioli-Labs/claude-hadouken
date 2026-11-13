@@ -1501,28 +1501,53 @@ test('L4: subagente em curso (transcript parado, uso subindo): valor diferente n
   assert.deepEqual(lerEstado().seven_day, jan(52, R7, agora + 120_000));
 });
 
-test('L5: sem apresentação anterior, a leitura menor entra só com transcript escrito depois do at da guardada', () => {
+test('L5: sessão sem apresentação anterior: a leitura menor fica segurada, com ou sem transcript escrito, e entra quando a mesma sessão apresenta valor diferente', () => {
   const trX = trCom('x.jsonl', velho);
-  // (a) sessão nova, transcript escrito depois do at da guardada: entra.
-  atualizarEstado(leit('X', trX, 10, R5, 50, R7), agora);
+  const pontosD7 = (e) => e.historico.filter((p) => p.d7 !== null).length;
+  // Sessão nova (id novo depois de /clear), com transcript escrito depois do at da guardada e sem.
+  for (const [nome, mtimeC] of [['transcript escrito depois do at', agora + 30_000], ['transcript anterior ao at', velho]]) {
+    fs.rmSync(arqEstado(), { force: true });
+    atualizarEstado(leit('X', trX, 10, R5, 50, R7), agora);
+    const antes = lerEstado();
+    const trC = trCom('c.jsonl', mtimeC);
+    atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 60_000);
+    let e = lerEstado();
+    assert.deepEqual(e.seven_day, jan(50, R7, agora), `${nome}: segurada`);
+    assert.deepEqual(e.historico, antes.historico, `${nome}: histórico intacto`);
+    assert.equal(pontosD7(e), 1, `${nome}: pontos de 7 dias`);
+    assert.deepEqual(e.sessoes.C.limites.seven_day, j7(30), `${nome}: memorizada`);
+    // A mesma sessão apresenta depois um valor diferente: entra.
+    atualizarEstado(leit('C', trC, 10, R5, 20, R7), agora + 120_000);
+    assert.deepEqual(lerEstado().seven_day, jan(20, R7, agora + 120_000), `${nome}: valor diferente entra`);
+  }
+  // Entrada de versão anterior (sem limites) vale como sem apresentação, com transcript novo ou antigo.
+  for (const mtime of [velho, agora + 30_000]) {
+    gravarBruto(estadoBase({ sessoes: { C: { at: iso(agora - 1000), trabalho: iso(agora - 1000) } } }));
+    atualizarEstado(leit('C', trCom('c.jsonl', mtime), 10, R5, 30, R7), agora + 60_000);
+    assert.equal(lerEstado().seven_day.used_percentage, 48, `sem limites, transcript ${mtime === velho ? 'antigo' : 'novo'}: segurada`);
+  }
+});
+
+test('L11: /resume de sessão que apresentou 42 % há 2 h: o 64 % do processo fica segurado quando a guardada, de outra sessão, tem 70 % de agora', () => {
+  plantadoComSessoes(10, 70, { R: sessaoCom(10, 42, agora - 2 * 3_600_000) });
+  const tr = trCom('r.jsonl', agora + 30_000);
+  atualizarEstado(entrada({ session_id: 'R', transcript_path: tr, rate_limits: genuina(10, 64).rate_limits }), agora + 60_000);
+  const e = lerEstado();
+  assert.deepEqual([e.seven_day.used_percentage, e.seven_day.at], [70, iso(agora)], 'segurada');
+  assert.equal(e.sessoes.R.limites.seven_day.used_percentage, 64, 'memorizada');
+});
+
+test('L12: duas sessões no reset antecipado: a guardada veio de C depois do último tique de A; A com 14 % fica segurada e o próximo tique de C com 14 % entra', () => {
+  plantadoComSessoes(10, 70, { A: sessaoCom(10, 40, agora - 60_000), C: sessaoCom(10, 70, agora) });
+  const trA = trCom('a.jsonl', agora + 30_000);
   const trC = trCom('c.jsonl', agora + 30_000);
-  atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 60_000);
-  assert.deepEqual(lerEstado().seven_day, jan(30, R7, agora + 60_000), 'escrito depois do at');
-  // (b) sessão nova com transcript anterior ao at: segurada.
-  fs.rmSync(arqEstado(), { force: true });
-  atualizarEstado(leit('X', trX, 10, R5, 50, R7), agora);
-  datarArq(trC, velho);
-  atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 60_000);
-  assert.deepEqual(lerEstado().seven_day, jan(50, R7, agora), 'escrito antes do at');
-  // (c) entrada de versão anterior (sem limites) vale como sem apresentação.
-  const legado = () => gravarBruto(estadoBase({ sessoes: { C: { at: iso(agora - 1000), trabalho: iso(agora - 1000) } } }));
-  legado();
-  atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 60_000);
-  assert.equal(lerEstado().seven_day.used_percentage, 48, 'sem limites, transcript antigo: segurada');
-  legado();
-  datarArq(trC, agora + 30_000);
-  atualizarEstado(leit('C', trC, 10, R5, 30, R7), agora + 90_000);
-  assert.deepEqual(lerEstado().seven_day, jan(30, R7, agora + 90_000), 'sem limites, transcript novo: entra');
+  atualizarEstado(entrada({ session_id: 'A', transcript_path: trA, rate_limits: genuina(10, 14).rate_limits }), agora + 60_000);
+  let e = lerEstado();
+  assert.deepEqual([e.seven_day.used_percentage, e.seven_day.at], [70, iso(agora)], 'A segurada');
+  assert.equal(e.sessoes.A.limites.seven_day.used_percentage, 14, 'A memoriza');
+  atualizarEstado(entrada({ session_id: 'C', transcript_path: trC, rate_limits: genuina(10, 14).rate_limits }), agora + 120_000);
+  e = lerEstado();
+  assert.deepEqual([e.seven_day.used_percentage, e.seven_day.at], [14, iso(agora + 120_000)], 'C entra');
 });
 
 test('L6: valor alto plantado e sessão igual à leitura real: a menor fica segurada no máximo 1 h depois do at plantado', () => {
@@ -1571,6 +1596,10 @@ test('L9: transcript escrito sem resposta nova e valor antigo maior: entra; a pr
   const trA = trCom('a.jsonl', velho);
   atualizarEstado(entrada({ session_id: 'B', transcript_path: trB, rate_limits: genuina(10, 92).rate_limits }), agora + 60_000);
   assert.deepEqual([lerEstado().seven_day.used_percentage, lerEstado().seven_day.at], [92, iso(agora + 60_000)]);
+  // A, com o tique anterior mais velho que a guardada de B, fica segurada (L12) e memoriza 80...
+  atualizarEstado(entrada({ session_id: 'A', transcript_path: trA, rate_limits: genuina(10, 80).rate_limits }), agora + 90_000);
+  assert.deepEqual([lerEstado().seven_day.used_percentage, lerEstado().seven_day.at], [92, iso(agora + 60_000)], 'A segurada');
+  // ...e o próximo tique dela, com valor diferente, corrige.
   atualizarEstado(entrada({ session_id: 'A', transcript_path: trA, rate_limits: genuina(10, 14).rate_limits }), agora + 120_000);
   assert.deepEqual([lerEstado().seven_day.used_percentage, lerEstado().seven_day.at], [14, iso(agora + 120_000)]);
 });

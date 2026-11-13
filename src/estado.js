@@ -453,16 +453,23 @@ export function validarEstado(valor, agoraMs) {
 // antes de outra gravar) pode somar no máximo 5 min a essa hora; relógio que
 // volta mais que isso descarta a janela, e a leitura nova entra.
 // Dentro da mesma janela e com a guardada fresca, `sessao` ({ apresentada,
-// prevT, mtime }: o que a sessão que leu já apresentou desta janela, o
-// `trabalho` anterior dela e o mtime do transcript; null sem session_id válido)
+// prevT, prevAt, mtime }: o que a sessão que leu já apresentou desta janela, o
+// `trabalho` anterior dela, o tique anterior e o mtime do transcript; null sem
+// session_id válido)
 // refina a regra pela memória da própria sessão (Fatia 8, P-e):
 // - leitura repetida (a mesma que a sessão já apresentou, com o transcript não
 //   escrito depois do último `trabalho` dela) fica segurada, seja menor, igual
 //   ou maior: a sessão parada só redesenha a barra e não tem dado novo;
-// - leitura menor, não repetida, entra quando a sessão tem apresentação
-//   anterior com valor ou reset diferente (ela viu o uso mudar) ou, sem
-//   apresentação anterior, quando o transcript foi escrito depois do `at` da
-//   guardada; nos outros casos fica segurada;
+// - leitura menor, não repetida, entra só quando (a) a sessão tem apresentação
+//   anterior desta janela diferente da nova (ela viu o uso mudar) e (b) o
+//   tique anterior dela (`prevAt`, o `at` da entrada em `sessoes`) não é mais
+//   velho que o `at` da guardada: a própria sessão, em tiques seguidos, viu o
+//   uso mudar depois da leitura guardada. Sem apresentação anterior (id novo
+//   depois de /clear, primeira barra, entrada de versão anterior) ou com o
+//   tique anterior mais velho que a guardada (/resume de sessão antiga, ou a
+//   guardada veio de outra sessão depois do último tique desta) fica segurada
+//   e memorizada: o processo pode trazer valor velho, e o transcript escrito
+//   pela mensagem do usuário não prova leitura nova;
 // - igual ou maior, não repetida, entra.
 // Sem transcript utilizável (mtime undefined) vale só a regra do máximo.
 function mantemGuardada(guardada, nova, duracaoS, agoraMs, sessao = null) {
@@ -481,7 +488,8 @@ function mantemGuardada(guardada, nova, duracaoS, agoraMs, sessao = null) {
   const repetida = apresentada !== null && mesmaLeitura(apresentada, nova) && !escritoDepois(m, sessao.prevT, agoraMs);
   if (repetida) return true;
   if (!menor) return false;
-  return apresentada === null ? !escritoDepois(m, lidaEm, agoraMs) : mesmaLeitura(apresentada, nova);
+  const viuMudar = apresentada !== null && !mesmaLeitura(apresentada, nova);
+  return !(viuMudar && sessao.prevAt !== null && sessao.prevAt >= lidaEm);
 }
 
 // Mesma leitura de uma janela: valor igual e reset a até TOLERANCIA_JANELA_S.
@@ -531,14 +539,15 @@ function lerUmaVez(f) {
 
 // Sessão que leu, para a regra por sessão de mantemGuardada: a memória do que
 // ela já apresentou (`limites` da entrada anterior; {} sem entrada ou sem
-// apresentação), o `trabalho` anterior e o mtime do transcript (`mtime`, lido
-// sob demanda). null sem session_id válido: valem só as regras da guarda.
+// apresentação), o `trabalho` anterior, o tique anterior (`at` da entrada, por
+// instante) e o mtime do transcript (`mtime`, lido sob demanda). null sem session_id válido: valem só as regras da guarda.
 function contextoSessao(e, anteriores, agoraMs, lerM) {
   if (!idValido(e.session_id)) return null;
   const prev = ehObjeto(anteriores) && Object.hasOwn(anteriores, e.session_id) ? anteriores[e.session_id] : null;
   return {
     apresentadas: ehObjeto(prev) && ehObjeto(prev.limites) ? prev.limites : {},
     prevT: ehObjeto(prev) ? instante(prev.trabalho ?? prev.at, agoraMs) : null,
+    prevAt: ehObjeto(prev) ? instante(prev.at, agoraMs) : null,
     mtime: lerM,
   };
 }
