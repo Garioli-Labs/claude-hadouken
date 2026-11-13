@@ -432,7 +432,7 @@ Estado verificado (`src/estado.js`): `mantemGuardada` segura toda leitura menor 
 | L6 | `estado.json` plantado com valor alto e entrada de sessão igual à leitura real | A leitura real menor fica segurada no máximo 1 h depois do `at` plantado (o teto de hoje) |
 | L7 | `estado.json` plantado com valor baixo e entrada de sessão igual à leitura real maior, sessão parada | Repetida só segura com a guardada fresca: depois de 1 h (mais a folga de relógio de 5 min) a leitura real entra; sessão que escreve o transcript depois do `trabalho` gravado entra no tique seguinte |
 | L8 | Reset antecipado, todas as sessões paradas por mais de 1 h, e a parada redesenha com 92 % | 92 % entra (guardada velha: é o melhor dado que há); a primeira leitura de sessão ativa com valor diferente do que ela apresentou corrige. Limite aceito: se a ativa repetir exatamente o valor que já apresentou, a correção espera 1 h ou o valor mudar |
-| L9 | Sessão escreve o transcript sem resposta nova (comando local) e redesenha com o valor antigo maior | Entra (maior, não repetida); a próxima leitura menor de sessão cujo valor mudou corrige |
+| L9 | Sessão escreve o transcript sem resposta nova (comando local) e redesenha com o valor antigo maior | Entra (maior, não repetida); a próxima leitura menor de uma sessão que redesenhou depois dessa entrada e cujo valor mudou corrige |
 | L10 | Stdin sem `session_id` válido, ou sem `transcript_path` utilizável | Regras de hoje: leitura menor da mesma janela fica segurada até 1 h |
 
 ## 6. Decisões de teste
