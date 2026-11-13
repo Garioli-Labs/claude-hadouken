@@ -721,3 +721,20 @@ test('P-b: prompt-submit fora da janela e subindo: a linha econômica traz o rit
   // 0,3 pt/h de relógio; 20 pt em 75 h até o reset: 0,3 pt/h (com a janela seriam 0,9: 22 h úteis).
   assert.match(texto, /ritmo 0,3 pt\/h, sustentável 0,3 pt\/h; nesse ritmo acaba ter 17\/11 04:00/);
 });
+
+// --- achados do auditor do diff da 0.6.0 (C3, C4) ---------------------------
+
+test('C4: trabalhoDaProjecao nunca lança: entrada inválida ou hostil devolve null ou o trabalho recebido', () => {
+  assert.equal(trabalhoDaProjecao(null), null);
+  assert.equal(trabalhoDaProjecao(undefined), null);
+  assert.equal(trabalhoDaProjecao(42), null);
+  assert.equal(trabalhoDaProjecao({ historico: 'texto', agoraMs: SAB_16, trabalho: J }), J);
+  assert.equal(trabalhoDaProjecao({ historico: subindo, agoraMs: 'x', trabalho: J }), J);
+  // Ponto do histórico com getter que lança: devolve o trabalho recebido.
+  const hostil = [{ get at() { throw new Error('x'); }, h5: null, d7: 1 }];
+  assert.doesNotThrow(() => trabalhoDaProjecao({ historico: hostil, agoraMs: SAB_16, trabalho: J }));
+  assert.equal(trabalhoDaProjecao({ historico: hostil, agoraMs: SAB_16, trabalho: J }), J);
+  // Opções com getter que lança: nada recebido, null.
+  const opcoes = { agoraMs: SAB_16, trabalho: J, get historico() { throw new Error('x'); } };
+  assert.equal(trabalhoDaProjecao(opcoes), null);
+});

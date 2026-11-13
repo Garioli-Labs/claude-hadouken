@@ -169,8 +169,10 @@ function inclinacaoPorMinutoUtil(pontos, regras, trabalho, agoraMs) {
 // de ritmo e a frase "esgota"); o esperado e a faixa seguem com a janela.
 // Nunca lança.
 export function trabalhoDaProjecao(opcoes) {
+  let trabalho = null;
   try {
-    const { historico, agoraMs, trabalho = null } = opcoes ?? {};
+    const { historico, agoraMs } = opcoes ?? {};
+    trabalho = opcoes?.trabalho ?? null;
     if (trabalho === null || trabalho === undefined) return null;
     if (!Array.isArray(historico) || !numeroFinito(agoraMs)) return trabalho;
     if (minutosUteis(trabalho, agoraMs, agoraMs + MINUTO_MS) > 0) return trabalho;
@@ -178,7 +180,7 @@ export function trabalhoDaProjecao(opcoes) {
     if (pontos.length >= 2 && pontos[pontos.length - 1][1] > pontos[0][1]) return null;
     return trabalho;
   } catch {
-    return trabalho ?? null;
+    return trabalho;
   }
 }
 
