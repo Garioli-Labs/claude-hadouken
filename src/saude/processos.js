@@ -47,10 +47,15 @@ const SCRIPT_HADOUKEN = /[\\/]claude-hadouken[\\/](.*[\\/])?src[\\/]/i;
 const NOME_SCRIPT = /[\\/]src[\\/](?:[^\\/"'\s]+[\\/])*([a-z0-9-]{1,40})\.[cm]?js\b/i;
 const CLI_CLAUDE =/[\\/]claude(\.cmd|\.exe)?(["'\s]|$)|@anthropic-ai[\\/]claude-code/i;
 
+// No macOS o `ps -o comm=` traz o título que o processo se deu ("claude
+// bg-spare"), não só "claude": vale a primeira palavra. "claudette" e
+// "claude-foo" não casam, porque depois de "claude" vem espaço ou nada.
+const ehClaude = (k) => k === 'claude' || k.startsWith('claude ');
+
 function classeDe(pid, k, cmd) {
   if (pid <= 4) return 'sistema';
   if ((k === 'node' || k === 'bun') && SCRIPT_HADOUKEN.test(cmd)) return 'hadouken';
-  if (k === 'claude' || (k === 'node' && CLI_CLAUDE.test(cmd))) return 'claude';
+  if (ehClaude(k) || (k === 'node' && CLI_CLAUDE.test(cmd))) return 'claude';
   if (SISTEMA.has(k) || SISTEMA_PREFIXO.test(k)) return 'sistema';
   if (VSCODE.test(k)) return 'vscode';
   if (NAVEGADOR.test(k)) return 'navegador';

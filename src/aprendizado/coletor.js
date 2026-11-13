@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { RENOMEAR_ESPERA_MS, RENOMEAR_TENTATIVAS, apagar, esperar, fechar, numeroFinito, renomearDeNovo, varrerTmpVelhos } from '../base.js';
 import { gravarJsonAtomico } from '../estado.js';
 import { lerSemLink, lerTextoSemLink } from '../guarda/arquivo.js';
+import { memoriaDisponivel } from '../memoria.js';
 import { RAM_MIN_BYTES } from '../uso/painel.js';
 import { TETO, caminhos } from './arquivos.js';
 import { configColetor } from './config-coletor.js';
@@ -477,7 +477,7 @@ export function subirColetor(opcoes) {
   let token = null;
   try {
     const {
-      dir, agoraMs, plataforma = process.platform, memLivre = os.freemem, env = process.env,
+      dir, agoraMs, plataforma = process.platform, memLivre = () => memoriaDisponivel({ plataforma }), env = process.env,
       gerar = spawn, executar = execFileSync, systemRoot = process.env.SystemRoot, hashar = hashArquivo,
     } = opcoes ?? {};
     if (typeof dir !== 'string') return { ok: false, motivo: 'erro', evento };
