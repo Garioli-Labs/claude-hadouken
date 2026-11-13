@@ -602,3 +602,51 @@ test('A1: avaliarAlertas repassa o trabalho à parte do ritmo da linha econômic
   assert.match(r.linhas[0], /7d 80% vs 61% esperado → modo econômico/);
   assert.ok(r.linhas[0].includes(`; ritmo 1,0 pt/h, sustentável 0,9 pt/h; nesse ritmo acaba ${quandoLocal(L(17, 16) / 1000, agoraMs)}.`), r.linhas[0]);
 });
+
+// P-c (spec v0.6.0 §8.2): com janela de trabalho, `so-leitura` exige também ao
+// menos 2 h úteis até o reset, além dos 90 % e das 24 h de relógio. Sem
+// janela, só a regra das 24 h. Hora local: nov/2026, dia 14 = sábado.
+const DL = (dia, h, m = 0) => new Date(2026, 10, dia, h, m).getTime();
+const JANELA = { dias: [1, 2, 3, 4, 5], inicioMin: 540, fimMin: 1260 };
+
+test('P-c: com janela, 90 % a 30 h do reset com menos de 2 h úteis não é só leitura', () => {
+  // Sexta 21:30, reset domingo 03:30 (30 h de relógio, zero minuto útil).
+  const agoraMs = DL(13, 21, 30);
+  const resetsAt = DL(15, 3, 30) / 1000;
+  assert.ok(resetsAt * 1000 - agoraMs > 24 * H);
+  const f = faixa7d({ usado: 90, resetsAt, agoraMs, trabalho: JANELA });
+  assert.notEqual(f.faixa, 'so-leitura');
+  assert.equal(f.faixa, calcularRitmo({ usado7d: 90, resetsAt7d: resetsAt, agoraMs, trabalho: JANELA }).modo, 'cai no modo do ritmo');
+  // Sem janela, a regra de 24 h de antes.
+  assert.equal(faixa7d({ usado: 90, resetsAt, agoraMs }).faixa, 'so-leitura');
+  assert.equal(faixa7d({ usado: 90, resetsAt, agoraMs, trabalho: null }).faixa, 'so-leitura');
+});
+
+test('P-c: com janela, 90 % a mais de 24 h com 2 h úteis ou mais até o reset é só leitura', () => {
+  // Sábado 12:00, reset segunda 18:00 (54 h de relógio, 9 h úteis).
+  const agoraMs = DL(14, 12);
+  assert.equal(faixa7d({ usado: 90, resetsAt: DL(16, 18) / 1000, agoraMs, trabalho: JANELA }).faixa, 'so-leitura');
+  // A fronteira: 120 min úteis (reset segunda 11:00) vale; 119 (10:59) não.
+  assert.equal(faixa7d({ usado: 90, resetsAt: DL(16, 11) / 1000, agoraMs, trabalho: JANELA }).faixa, 'so-leitura');
+  assert.notEqual(faixa7d({ usado: 90, resetsAt: DL(16, 10, 59) / 1000, agoraMs, trabalho: JANELA }).faixa, 'so-leitura');
+  assert.equal(faixa7d({ usado: 90, resetsAt: DL(16, 10, 59) / 1000, agoraMs }).faixa, 'so-leitura', 'sem janela, só as 24 h');
+});
+
+test('P-c: abaixo de 90 % ou a menos de 24 h, a janela não muda nada', () => {
+  const agoraMs = DL(14, 12);
+  assert.notEqual(faixa7d({ usado: 89.9, resetsAt: DL(16, 18) / 1000, agoraMs, trabalho: JANELA }).faixa, 'so-leitura');
+  assert.notEqual(faixa7d({ usado: 95, resetsAt: DL(15, 11) / 1000, agoraMs, trabalho: JANELA }).faixa, 'so-leitura');
+});
+
+test('P-c: avaliarAlertas: a faixa de só leitura respeita as 2 h úteis', () => {
+  const agoraMs = DL(13, 21, 30);
+  const lim = {
+    five_hour: { used_percentage: 10, resets_at: Math.floor(agoraMs / 1000) + 3600 },
+    seven_day: { used_percentage: 90, resets_at: DL(15, 3, 30) / 1000 },
+  };
+  const com = avaliarAlertas({ limites: lim, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs, trabalho: JANELA });
+  assert.notEqual(com.novos.seven_day.faixa, 'so-leitura');
+  assert.ok(!com.linhas.some((l) => l.includes('só leitura')));
+  const sem = avaliarAlertas({ limites: lim, anteriores: ALERTAS_VAZIO, sessionId: 's1', agoraMs });
+  assert.equal(sem.novos.seven_day.faixa, 'so-leitura');
+});

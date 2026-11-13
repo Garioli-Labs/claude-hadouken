@@ -66,14 +66,23 @@ export function faixa5h(pct) {
   return 'ok';
 }
 
+// P-c (v0.6.0): com janela de trabalho, só leitura pede também ao menos
+// MIN_UTEIS_SO_LEITURA_MIN minutos úteis até o reset (a mesma cobertura de 2 h
+// da projeção de 7d); sem janela (null), só a regra das 24 h.
+const MIN_UTEIS_SO_LEITURA_MIN = 120;
+const ateOResetTemMinutosUteis = (trabalho, agoraMs, resetMs) => trabalho === null || trabalho === undefined
+  || minutosUteis(trabalho, agoraMs, resetMs) >= MIN_UTEIS_SO_LEITURA_MIN;
+
 // A faixa de 7d é o modo de calcularRitmo (ritmo.js guarda a regra única e o
 // limiar, revisão da Task 5, M-2 e N-5: inteiros exibidos, piso de usado e de
 // esperado contra ±10), com uma faixa a mais: só leitura quando o uso chega a
 // 90% e o reset está a mais de 24 h. O limiar de 90% é inteiro e compara o uso
 // cru, o que concorda com o piso exibido. `desvio` é a distância de ritmo.js.
+// Com `trabalho` (janela de trabalho, v0.6.0), só leitura pede ainda 2 h úteis
+// até o reset (P-c); sem ele, as 24 h de relógio de sempre.
 export function faixa7d({ usado, resetsAt, agoraMs, trabalho = null }) {
   const { esperado, desvio, modo } = calcularRitmo({ usado7d: usado, resetsAt7d: resetsAt, agoraMs, trabalho });
-  const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS ? 'so-leitura' : modo;
+  const faixa = usado >= 90 && resetsAt * 1000 - agoraMs > DIA_MS && ateOResetTemMinutosUteis(trabalho, agoraMs, resetsAt * 1000) ? 'so-leitura' : modo;
   return { faixa, esperado, desvio };
 }
 

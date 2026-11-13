@@ -70,7 +70,7 @@ O que cada modo quer dizer:
 | normal | uso até 10 pontos longe do esperado, para cima ou para baixo | Nada muda. |
 | econômico | uso mais de 10 pontos **acima** do esperado | O padrão de modelo e effort desce um degrau, exceto em tarefa de erro caro; menos volume e paralelismo, sem cortar testes nem review. |
 | folga | uso mais de 10 pontos **abaixo** do esperado | O padrão de modelo e effort sobe um degrau; investe a folga em qualidade (review extra), não em volume. |
-| só leitura | uso de 90 % ou mais **e** reset a mais de 24 h | Só leitura; recomenda parar. Vale acima dos outros modos. |
+| só leitura | uso de 90 % ou mais **e** reset a mais de 24 h (com [janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho), também 2 h úteis ou mais até o reset) | Só leitura; recomenda parar. Vale acima dos outros modos. |
 
 O esperado fica sempre entre 0 % e 100 %, mesmo com o relógio da máquina adiantado ou atrasado. Sem janela de trabalho, as contas são feitas em UTC e só a exibição usa o fuso local, então o horário de verão não bagunça nada. Com a [janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho), os dias e as horas dela valem em hora local, dia a dia, e o dia da troca do horário de verão (23 ou 25 h) entra na conta pelo relógio local. O esperado e o modo aparecem nos avisos e no relatório; a barra, o painel e a linha do início de sessão não os mostram.
 
