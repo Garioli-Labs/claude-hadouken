@@ -131,7 +131,8 @@ export function dependenciasDoManifesto(installPath, idDependente) {
 //   equivalente outra cópia ligada satisfaz; a do kit está ausente ou desligada
 //   duplicada   a do kit e a equivalente estão ligadas
 //   ausente     nenhuma cópia ligada (a do kit pode estar instalada e desligada)
-// `desligada`: outra cópia (mesmo nome ou origem) instalada e desligada, ou null.
+// `desligada`: outra cópia (mesmo nome, ou mesma origem quando nenhum outro
+// plugin do marketplace dela tem essa origem) instalada e desligada, ou null.
 // `auto`: a cópia do kit foi instalada como dependência (só essa pode ser
 // desligada pelo instalador). `dependentes`: os plugins ligados, no escopo do
 // usuário, que declaram depender dela (desligá-la falharia).

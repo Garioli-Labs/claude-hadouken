@@ -87,7 +87,7 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - `{source:'url', url:'https://gitlab.com/x/y.git'}` → `null`.
 - [x] **Passo 2** — `node --test test/dedup.test.js` → FAIL (módulo ausente).
 - [x] **Passo 3** — implementar `src/instalar/dedup.js`.
-- [ ] **Passo 4 — testes do instalador que falham** (Tarefa M) (`test/instalar-tudo.test.js`, CLI falso). HOME com `plugins/known_marketplaces.json` (`mattpocock` → repo `mattpocock/skills`, `installLocation` na fixture) e `marketplaces/mattpocock/.claude-plugin/marketplace.json` (`source: "./"`):
+- [x] **Passo 4 — testes do instalador que falham** (Tarefa M) (`test/instalar-tudo.test.js`, CLI falso). HOME com `plugins/known_marketplaces.json` (`mattpocock` → repo `mattpocock/skills`, `installLocation` na fixture) e `marketplaces/mattpocock/.claude-plugin/marketplace.json` (`source: "./"`):
   - **duplicada**: estado do falso com as duas cópias ligadas e kit `1.2.0` → o log do falso contém `plugin disable mattpocock-skills@claude-hadouken` e não contém `uninstall`; o resumo contém `mattpocock-skills já instalado via mattpocock-skills@mattpocock; cópia do kit desligada`.
   - **equivalente**: só `mattpocock-skills@mattpocock` ligado → nenhum `plugin install mattpocock-skills@claude-hadouken` no log.
   - **ausente**: `poka-yoke` nenhum → nenhum `plugin install` nem `plugin enable` de terceiro no log; o resumo contém `○ poka-yoke: sugerido (rode claude plugin install poka-yoke@claude-hadouken)` (item de `conferirSugeridas`).
@@ -96,12 +96,12 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - **disable sem efeito (D7)**: `falhar: ['plugin disable mattpocock-skills@claude-hadouken']` → item ✗ com `rode claude plugin disable mattpocock-skills@claude-hadouken`.
   - **settings preservado**: `settings.json` com `"mattpocock-skills@mattpocock": true` → continua `true` depois da instalação, porque `ligarAtualizacao` não toca `enabledPlugins`.
 - [x] **Passo 5** — `node --test test/instalar-tudo.test.js test/instalar-claude-cli.test.js` → FAIL.
-- [ ] **Passo 6** — implementar (Tarefa M):
+- [x] **Passo 6** — implementar (Tarefa M):
   - `passoDedup` segue a regra da spec §4 Fatia 1 ("Instalador"): só `rodar(['plugin','disable',id,'--scope','user'])`, conferido pela lista; nunca `install`/`enable` de terceiro.
   - `instalar-tudo` chama, nesta ordem, `passoKit`, `passoDedup` (com `repos = lerRepos(...)`, `autos = lerAutos(...)` de `path.join(pastaConfig(ambiente), 'plugins')` e `lerTestado = lerTestadoDoKit`) e `conferirSugeridas` com a `lista` final.
   - `ligarAtualizacao` perde `COPIAS_ANTIGAS`, e `passoAtualizacao` perde `prontas`.
   - O texto do item de atualização fica `ligada` / `já estava`.
-- [ ] **Passo 7** — `node --test` → 0 falhas (Tarefa M). Os testes antigos de `COPIAS_ANTIGAS` são removidos ou reescritos para afirmar que nada em `enabledPlugins` muda.
+- [x] **Passo 7** — `node --test` → 0 falhas (Tarefa M). Os testes antigos de `COPIAS_ANTIGAS` são removidos ou reescritos para afirmar que nada em `enabledPlugins` muda.
 - [x] **Passo 8** — commit `feat(dedup): instalador não duplica dependência que o usuário já tem`.
 
 ### Tarefa 2: kit sem dependências de terceiros e aviso no SessionStart
@@ -117,7 +117,7 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - `linhasAviso(avaliacao) → string[]`.
 - `pastaConfig` = `CLAUDE_CONFIG_DIR` absoluto, senão `~/.claude`.
 
-- [ ] **Passo 1 — testes que falham** (Tarefa M):
+- [x] **Passo 1 — testes que falham** (Tarefa M):
   - **paridade**: as fixtures da Tarefa 1 (mesmos `deps`, `plugins`, `repos`, `testado`) passam por `src/instalar/dedup.js` e por `kit/hooks/dependencias.js` → `deepStrictEqual`. Idem para `repoDeOrigem` e `lerRepos`, numa pasta de fixture. `TERCEIROS_KIT` igual nas duas cópias.
   - **hook**: `rodar(cwd, input)` de `test/kit-fluxo.test.js:72` com `CLAUDE_CONFIG_DIR` de fixture:
     - duplicada → `systemMessage` = `hadouken-kit: mattpocock-skills em dobro (mattpocock-skills@mattpocock e mattpocock-skills@claude-hadouken). Desligue a cópia do kit: claude plugin disable mattpocock-skills@claude-hadouken`;
@@ -131,7 +131,7 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
 - [x] **Passo 3** — implementar:
   - `fluxo.js` mantém o `additionalContext` de hoje e acrescenta `systemMessage` (linhas unidas por `\n`) só quando há aviso.
   - Exceção em qualquer ponto → só o `additionalContext`.
-- [ ] **Passo 4** — `node --test` → 0 falhas (Tarefa M).
+- [x] **Passo 4** — `node --test` → 0 falhas (Tarefa M).
 - [x] **Passo 5** — commit `feat(kit): kit sem dependências de terceiros no manifesto e aviso de cópia em dobro`.
 - [x] **Passo 6** — `revisor` na fatia 1 (diff `ac076b0..HEAD` sem `docs/`).
 
@@ -245,7 +245,7 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - nega `hadouken:executor` e `hadouken:revisor-critico` com `hadouken:<nome> saiu na 0.6.0; use hadouken:<novo>`;
   - no resto, `passa`.
 
-- [ ] **Passo 1 — testes que falham** (`test/agentes-paleta.test.js`):
+- [x] **Passo 1 — testes que falham** (`test/agentes-paleta.test.js`):
   - **frontmatter**: o conjunto de `agents/*.md` é igual ao de `PALETA.map(p => p.nome)`. O `name`, o `model` e o `effort` de cada arquivo batem com a `PALETA`.
   - **conteúdo genérico**: nenhum `agents/*.md` casa com `/ZZE2E|HOMOLOG|educbank|@[a-z0-9-]+\.(com|br)/i`.
   - **removidos**: hook com guarda ligada e com guarda desligada (`gravarGuardaLigada(dir, false)`); `tool_input.subagent_type: 'hadouken:executor'` → `permissionDecision: 'deny'`, razão contém `use hadouken:implementador`.
@@ -254,14 +254,14 @@ Ao fim de cada fatia (depois das Tarefas 2, 4, 5, 7, 8, 9 e 12), o agente `revis
   - **A2 (`regras.js:32`)**: guarda ligada, `hadouken:auditor` com `description: 'Procurar quebras na spec'` → saída sem o texto A2 (`A2_CLAUDE`). Vermelho: `avaliarRoteamento` devolve `{decisao:'avisar', regra:'A2'}` para esse perfil (`src/roteamento/regras.js:32` só isenta `hadouken:revisor*`). Controle: `hadouken:implementador` com `model: 'opus'` explícito e a mesma `description` → avisa A2.
   - **A1 (`regras.js:30`)**: `hadouken:revisor` com `model: 'fable'` explícito → sem aviso A1; `hadouken:implementador` com `model: 'fable'` explícito → avisa A1; `A1_CLAUDE` contém `hadouken:revisor` e `hadouken:auditor` e não contém `revisor-critico` nem `executor`.
   - **Textos sem os removidos**: `N2_CLAUDE` não contém `executor` e contém `hadouken:implementador`; o `substituto` de `hadouken:busca` e de `hadouken:mecanico` em `src/aprendizado/arquivos.js` é `hadouken:implementador`; varredura de `src/` e `skills/`: nenhum arquivo contém `hadouken:executor` nem `hadouken:revisor-critico`.
-- [ ] **Passo 2** — `node --test test/agentes-paleta.test.js` → FAIL.
-- [ ] **Passo 3** — implementar:
+- [x] **Passo 2** — `node --test test/agentes-paleta.test.js` → FAIL.
+- [x] **Passo 3** — implementar:
   - Cada agente novo recebe um corpo de até 40 linhas com o "use para", o "não use para" e a forma do relatório (Feito / Evidência / Não feito / Certeza, até 40 linhas), conforme a tabela da spec.
   - Referência de forma: os agentes de `~/.claude/agents/` da máquina do mantenedor. Leia só a estrutura; nada específico de ambiente entra no repo.
   - `regras.js:30` isenta `AGENTES_REVISAO` (no lugar de `revisor-critico`); `regras.js:32` isenta `hadouken:<nome>` de `AGENTES_REVISAO` (no lugar de `startsWith('hadouken:revisor')`); `regras.js` importa a lista de `src/agentes/paleta.js`.
-- [ ] **Passo 4** — `node --test` → 0 falhas. Testes que afirmam os agentes removidos ou o texto fixo de `LINHAS_REGRA` passam a afirmar o novo.
-- [ ] **Passo 5** — commit `feat(agentes)!: paleta de dez agentes; saem executor e revisor-critico`.
-- [ ] **Passo 6** — `revisor` na fatia 3.
+- [x] **Passo 4** — `node --test` → 0 falhas. Testes que afirmam os agentes removidos ou o texto fixo de `LINHAS_REGRA` passam a afirmar o novo.
+- [x] **Passo 5** — commit `feat(agentes)!: paleta de dez agentes; saem executor e revisor-critico`.
+- [x] **Passo 6** — `revisor` na fatia 3.
 
 ## Fatia 4 — Paleta configurável
 
@@ -341,7 +341,7 @@ Depende da 6a.
   - `avaliarPaleta` completo, na ordem da spec §4 Fatia 4 (remoção, `ativo`, injeção, fork).
   - `perfilDoDespacho({..., agentes = {}, raizPlugin})` com a precedência da spec §4 Fatia 4: `model` = parâmetro > `agentes[<nome>].model` > frontmatter; `effort` = parâmetro > `agentes[<nome>].effort` > frontmatter > `CLAUDE_EFFORT`; `origem: 'config'` quando a config decide.
 
-- [ ] **Passo 1 — testes que falham** (costura de hook, guarda desligada salvo quando indicado; `ti = {subagent_type:'hadouken:revisor', prompt:'x', description:'y'}`):
+- [x] **Passo 1 — testes que falham** (costura de hook, guarda desligada salvo quando indicado; `ti = {subagent_type:'hadouken:revisor', prompt:'x', description:'y'}`):
   - **injeção**:
     - config `{agentes:{revisor:{model:'opus', effort:'high'}}}` → `hookSpecificOutput.updatedInput` deepEqual `{...ti, model:'opus', effort:'high'}`;
     - `ti` com `model:'sonnet'` (A1) → `updatedInput.model === 'sonnet'` e `effort === 'high'`.
@@ -363,12 +363,12 @@ Depende da 6a.
     - `deny` da guarda (trava) com injeção pendente → só `deny`, sem `updatedInput`;
     - aviso A1–A3 com injeção pendente → `additionalContext` e `updatedInput` na mesma saída;
     - injeção sem aviso nem `ask` → `updatedInput` e nenhum `permissionDecision` na saída (variante A); nenhuma saída de `src/hooks/guarda-despacho.js` traz `permissionDecision: 'allow'`.
-- [ ] **Passo 2** — `node --test test/agentes-config.test.js` → FAIL.
-- [ ] **Passo 3** — implementar:
+- [x] **Passo 2** — `node --test test/agentes-config.test.js` → FAIL.
+- [x] **Passo 3** — implementar:
   - `avaliarPaleta` devolve `{acao: 'injetar', updatedInput}` quando falta `model` ou `effort` no despacho e a config os define (campo explícito nunca é sobrescrito; `fork` e `Workflow` não recebem). O hook guarda a injeção e a aplica na saída final.
   - `deny` da guarda prevalece; nos outros casos, a saída final leva `updatedInput`, sem `permissionDecision` (passo 0), mais o `additionalContext` que já existia; com `ask` da guarda, `permissionDecision: 'ask'` e `updatedInput` juntos.
-- [ ] **Passo 4** — `node --test` → 0 falhas.
-- [ ] **Passo 5** — commit `feat(agentes): paleta configurável aplicada no despacho`.
+- [x] **Passo 4** — `node --test` → 0 falhas.
+- [x] **Passo 5** — commit `feat(agentes): paleta configurável aplicada no despacho`.
 
 ### Tarefa 7: comando `/hadouken:agentes` e paleta efetiva no SessionStart
 
@@ -384,7 +384,7 @@ Depende da 6a.
 - `lerArgsAgentes(texto) → {acao:'mostrar'} | {acao:'gravar', nome, valor:{model?, effort?, ativo?}} | {acao:'remover', nome} | {acao:'erro', msg}`, para `revisor opus high`, `revisor opus`, `auditor off`, `auditor on` e `revisor padrao`.
 - `gravarAgente(dir, nome, valor | null) → {ok, motivo?}`. Troca só `agentes.<nome>`. Com `null`, remove o nome, e remove `agentes` quando fica vazio.
 
-- [ ] **Passo 1 — testes que falham:**
+- [x] **Passo 1 — testes que falham:**
   - `'revisor opus high'` → `agentes.revisor` deepEqual `{model:'opus', effort:'high'}`.
   - `'auditor off'` → `{ativo:false}`; depois `'auditor on'` → a chave `ativo` sai.
   - `'revisor padrao'` → `revisor` sai.
@@ -397,11 +397,11 @@ Depende da 6a.
     - `/hadouken:agentes busca sonnet`, despacho `hadouken:busca` com `model:'sonnet'` → passa; com `model:'opus'` → nega N1 (os dois passam sem a implementação da tarefa: guarda de regressão da Tarefa 6a);
     - `/hadouken:agentes mecanico opus`, despacho `hadouken:mecanico` com `model:'opus'` → passa (a config gravada pelo comando é a aprovação);
     - `/hadouken:agentes mecanico padrao`, o mesmo despacho → nega N2.
-- [ ] **Passo 2** — `node --test test/agentes-comando.test.js` → FAIL.
-- [ ] **Passo 3** — implementar pelo molde da Tarefa 4.
-- [ ] **Passo 4** — `node --test` → 0 falhas.
-- [ ] **Passo 5** — commit `feat(agentes): comando /hadouken:agentes`.
-- [ ] **Passo 6** — `revisor` na fatia 4.
+- [x] **Passo 2** — `node --test test/agentes-comando.test.js` → FAIL.
+- [x] **Passo 3** — implementar pelo molde da Tarefa 4.
+- [x] **Passo 4** — `node --test` → 0 falhas.
+- [x] **Passo 5** — commit `feat(agentes): comando /hadouken:agentes`.
+- [x] **Passo 6** — `revisor` na fatia 4.
 
 ## Fatia 5 — Skill roteamento
 
@@ -411,7 +411,7 @@ Depende da 6a.
 - Modificar: `skills/roteamento/SKILL.md` (reescrita prescritiva, conteúdo da spec §4 Fatia 5, até 90 linhas)
 - Teste: os existentes que leem a skill (`grep -rln 'roteamento/SKILL' test`) e `test/roteamento-skill.test.js` (novo)
 
-- [ ] **Passo 1 — teste que falha:**
+- [x] **Passo 1 — teste que falha:**
   - O texto contém os dez `hadouken:<nome>`.
   - Contém, literalmente:
     - `3 chamadas de ferramenta`;
@@ -423,11 +423,11 @@ Depende da 6a.
     - `/hadouken:agentes`.
   - Não contém `executor` nem `revisor-critico`.
   - Tem ≤ 90 linhas.
-- [ ] **Passo 2** — `node --test test/roteamento-skill.test.js` → FAIL.
-- [ ] **Passo 3** — reescrever a skill.
-- [ ] **Passo 4** — `node --test` → 0 falhas.
-- [ ] **Passo 5** — commit `docs(roteamento): critério de modelo, faça direto, brief e relatório`.
-- [ ] **Passo 6** — `revisor` na fatia 5.
+- [x] **Passo 2** — `node --test test/roteamento-skill.test.js` → FAIL.
+- [x] **Passo 3** — reescrever a skill.
+- [x] **Passo 4** — `node --test` → 0 falhas.
+- [x] **Passo 5** — commit `docs(roteamento): critério de modelo, faça direto, brief e relatório`.
+- [x] **Passo 6** — `revisor` na fatia 5.
 
 ## Fatia 6 — Versão, README, notas de quebra
 
@@ -487,7 +487,7 @@ O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois
   - "Mutação" com `usar: ["hadouken-kit:mutacao"]`;
   - transversais com os momentos da tabela em `kit/skills/fluxo/SKILL.md:28-56`.
 
-- [ ] **Passo 1 — testes que falham** (`test/kit-regua.test.js`, `CLAUDE_CONFIG_DIR`/`HADOUKEN_HOME` de fixture):
+- [x] **Passo 1 — testes que falham** (`test/kit-regua.test.js`, `CLAUDE_CONFIG_DIR`/`HADOUKEN_HOME` de fixture):
   - **padrão**: sem arquivos → `additionalContext` contém `Régua (padrão):`, `Auditoria da spec` e `hadouken-kit:mutacao`. Os testes de nomes de `test/kit-fluxo.test.js` (POCOCK e SO_USUARIO com `/`) passam sem mudar; asserção de formato literal antigo, se houver, passa a afirmar o formato novo.
   - **global**: `<HADOUKEN_HOME>/regua.json` válido → `Régua (global):`.
   - **repo**: mais `<raiz>/.claude/hadouken.json` com `regua` → `Régua (repo):` e nada da global.
@@ -513,10 +513,10 @@ O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois
     - `CLAUDE_PROJECT_DIR` relativo ou inexistente → ignorado (vale o `.git` mais próximo);
     - `raizProjeto` devolve `comGit: false` só no último caso.
   - **teto do SessionStart**: `test/kit-fluxo.test.js:87-88` afirma `additionalContext` ≤ 2400 caracteres e ≤ 5 linhas (spec §4 Fatia 7).
-- [ ] **Passo 2** — `node --test test/kit-regua.test.js test/kit-fluxo.test.js` → FAIL.
-- [ ] **Passo 3** — implementar. `fluxo.js` mantém a linha de abertura (`hadouken-kit: acione as skills sozinho…`, até antes de ` Processo:`) e a linha final de Web/Grafo/consumo, e troca as linhas de processo e de momentos pelo `texto`. Os avisos (inclusive o do repo) se juntam aos da Tarefa 2 no `systemMessage`, um por linha. A raiz do projeto vem de `raizProjeto({env: process.env, cwd: process.cwd()})`.
-- [ ] **Passo 4** — `node --test test/kit-fluxo.test.js` com o teto antigo (`1600`) no arquivo → o teste do teto falha com a régua padrão (o texto passa de 1 600 caracteres); só então o teto de `:87` vira `2400`. `node --test` → 0 falhas.
-- [ ] **Passo 5** — commit `feat(kit): régua de desenvolvimento configurável`.
+- [x] **Passo 2** — `node --test test/kit-regua.test.js test/kit-fluxo.test.js` → FAIL.
+- [x] **Passo 3** — implementar. `fluxo.js` mantém a linha de abertura (`hadouken-kit: acione as skills sozinho…`, até antes de ` Processo:`) e a linha final de Web/Grafo/consumo, e troca as linhas de processo e de momentos pelo `texto`. Os avisos (inclusive o do repo) se juntam aos da Tarefa 2 no `systemMessage`, um por linha. A raiz do projeto vem de `raizProjeto({env: process.env, cwd: process.cwd()})`.
+- [x] **Passo 4** — `node --test test/kit-fluxo.test.js` com o teto antigo (`1600`) no arquivo → o teste do teto falha com a régua padrão (o texto passa de 1 600 caracteres); só então o teto de `:87` vira `2400`. `node --test` → 0 falhas.
+- [x] **Passo 5** — commit `feat(kit): régua de desenvolvimento configurável`.
 
 ### Tarefa 11: comando `/hadouken-kit:regua`
 
@@ -530,7 +530,7 @@ O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois
 - `gravarJson(arquivo, valor) → {ok, motivo?}`: tmp + `renameSync`, cópia mínima de `gravarJsonAtomico`.
 - `decidirRegua(entrada, {dirHadouken, tmpDir, env, cwd}) → saída | null`. `null` deixa o prompt seguir para a skill (caso `editar`). A raiz vem de `raizProjeto({env, cwd})` (Tarefa 10).
 
-- [ ] **Passo 1 — testes que falham:**
+- [x] **Passo 1 — testes que falham:**
   - `''` → `block`, `reason` com a origem e o texto da régua ativa e, se houver, a lista dos nomes desconhecidos que passaram pela regex.
   - `'editar'` → sem saída.
   - `'aplicar'` com rascunho válido em `tmpDir` → `<dirHadouken>/regua.json` igual ao rascunho, rascunho apagado, `reason` com o resumo.
@@ -542,10 +542,10 @@ O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois
   - **R6**: `'aplicar'` sem rascunho → `sem rascunho; rode /hadouken-kit:regua editar`.
   - Rascunho inválido → avisos, nada gravado, rascunho mantido.
   - `'padrao'` → `regua.json` apagado. `'padrao --projeto'` → só a chave `regua` sai, na mesma raiz de `aplicar --projeto`.
-- [ ] **Passo 2** — `node --test test/kit-regua-comando.test.js` → FAIL.
-- [ ] **Passo 3** — implementar. `tmpDir` = `os.tmpdir()`. O caminho no SKILL.md bate com `path.join(os.tmpdir(), 'hadouken', 'regua-rascunho.json')` no macOS e no Linux.
-- [ ] **Passo 4** — `node --test` → 0 falhas.
-- [ ] **Passo 5** — commit `feat(kit): comando /hadouken-kit:regua`.
+- [x] **Passo 2** — `node --test test/kit-regua-comando.test.js` → FAIL.
+- [x] **Passo 3** — implementar. `tmpDir` = `os.tmpdir()`. O caminho no SKILL.md bate com `path.join(os.tmpdir(), 'hadouken', 'regua-rascunho.json')` no macOS e no Linux.
+- [x] **Passo 4** — `node --test` → 0 falhas.
+- [x] **Passo 5** — commit `feat(kit): comando /hadouken-kit:regua`.
 
 ### Tarefa 12: skill `hadouken-kit:mutacao` e README da régua
 
@@ -553,12 +553,12 @@ O README da régua e da mutação fica na Tarefa 12, porque a fatia 7 vem depois
 - Criar: `kit/skills/mutacao/SKILL.md`, `test/kit-mutacao.test.js`
 - Modificar: `README.md`, `README.en.md` (régua, `/hadouken-kit:regua`, critério da auditoria, mutação), `wiki/Kit.md`, `wiki/Kit-en.md`
 
-- [ ] **Passo 1 — teste que falha.** O texto da skill contém `StrykerJS`, `npx`, `git diff -U0`, `mutmut`, `Stryker.NET`, `PIT` e `sobrevivente`. Não contém meta percentual (`/\d+\s*%/`). Frontmatter com `name: mutacao`.
-- [ ] **Passo 2** — `node --test test/kit-mutacao.test.js` → FAIL.
-- [ ] **Passo 3** — escrever a skill com o conteúdo da spec §4 Fatia 7 ("Mutação") a seção da régua em `wiki/Kit.md` e `wiki/Kit-en.md` e uma linha em "Recursos" dos dois READMEs (até 60 linhas). A wiki também diz que a régua do repo (`<raiz do projeto>/.claude/hadouken.json`) substitui a do usuário por inteiro, com a linha de aviso no SessionStart, e que a raiz é `CLAUDE_PROJECT_DIR`, senão o `.git` mais próximo, senão o cwd.
-- [ ] **Passo 4** — `node --test` → 0 falhas.
-- [ ] **Passo 5** — commit `feat(kit): skill de teste de mutação`.
-- [ ] **Passo 6** — `revisor` na fatia 7.
+- [x] **Passo 1 — teste que falha.** O texto da skill contém `StrykerJS`, `npx`, `git diff -U0`, `mutmut`, `Stryker.NET`, `PIT` e `sobrevivente`. Não contém meta percentual (`/\d+\s*%/`). Frontmatter com `name: mutacao`.
+- [x] **Passo 2** — `node --test test/kit-mutacao.test.js` → FAIL.
+- [x] **Passo 3** — escrever a skill com o conteúdo da spec §4 Fatia 7 ("Mutação") a seção da régua em `wiki/Kit.md` e `wiki/Kit-en.md` e uma linha em "Recursos" dos dois READMEs (até 60 linhas). A wiki também diz que a régua do repo (`<raiz do projeto>/.claude/hadouken.json`) substitui a do usuário por inteiro, com a linha de aviso no SessionStart, e que a raiz é `CLAUDE_PROJECT_DIR`, senão o `.git` mais próximo, senão o cwd.
+- [x] **Passo 4** — `node --test` → 0 falhas.
+- [x] **Passo 5** — commit `feat(kit): skill de teste de mutação`.
+- [x] **Passo 6** — `revisor` na fatia 7.
 
 ## Merge da 0.5.9
 
@@ -580,22 +580,22 @@ Decisão do Fernando (10/11/2026): merge de `origin/main` no branch (sem rebase)
 - `kit/hooks/dependencias.js` `linhasAviso`: sem linha para `ausente` (Tarefa 2 Passo 1).
 - `kit/hooks/regua.js` `dirHadouken`: a regra do `dirDados()` da 0.5.9 com `pastaDeConta` (spec §4 Fatia 7, "Pasta de dados"), sem import de `src/`.
 
-- [ ] **Passo 1 — baseline da 0.5.9**: `git worktree add --detach <job tmp>/main-059 71c381e`; `node --test` lá → registrar total, passam, falham, pulados; `git worktree remove <job tmp>/main-059`.
-- [ ] **Passo 2** — `git merge origin/main` (para nos conflitos) e resolver pela tabela acima.
-- [ ] **Passo 3 — testes que falham**:
+- [x] **Passo 1 — baseline da 0.5.9**: `git worktree add --detach <job tmp>/main-059 71c381e`; `node --test` lá → registrar total, passam, falham, pulados; `git worktree remove <job tmp>/main-059`.
+- [x] **Passo 2** — `git merge origin/main` (para nos conflitos) e resolver pela tabela acima.
+- [x] **Passo 3 — testes que falham**:
   - Tarefa 1 Passo 4 e Tarefa 2 Passo 1 como estão escritos;
   - **ordem do instalador**: com duplicata e `auto: true`, o log do falso tem `plugin install|update hadouken-kit@claude-hadouken`, depois `plugin disable mattpocock-skills@claude-hadouken --scope user`; o resumo tem a linha do kit, a de `hadouken-kit: cópias em dobro` e as seis de `conferirSugeridas`;
   - **nada a dizer**: tudo `propria` → nenhum item `hadouken-kit: cópias em dobro` no resumo;
   - **paridade da pasta de dados** (`test/kit-regua.test.js`): `dirHadouken(env)` = `dirDados()` para `HADOUKEN_HOME` absoluto, `HADOUKEN_HOME` relativo (`null`), `CLAUDE_CONFIG_DIR` = `<home>/.claude-contas/trabalho`, `= <home>/.claude-contas/principal`, `= /outra/pasta` e sem as duas.
-- [ ] **Passo 4** — implementar `passoDedup`, `linhasAviso` e `dirHadouken` até o Passo 3 passar.
-- [ ] **Passo 5** — conferências, cada uma com a saída colada no relatório:
+- [x] **Passo 4** — implementar `passoDedup`, `linhasAviso` e `dirHadouken` até o Passo 3 passar.
+- [x] **Passo 5** — conferências, cada uma com a saída colada no relatório:
   - `node --test` → 0 falhas;
   - `git grep -n COPIAS_ANTIGAS -- src kit` → vazio;
   - `git grep -n -E "'install', a\\.id|DEPENDENCIAS_KIT|passoRea" -- src` → vazio;
   - `git grep -n -E 'executor|revisor-critico' -- src kit agents skills` → só as listas de agentes removidos;
   - `jq -r .version package.json .claude-plugin/plugin.json kit/.claude-plugin/plugin.json` → `0.6.0`, `0.6.0`, `1.3.0`.
-- [ ] **Passo 6** — commit de merge `merge: hadouken 0.5.9 (origin/main 71c381e) na 0.6.0`, com a resolução, o `passoDedup`, o `linhasAviso` e o `dirHadouken`.
-- [ ] **Passo 7** — `revisor` sobre `git show --remerge-diff HEAD` e `git diff origin/main...HEAD -- src/instalar src/instalar-tudo.js kit/hooks`.
+- [x] **Passo 6** — commit de merge `merge: hadouken 0.5.9 (origin/main 71c381e) na 0.6.0`, com a resolução, o `passoDedup`, o `linhasAviso` e o `dirHadouken`.
+- [x] **Passo 7** — `revisor` sobre `git show --remerge-diff HEAD` e `git diff origin/main...HEAD -- src/instalar src/instalar-tudo.js kit/hooks`.
 
 ## Auditoria da spec
 
@@ -657,6 +657,14 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
   - mesmo nome em marketplace com irmãos `./` → `duplicada` (o nome decide).
 - [x] **Passo 3** — `node --test` → 0 falhas; commit `fix(dedup): …` ou `docs(security): …` conforme o que entrar.
 
+## Decisões de 13/11/2026 (spec §8.2 e Fatia 8)
+
+- [x] **P-a** `/hadouken:consumo` com a janela de trabalho: `src/consumo.js`, `src/relatorio.js`; teste em `test/consumo.test.js` ("usam a janela de trabalho (P-a)").
+- [x] **P-b** fora da janela com o uso subindo, projeção em relógio: `trabalhoDaProjecao` em `src/previsao.js`; testes `P-b:` em `test/janela-trabalho.test.js`.
+- [x] **P-c** `so-leitura` com janela exige 120 min úteis até o reset: `src/alerta.js`; testes `P-c:` em `test/alerta.test.js`.
+- [x] **P-d** vigia da agenda com `hadouken:limites` e `/limites`: `src/hooks/guarda-agenda.js`, `src/guarda/caminho.js`, `src/guarda/mensagens.js`; testes em `test/guarda-hooks.test.js`.
+- [x] **P-e** leitura menor da mesma janela (casos L1–L10): `src/estado.js`; testes `L1`–`L10` em `test/estado.test.js`.
+
 ## Fechamento
 
 ### Tarefa 13: mutação, auditoria do diff, e2e
@@ -677,5 +685,4 @@ Rodada do `auditor` em `d38ce6d` (10/11/2026): 3 achados M e 6 B, reproduzidos c
   - Resíduo zero conferido por `ls`/`jq`.
 - [ ] **PR**:
   - corpo por `mattpocock-skills:pr`, com as justificativas da mutação;
-  - texto mostrado ao Fernando antes de publicar;
-  - push e PR só com o ok dele.
+  - push e abertura do PR com a suíte, a auditoria do diff e o e2e fechados (decisão do Fernando, 13/11/2026); o merge e as releases são dele.
