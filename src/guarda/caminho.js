@@ -754,12 +754,14 @@ export function claudeComLiberar(comandoBruto, opcoes) {
 // "janela" não conta.
 // Idem para o /hadouken:agentes (T7 da v0.6.0, spec Fatia 4: "só o usuário
 // grava"): trocar ou desligar um agente muda o que a guarda aprova em N1/N2.
-const BARRA_LIBERAR = /(?<![a-z0-9_./-])\/(?:liberar|aprender|janela|agentes)(?![a-z0-9_/-]|\.[a-z0-9_])/;
+// Idem para o /hadouken:limites (P-d da v0.6.0): ele sobe `guarda.teto7d` e os
+// demais itens da guarda; a palavra solta "limites" não conta.
+const BARRA_LIBERAR = /(?<![a-z0-9_./-])\/(?:liberar|aprender|janela|agentes|limites)(?![a-z0-9_/-]|\.[a-z0-9_])/;
 export function pedeLiberacao(texto) {
   try {
     if (typeof texto !== 'string') return false;
     const normal = semEscapeDe(semAspasDe(texto.toLowerCase().replace(/[\\`^]\r?\n/g, '')));
-    return normal.includes('hadouken:liberar') || normal.includes('hadouken:aprender') || normal.includes('hadouken:janela') || normal.includes('hadouken:agentes') || BARRA_LIBERAR.test(normal);
+    return normal.includes('hadouken:liberar') || normal.includes('hadouken:aprender') || normal.includes('hadouken:janela') || normal.includes('hadouken:agentes') || normal.includes('hadouken:limites') || BARRA_LIBERAR.test(normal);
   } catch {
     return true;
   }
