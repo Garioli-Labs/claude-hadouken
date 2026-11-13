@@ -10,6 +10,7 @@ import { lerJanela } from '../janela.js';
 import { registrarEvento } from '../eventos/eventos.js';
 import { faixasDoPainel, intervaloDoPainelMs } from '../aprendizado/registro.js';
 import { planoEfetivo, semCincoHoras } from '../conta/plano.js';
+import { memoriaDisponivel } from '../memoria.js';
 import {
   ARQ_USO, BLOQUEIO_CUSTO_MS, ehObjeto, janelaGravada, lerUso, MOTIVOS_RODAR, naFaixaDoDate, VERSAO,
 } from './ler-uso.js';
@@ -22,7 +23,7 @@ import {
 // <dirDados>/uso-oficial.json. Nenhuma função daqui lança, e talvezAtualizar
 // nunca rejeita.
 //
-// fs e os são usados pelo objeto padrão (fs.openSync, os.freemem), nunca
+// fs e os são usados pelo objeto padrão (fs.openSync, os.homedir), nunca
 // desestruturados, como no resto do plugin. A leitura validada do
 // uso-oficial.json (lerUso) mora em ler-uso.js (guarda v0.4.0, emenda E7).
 
@@ -228,7 +229,7 @@ export async function talvezAtualizar(opcoes) {
       agoraMs = Date.now(),
       forcar = false,
       rodar = rodarUso,
-      memLivre = os.freemem,
+      memLivre = memoriaDisponivel,
       achar = acharClaude,
       estadoAtivo,
       env = process.env,

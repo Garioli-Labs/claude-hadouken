@@ -613,3 +613,29 @@ test('coletorSaiu: true sem processo ou com outro programa no PID, false com o C
   assert.equal(coletorSaiu(4242, { plataforma: 'linux', executar: semPs }), null);
   assert.equal(coletorSaiu(4242, { plataforma: 'linux', executar: () => { throw Object.assign(new Error('status 1'), { status: 1, stdout: '' }); } }), true);
 });
+
+// macOS: os.freemem() conta só páginas livres (~0,08 GB numa máquina de
+// 24 GB com 4 GB reaproveitáveis); o padrão de memLivre usa o disponível e o
+// coletor não deixa de subir por 'pouca-ram'.
+function comMemoriaDoMac(fn) {
+  const livre = os.freemem;
+  const tinha = Object.getOwnPropertyDescriptor(process, 'availableMemory');
+  os.freemem = () => 0.08 * GiB;
+  process.availableMemory = () => 4 * GiB;
+  try {
+    return fn();
+  } finally {
+    os.freemem = livre;
+    if (tinha) Object.defineProperty(process, 'availableMemory', tinha);
+    else delete process.availableMemory;
+  }
+}
+
+test('subirColetor: no macOS com freemem baixo e disponível alto, não sai pouca-ram', () => {
+  const d = novoDir();
+  const base = { dir: d, agoraMs: Date.now(), env: {}, executar: consultaFalsa(new Set()), gerar: gerarSemProcesso([]) };
+  const mac = comMemoriaDoMac(() => subirColetor({ ...base, plataforma: 'darwin' }));
+  assert.notEqual(mac.motivo, 'pouca-ram');
+  const linux = comMemoriaDoMac(() => subirColetor({ ...base, plataforma: 'linux' }));
+  assert.equal(linux.motivo, 'pouca-ram', 'Linux segue com o freemem');
+});
