@@ -352,7 +352,7 @@ A saída completa, com os três períodos, está em [`docs/imagens/relatorio-exe
 ```
 
 - `faixa` é `ok`, `atencao`, `serializar` ou `fechar`; `modo` é `normal`, `economico`, `folga` ou `so-leitura`.
-- `esperado` vem com uma casa decimal (o painel "Limites e ritmo" mostra o piso, `65%`); `desvio` é a distância inteira que decide o modo.
+- `esperado` vem com uma casa decimal (o painel "Limites e ritmo" mostra o piso, `65%`); `desvio` é a distância inteira que decide o modo. Com a [janela de trabalho](Guarda-de-consumo#a-janela-de-trabalho) configurada, `esperado`, `desvio` e `modo` saem dos minutos úteis, como no SessionStart; sem ela, das 168 horas.
 - `resets_at` é o instante do reset em segundos Unix; `idade_min` é a idade da leitura, em minutos.
 - Os tokens vêm em `claude.hoje`, `claude.sete_dias` e `claude.semana`, com as mesmas somas das tabelas (`respostas`, `input`, `output`, `cacheRead`, `cacheCreate`, `cacheCreate1h`, `cacheCreate5m`, `cacheCreateSemDetalhe`, `acertoCache` de 0 a 1).
 - As chaves da v0.1.0 são as mesmas, byte a byte: barrinhas, parte do total, nomes curtos, vírgula e separador de milhar são só do markdown. Os números vêm crus, e os ids e nomes, completos.

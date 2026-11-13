@@ -254,6 +254,19 @@ function montarClaude(c) {
 
 // ------------------------------------------------------------------ limites
 
+// P-a (v0.6.0): a janela de trabalho (lerJanela de janela.js: { dias,
+// inicioMin, fimMin }) com que o SessionStart calcula o esperado de 7 dias.
+// Quem monta a entrada a lê do config.json; aqui só se confere a forma, e
+// qualquer outra coisa vira null (as 168 h de sempre).
+function trabalhoValido(v) {
+  try {
+    if (!ehObjeto(v) || !Array.isArray(v.dias) || !numeroFinito(v.inicioMin) || !numeroFinito(v.fimMin)) return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
+
 // Cada janela sai com a idade da própria leitura (idade_min) e só se ela tiver
 // até LIMITE_VELHO_MS, a mesma régua de limitesValidos. A idade vem do estado
 // validado (M-1 da revisão do fix I-1), nunca do estado.json como lido: o
@@ -264,7 +277,7 @@ function montarClaude(c) {
 // num arquivo de formato misto que o gravador nunca produz. Uma janela que
 // envelheceu nunca empresta a idade dela à outra nem aparece como atual.
 // `idade_min` do topo é a da leitura mais antiga entre as mostradas.
-function montarLimites(estado, agoraMs) {
+function montarLimites(estado, agoraMs, trabalho = null) {
   const e = validarEstado(estado, agoraMs);
   const lim = e === null ? null : limitesValidos(e, agoraMs);
   const idade = (k) => {
@@ -287,7 +300,7 @@ function montarLimites(estado, agoraMs) {
   }
   if (i7 !== null) {
     const { used_percentage: u, resets_at: r } = lim.seven_day;
-    const { faixa, esperado, desvio } = faixa7d({ usado: u, resetsAt: r, agoraMs });
+    const { faixa, esperado, desvio } = faixa7d({ usado: u, resetsAt: r, agoraMs, trabalho });
     seven = { used_percentage: u, resets_at: r, esperado, desvio, modo: faixa, idade_min: i7 };
   }
   return {
@@ -588,6 +601,9 @@ function montarCustoHooks(v) {
 // montarCustoHooks (números por plugin; nunca texto injetado nem comando).
 // `roteamento` (v0.5.3, spec roteamento §8) vem por último: null ou o resumo
 // de montarRoteamento.
+// `trabalho` (v0.6.0, P-a) é a janela de trabalho de lerJanela (janela.js), com
+// que o esperado e a faixa de 7 dias saem como no SessionStart; null ou forma
+// inválida, as 168 h.
 export function montarRelatorio(entrada) {
   const r = {
     versao: VERSAO_RELATORIO,
@@ -607,7 +623,7 @@ export function montarRelatorio(entrada) {
   const agoraMs = ler(e, 'agoraMs');
   r.gerado_em = isoDe(agoraMs);
   try {
-    Object.assign(r, montarLimites(ler(e, 'estado'), agoraMs));
+    Object.assign(r, montarLimites(ler(e, 'estado'), agoraMs, trabalhoValido(ler(e, 'trabalho'))));
   } catch {
     // fica sem leitura
   }
