@@ -724,6 +724,20 @@ test('P-b: prompt-submit fora da janela e subindo: a linha econômica traz o rit
 
 // --- achados do auditor do diff da 0.6.0 (C3, C4) ---------------------------
 
+test('C3: P-b fora da janela com o uso subindo não mistura o perfil (R10): previsão igual à sem perfil', () => {
+  const limites = limites7d(96, RESET_DOM);
+  // Típico da hora local muito acima do ritmo atual (0,5 pt/h = 0,0083 pt/min): se entrasse, adiantaria o estouro.
+  const perfil = { peso: 0.5, h5: new Array(24).fill(0), d7: new Array(24).fill(0.1) };
+  const semPerfil = preverEstouro({ historico: subindo, limites, agoraMs: SAB_16, trabalho: J }).seven_day;
+  assert.equal(semPerfil, D(15, 0), 'a projeção é de relógio (P-b)');
+  assert.equal(preverEstouro({ historico: subindo, limites, agoraMs: SAB_16, trabalho: J, perfil }).seven_day, semPerfil);
+  // Dentro da janela o perfil continua entrando (R10).
+  const agoraMs = D(13, 20);
+  const historico = serie(agoraMs, 93, 95);
+  const dentro = (p) => preverEstouro({ historico, limites: limites7d(95, D(17, 19)), agoraMs, trabalho: J, perfil: p }).seven_day;
+  assert.notEqual(dentro(perfil), dentro(null));
+});
+
 test('C4: trabalhoDaProjecao nunca lança: entrada inválida ou hostil devolve null ou o trabalho recebido', () => {
   assert.equal(trabalhoDaProjecao(null), null);
   assert.equal(trabalhoDaProjecao(undefined), null);

@@ -188,8 +188,10 @@ export function trabalhoDaProjecao(opcoes) {
 // alcance até agora + FUTURO_MS, porcentagem em [0, 100]), a inclinação deles
 // e agora + (100 − usado) ÷ inclinação (com as regras da janela), arredondado
 // ao ms. Só vale se cair depois de agora e antes do reset. Com `trabalho`, o
-// ritmo é por minuto útil e o instante avança em minutos úteis.
-function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfil = null, trabalho = null) {
+// ritmo é por minuto útil e o instante avança em minutos úteis. `janelaMistura`
+// é a janela de trabalho original, que decide se o perfil entra (R10): a
+// projeção em relógio de P-b zera `trabalho`, mas agora segue fora da janela.
+function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfil = null, trabalho = null, janelaMistura = null) {
   if (janela === null || typeof janela !== 'object') return null;
   const usado = janela.used_percentage;
   const resetS = janela.resets_at;
@@ -199,7 +201,7 @@ function preverJanela(historico, coluna, alcance, regras, janela, agoraMs, perfi
   const resetMs = resetS * 1000;
   if (!numeroFinito(resetMs) || resetMs <= agoraMs) return null;
   let b = inclinacaoPorMinutoUtil(pontosDaColuna(historico, coluna, alcance, agoraMs), regras, trabalho, agoraMs);
-  b = ritmoMisturado(b, perfil, coluna, agoraMs, trabalho);
+  b = ritmoMisturado(b, perfil, coluna, agoraMs, janelaMistura);
   if (b === null || b <= 0) return null;
   const faltaMin = (100 - usado) / b;
   const quando = Math.round(trabalho === null ? agoraMs + faltaMin * MINUTO_MS : avancarUteis(trabalho, agoraMs, faltaMin));
@@ -218,7 +220,7 @@ export function preverEstouro(opcoes) {
     // P-b: com o uso subindo fora da janela, a projeção de 7d segue o relógio.
     const trabalho7d = trabalhoDaProjecao({ historico, agoraMs, trabalho });
     for (const [k, [coluna, alcance, regras]] of Object.entries(ALCANCE)) {
-      previsao[k] = preverJanela(historico, coluna, alcance, regras, limites[k], agoraMs, perfil, k === 'seven_day' ? trabalho7d : null);
+      previsao[k] = preverJanela(historico, coluna, alcance, regras, limites[k], agoraMs, perfil, k === 'seven_day' ? trabalho7d : null, k === 'seven_day' ? trabalho : null);
     }
     return previsao;
   } catch {
